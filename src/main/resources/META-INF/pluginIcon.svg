@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#23b3b5"/>
+      <stop offset="100%" stop-color="#363875"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="24" fill="url(#grad)" />
+  <!-- Left angle bracket -->
+  <polyline points="140,130 60,205 140,280" fill="none" stroke="#fff" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Right angle bracket -->
+  <polyline points="372,130 452,205 372,280" fill="none" stroke="#fff" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Forward slash -->
+  <rect x="230" y="80" width="48" height="240" rx="24" fill="#fff" transform="rotate(10 254 200)"/>
+  <!-- "2.0" text -->
+  <text x="256" y="435" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="144" font-weight="bold" letter-spacing="0.04em">2.0</text>
+</svg>
