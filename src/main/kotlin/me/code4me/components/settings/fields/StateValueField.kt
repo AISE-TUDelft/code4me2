@@ -1,15 +1,21 @@
 package me.code4me.components.settings.fields
 
+import javax.swing.JComponent
+
 interface StateValueField<T> {
-    fun getState(): FieldStates
+    fun getFieldValue(): T
 
-    fun setState(state: FieldStates)
+    fun setFieldValue(value: T)
 
-    fun getValue(): T
+    fun getStateValue(): T?
 
-    fun setValue(value: T)
+    fun setStateValue(value: T)
+
+    // additional functionality for later on to decide whether a field is enabled or not
+    fun getFieldInfo() : MutableList<FieldInfo>
+
+    fun getComponent() : JComponent
 }
 
 typealias TextualStateValueField = StateValueField<String>
 typealias BooleanStateValueField = StateValueField<Boolean>
-typealias IntStateValueField = StateValueField<Int>

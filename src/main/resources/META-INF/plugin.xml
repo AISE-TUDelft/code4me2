@@ -11,5 +11,14 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow factoryClass="me.code4me.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
         <postStartupActivity implementation="me.code4me.startup.MyProjectActivity" />
+
+
+        // The settings extension points
+        <applicationConfigurable
+                parentId="tools"
+                instance="me.code4me.settings.Code4MeConfigurable"
+                displayName="Code4Me V2"
+                id="me.code4me.settings.Code4MeConfigurable"
+        />
     </extensions>
 </idea-plugin>

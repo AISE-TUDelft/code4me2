@@ -1,6 +1,7 @@
 package me.code4me.components.settings.fields
 
 import com.intellij.ui.components.JBPasswordField
+import com.intellij.ui.components.JBTextField
 
 
 /*
@@ -11,24 +12,22 @@ import com.intellij.ui.components.JBPasswordField
 abstract class CredentialField (
     protected val field: JBPasswordField
 ) : TextualStateValueField {
-    override fun getState(): FieldStates {
-        return if (field.isEnabled) {
-            FieldStates.ACTIVE
-        } else {
-            FieldStates.INACTIVE
-        }
+    private val fieldInfo: MutableList<FieldInfo> = mutableListOf()
+
+    override fun getFieldInfo(): MutableList<FieldInfo> {
+        return fieldInfo
     }
 
-    override fun setState(state: FieldStates) {
-        field.isEnabled = state == FieldStates.ACTIVE
-    }
-
-    override fun getValue(): String {
+    override fun getFieldValue(): String {
         return String(field.password)
     }
 
-    override fun setValue(value: String) {
+    override fun setFieldValue(value: String) {
         field.text = value
+    }
+
+    override fun getComponent(): JBPasswordField {
+        return field
     }
 }
 
@@ -38,26 +37,24 @@ abstract class CredentialField (
 * It extends the swing JTextField class and implements the TextualStateValueField interface.
  */
 abstract class TextField(
-    protected val field: com.intellij.ui.components.JBTextField
+    protected val field: JBTextField
 ) : TextualStateValueField {
-    override fun getState(): FieldStates {
-        return if (field.isEnabled) {
-            FieldStates.ACTIVE
-        } else {
-            FieldStates.INACTIVE
-        }
+    private val fieldInfo: MutableList<FieldInfo> = mutableListOf()
+
+    override fun getFieldInfo(): MutableList<FieldInfo> {
+        return fieldInfo
     }
 
-    override fun setState(state: FieldStates) {
-        field.isEnabled = state == FieldStates.ACTIVE
-    }
-
-    override fun getValue(): String {
+    override fun getFieldValue(): String {
         return field.text
     }
 
-    override fun setValue(value: String) {
+    override fun setFieldValue(value: String) {
         field.text = value
+    }
+
+    override fun getComponent(): JBTextField {
+        return field
     }
 }
 
