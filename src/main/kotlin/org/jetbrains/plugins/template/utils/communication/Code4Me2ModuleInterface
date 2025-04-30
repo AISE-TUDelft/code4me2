@@ -1,0 +1,10 @@
+// Shared interface for telemetry and context retrieval modules
+interface Code4Me2ModuleInterface {
+    val moduleName: String
+
+    // Method to send data to the core
+    fun sendDataToCore(data: Map<String, Any>)
+
+    // Optional: Method to retrieve configuration or status
+    fun getStatus(): String
+}
