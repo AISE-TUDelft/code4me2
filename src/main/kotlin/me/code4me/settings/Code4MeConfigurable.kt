@@ -25,6 +25,10 @@ class Code4MeConfigurable : Configurable {
         code4MeConfigurableComponent?.save()
     }
 
+    override fun reset() {
+        code4MeConfigurableComponent?.reset()
+    }
+
     override fun disposeUIResources() {
         code4MeConfigurableComponent = null
     }

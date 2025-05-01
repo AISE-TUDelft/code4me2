@@ -10,6 +10,7 @@ import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import me.code4me.components.settings.fields.*
 import me.code4me.services.state.AuthState
+import me.code4me.services.state.getAuthState
 import java.awt.BorderLayout
 import java.awt.GridLayout
 import java.util.concurrent.atomic.AtomicBoolean
@@ -250,8 +251,22 @@ class AuthenticationSection : SettingsSection {
         }
 
         if (token != null) {
-            AuthState.setAuthToken("authToken", token)
+            val authSettings = getAuthState()
+            authSettings.setToken(token)
+
+            // Store user information
+            authSettings.setUserEmail(emailField.text)
+
+            if (isSignup) {
+                authSettings.setUserName(fullNameField.text)
+            } else {
+                authSettings.setUserName("Retrieved User Name")
+            }
+
             showSuccess("Authentication successful!")
+
+            // Clear all fields for security reasons
+            clearAllFields()
         }
     }
 
@@ -275,6 +290,14 @@ class AuthenticationSection : SettingsSection {
 
     private fun showSuccess(message: String) {
         JOptionPane.showMessageDialog(null, message, "Success", JOptionPane.INFORMATION_MESSAGE)
+    }
+
+    private fun clearAllFields() {
+        // Clear all input fields for security reasons
+        emailField.text = ""
+        passwordField.text = ""
+        fullNameField.text = ""
+        confirmPasswordField.text = ""
     }
 }
 
