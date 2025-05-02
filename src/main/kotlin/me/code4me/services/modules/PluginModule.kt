@@ -1,5 +1,7 @@
+import me.code4me.utils.configuration.PreferenceCapable
+
 // Shared interface for telemetry and context retrieval modules
-interface Code4Me2ModuleInterface {
+interface PluginModule : PreferenceCapable {
     val moduleName: String
 
     // Method to send data to the core
