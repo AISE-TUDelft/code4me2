@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.changelog) // Gradle Changelog Plugin
     alias(libs.plugins.qodana) // Gradle Qodana Plugin
     alias(libs.plugins.kover) // Gradle Kover Plugin
+    alias(libs.plugins.dokka) // Gradle Dokka Plugin for documentation
 }
 
 group = providers.gradleProperty("pluginGroup").get()
@@ -131,6 +132,21 @@ kover {
 tasks {
     wrapper {
         gradleVersion = providers.gradleProperty("gradleVersion").get()
+    }
+
+    // Configure Dokka HTML documentation task
+    val dokkaHtml by getting(org.jetbrains.dokka.gradle.DokkaTask::class) {
+        outputDirectory.set(layout.buildDirectory.dir("dokka"))
+    }
+
+    // Task to create a zip archive of the Dokka documentation
+    register<Zip>("dokkaZip") {
+        dependsOn(dokkaHtml)
+        archiveBaseName.set("dokka-documentation")
+        archiveVersion.set(project.version.toString())
+        archiveExtension.set("zip")
+        from(layout.buildDirectory.dir("dokka"))
+        destinationDirectory.set(layout.buildDirectory.dir("distributions"))
     }
 
     publishPlugin {
