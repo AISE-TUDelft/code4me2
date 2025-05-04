@@ -1,0 +1,54 @@
+# GitLab CI/CD Pipeline Configuration
+
+# Define the Docker image to use for all jobs
+image: gradle:8.13-jdk17
+
+# Define stages for the pipeline
+stages:
+  - build
+  - test
+  - documentation
+
+# Cache Gradle dependencies between jobs
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .gradle/
+    - build/
+
+# Build stage: Compile the project
+build:
+  stage: build
+  script:
+    - gradle assemble
+  artifacts:
+    paths:
+      - build/libs/*.jar
+    expire_in: 1 week
+
+# Test stage: Run tests (ignoring skipped tests)
+test:
+  stage: test
+  script:
+    - gradle test --info
+  artifacts:
+    reports:
+      junit: build/test-results/test/TEST-*.xml
+    paths:
+      - build/reports/tests/
+    expire_in: 1 week
+  # Continue the pipeline even if some tests are skipped
+  allow_failure:
+    exit_codes: 137
+
+# Documentation stage: Generate Dokka documentation
+documentation:
+  stage: documentation
+  script:
+    - gradle dokkaHtml --no-configuration-cache
+    - gradle dokkaZip --no-configuration-cache
+  artifacts:
+    paths:
+      - build/dokka/
+      - build/distributions/dokka-documentation-*.zip
+    expire_in: 1 week
