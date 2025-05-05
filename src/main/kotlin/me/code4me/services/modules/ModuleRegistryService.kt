@@ -1,6 +1,5 @@
 package me.code4me.services.modules
 
-import PluginModule
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import me.code4me.services.config.ModuleConfigService

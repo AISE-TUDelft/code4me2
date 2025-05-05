@@ -1,17 +1,33 @@
+package me.code4me.services.modules.context
+
+import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 
 // Example implementation of a context retrieval module
-class ContextRetrievalModule : PluginModule {
-    override val moduleName = "ContextRetrievalModule"
+class BasicContextRetrievalModule : PluginModule {
+    override val moduleName = "BasicContextRetrievalModule"
 
-    override fun sendDataToCore(data: Map<String, Any>) {
-        println("ContextRetrievalModule sending data: $data")
-        // Logic to send data to the core
+    // TODO: Implement the logic to collect telemetry data
+    override fun collectData(): List<Record> {
+        val record = Record(
+            type = Record.Type.CONTEXT,
+            expanded = mutableMapOf(
+                Record.EntryKey("context", String::class.java) to "example_context",
+                Record.EntryKey("timestamp", Long::class.java) to System.currentTimeMillis()
+            )
+        )
+        return listOf(record)
     }
 
     override fun getStatus(): String {
-        return "ContextRetrievalModule is active"
+        TODO("not yet implemented")
+    }
+
+    // This is a concrete module, so it doesn't need to register modules
+    override fun initializeModules() {
+        println("Concrete module $moduleName doesn't need to register modules.")
     }
 
     override fun getPreferenceList(): List<Preference> {
