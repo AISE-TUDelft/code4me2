@@ -1,34 +1,55 @@
-package me.code4me.services.modules.aggregators
+package me.code4me.services.modules.manager
 
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
-import me.code4me.services.modules.context.BasicContextRetrievalModule
+import me.code4me.services.modules.aggregators.BaseContextAggregator
+import me.code4me.services.modules.aggregators.BaseTelemetryAggregator
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
 import java.util.concurrent.CopyOnWriteArrayList
 
-class BaseContextAggregator : PluginModule {
-    override val moduleName: String
-        get() = "BaseContextAggregator"
 
-    private val modules = mutableListOf<PluginModule>()
+fun getModuleManager(): ModuleManager {
+    return service<ModuleManager>()
+}
 
-    // Initialize modules
+@Service
+class ModuleManager : PluginModule {
+    private val aggregators = mutableListOf<PluginModule>()
+
+    init {
+        initializeModules()
+    }
+
+    // Initialize modules and aggregators
     override fun initializeModules() {
-        val basicContextRetrievalModule = BasicContextRetrievalModule()
-        basicContextRetrievalModule.initializeModules()
-        registerModule(basicContextRetrievalModule)
+        // Create and register aggregators
+        val telemetryAggregator = BaseTelemetryAggregator()
+        val contextAggregator = BaseContextAggregator()
+
+        telemetryAggregator.initializeModules()
+        contextAggregator.initializeModules()
+
+        registerAggregator(telemetryAggregator)
+        registerAggregator(contextAggregator)
+
+        println("Modules and aggregators initialized successfully.")
     }
 
     // Register a module
-    fun registerModule(pluginModule: PluginModule) {
-        modules.add(pluginModule)
-        println("Module registered: ${pluginModule.moduleName}")
+    fun registerAggregator(aggregator: PluginModule) {
+        aggregators.add(aggregator)
+        println("Aggregator registered: ${aggregator.moduleName}")
     }
+
+    override val moduleName: String
+        get() = "ModuleManager"
 
     /**
      * Collect data from all registered modules and aggregators.
@@ -37,7 +58,7 @@ class BaseContextAggregator : PluginModule {
     override fun collectData(): List<Record> = runBlocking {
         val aggregatedData = CopyOnWriteArrayList<Record>()
         coroutineScope {
-            val deferredResults = modules.map { module ->
+            val deferredResults = aggregators.map { module ->
                 async {
                     module.collectData()
                 }
@@ -50,7 +71,7 @@ class BaseContextAggregator : PluginModule {
     }
 
     override fun getStatus(): String {
-        return "BaseContextAggregator is running"
+        TODO("Not yet implemented")
     }
 
     override fun getPreferenceList(): List<Preference> {
@@ -76,7 +97,11 @@ class BaseContextAggregator : PluginModule {
         TODO("Not yet implemented")
     }
 
-    fun getModules(): List<PluginModule> {
-        return modules.toList()
+    override fun toString(): String {
+        return moduleName
+    }
+
+    fun getAggregators(): List<PluginModule> {
+        return aggregators.toList()
     }
 }

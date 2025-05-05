@@ -1,3 +1,6 @@
+package me.code4me.services.modules
+
+import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.PreferenceCapable
 
 /**
@@ -29,7 +32,7 @@ interface PluginModule : PreferenceCapable {
      * @param data A map containing the data to send, with string keys and any type of values.
      */
     // TODO: change to the proto message when implemented
-    fun sendDataToCore(data: Map<String, Any>)
+    fun collectData() : List<Record>
 
     /**
      * Retrieves the current status of the module.
@@ -40,4 +43,12 @@ interface PluginModule : PreferenceCapable {
      * @return A string representing the current status of the module.
      */
     fun getStatus(): String
+
+    /**
+     * Initializes the module and registers any sub-modules or components.
+     *
+     * This method is called during the startup process to ensure that all
+     * necessary components of the module are properly initialized and ready to use.
+     */
+    fun initializeModules()
 }

@@ -1,6 +1,5 @@
 package me.code4me.components.settings.sections
 
-import PluginModule
 import com.intellij.openapi.components.service
 import com.intellij.ui.CollectionListModel
 import com.intellij.ui.components.JBCheckBox
@@ -9,8 +8,9 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import getModuleManager
 import me.code4me.components.settings.fields.*
+import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.state.*
 import me.code4me.utils.configuration.PreferenceType
 import java.awt.BorderLayout

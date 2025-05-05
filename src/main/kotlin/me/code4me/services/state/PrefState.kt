@@ -1,10 +1,10 @@
 package me.code4me.services.state
 
-import PluginModule
 import com.intellij.openapi.components.*
 import com.intellij.util.xmlb.annotations.MapAnnotation
 import com.intellij.util.xmlb.annotations.Tag
 import me.code4me.services.modules.ModuleRegistryService
+import me.code4me.services.modules.PluginModule
 import kotlin.reflect.KProperty
 import me.code4me.utils.configuration.Preference
 

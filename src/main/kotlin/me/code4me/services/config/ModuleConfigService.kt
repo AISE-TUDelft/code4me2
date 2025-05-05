@@ -1,10 +1,10 @@
 package me.code4me.services.config
 
-import PluginModule
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
+import me.code4me.services.modules.PluginModule
 import java.io.File
 
 /**
