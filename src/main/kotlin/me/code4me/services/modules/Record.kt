@@ -8,11 +8,18 @@ data class Record(
     private val expanded: MutableMap<EntryKey, Any> = mutableMapOf()
 ) {
 
+    /**
+     * High-level category indicating the purpose of the record.
+     */
     enum class Type {
         CONTEXT,
         TELEMETRY
     }
 
+    /**
+     * Represents a unique key used to store and retrieve typed values from a `Record`.
+     * Each key is defined by a name and a type, ensuring type safety when accessing values.
+     */
     data class EntryKey(
         val name: String,
         val type: Class<*>
