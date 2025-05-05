@@ -7,4 +7,7 @@
 .gradle/
 build/
 
+.intellijPlatform/
+.kotlin/
+
 
