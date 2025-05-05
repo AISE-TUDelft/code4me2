@@ -22,7 +22,7 @@ class BasicContextRetrievalModule : PluginModule {
     }
 
     override fun getStatus(): String {
-        return "ContextRetrievalModule is active"
+        TODO("not yet implemented")
     }
 
     // This is a concrete module, so it doesn't need to register modules

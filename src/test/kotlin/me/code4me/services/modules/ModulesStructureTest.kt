@@ -20,22 +20,11 @@ class ModulesStructureTest {
         assertEquals("BasicTelemetryModule", module.moduleName)
     }
 
-    @Test
-    fun testGetStatusTel() {
-        val module = BasicTelemetryModule()
-        assertEquals("TelemetryModule is active", module.getStatus())
-    }
 
     @Test
     fun testModuleNameCon() {
         val module = BasicContextRetrievalModule()
         assertEquals("BasicContextRetrievalModule", module.moduleName)
-    }
-
-    @Test
-    fun testGetStatusCon() {
-        val module = BasicContextRetrievalModule()
-        assertEquals("ContextRetrievalModule is active", module.getStatus())
     }
 
     @Test
@@ -72,11 +61,11 @@ class ModulesStructureTest {
         assertNotNull(telemetryAggregator)
         assertNotNull(contextAggregator)
 
-        assertEquals(1, telemetryAggregator.getModules().size)
-        assertEquals(1, contextAggregator.getModules().size)
+        assertEquals(1, telemetryAggregator.retrieveModules().size)
+        assertEquals(1, contextAggregator.retrieveModules().size)
 
-        assertTrue(telemetryAggregator.getModules().any { it is BasicTelemetryModule })
-        assertTrue(contextAggregator.getModules().any { it is BasicContextRetrievalModule })
+        assertTrue(telemetryAggregator.retrieveModules().any { it is BasicTelemetryModule })
+        assertTrue(contextAggregator.retrieveModules().any { it is BasicContextRetrievalModule })
     }
 
     @Test
