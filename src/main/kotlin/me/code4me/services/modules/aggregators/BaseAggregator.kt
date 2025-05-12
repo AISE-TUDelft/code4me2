@@ -7,8 +7,8 @@ import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
-import java.util.concurrent.CopyOnWriteArrayList
 import me.code4me.utils.configuration.PreferenceType
+import java.util.concurrent.CopyOnWriteArrayList
 
 abstract class BaseAggregator : PluginModule {
     protected val modules = mutableListOf<PluginModule>()
@@ -26,20 +26,22 @@ abstract class BaseAggregator : PluginModule {
         println("Module registered: ${pluginModule.moduleName}")
     }
 
-    override fun collectData(): List<Record> = runBlocking {
-        val aggregatedData = CopyOnWriteArrayList<Record>()
-        coroutineScope {
-            val deferredResults = modules.map { module ->
-                async {
-                    module.collectData()
+    override fun collectData(): List<Record> =
+        runBlocking {
+            val aggregatedData = CopyOnWriteArrayList<Record>()
+            coroutineScope {
+                val deferredResults =
+                    modules.map { module ->
+                        async {
+                            module.collectData()
+                        }
+                    }
+                deferredResults.forEach { deferred ->
+                    aggregatedData.addAll(deferred.await())
                 }
             }
-            deferredResults.forEach { deferred ->
-                aggregatedData.addAll(deferred.await())
-            }
+            aggregatedData
         }
-        aggregatedData
-    }
 
     override fun getPreferenceList(): List<Preference> {
         return listOf(
@@ -48,15 +50,15 @@ abstract class BaseAggregator : PluginModule {
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Use AI Completion",
-                description = "Use AI-powered code completion"
+                description = "Use AI-powered code completion",
             ),
             Preference(
                 key = "maxSuggestions",
                 type = PreferenceType.STRING,
                 defaultValue = "5",
                 displayName = "Max Suggestions",
-                description = "Maximum number of suggestions to show"
-            )
+                description = "Maximum number of suggestions to show",
+            ),
         )
     }
 

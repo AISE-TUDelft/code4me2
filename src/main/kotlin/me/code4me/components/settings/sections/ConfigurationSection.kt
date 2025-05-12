@@ -1,6 +1,5 @@
 package me.code4me.components.settings.sections
 
-import com.intellij.openapi.components.service
 import com.intellij.ui.CollectionListModel
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
@@ -8,78 +7,96 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import me.code4me.components.settings.fields.*
+import me.code4me.components.settings.fields.StateValueField
+import me.code4me.components.settings.fields.TextField
+import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.manager.getModuleManager
-import me.code4me.services.state.*
+import me.code4me.services.state.PrefState
+import me.code4me.services.state.getAuthState
+import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.PreferenceType
 import java.awt.BorderLayout
 import java.awt.Font
-import java.awt.GridLayout
-import javax.swing.*
-import javax.swing.border.EmptyBorder
-import java.awt.GridBagLayout
 import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.GridLayout
+import javax.swing.BorderFactory
+import javax.swing.DefaultListCellRenderer
+import javax.swing.JButton
+import javax.swing.JCheckBox
+import javax.swing.JLabel
+import javax.swing.JOptionPane
+import javax.swing.JPanel
+import javax.swing.JScrollPane
+import javax.swing.JSeparator
+import javax.swing.ListCellRenderer
+import javax.swing.ListSelectionModel
+import javax.swing.border.EmptyBorder
 
 class ConfigurationSection : SettingsSection {
     private val storeContextField = JCheckBox()
-    private val storeContextFieldSVF = object : ToggleButtonField(storeContextField) {
-        override fun getStateValue(): Boolean? {
-            return storeContextField.isSelected
-        }
+    private val storeContextFieldSVF =
+        object : ToggleButtonField(storeContextField) {
+            override fun getStateValue(): Boolean? {
+                return storeContextField.isSelected
+            }
 
-        override fun setStateValue(value: Boolean) {
-            storeContextField.isSelected = value
+            override fun setStateValue(value: Boolean) {
+                storeContextField.isSelected = value
+            }
         }
-
-    }
 
     private val storeCompletionField = JCheckBox()
-    private val storeCompletionFieldSVF = object : ToggleButtonField(storeCompletionField) {
-        override fun getStateValue(): Boolean? {
-            return storeCompletionField.isSelected
-        }
+    private val storeCompletionFieldSVF =
+        object : ToggleButtonField(storeCompletionField) {
+            override fun getStateValue(): Boolean? {
+                return storeCompletionField.isSelected
+            }
 
-        override fun setStateValue(value: Boolean) {
-            storeCompletionField.isSelected = value
+            override fun setStateValue(value: Boolean) {
+                storeCompletionField.isSelected = value
+            }
         }
-
-    }
 
     private val storeCompletionsLabel = JLabel("Store Completions")
     private val storeContextLabel = JLabel("Store Context")
 
     // User information section components
-    private val userInfoTitleLabel = JBLabel("User Information").apply {
-        font = font.deriveFont(font.style or java.awt.Font.BOLD)
-        border = EmptyBorder(0, 0, 5, 0)
-    }
+    private val userInfoTitleLabel =
+        JBLabel("User Information").apply {
+            font = font.deriveFont(font.style or java.awt.Font.BOLD)
+            border = EmptyBorder(0, 0, 5, 0)
+        }
 
     private val signOutButton = JButton("Sign Out")
 
     // Module section components
-    private val moduleTitleLabel = JBLabel("Modules").apply {
-        font = font.deriveFont(font.style or java.awt.Font.BOLD)
-        border = EmptyBorder(0, 0, 5, 0)
-    }
+    private val moduleTitleLabel =
+        JBLabel("Modules").apply {
+            font = font.deriveFont(font.style or java.awt.Font.BOLD)
+            border = EmptyBorder(0, 0, 5, 0)
+        }
 
     private val moduleListModel = CollectionListModel<PluginModule>()
-    private val moduleList = JBList(moduleListModel).apply {
-        selectionMode = ListSelectionModel.SINGLE_SELECTION
-        border = BorderFactory.createEtchedBorder()
-        cellRenderer = DefaultListCellRenderer().apply {
-            @Suppress("UNCHECKED_CAST")
-            (this as ListCellRenderer<PluginModule>).apply {
-                ListCellRenderer { list, value, index, isSelected, cellHasFocus ->
-                    val component = getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
-                    if (component is JLabel && value is PluginModule) {
-                        component.text = value.moduleName
+    private val moduleList =
+        JBList(moduleListModel).apply {
+            selectionMode = ListSelectionModel.SINGLE_SELECTION
+            border = BorderFactory.createEtchedBorder()
+            cellRenderer =
+                DefaultListCellRenderer().apply {
+                    @Suppress("UNCHECKED_CAST")
+                    (this as ListCellRenderer<PluginModule>).apply {
+                        ListCellRenderer { list, value, index, isSelected, cellHasFocus ->
+                            val component = getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+                            if (component is JLabel && value is PluginModule) {
+                                component.text = value.moduleName
+                            }
+                            component
+                        }
                     }
-                    component
                 }
-            }
         }
-    }
 
     private val modulePreferencesPanel = JPanel(GridLayout(0, 2, 5, 5))
     private val modulePreferenceFields = mutableMapOf<String, StateValueField<*>>()
@@ -142,40 +159,44 @@ class ConfigurationSection : SettingsSection {
             for (pref in preferences) {
                 modulePreferencesPanel.add(JLabel(pref.displayName + ":"))
 
-                val field = when (pref.type) {
-                    PreferenceType.BOOLEAN -> {
-                        val checkBox = JBCheckBox()
-                        checkBox.isSelected = PrefState.getPreferenceValue(selectedModule.getPreferenceId(), pref.key) == "true"
-                        val svf = object : ToggleButtonField(checkBox) {
-                            override fun getStateValue(): Boolean? {
-                                return checkBox.isSelected
-                            }
+                val field =
+                    when (pref.type) {
+                        PreferenceType.BOOLEAN -> {
+                            val checkBox = JBCheckBox()
+                            checkBox.isSelected = PrefState.getPreferenceValue(selectedModule.getPreferenceId(), pref.key) == "true"
+                            val svf =
+                                object : ToggleButtonField(checkBox) {
+                                    override fun getStateValue(): Boolean? {
+                                        return checkBox.isSelected
+                                    }
 
-                            override fun setStateValue(value: Boolean) {
-                                checkBox.isSelected = value
-                                PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value.toString())
-                            }
+                                    override fun setStateValue(value: Boolean) {
+                                        checkBox.isSelected = value
+                                        PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value.toString())
+                                    }
+                                }
+                            modulePreferenceFields["$selectedModule.${pref.key}"] = svf
+                            checkBox
                         }
-                        modulePreferenceFields["${selectedModule}.${pref.key}"] = svf
-                        checkBox
-                    }
-                    PreferenceType.STRING -> {
-                        val textField = JBTextField(PrefState.getPreferenceValue(selectedModule.getPreferenceId(), pref.key) ?: pref.defaultValue)
-                        val svf = object : TextField(textField) {
-                            override fun getStateValue(): String? {
-                                return textField.text
-                            }
+                        PreferenceType.STRING -> {
+                            val textField =
+                                JBTextField(PrefState.getPreferenceValue(selectedModule.getPreferenceId(), pref.key) ?: pref.defaultValue)
+                            val svf =
+                                object : TextField(textField) {
+                                    override fun getStateValue(): String? {
+                                        return textField.text
+                                    }
 
-                            override fun setStateValue(value: String) {
-                                textField.text = value
-                                PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value)
-                            }
+                                    override fun setStateValue(value: String) {
+                                        textField.text = value
+                                        PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value)
+                                    }
+                                }
+                            modulePreferenceFields["${selectedModule.getPreferenceId()}.${pref.key}"] = svf
+                            textField
                         }
-                        modulePreferenceFields["${selectedModule.getPreferenceId()}.${pref.key}"] = svf
-                        textField
+                        else -> JLabel("Unsupported type: ${pref.type}")
                     }
-                    else -> JLabel("Unsupported type: ${pref.type}")
-                }
 
                 modulePreferencesPanel.add(field)
             }
@@ -185,25 +206,30 @@ class ConfigurationSection : SettingsSection {
         modulePreferencesPanel.repaint()
     }
 
-    override fun applyTo(builder: FormBuilder, stateValueFields: MutableList<StateValueField<*>>) {
+    override fun applyTo(
+        builder: FormBuilder,
+        stateValueFields: MutableList<StateValueField<*>>,
+    ) {
         stateValueFields.addAll(
             listOf(
                 storeCompletionFieldSVF,
-                storeContextFieldSVF
-            )
+                storeContextFieldSVF,
+            ),
         )
 
         // Add module preference fields
         stateValueFields.addAll(modulePreferenceFields.values)
 
-        val mainPanel = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(10)
-        }
+        val mainPanel =
+            JPanel(BorderLayout()).apply {
+                border = JBUI.Borders.empty(10)
+            }
 
         // Create content panel with BorderLayout
-        val contentPanel = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(0)
-        }
+        val contentPanel =
+            JPanel(BorderLayout()).apply {
+                border = JBUI.Borders.empty(0)
+            }
 
         // User information panel
         val userInfoPanel = createUserInfoPanel()
@@ -230,16 +256,18 @@ class ConfigurationSection : SettingsSection {
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(0, 0, 10, 0)
 
-            val titleAndInfo = JPanel(BorderLayout()).apply {
-                add(userInfoTitleLabel, BorderLayout.NORTH)
+            val titleAndInfo =
+                JPanel(BorderLayout()).apply {
+                    add(userInfoTitleLabel, BorderLayout.NORTH)
 
-                val userInfo = JPanel(GridLayout(2, 1, 5, 5)).apply {
-                    add(JLabel("Name: ${authState.getUserName() ?: "Unknown User"}"))
-                    add(JLabel("Email: ${authState.getUserEmail() ?: "Unknown Email"}"))
-                    border = JBUI.Borders.empty(5, 0, 10, 0)
+                    val userInfo =
+                        JPanel(GridLayout(2, 1, 5, 5)).apply {
+                            add(JLabel("Name: ${authState.getUserName() ?: "Unknown User"}"))
+                            add(JLabel("Email: ${authState.getUserEmail() ?: "Unknown Email"}"))
+                            border = JBUI.Borders.empty(5, 0, 10, 0)
+                        }
+                    add(userInfo, BorderLayout.CENTER)
                 }
-                add(userInfo, BorderLayout.CENTER)
-            }
 
             signOutButton.addActionListener {
                 handleSignOut()
@@ -259,7 +287,7 @@ class ConfigurationSection : SettingsSection {
             null,
             "You have been signed out successfully.",
             "Sign Out",
-            JOptionPane.INFORMATION_MESSAGE
+            JOptionPane.INFORMATION_MESSAGE,
         )
     }
 
@@ -267,57 +295,64 @@ class ConfigurationSection : SettingsSection {
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(10, 0, 0, 0)
 
-            val configTitle = JBLabel("Configuration Options").apply {
-                font = font.deriveFont(font.style or Font.BOLD)
-                border = JBUI.Borders.empty(0, 0, 5, 0)
-            }
-
-            val options = JPanel(GridLayout(2, 2, 5, 5)).apply {
-                add(storeCompletionsLabel)
-                add(storeCompletionField)
-                add(storeContextLabel)
-                add(storeContextField)
-            }
-
-            // Create module panel
-            val modulePanel = JPanel(BorderLayout()).apply {
-                border = JBUI.Borders.empty(15, 0, 0, 0)
-
-                add(moduleTitleLabel, BorderLayout.NORTH)
-
-                val moduleContent = JPanel(GridBagLayout()).apply {
-                    border = JBUI.Borders.empty(5, 0, 0, 0)
-                    
-                    val gbc = GridBagConstraints().apply {
-                        fill = GridBagConstraints.BOTH
-                        weightx = 0.4  // This makes the list take 40% of the width
-                        weighty = 1.0
-                        gridx = 0
-                        gridy = 0
-                    }
-                    
-                    // Left side: module list with scroll pane
-                    val scrollPane = JScrollPane(moduleList)
-                    add(scrollPane, gbc)
-                    
-                    // Right side: module preferences
-                    gbc.gridx = 1
-                    gbc.weightx = 0.6  // This makes the preferences panel take the remaining 60%
-                    val preferencesScrollPane = JScrollPane(modulePreferencesPanel).apply {
-                        border = JBUI.Borders.empty(0, 10, 0, 0)
-                    }
-                    add(preferencesScrollPane, gbc)
+            val configTitle =
+                JBLabel("Configuration Options").apply {
+                    font = font.deriveFont(font.style or Font.BOLD)
+                    border = JBUI.Borders.empty(0, 0, 5, 0)
                 }
 
-                add(moduleContent, BorderLayout.CENTER)
-            }
+            val options =
+                JPanel(GridLayout(2, 2, 5, 5)).apply {
+                    add(storeCompletionsLabel)
+                    add(storeCompletionField)
+                    add(storeContextLabel)
+                    add(storeContextField)
+                }
+
+            // Create module panel
+            val modulePanel =
+                JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.empty(15, 0, 0, 0)
+
+                    add(moduleTitleLabel, BorderLayout.NORTH)
+
+                    val moduleContent =
+                        JPanel(GridBagLayout()).apply {
+                            border = JBUI.Borders.empty(5, 0, 0, 0)
+
+                            val gbc =
+                                GridBagConstraints().apply {
+                                    fill = GridBagConstraints.BOTH
+                                    weightx = 0.4 // This makes the list take 40% of the width
+                                    weighty = 1.0
+                                    gridx = 0
+                                    gridy = 0
+                                }
+
+                            // Left side: module list with scroll pane
+                            val scrollPane = JScrollPane(moduleList)
+                            add(scrollPane, gbc)
+
+                            // Right side: module preferences
+                            gbc.gridx = 1
+                            gbc.weightx = 0.6 // This makes the preferences panel take the remaining 60%
+                            val preferencesScrollPane =
+                                JScrollPane(modulePreferencesPanel).apply {
+                                    border = JBUI.Borders.empty(0, 10, 0, 0)
+                                }
+                            add(preferencesScrollPane, gbc)
+                        }
+
+                    add(moduleContent, BorderLayout.CENTER)
+                }
 
             // Create main content panel
-            val contentPanel = JPanel(BorderLayout()).apply {
-                add(configTitle, BorderLayout.NORTH)
-                add(options, BorderLayout.CENTER)
-                add(modulePanel, BorderLayout.SOUTH)
-            }
+            val contentPanel =
+                JPanel(BorderLayout()).apply {
+                    add(configTitle, BorderLayout.NORTH)
+                    add(options, BorderLayout.CENTER)
+                    add(modulePanel, BorderLayout.SOUTH)
+                }
 
             add(contentPanel, BorderLayout.CENTER)
         }

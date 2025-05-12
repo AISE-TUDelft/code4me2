@@ -11,13 +11,15 @@ class BasicTelemetryModule : PluginModule {
 
     // TODO: Implement the logic to collect telemetry data
     override fun collectData(): List<Record> {
-        val record = Record(
-            type = Record.Type.TELEMETRY,
-            expanded = mutableMapOf(
-                Record.EntryKey("event", String::class.java) to "example_event",
-                Record.EntryKey("timestamp", Long::class.java) to System.currentTimeMillis()
+        val record =
+            Record(
+                type = Record.Type.TELEMETRY,
+                expanded =
+                    mutableMapOf(
+                        Record.EntryKey("event", String::class.java) to "example_event",
+                        Record.EntryKey("timestamp", Long::class.java) to System.currentTimeMillis(),
+                    ),
             )
-        )
         return listOf(record)
     }
 

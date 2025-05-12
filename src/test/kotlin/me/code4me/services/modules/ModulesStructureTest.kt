@@ -1,11 +1,12 @@
+import me.code4me.services.modules.Record
 import me.code4me.services.modules.aggregators.BaseContextAggregator
 import me.code4me.services.modules.aggregators.BaseTelemetryAggregator
-import me.code4me.services.modules.context.*
+import me.code4me.services.modules.context.BasicContextRetrievalModule
 import me.code4me.services.modules.manager.ModuleManager
-import me.code4me.services.modules.telemetry.*
-import me.code4me.services.modules.Record
-
-import org.junit.Assert.*
+import me.code4me.services.modules.telemetry.BasicTelemetryModule
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -13,13 +14,11 @@ import org.junit.Test
  * For example, if a new module is added or an existing module is removed, the tests should be updated accordingly.
  */
 class ModulesStructureTest {
-
     @Test
     fun testModuleNameTel() {
         val module = BasicTelemetryModule()
         assertEquals("BasicTelemetryModule", module.moduleName)
     }
-
 
     @Test
     fun testModuleNameCon() {

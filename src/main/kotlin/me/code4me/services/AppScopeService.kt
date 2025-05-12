@@ -14,7 +14,7 @@ class AppScopeService(val cs: CoroutineScope)
 fun launchAppScope(
     context: CoroutineContext = EmptyCoroutineContext,
     start: CoroutineStart = CoroutineStart.DEFAULT,
-    block: suspend CoroutineScope.() -> Unit
+    block: suspend CoroutineScope.() -> Unit,
 ) {
     service<AppScopeService>().cs.launch(context, start, block)
 }

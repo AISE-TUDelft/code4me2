@@ -5,17 +5,16 @@ import com.intellij.openapi.components.service
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import me.code4me.services.modules.PluginModule
-import java.io.File
 
 /**
  * Service for managing module configuration from HOCON config file.
- * 
+ *
  * This service is responsible for:
  * - Loading module configurations from the modules.conf file
  * - Parsing module categories and their properties
  * - Maintaining a list of available modules
  * - Instantiating module classes dynamically
- * 
+ *
  * The configuration uses the HOCON format (Human-Optimized Config Object Notation)
  * which is a superset of JSON with additional features like comments and includes.
  */
@@ -39,7 +38,7 @@ class ModuleConfigService {
 
     /**
      * Initializes the service by parsing the configuration file.
-     * 
+     *
      * This initialization block:
      * 1. Loads the "modules" section from the configuration
      * 2. Parses module categories if they exist
@@ -53,11 +52,12 @@ class ModuleConfigService {
             val categoriesConfig = modulesConfig.getConfig("categories")
             categoriesConfig.root().keys.forEach { categoryKey ->
                 val categoryConfig = categoriesConfig.getConfig(categoryKey)
-                moduleCategories[categoryKey] = ModuleCategoryConfig(
-                    id = categoryKey,
-                    path = categoryConfig.getString("path"),
-                    description = categoryConfig.getString("description")
-                )
+                moduleCategories[categoryKey] =
+                    ModuleCategoryConfig(
+                        id = categoryKey,
+                        path = categoryConfig.getString("path"),
+                        description = categoryConfig.getString("description"),
+                    )
             }
         }
 
@@ -70,14 +70,15 @@ class ModuleConfigService {
                         id = moduleConfig.getString("id"),
                         className = moduleConfig.getString("class"),
                         name = moduleConfig.getString("name"),
-                        type = moduleCategories[moduleConfig.getString("type")] ?: ModuleCategoryConfig(
-                            id = "unknown",
-                            path = "unknown",
-                            description = "Unknown category"
-                        ),
+                        type =
+                            moduleCategories[moduleConfig.getString("type")] ?: ModuleCategoryConfig(
+                                id = "unknown",
+                                path = "unknown",
+                                description = "Unknown category",
+                            ),
                         description = moduleConfig.getString("description"),
-                        enabled = if (moduleConfig.hasPath("enabled")) moduleConfig.getBoolean("enabled") else false
-                    )
+                        enabled = if (moduleConfig.hasPath("enabled")) moduleConfig.getBoolean("enabled") else false,
+                    ),
                 )
             }
         }
@@ -85,7 +86,7 @@ class ModuleConfigService {
 
     /**
      * Gets all available modules from the configuration.
-     * 
+     *
      * @return A list of [ModuleConfig] objects representing available modules.
      */
     fun getAvailableModules(): List<ModuleConfig> {
@@ -94,7 +95,7 @@ class ModuleConfigService {
 
     /**
      * Gets all module categories from the configuration.
-     * 
+     *
      * @return A map of category IDs to [ModuleCategoryConfig] objects.
      */
     fun getModuleCategories(): Map<String, ModuleCategoryConfig> {
@@ -103,14 +104,14 @@ class ModuleConfigService {
 
     /**
      * Instantiates all available modules using reflection.
-     * 
+     *
      * This method:
      * 1. Iterates through all available module configurations
      * 2. Attempts to load the class specified by the className property
      * 3. Instantiates the class using its default constructor
      * 4. Casts the instance to a [PluginModule]
      * 5. Returns a list of successfully instantiated modules
-     * 
+     *
      * @return A list of instantiated [PluginModule] objects.
      */
     fun instantiateModules(): List<PluginModule> {
@@ -128,7 +129,7 @@ class ModuleConfigService {
     companion object {
         /**
          * Gets the singleton instance of the ModuleConfigService.
-         * 
+         *
          * @return The [ModuleConfigService] instance.
          */
         fun getInstance(): ModuleConfigService {
@@ -139,9 +140,9 @@ class ModuleConfigService {
 
 /**
  * Data class representing a module configuration.
- * 
+ *
  * This class holds all the configuration properties for a plugin module.
- * 
+ *
  * @property id The unique identifier of the module.
  * @property className The fully qualified class name of the module implementation.
  * @property name The display name of the module.
@@ -155,14 +156,14 @@ data class ModuleConfig(
     val name: String,
     val type: ModuleCategoryConfig,
     val description: String,
-    val enabled: Boolean
+    val enabled: Boolean,
 )
 
 /**
  * Data class representing a module category configuration.
- * 
+ *
  * Categories are used to group related modules together.
- * 
+ *
  * @property id The unique identifier of the category.
  * @property path The path or location of the category in the UI hierarchy.
  * @property description A description of the category.
@@ -170,5 +171,5 @@ data class ModuleConfig(
 data class ModuleCategoryConfig(
     val id: String,
     val path: String,
-    val description: String
+    val description: String,
 )
