@@ -1,5 +1,6 @@
 package me.code4me.services.modules.manager
 
+import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import kotlinx.coroutines.async
@@ -54,14 +55,14 @@ class ModuleManager : PluginModule {
      * Collect data from all registered modules and aggregators.
      * @return List of records containing the collected data.
      */
-    override fun collectData(): List<Record> =
+    override fun collectData(request: InlineCompletionRequest): List<Record> =
         runBlocking {
             val aggregatedData = CopyOnWriteArrayList<Record>()
             coroutineScope {
                 val deferredResults =
                     aggregators.map { module ->
                         async {
-                            module.collectData()
+                            module.collectData(request)
                         }
                     }
                 deferredResults.forEach { deferred ->

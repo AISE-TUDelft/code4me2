@@ -1,5 +1,6 @@
 package me.code4me.services.modules
 
+import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import me.code4me.utils.configuration.PreferenceCapable
 
 /**
@@ -31,7 +32,7 @@ interface PluginModule : PreferenceCapable {
      *
      * @param data A map containing the data to send, with string keys and any type of values.
      */
-    fun collectData(): List<Record>
+    fun collectData(request: InlineCompletionRequest): List<Record>
 
     /**
      * Retrieves the current status of the module.
