@@ -11,13 +11,10 @@ class PluginInlineCompletionElement(
     private var createdAt: Long = System.currentTimeMillis(),
     private var originalCompletion: String = text,
     private var presentedAt: MutableSet<OffsetDateTime> = mutableSetOf(),
-    private var timesUpdated: Int = 0
+    private var timesUpdated: Int = 0,
 ) : InlineCompletionElement {
-
     override fun toPresentable(): InlineCompletionElement.Presentable {
         presentedAt.add(OffsetDateTime.now())
         return InlineCompletionGrayTextElement.Presentable(this)
     }
-
-
 }

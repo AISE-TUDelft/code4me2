@@ -3,7 +3,12 @@ package me.code4me.services.state
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.credentialStore.generateServiceName
 import com.intellij.ide.passwordSafe.PasswordSafe
-import com.intellij.openapi.components.*
+import com.intellij.openapi.components.BaseState
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.SimplePersistentStateComponent
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
+import com.intellij.openapi.components.service
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
 
@@ -30,7 +35,7 @@ const val USER_EMAIL_PROPERTY = "userEmail"
 
 /**
  * Helper function to access the current authentication settings.
- * 
+ *
  * @return The current [AuthSettings] instance from the service.
  */
 fun getAuthState(): AuthSettings {
@@ -39,22 +44,22 @@ fun getAuthState(): AuthSettings {
 
 /**
  * Service responsible for managing and persisting user authentication state.
- * 
+ *
  * This service handles secure storage of authentication tokens and user information
  * using the IntelliJ platform's credential store.
- * 
+ *
  * The state is stored in an XML file defined in the [Storage] annotation.
  */
 @Service
 @State(
     name = AUTH_STATE_NAME,
-    storages = [Storage("code4me-auth.xml")]
+    storages = [Storage("code4me-auth.xml")],
 )
 class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
     companion object {
         /**
          * Creates credential attributes for secure storage.
-         * 
+         *
          * @param key The key to use for the credential.
          * @return A [CredentialAttributes] object for the specified key.
          */
@@ -64,7 +69,7 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
 
         /**
          * Retrieves the authentication token from secure storage.
-         * 
+         *
          * @param key The key under which the token is stored.
          * @return The authentication token, or null if not found.
          */
@@ -74,19 +79,22 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
 
         /**
          * Stores the authentication token in secure storage.
-         * 
+         *
          * @param key The key under which to store the token.
          * @param token The authentication token to store.
          * @throws IllegalArgumentException if the token is empty.
          */
-        fun setAuthToken(key: String, token: String) {
-            require(token.isNotEmpty()) {"The provided token cannot be blank"}
+        fun setAuthToken(
+            key: String,
+            token: String,
+        ) {
+            require(token.isNotEmpty()) { "The provided token cannot be blank" }
             PasswordSafe.instance.setPassword(createCredentialAttributes(key), token)
         }
 
         /**
          * Retrieves user information from secure storage.
-         * 
+         *
          * @param key The key under which the information is stored.
          * @return The user information, or null if not found.
          */
@@ -96,32 +104,34 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
 
         /**
          * Stores user information in secure storage.
-         * 
+         *
          * @param key The key under which to store the information.
          * @param value The information to store.
          * @throws IllegalArgumentException if the value is empty.
          */
-        fun setUserInfo(key: String, value: String) {
-            require(value.isNotEmpty()) {"The provided value cannot be blank"}
+        fun setUserInfo(
+            key: String,
+            value: String,
+        ) {
+            require(value.isNotEmpty()) { "The provided value cannot be blank" }
             PasswordSafe.instance.setPassword(createCredentialAttributes(key), value)
         }
     }
 }
 
-
 /**
  * Class representing user authentication settings and state.
- * 
+ *
  * This class provides methods to:
  * - Get and set authentication tokens
  * - Get and set user information (name, email)
  * - Clear user data
  * - Manage property change listeners for UI updates
- * 
+ *
  * It extends [BaseState] to support persistence through the IntelliJ platform's
  * state persistence mechanism.
  */
-class AuthSettings: BaseState() {
+class AuthSettings : BaseState() {
     /**
      * Support for property change events to notify listeners when authentication state changes.
      */
@@ -129,7 +139,7 @@ class AuthSettings: BaseState() {
 
     /**
      * Retrieves the user's authentication token.
-     * 
+     *
      * @return The authentication token, or null if not set.
      */
     fun getToken(): String? {
@@ -138,7 +148,7 @@ class AuthSettings: BaseState() {
 
     /**
      * Sets the user's authentication token and notifies listeners of the change.
-     * 
+     *
      * @param token The authentication token to set.
      */
     fun setToken(token: String) {
@@ -149,7 +159,7 @@ class AuthSettings: BaseState() {
 
     /**
      * Retrieves the user's name.
-     * 
+     *
      * @return The user's name, or null if not set.
      */
     fun getUserName(): String? {
@@ -158,7 +168,7 @@ class AuthSettings: BaseState() {
 
     /**
      * Sets the user's name and notifies listeners of the change.
-     * 
+     *
      * @param name The user's name to set.
      */
     fun setUserName(name: String) {
@@ -169,7 +179,7 @@ class AuthSettings: BaseState() {
 
     /**
      * Retrieves the user's email.
-     * 
+     *
      * @return The user's email, or null if not set.
      */
     fun getUserEmail(): String? {
@@ -178,7 +188,7 @@ class AuthSettings: BaseState() {
 
     /**
      * Sets the user's email and notifies listeners of the change.
-     * 
+     *
      * @param email The user's email to set.
      */
     fun setUserEmail(email: String) {
@@ -189,7 +199,7 @@ class AuthSettings: BaseState() {
 
     /**
      * Clears all user data (token, name, email) and notifies listeners of the changes.
-     * 
+     *
      * This method is typically used during logout or when resetting the application state.
      */
     fun clearUserData() {
@@ -216,7 +226,7 @@ class AuthSettings: BaseState() {
 
     /**
      * Adds a property change listener to be notified of authentication state changes.
-     * 
+     *
      * @param listener The listener to add.
      */
     fun addPropertyChangeListener(listener: PropertyChangeListener) {
@@ -225,7 +235,7 @@ class AuthSettings: BaseState() {
 
     /**
      * Removes a property change listener.
-     * 
+     *
      * @param listener The listener to remove.
      */
     fun removePropertyChangeListener(listener: PropertyChangeListener) {

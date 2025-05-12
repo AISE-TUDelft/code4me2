@@ -9,7 +9,7 @@ class PluginCompletionContributor : CompletionContributor() {
         extend(
             CompletionType.BASIC,
             PlatformPatterns.psiElement(),
-            PluginCompletionProvider()
+            PluginCompletionProvider(),
         )
     }
 }

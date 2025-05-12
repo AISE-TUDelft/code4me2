@@ -12,9 +12,9 @@ interface StateValueField<T> {
     fun setStateValue(value: T)
 
     // additional functionality for later on to decide whether a field is enabled or not
-    fun getFieldInfo() : MutableList<FieldInfo>
+    fun getFieldInfo(): MutableList<FieldInfo>
 
-    fun getComponent() : JComponent
+    fun getComponent(): JComponent
 }
 
 typealias TextualStateValueField = StateValueField<String>

@@ -30,14 +30,13 @@ interface PreferenceCapable {
  * @param displayName The name to display in the UI
  * @param description A description of the preference
  */
-data class Preference (
+data class Preference(
     val key: String,
     val type: PreferenceType,
     val defaultValue: String,
     val displayName: String,
-    val description: String = ""
+    val description: String = "",
 )
-
 
 enum class PreferenceType(val type: String) {
     BOOLEAN("boolean"),
@@ -47,9 +46,8 @@ enum class PreferenceType(val type: String) {
     LONG("long"),
     DOUBLE("double"),
     LIST("list"),
-    MAP("map")
+    MAP("map"),
 }
-
 
 enum class PreferenceClass(val type: String) {
     MODULE("module"),

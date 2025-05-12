@@ -5,15 +5,14 @@ package me.code4me.services.modules
  */
 data class Record(
     val type: Type,
-    private val expanded: MutableMap<EntryKey, Any> = mutableMapOf()
+    private val expanded: MutableMap<EntryKey, Any> = mutableMapOf(),
 ) {
-
     /**
      * High-level category indicating the purpose of the record.
      */
     enum class Type {
         CONTEXT,
-        TELEMETRY
+        TELEMETRY,
     }
 
     /**
@@ -22,7 +21,7 @@ data class Record(
      */
     data class EntryKey(
         val name: String,
-        val type: Class<*>
+        val type: Class<*>,
     ) {
         override fun toString(): String = "Key(name='$name', type=${type.simpleName})"
     }
@@ -34,7 +33,10 @@ data class Record(
         return expanded[key] as? T
     }
 
-    fun put(key: EntryKey, value: Any?): Any? {
+    fun put(
+        key: EntryKey,
+        value: Any?,
+    ): Any? {
         return if (value == null) {
             expanded.remove(key)
         } else {

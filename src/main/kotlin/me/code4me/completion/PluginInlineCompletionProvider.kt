@@ -12,33 +12,33 @@ import kotlin.time.Duration
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
 
-class PluginInlineCompletionProvider: DebouncedInlineCompletionProvider() {
-    val LOGGER = Logger.getInstance("inlineCompletion")
-    private val PluginInsertHandler = PluginInlineCompletionInsertHandler()
-    private val PluginSuggestionUpdateManager = PluginInlineCompletionSuggestionUpdateManager(super.suggestionUpdateManager)
-
+class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
+    val logger = Logger.getInstance("inlineCompletion")
+    private val pluginInsertHandle = PluginInlineCompletionInsertHandler()
+    private val pluginSuggestionUpdateManager =
+        PluginInlineCompletionSuggestionUpdateManager(super.suggestionUpdateManager)
 
     override suspend fun getSuggestionDebounced(request: InlineCompletionRequest): InlineCompletionSuggestion {
         // TODO: implement this to actually collect the context send it to the server and get the response
         // TODO: and then use that to create inline completion suggestion
-        LOGGER.info("Generating inline completion suggestion")
-        
+        logger.info("Generating inline completion suggestion")
+
         // For testing, return a simple suggestion with some text
         val document = request.editor.document
         val requestId = request.requestId
         val text = " // This is a sample completion"
-        
+
         return PluginInlineCompletionSuggestion(
             text,
-            requestId
+            requestId,
         )
     }
 
     override val insertHandler: InlineCompletionInsertHandler
-        get() = PluginInsertHandler
+        get() = pluginInsertHandle
 
     override val suggestionUpdateManager: InlineCompletionSuggestionUpdateManager
-        get() = PluginSuggestionUpdateManager
+        get() = pluginSuggestionUpdateManager
 
     override suspend fun getDebounceDelay(request: InlineCompletionRequest): Duration {
         return 250.toDuration(DurationUnit.MILLISECONDS)
