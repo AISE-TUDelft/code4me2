@@ -1,5 +1,6 @@
 package me.code4me.services.modules.aggregators
 
+import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
@@ -26,14 +27,14 @@ abstract class BaseAggregator : PluginModule {
         println("Module registered: ${pluginModule.moduleName}")
     }
 
-    override fun collectData(): List<Record> =
+    override fun collectData(request: InlineCompletionRequest): List<Record> =
         runBlocking {
             val aggregatedData = CopyOnWriteArrayList<Record>()
             coroutineScope {
                 val deferredResults =
                     modules.map { module ->
                         async {
-                            module.collectData()
+                            module.collectData(request)
                         }
                     }
                 deferredResults.forEach { deferred ->
