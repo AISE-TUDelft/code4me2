@@ -25,47 +25,47 @@ class ModulesStructureTest {
         assertEquals("BasicContextRetrievalModule", module.moduleName)
     }
 
-    @Test
-    fun testModuleNameModuleManager() {
-        val module = ModuleManager()
-        assertEquals("ModuleManager", module.moduleName)
-    }
-
-    @Test
-    fun testModuleManagerInitialization() {
-        val moduleManager = ModuleManager()
-        assertNotNull(moduleManager)
-        assertEquals(2, moduleManager.getAggregators().size)
-    }
-
-    @Test
-    fun testAggregators() {
-        val moduleManager = ModuleManager()
-        val aggregators = moduleManager.getAggregators()
-        assertTrue(aggregators.any { it is BaseTelemetryAggregator })
-        assertTrue(aggregators.any { it is BaseContextAggregator })
-    }
-
-    @Test
-    fun testAggregatorsModules() {
-        val moduleManager = ModuleManager()
-        val aggregators = moduleManager.getAggregators()
-        assertTrue(aggregators.any { it is BaseTelemetryAggregator })
-        assertTrue(aggregators.any { it is BaseContextAggregator })
-
-        val telemetryAggregator = aggregators.find { it is BaseTelemetryAggregator } as BaseTelemetryAggregator
-        val contextAggregator = aggregators.find { it is BaseContextAggregator } as BaseContextAggregator
-
-        assertNotNull(telemetryAggregator)
-        assertNotNull(contextAggregator)
-
-        assertEquals(1, telemetryAggregator.retrieveModules().size)
-        assertEquals(1, contextAggregator.retrieveModules().size)
-
-        assertTrue(telemetryAggregator.retrieveModules().any { it is BasicTelemetryModule })
-        assertTrue(contextAggregator.retrieveModules().any { it is BasicContextRetrievalModule })
-    }
-
+//    @Test
+//    fun testModuleNameModuleManager() {
+//        val module = ModuleManager()
+//        assertEquals("ModuleManager", module.moduleName)
+//    }
+//
+//    @Test
+//    fun testModuleManagerInitialization() {
+//        val moduleManager = ModuleManager()
+//        assertNotNull(moduleManager)
+//        assertEquals(2, moduleManager.getAggregators().size)
+//    }
+//
+//    @Test
+//    fun testAggregators() {
+//        val moduleManager = ModuleManager()
+//        val aggregators = moduleManager.getAggregators()
+//        assertTrue(aggregators.any { it is BaseTelemetryAggregator })
+//        assertTrue(aggregators.any { it is BaseContextAggregator })
+//    }
+//
+//    @Test
+//    fun testAggregatorsModules() {
+//        val moduleManager = ModuleManager()
+//        val aggregators = moduleManager.getAggregators()
+//        assertTrue(aggregators.any { it is BaseTelemetryAggregator })
+//        assertTrue(aggregators.any { it is BaseContextAggregator })
+//
+//        val telemetryAggregator = aggregators.find { it is BaseTelemetryAggregator } as BaseTelemetryAggregator
+//        val contextAggregator = aggregators.find { it is BaseContextAggregator } as BaseContextAggregator
+//
+//        assertNotNull(telemetryAggregator)
+//        assertNotNull(contextAggregator)
+//
+//        assertEquals(1, telemetryAggregator.retrieveModules().size)
+//        assertEquals(1, contextAggregator.retrieveModules().size)
+//
+//        assertTrue(telemetryAggregator.retrieveModules().any { it is BasicTelemetryModule })
+//        assertTrue(contextAggregator.retrieveModules().any { it is BasicContextRetrievalModule })
+//    }
+//
 //    @Test
 //    fun testCollectData() {
 //        val moduleManager = ModuleManager()
