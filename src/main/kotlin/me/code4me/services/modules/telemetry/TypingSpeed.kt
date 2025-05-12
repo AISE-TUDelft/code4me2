@@ -1,5 +1,6 @@
 package me.code4me.services.modules.telemetry
 
+import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.Preference
@@ -16,7 +17,7 @@ class TypingSpeed(private val project: Project): PluginModule {
 
     private val trackingService: TypingSpeedService = project.service()
 
-    override fun collectData(): List<Record> {
+    override fun collectData(request: InlineCompletionRequest): List<Record> {
         val record = Record(Record.Type.TELEMETRY)
 
         val wpmKey = Record.EntryKey("typing_speed_wpm", java.lang.Double::class.java)
