@@ -3,7 +3,6 @@ package me.code4me.services.modules.manager
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.project.Project
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
@@ -21,24 +20,26 @@ fun getModuleManager(): ModuleManager {
 }
 
 @Service(Service.Level.PROJECT)
-class ModuleManager(private val project: Project) : PluginModule {
+class ModuleManager() : PluginModule {
     private val aggregators = mutableListOf<PluginModule>()
 
     init {
         initializeModules()
     }
 
+    // List of submodules to be initialized
+    private val submodules = listOf(
+        BaseContextAggregator(),
+        BaseTelemetryAggregator(),
+    )
+
     // Initialize modules and aggregators
     override fun initializeModules() {
         // Create and register aggregators
-        val telemetryAggregator = BaseTelemetryAggregator()
-        val contextAggregator = BaseContextAggregator()
-
-        telemetryAggregator.initializeModules()
-        contextAggregator.initializeModules()
-
-        registerAggregator(telemetryAggregator)
-        registerAggregator(contextAggregator)
+        submodules.forEach {
+            it.initializeModules()
+            registerAggregator(it)
+        }
 
         println("Modules and aggregators initialized successfully.")
     }

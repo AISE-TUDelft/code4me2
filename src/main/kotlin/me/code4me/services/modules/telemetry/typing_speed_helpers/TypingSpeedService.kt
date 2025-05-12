@@ -1,15 +1,10 @@
-package me.code4me.services.modules.telemetry
+package me.code4me.services.modules.telemetry.typing_speed_helpers
 
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.event.DocumentEvent
-import com.intellij.openapi.editor.event.DocumentListener
-import com.intellij.openapi.editor.event.EditorEventMulticaster
 import com.intellij.openapi.project.Project
 
 @Service(Service.Level.PROJECT)
 class TypingSpeedService(private val project: Project) {
-
     private val typedTimestamps: MutableList<Long> = mutableListOf()
     private var numOfTypedChars: Int = 0
 
@@ -48,7 +43,7 @@ class TypingSpeedService(private val project: Project) {
         val recentCharCount = typedTimestamps.size
         val speed = (recentCharCount / window_size.toDouble()) // 1 minute window
         println("[TypingSpeedService] Current CPS (last 10s): $speed")
-        println("[TypingSpeedService] Typed chars since 10s ago: $numOfTypedChars")
+        println("[TypingSpeedService] Typed chars since $window_size seconds ago: $numOfTypedChars")
         numOfTypedChars = 0 // Reset the count after reporting
         return speed
     }

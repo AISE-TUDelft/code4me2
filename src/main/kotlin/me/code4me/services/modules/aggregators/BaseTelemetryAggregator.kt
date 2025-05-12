@@ -1,6 +1,7 @@
 package me.code4me.services.modules.aggregators
 
 import me.code4me.services.modules.telemetry.BasicTelemetryModule
+import me.code4me.services.modules.telemetry.TypingSpeed
 
 class BaseTelemetryAggregator : BaseAggregator() {
     override val moduleName: String
@@ -9,6 +10,7 @@ class BaseTelemetryAggregator : BaseAggregator() {
     override val submodules =
         listOf(
             BasicTelemetryModule(),
+            TypingSpeed(),
         )
 
     override fun getStatus(): String {
