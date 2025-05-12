@@ -2,6 +2,7 @@ package me.code4me.services.modules.manager
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.project.Project
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
@@ -19,8 +20,8 @@ fun getModuleManager(): ModuleManager {
     return service<ModuleManager>()
 }
 
-@Service
-class ModuleManager : PluginModule {
+@Service(Service.Level.PROJECT)
+class ModuleManager(private val project: Project) : PluginModule {
     private val aggregators = mutableListOf<PluginModule>()
 
     init {
@@ -30,7 +31,7 @@ class ModuleManager : PluginModule {
     // Initialize modules and aggregators
     override fun initializeModules() {
         // Create and register aggregators
-        val telemetryAggregator = BaseTelemetryAggregator()
+        val telemetryAggregator = BaseTelemetryAggregator(project)
         val contextAggregator = BaseContextAggregator()
 
         telemetryAggregator.initializeModules()
