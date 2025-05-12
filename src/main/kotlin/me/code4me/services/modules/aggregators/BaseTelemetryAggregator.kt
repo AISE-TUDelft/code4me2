@@ -1,6 +1,7 @@
 package me.code4me.services.modules.aggregators
 
 import me.code4me.services.modules.telemetry.BasicTelemetryModule
+import me.code4me.services.modules.telemetry.TimeSinceLastShownCompletion
 import me.code4me.services.modules.telemetry.TypingSpeed
 
 class BaseTelemetryAggregator : BaseAggregator() {
@@ -11,6 +12,7 @@ class BaseTelemetryAggregator : BaseAggregator() {
         listOf(
             BasicTelemetryModule(),
             TypingSpeed(),
+            TimeSinceLastShownCompletion()
         )
 
     override fun getStatus(): String {
