@@ -28,10 +28,11 @@ class ModuleManager() : PluginModule {
     }
 
     // List of submodules to be initialized
-    private val submodules = listOf(
-        BaseContextAggregator(),
-        BaseTelemetryAggregator(),
-    )
+    private val submodules =
+        listOf(
+            BaseContextAggregator(),
+            BaseTelemetryAggregator(),
+        )
 
     // Initialize modules and aggregators
     override fun initializeModules() {

@@ -21,7 +21,7 @@
 
         <toolWindow factoryClass="me.code4me.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
         <postStartupActivity implementation="me.code4me.startup.MyProjectActivity" />
-        <postStartupActivity implementation="me.code4me.services.modules.telemetry.typing_speed_helpers.TypingTelemetryStartup"/>
+        <postStartupActivity implementation="me.code4me.services.modules.telemetry.typing-speed-helpers.TypingTelemetryStartup"/>
 
 
         // The settings extension points

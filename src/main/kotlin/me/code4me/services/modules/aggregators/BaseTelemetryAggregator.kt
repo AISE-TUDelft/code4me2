@@ -12,7 +12,7 @@ class BaseTelemetryAggregator : BaseAggregator() {
         listOf(
             BasicTelemetryModule(),
             TypingSpeed(),
-            TimeSinceLastShownCompletion()
+            TimeSinceLastShownCompletion(),
         )
 
     override fun getStatus(): String {

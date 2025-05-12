@@ -1,4 +1,4 @@
-package me.code4me.services.modules.telemetry.typing_speed_helpers
+package me.code4me.services.modules.telemetry.typingSpeedHelpers
 
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.components.service

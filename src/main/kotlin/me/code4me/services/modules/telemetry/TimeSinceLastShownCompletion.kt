@@ -13,7 +13,7 @@ class TimeSinceLastShownCompletion : PluginModule {
     private var lastCollectDataTime: Long? = null
 
     override fun collectData(request: InlineCompletionRequest): List<Record> {
-        if(lastCollectDataTime == null) {
+        if (lastCollectDataTime == null) {
             lastCollectDataTime = System.currentTimeMillis()
             return emptyList()
         }
