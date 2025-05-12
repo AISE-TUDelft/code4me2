@@ -1,5 +1,6 @@
 package me.code4me.services.modules.telemetry
 
+import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.Preference
@@ -10,7 +11,7 @@ class BasicTelemetryModule : PluginModule {
     override val moduleName = "BasicTelemetryModule"
 
     // TODO: Implement the logic to collect telemetry data
-    override fun collectData(): List<Record> {
+    override fun collectData(request: InlineCompletionRequest): List<Record> {
         val record =
             Record(
                 type = Record.Type.TELEMETRY,
