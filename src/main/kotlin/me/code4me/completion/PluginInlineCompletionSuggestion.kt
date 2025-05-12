@@ -5,20 +5,20 @@ import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionVar
 
 class PluginInlineCompletionSuggestion(
     private val completionText: String,
-    private val requestId: Long
+    private val requestId: Long,
 ) : InlineCompletionSuggestion {
-
-    private var variants : List<InlineCompletionVariant>? = null
+    private var variants: List<InlineCompletionVariant>? = null
 
     override suspend fun getVariants(): List<InlineCompletionVariant> {
         if (variants == null) {
-            variants = listOf(
-                PluginInlineCompletionVariant(
-                    "some random testing text",
-                    requestId,
-                    "some random model"
+            variants =
+                listOf(
+                    PluginInlineCompletionVariant(
+                        "some random testing text",
+                        requestId,
+                        "some random model",
+                    ),
                 )
-            )
         }
         return variants!!
     }

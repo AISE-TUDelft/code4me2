@@ -11,13 +11,15 @@ class BasicContextRetrievalModule : PluginModule {
 
     // TODO: Implement the logic to collect telemetry data
     override fun collectData(): List<Record> {
-        val record = Record(
-            type = Record.Type.CONTEXT,
-            expanded = mutableMapOf(
-                Record.EntryKey("context", String::class.java) to "example_context",
-                Record.EntryKey("timestamp", Long::class.java) to System.currentTimeMillis()
+        val record =
+            Record(
+                type = Record.Type.CONTEXT,
+                expanded =
+                    mutableMapOf(
+                        Record.EntryKey("context", String::class.java) to "example_context",
+                        Record.EntryKey("timestamp", Long::class.java) to System.currentTimeMillis(),
+                    ),
             )
-        )
         return listOf(record)
     }
 

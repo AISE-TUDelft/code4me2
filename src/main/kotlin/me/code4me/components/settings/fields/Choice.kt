@@ -9,7 +9,7 @@ import javax.swing.JToggleButton
  * It provides methods to get and set the state of the field, as well as to get and set the value of the field.
  */
 abstract class CheckBoxField(
-    protected val field: JCheckBox
+    protected val field: JCheckBox,
 ) : BooleanStateValueField {
     private val fieldInfo: MutableList<FieldInfo> = mutableListOf()
 
@@ -36,7 +36,7 @@ abstract class CheckBoxField(
  * It provides methods to get and set the state of the field, as well as to get and set the value of the field.
  */
 abstract class ToggleButtonField(
-    protected val field: JToggleButton
+    protected val field: JToggleButton,
 ) : BooleanStateValueField {
     private val fieldInfo: MutableList<FieldInfo> = mutableListOf()
 

@@ -15,7 +15,6 @@ import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
 import java.util.concurrent.CopyOnWriteArrayList
 
-
 fun getModuleManager(): ModuleManager {
     return service<ModuleManager>()
 }
@@ -56,20 +55,22 @@ class ModuleManager(private val project: Project) : PluginModule {
      * Collect data from all registered modules and aggregators.
      * @return List of records containing the collected data.
      */
-    override fun collectData(): List<Record> = runBlocking {
-        val aggregatedData = CopyOnWriteArrayList<Record>()
-        coroutineScope {
-            val deferredResults = aggregators.map { module ->
-                async {
-                    module.collectData()
+    override fun collectData(): List<Record> =
+        runBlocking {
+            val aggregatedData = CopyOnWriteArrayList<Record>()
+            coroutineScope {
+                val deferredResults =
+                    aggregators.map { module ->
+                        async {
+                            module.collectData()
+                        }
+                    }
+                deferredResults.forEach { deferred ->
+                    aggregatedData.addAll(deferred.await())
                 }
             }
-            deferredResults.forEach { deferred ->
-                aggregatedData.addAll(deferred.await())
-            }
+            aggregatedData
         }
-        aggregatedData
-    }
 
     override fun getStatus(): String {
         TODO("Not yet implemented")
@@ -82,15 +83,15 @@ class ModuleManager(private val project: Project) : PluginModule {
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Use AI Completion",
-                description = "Use AI-powered code completion"
+                description = "Use AI-powered code completion",
             ),
             Preference(
                 key = "maxSuggestions",
                 type = PreferenceType.STRING,
                 defaultValue = "5",
                 displayName = "Max Suggestions",
-                description = "Maximum number of suggestions to show"
-            )
+                description = "Maximum number of suggestions to show",
+            ),
         )
     }
 

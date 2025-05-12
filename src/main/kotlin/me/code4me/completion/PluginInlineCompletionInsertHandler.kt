@@ -8,7 +8,7 @@ import com.intellij.codeInsight.inline.completion.elements.InlineCompletionEleme
 class PluginInlineCompletionInsertHandler : InlineCompletionInsertHandler {
     override fun afterInsertion(
         environment: InlineCompletionInsertEnvironment,
-        elements: List<InlineCompletionElement>
+        elements: List<InlineCompletionElement>,
     ) {
         // TODO : Implement the afterInsertion logic, for now only calling the super method
         DefaultInlineCompletionInsertHandler.INSTANCE.afterInsertion(environment, elements)

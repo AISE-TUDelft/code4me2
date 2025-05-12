@@ -1,21 +1,14 @@
 package me.code4me.components.settings
 
-import com.intellij.ide.plugins.PluginManager
-import com.intellij.openapi.components.service
 import com.intellij.util.ui.FormBuilder
-import kotlinx.coroutines.Dispatchers
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.sections.AuthenticationSection
 import me.code4me.components.settings.sections.ConfigurationSection
-import me.code4me.services.launchAppScope
 import me.code4me.services.state.TOKEN_PROPERTY
 import me.code4me.services.state.getAuthState
-import java.beans.PropertyChangeEvent
 import java.beans.PropertyChangeListener
-import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
-
 
 class Code4MeConfigurableComponent {
     private val fieldStates = mutableListOf<StateValueField<*>>()
@@ -24,12 +17,13 @@ class Code4MeConfigurableComponent {
 
     // Stateful Services
     private val authService = getAuthState()
-    private val tokenChangeListener = PropertyChangeListener { event ->
-        if (event.propertyName == TOKEN_PROPERTY) {
-            println("Token changed. Updating UI sections...")
-            SwingUtilities.invokeLater { rebuildUI() }
+    private val tokenChangeListener =
+        PropertyChangeListener { event ->
+            if (event.propertyName == TOKEN_PROPERTY) {
+                println("Token changed. Updating UI sections...")
+                SwingUtilities.invokeLater { rebuildUI() }
+            }
         }
-    }
 
     private var mainPanel: JPanel
 
@@ -70,7 +64,7 @@ class Code4MeConfigurableComponent {
         mainPanel.repaint()
     }
 
-    fun getPanel(): JPanel{
+    fun getPanel(): JPanel {
         return mainPanel
     }
 

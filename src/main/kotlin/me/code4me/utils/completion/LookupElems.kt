@@ -6,6 +6,6 @@ import com.intellij.codeInsight.lookup.LookupElement
 fun LookupElement.prioritize(): LookupElement {
     return PrioritizedLookupElement.withPriority(
         this,
-        Double.MAX_VALUE - 1
+        Double.MAX_VALUE - 1,
     )
 }

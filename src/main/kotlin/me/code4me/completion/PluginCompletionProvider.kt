@@ -14,17 +14,18 @@ class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
     override fun addCompletions(
         parameters: CompletionParameters,
         context: ProcessingContext,
-        results: CompletionResultSet
+        results: CompletionResultSet,
     ) {
         // TODO: implement the actual logic for invoking and showing, here I've simply added
         // a placeholder for the completion
         CoroutineScope(Dispatchers.IO).launch {
-            val element = LookupElementBuilder
-                .create("Code4Me V2 Plugin Completion")
-                .withPresentableText("Code4Me V2 Plugin Completion")
-                .withTypeText("Code4Me V2")
+            val element =
+                LookupElementBuilder
+                    .create("Code4Me V2 Plugin Completion")
+                    .withPresentableText("Code4Me V2 Plugin Completion")
+                    .withTypeText("Code4Me V2")
             results.addElement(
-                element.prioritize()
+                element.prioritize(),
             )
         }
     }

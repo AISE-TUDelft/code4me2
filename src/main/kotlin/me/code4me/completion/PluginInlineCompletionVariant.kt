@@ -9,16 +9,17 @@ import kotlinx.coroutines.flow.flowOf
 class PluginInlineCompletionVariant(
     private val CompletionText: String,
     private val requestId: Long,
-    private val completionModel: String
+    private val completionModel: String,
 ) : InlineCompletionVariant {
     override val data: UserDataHolderBase
         get() = UserDataHolderBase()
     override val elements: Flow<InlineCompletionElement>
-        get() = flowOf(
-            PluginInlineCompletionElement(
-                CompletionText,
-                requestId,
-                completionModel
+        get() =
+            flowOf(
+                PluginInlineCompletionElement(
+                    CompletionText,
+                    requestId,
+                    completionModel,
+                ),
             )
-        )
 }

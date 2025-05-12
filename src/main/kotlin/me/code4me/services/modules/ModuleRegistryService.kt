@@ -17,7 +17,7 @@ class ModuleRegistryService {
     init {
         // Load modules from configuration
         loadModules()
-        
+
         // Initialize enabled modules from preferences
         val enabledModules = PrefState.getEnabledModules()
         enabledModuleIds.addAll(enabledModules)
@@ -29,15 +29,15 @@ class ModuleRegistryService {
     private fun loadModules() {
         // Clear existing modules
         modules.clear()
-        
+
         // Load modules from configuration
         val configModules = moduleConfigService.instantiateModules()
         modules.addAll(configModules)
-        
+
         // Register modules with PrefState
         modules.forEach { module ->
             PrefState.registerModule(module)
-            
+
             // Enable modules that are enabled by default in config
             val moduleConfig = moduleConfigService.getAvailableModules().find { it.id == module.getPreferenceId() }
             if (moduleConfig?.enabled == true) {
