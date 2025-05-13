@@ -17,8 +17,8 @@ class BasicTelemetryModule : PluginModule {
                 type = Record.Type.TELEMETRY,
                 expanded =
                     mutableMapOf(
-                        Record.EntryKey("event", String::class.java) to "example_event",
-                        Record.EntryKey("timestamp", Long::class.java) to System.currentTimeMillis(),
+                        Record.key<String>("event") to "example_event",
+                        Record.key<Long>("timestamp") to System.currentTimeMillis(),
                     ),
             )
         return listOf(record)

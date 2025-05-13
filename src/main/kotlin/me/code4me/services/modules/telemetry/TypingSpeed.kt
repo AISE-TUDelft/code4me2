@@ -10,12 +10,17 @@ import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
 
+/**
+ * This module collects typing speed telemetry data.
+ */
 class TypingSpeed() : PluginModule {
     override val moduleName: String
         get() = "TypingSpeed"
 
-//    private val trackingService: TypingSpeedService = project.service()
-
+    /**
+     * Collects typing speed telemetry data.
+     * This method uses the TypingSpeedService to get the typing speed in characters per second (CPS).
+     */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
         val record = Record(Record.Type.TELEMETRY)
 
@@ -24,7 +29,7 @@ class TypingSpeed() : PluginModule {
 
         val trackingService: TypingSpeedService = project.service()
 
-        val cpsKey = Record.EntryKey("typing_speed_cps", java.lang.Double::class.java)
+        val cpsKey = Record.key<Double>("typing_speed_cps")
         val windowSize = PrefState.getPreferenceValue(getPreferenceId(), "telemetry.typing_speed.window_size")?.toInt() ?: 10
         val cps = trackingService.getTypingSpeed(windowSize).toDouble()
 
@@ -40,6 +45,10 @@ class TypingSpeed() : PluginModule {
     override fun initializeModules() {
     }
 
+    /**
+     * this class has a variable windowSize that determines the time window for calculating typing speed.
+     * this is set in the preferences.
+     */
     override fun getPreferenceList(): List<Preference> {
         return listOf(
             Preference(

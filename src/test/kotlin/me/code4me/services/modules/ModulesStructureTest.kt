@@ -1,11 +1,6 @@
-import me.code4me.services.modules.aggregators.BaseContextAggregator
-import me.code4me.services.modules.aggregators.BaseTelemetryAggregator
 import me.code4me.services.modules.context.BasicContextRetrievalModule
-import me.code4me.services.modules.manager.ModuleManager
 import me.code4me.services.modules.telemetry.BasicTelemetryModule
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**

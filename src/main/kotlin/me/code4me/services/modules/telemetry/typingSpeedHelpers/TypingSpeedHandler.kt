@@ -6,6 +6,13 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.actionSystem.TypedActionHandler
 import com.intellij.openapi.project.Project
 
+/**
+ * This class is responsible for handling the typing speed telemetry.
+ * It replaces the default typed action handler with a custom one that records typing speed.
+ *
+ * @param originalHandler The original typed action handler to be replaced.
+ * @param project The current project instance.
+ */
 class TypingSpeedHandler(
     private val originalHandler: TypedActionHandler?,
     private val project: Project,

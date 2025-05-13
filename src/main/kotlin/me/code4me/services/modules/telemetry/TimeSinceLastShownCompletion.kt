@@ -6,12 +6,20 @@ import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 
+/**
+ * This module collects the time since the last shown completion.
+ * It calculates the time difference between the current time and the last shown completion time.
+ */
 class TimeSinceLastShownCompletion : PluginModule {
     override val moduleName: String
         get() = "TimeSinceLastShownCompletion"
 
     private var lastCollectDataTime: Long? = null
 
+    /**
+     * Collects the time since the last shown completion.
+     * It returns record containing the time difference in milliseconds.
+     */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
         if (lastCollectDataTime == null) {
             lastCollectDataTime = System.currentTimeMillis()
@@ -20,7 +28,7 @@ class TimeSinceLastShownCompletion : PluginModule {
         val previousTime = lastCollectDataTime
         lastCollectDataTime = System.currentTimeMillis()
         val record = Record(Record.Type.TELEMETRY)
-        val timeSinceLastShownCompletionKey = Record.EntryKey("time_since_last_shown_completion", java.lang.Long::class.java)
+        val timeSinceLastShownCompletionKey = Record.key<Long>("time_since_last_shown_completion")
         val timeSinceLastShownCompletion = lastCollectDataTime!! - previousTime!!
         record.put(timeSinceLastShownCompletionKey, timeSinceLastShownCompletion)
         return listOf(record)
