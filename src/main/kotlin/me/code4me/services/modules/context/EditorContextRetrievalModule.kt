@@ -1,10 +1,7 @@
 package me.code4me.services.modules.context
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
-import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.project.ProjectManager
-import com.intellij.psi.PsiDocumentManager
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
 import me.code4me.services.state.PrefState
@@ -16,11 +13,11 @@ class EditorContextRetrievalModule : PluginModule {
     override val moduleName = "BasicContextRetrievalModule"
 
     override fun collectData(request: InlineCompletionRequest): List<Record> {
+        val moduleId = getPreferenceId()
         val project = request.file.project
         val editor = request.editor
         val document = request.document
         val psiFile = request.file
-
 
         val virtualFile = FileDocumentManager.getInstance().getFile(document) ?: return emptyList()
         val caretModel = editor.caretModel
@@ -32,30 +29,50 @@ class EditorContextRetrievalModule : PluginModule {
         val caretOffset = caretModel.offset
         val caretLine = logicalPosition.line
         val caretColumn = logicalPosition.column
+        val selectionModel = editor.selectionModel
+        val selectedText: String? =
+            if (selectionModel.hasSelection()) {
+                selectionModel.selectedText
+            } else {
+                null
+            }
 
         val languageKey = Record.key<String>("context.language")
         val fileNameKey = Record.key<String>("context.file.name")
         val filePathKey = Record.key<String>("context.file.path")
         val caretOffsetKey = Record.key<Int>("context.caret.offset")
         val caretLineKey = Record.key<Int>("context.caret.line")
-        val timestampKey = Record.key<Long>("timestamp")
+
         val caretColumnKey = Record.key<Int>("context.caret.column")
+        val selectionTextKey = Record.key<String>("context.selection.text")
 
-        val record =
-            Record(
-                type = Record.Type.CONTEXT,
-                expanded =
-                    mutableMapOf(
-                        languageKey to languageName,
-                        fileNameKey to fileName,
-                        filePathKey to filePath,
-                        caretOffsetKey to caretOffset,
-                        caretLineKey to caretLine,
-                        caretColumnKey to caretColumn,
-                        timestampKey to System.currentTimeMillis(),
-                    ),
-            )
+        val expanded = mutableMapOf<Record.EntryKey, Any>()
 
+        if (PrefState.getPreferenceValue(moduleId, "context.include.language")?.toBoolean() == true) {
+            expanded[languageKey] = languageName
+        }
+        if (PrefState.getPreferenceValue(moduleId, "context.include.filename")?.toBoolean() == true) {
+            expanded[fileNameKey] = fileName
+        }
+        if (PrefState.getPreferenceValue(moduleId, "context.include.filepath")?.toBoolean() == true) {
+            expanded[filePathKey] = filePath
+        }
+        if (PrefState.getPreferenceValue(moduleId, "context.include.caret.offset")?.toBoolean() == true) {
+            expanded[caretOffsetKey] = caretOffset
+        }
+        if (PrefState.getPreferenceValue(moduleId, "context.include.caret.position")?.toBoolean() == true) {
+            expanded[caretLineKey] = caretLine
+            expanded[caretColumnKey] = caretColumn
+        }
+        if (PrefState.getPreferenceValue(
+                moduleId,
+                "context.include.selection.text",
+            )?.toBoolean() == true && !selectedText.isNullOrEmpty()
+        ) {
+            expanded[selectionTextKey] = selectedText
+        }
+
+        val record = Record(type = Record.Type.CONTEXT, expanded = expanded)
         return listOf(record)
     }
 
@@ -64,8 +81,6 @@ class EditorContextRetrievalModule : PluginModule {
     }
 
     override fun initializeModules() {
-        println("Concrete module $moduleName doesn't need to register modules.")
-        PrefState.registerModule(this)
     }
 
     override fun getPreferenceList(): List<Preference> =
@@ -105,9 +120,20 @@ class EditorContextRetrievalModule : PluginModule {
                 displayName = "Include Caret Line and Column",
                 description = "Include the line and column number of the caret position.",
             ),
+            Preference(
+                key = "context.include.selection.text",
+                type = PreferenceType.BOOLEAN,
+                defaultValue = "false",
+                displayName = "Include Selected Text",
+                description = "Include currently selected text, if any, in context data.",
+            ),
         )
 
     override fun getPreferenceClass(): PreferenceClass {
         return PreferenceClass.CONTEXT
+    }
+
+    override fun getPreferenceId(): String {
+        return "editor_context_retrieval"
     }
 }
