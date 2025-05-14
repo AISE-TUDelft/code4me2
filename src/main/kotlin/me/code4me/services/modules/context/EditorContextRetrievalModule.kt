@@ -10,7 +10,7 @@ import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
 
 class EditorContextRetrievalModule : PluginModule {
-    override val moduleName = "BasicContextRetrievalModule"
+    override val moduleName = "EditorContextRetrievalModule"
 
     override fun collectData(request: InlineCompletionRequest): List<Record> {
         val moduleId = getPreferenceId()
@@ -23,12 +23,6 @@ class EditorContextRetrievalModule : PluginModule {
         val caretModel = editor.caretModel
         val logicalPosition = caretModel.logicalPosition
 
-        val languageName = psiFile.language.displayName
-        val fileName = virtualFile.name
-        val filePath = virtualFile.path
-        val caretOffset = caretModel.offset
-        val caretLine = logicalPosition.line
-        val caretColumn = logicalPosition.column
         val selectionModel = editor.selectionModel
         val selectedText: String? =
             if (selectionModel.hasSelection()) {
@@ -37,38 +31,37 @@ class EditorContextRetrievalModule : PluginModule {
                 null
             }
 
-        val languageKey = Record.key<String>("context.language")
-        val fileNameKey = Record.key<String>("context.file.name")
-        val filePathKey = Record.key<String>("context.file.path")
-        val caretOffsetKey = Record.key<Int>("context.caret.offset")
-        val caretLineKey = Record.key<Int>("context.caret.line")
-
-        val caretColumnKey = Record.key<Int>("context.caret.column")
-        val selectionTextKey = Record.key<String>("context.selection.text")
-
         val expanded = mutableMapOf<Record.EntryKey, Any>()
 
-        if (PrefState.getPreferenceValue(moduleId, "context.include.language")?.toBoolean() == true) {
-            expanded[languageKey] = languageName
+        if (/*PrefState.getPreferenceValue(moduleId, "context.include.language")?.toBoolean() == true*/true) {//TODO change to preference once implemented
+            val languageKey = Record.key<String>("context.language")
+            expanded[languageKey] = psiFile.language.displayName
         }
-        if (PrefState.getPreferenceValue(moduleId, "context.include.filename")?.toBoolean() == true) {
-            expanded[fileNameKey] = fileName
+        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filename")?.toBoolean() == true*/true) { //TODO change to preference once implemented
+            val fileNameKey = Record.key<String>("context.file.name")
+            expanded[fileNameKey] =  virtualFile.name
         }
-        if (PrefState.getPreferenceValue(moduleId, "context.include.filepath")?.toBoolean() == true) {
-            expanded[filePathKey] = filePath
+        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filepath")?.toBoolean() == true*/true) { //TODO change to preference once implemented
+            val filePathKey = Record.key<String>("context.file.path")
+            expanded[filePathKey] = virtualFile.path
         }
-        if (PrefState.getPreferenceValue(moduleId, "context.include.caret.offset")?.toBoolean() == true) {
-            expanded[caretOffsetKey] = caretOffset
+        if (/*PrefState.getPreferenceValue(moduleId, "context.include.caret.offset")?.toBoolean() == true*/true) { //TODO change to preference once implemented
+            val caretOffsetKey = Record.key<Int>("context.caret.offset")
+            expanded[caretOffsetKey] = caretModel.offset
         }
-        if (PrefState.getPreferenceValue(moduleId, "context.include.caret.position")?.toBoolean() == true) {
-            expanded[caretLineKey] = caretLine
-            expanded[caretColumnKey] = caretColumn
+        if (/*PrefState.getPreferenceValue(moduleId, "context.include.caret.position")?.toBoolean() == true*/true) {//TODO change to preference once implemented
+            val caretLineKey = Record.key<Int>("context.caret.line")
+
+            val caretColumnKey = Record.key<Int>("context.caret.column")
+            expanded[caretLineKey] = logicalPosition.line
+            expanded[caretColumnKey] = logicalPosition.column
         }
         if (PrefState.getPreferenceValue(
                 moduleId,
                 "context.include.selection.text",
             )?.toBoolean() == true && !selectedText.isNullOrEmpty()
         ) {
+            val selectionTextKey = Record.key<String>("context.selection.text")
             expanded[selectionTextKey] = selectedText
         }
 
@@ -102,7 +95,7 @@ class EditorContextRetrievalModule : PluginModule {
             Preference(
                 key = "context.include.filepath",
                 type = PreferenceType.BOOLEAN,
-                defaultValue = "false",
+                defaultValue = "true",
                 displayName = "Include File Path",
                 description = "Include the full file path in context data.",
             ),
@@ -123,7 +116,7 @@ class EditorContextRetrievalModule : PluginModule {
             Preference(
                 key = "context.include.selection.text",
                 type = PreferenceType.BOOLEAN,
-                defaultValue = "false",
+                defaultValue = "true",
                 displayName = "Include Selected Text",
                 description = "Include currently selected text, if any, in context data.",
             ),
