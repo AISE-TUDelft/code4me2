@@ -1,0 +1,747 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Code4Me V2 API",
+    "description": "The complete API for Code4Me V2",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/user/update/": {
+      "put": {
+        "tags": [
+          "user",
+          "Update",
+          "Update User"
+        ],
+        "summary": "Update User",
+        "operationId": "update_user_api_user_update__put",
+        "parameters": [
+          {
+            "name": "session_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "session_token",
+              "title": "Session Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUser"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateUserPutResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateUserPutResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidOrExpiredToken"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/user/delete/": {
+      "delete": {
+        "tags": [
+          "user",
+          "Delete",
+          "Delete User"
+        ],
+        "summary": "Delete User",
+        "operationId": "delete_user_api_user_delete__delete",
+        "parameters": [
+          {
+            "name": "delete_user_data",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Delete users data",
+              "default": false,
+              "title": "Delete User Data"
+            },
+            "description": "Delete users data"
+          },
+          {
+            "name": "session_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "session_token",
+              "title": "Session Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteUserDeleteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSessionToken"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/create/": {
+      "post": {
+        "tags": [
+          "user",
+          "Create",
+          "Create User"
+        ],
+        "summary": "Create User",
+        "description": "Create a new user\n1. The user should be created in the database if it does not exist\n2. The user should be sent a verification email\n3. The user should be sent a success message\n4. If the user already exists, then a 409 error should be returned",
+        "operationId": "create_user_api_user_create__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CreateUser"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CreateUserOauth"
+                  }
+                ],
+                "title": "User To Create"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateUserPostResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateUserPostResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidOrExpiredToken"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserAlreadyExistsWithThisEmail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/authenticate/": {
+      "post": {
+        "tags": [
+          "user",
+          "Authenticate",
+          "Authentication"
+        ],
+        "summary": "Authenticate User",
+        "description": "Authenticate a user\nNote: There are some nuances to how this should be handled.\n1. There is a possibility that the token field is JWT token for OAuth providers (this should be checked for)\n1.1. Authentication should first check if the token is a JWT token\n1.2. If it is a JWT token, then the validity of the token should be checked\n1.3. If the token is valid, then the user should be authenticated using the token and allocated a session\n1.4. The provider is always Google\n2. The filed can also simply represent a password for a user.\n3. The authentication should either return a JsonResponseWithStatus with content of UserAuthenticationPostResponse or a ErrorResponse",
+        "operationId": "authenticate_user_api_user_authenticate__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AuthenticateUserEmailPassword"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AuthenticateUserOAuth"
+                  }
+                ],
+                "title": "User To Authenticate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthenticateUserPostResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidOrExpiredToken"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidEmailOrPassword"
+                    }
+                  ],
+                  "title": "Response 401 Authenticate User Api User Authenticate  Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuthenticateUserEmailPassword": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "User's email address"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "title": "Password",
+            "description": "User's password",
+            "writeOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "AuthenticateUserEmailPassword"
+      },
+      "AuthenticateUserOAuth": {
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/Provider",
+            "description": "OAuth provider"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "OAuth token in JWT format"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "token"
+        ],
+        "title": "AuthenticateUserOAuth"
+      },
+      "AuthenticateUserPostResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Response message"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserBase",
+            "description": "User details"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message",
+          "user"
+        ],
+        "title": "AuthenticateUserPostResponse"
+      },
+      "CreateUser": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 3,
+            "format": "email",
+            "title": "Email",
+            "description": "User's email address"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 3,
+            "title": "Name",
+            "description": "User's full name"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 8,
+            "format": "password",
+            "title": "Password",
+            "description": "User's password (will be hashed)",
+            "writeOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "name",
+          "password"
+        ],
+        "title": "CreateUser"
+      },
+      "CreateUserOauth": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 3,
+            "format": "email",
+            "title": "Email",
+            "description": "User's email address"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 3,
+            "title": "Name",
+            "description": "User's full name"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 8,
+            "format": "password",
+            "title": "Password",
+            "description": "User's password (will be hashed)",
+            "writeOnly": true
+          },
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "JWT token for authentication"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider",
+            "description": "OAuth provider (Google, Microsoft, etc.)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "name",
+          "password",
+          "token",
+          "provider"
+        ],
+        "title": "CreateUserOauth"
+      },
+      "CreateUserPostResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "User created successfully. Please check your email for verification."
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id",
+            "description": "Created user id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "title": "CreateUserPostResponse"
+      },
+      "DeleteUserDeleteResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "User is deleted successfully."
+          }
+        },
+        "type": "object",
+        "title": "DeleteUserDeleteResponse"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Error message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ErrorResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "InvalidEmailOrPassword": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "Invalid email or password!"
+          }
+        },
+        "type": "object",
+        "title": "InvalidEmailOrPassword"
+      },
+      "InvalidOrExpiredToken": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "Invalid or expired token!"
+          }
+        },
+        "type": "object",
+        "title": "InvalidOrExpiredToken"
+      },
+      "InvalidSessionToken": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "Session not found! You are not authenticated or your session has expired. Login before you can perform this action."
+          }
+        },
+        "type": "object",
+        "title": "InvalidSessionToken"
+      },
+      "Provider": {
+        "type": "string",
+        "enum": [
+          "google"
+        ],
+        "title": "Provider"
+      },
+      "UpdateUser": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 3,
+            "title": "Name",
+            "description": "User's new name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "UpdateUser"
+      },
+      "UpdateUserPutResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "User is updated successfully."
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserBase",
+            "description": "User details"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user"
+        ],
+        "title": "UpdateUserPutResponse"
+      },
+      "UserAlreadyExistsWithThisEmail": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "User already exists with this email!"
+          }
+        },
+        "type": "object",
+        "title": "UserAlreadyExistsWithThisEmail"
+      },
+      "UserBase": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id",
+            "description": "Unique id for the user"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "User's email address"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "User's full name"
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Joined At",
+            "description": "When the user was created"
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified",
+            "description": "Whether the user's email has been verified"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "email",
+          "name",
+          "joined_at",
+          "verified"
+        ],
+        "title": "UserBase"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
