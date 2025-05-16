@@ -22,6 +22,7 @@ fun getModuleManager(): ModuleManager {
 @Service(Service.Level.PROJECT)
 class ModuleManager() : PluginModule {
     private val aggregators = mutableListOf<PluginModule>()
+    private val contextAggregators = mutableListOf<PluginModule>()
 
     // List of submodules to be initialized
     private val submodules =
@@ -29,6 +30,10 @@ class ModuleManager() : PluginModule {
             BaseContextAggregator(),
             BaseTelemetryAggregator(),
         )
+
+    init {
+        initializeModules()
+    }
 
     // Initialize modules and aggregators
     override fun initializeModules() {
@@ -91,20 +96,6 @@ class ModuleManager() : PluginModule {
                 displayName = "Max Suggestions",
                 description = "Maximum number of suggestions to show",
             ),
-            Preference(
-                key = "mockInt",
-                type = PreferenceType.INT,
-                defaultValue = "1",
-                displayName = "To test INT preference",
-                description = "To test INT preference",
-            ),
-            Preference(
-                key = "mockDouble",
-                type = PreferenceType.DOUBLE,
-                defaultValue = "1.0",
-                displayName = "To test DOUBLE preference",
-                description = "To test DOUBLE preference",
-            ),
         )
     }
 
@@ -118,9 +109,5 @@ class ModuleManager() : PluginModule {
 
     fun getAggregators(): List<PluginModule> {
         return aggregators.toList()
-    }
-
-    init {
-        initializeModules()
     }
 }
