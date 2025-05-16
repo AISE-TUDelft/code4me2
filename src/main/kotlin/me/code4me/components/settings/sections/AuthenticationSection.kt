@@ -2,18 +2,25 @@ package me.code4me.components.settings.sections
 
 import com.intellij.openapi.components.service
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.FormBuilder
+import me.code4me.api.generated.infrastructure.ClientException
+import me.code4me.api.generated.infrastructure.ServerException
+import me.code4me.api.generated.model.Provider
 import me.code4me.components.settings.fields.CredentialField
 import me.code4me.components.settings.fields.FieldInfo
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
+import me.code4me.services.app.AppService
+import me.code4me.services.config.getConfig
 import me.code4me.services.state.AuthState
-import me.code4me.services.state.getAuthState
+import me.code4me.utils.GoogleAuthUtils
 import java.awt.BorderLayout
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JButton
@@ -110,6 +117,7 @@ class AuthenticationSection : SettingsSection {
     private val googleAuthButton = JButton("Login with Google")
 
     private val authState = service<AuthState>()
+    private val appService = service<AppService>()
 
     // Panel components
     private val fullNameLabel = JLabel("Full name:")
@@ -279,35 +287,113 @@ class AuthenticationSection : SettingsSection {
             }
 
         if (token != null) {
-            val authSettings = getAuthState()
-            authSettings.setToken(token)
-
-            // Store user information
-            authSettings.setUserEmail(emailField.text)
-
-            if (isSignup) {
-                authSettings.setUserName(fullNameField.text)
-            } else {
-                authSettings.setUserName("Retrieved User Name")
-            }
+            // Authentication successful - the session is now managed via cookies
+            // and the token is stored in AuthState by the AppService methods
 
             showSuccess("Authentication successful!")
 
             // Clear all fields for security reasons
             clearAllFields()
+
+            // Refresh the UI to show the authenticated state
+            requiresUIRefresh.set(true)
         }
     }
 
     private fun initiateGoogleAuth() {
-        GoogleAuthDialog().show()
+        val isSignup = !authModeToggle.isSelected
+        GoogleAuthDialog(this, isSignup).show()
+    }
+
+    /**
+     * Handles Google login for an existing user.
+     *
+     * @param email The user's email from Google.
+     * @param token The OAuth token from Google.
+     */
+    fun handleGoogleLogin(
+        email: String,
+        token: String,
+    ) {
+        try {
+            val response = appService.authenticateUserWithOAuth(email, token, Provider.google)
+            showSuccess("Google login successful!")
+            clearAllFields()
+            requiresUIRefresh.set(true)
+        } catch (e: ClientException) {
+            showError("Google login failed: ${e.message}")
+        } catch (e: ServerException) {
+            showError("Server error: ${e.message}")
+        } catch (e: Exception) {
+            showError("Unexpected error: ${e.message}")
+        }
+    }
+
+    /**
+     * Handles Google signup for a new user.
+     * Shows a dialog to collect a password.
+     *
+     * @param email The user's email from Google.
+     * @param token The OAuth token from Google.
+     */
+    fun handleGoogleSignup(
+        email: String,
+        token: String,
+    ) {
+        // Create a dialog to collect the password
+        val passwordDialog = PasswordCreationDialog(email)
+        if (passwordDialog.showAndGet()) {
+            val password = passwordDialog.getPassword()
+            val name = passwordDialog.getName()
+
+            try {
+                // Create the user with Google provider
+                val createResponse =
+                    appService.createUser(
+                        email = email,
+                        name = name,
+                        password = password,
+                        token = token,
+                        provider = Provider.google,
+                    )
+
+                // Then authenticate the user
+                val authResponse = appService.authenticateUserWithOAuth(email, token, Provider.google)
+
+                showSuccess("Google signup successful!")
+                clearAllFields()
+                requiresUIRefresh.set(true)
+            } catch (e: ClientException) {
+                showError("Google signup failed: ${e.message}")
+            } catch (e: ServerException) {
+                showError("Server error: ${e.message}")
+            } catch (e: Exception) {
+                showError("Unexpected error: ${e.message}")
+            }
+        }
     }
 
     private fun performLogin(
         email: String,
         password: String,
     ): String? {
-        // TODO : Actually make this call an api
-        return "TEST_KEY"
+        return try {
+            // Use the AppService to authenticate the user
+            // Authentication is now primarily handled via cookies
+            val response = appService.authenticateUser(email, password)
+            // Return the token from the response message as a fallback
+            // The session token is already stored in cookies and AuthState
+            response.message
+        } catch (e: ClientException) {
+            showError("Login failed: ${e.message}")
+            null
+        } catch (e: ServerException) {
+            showError("Server error: ${e.message}")
+            null
+        } catch (e: Exception) {
+            showError("Unexpected error: ${e.message}")
+            null
+        }
     }
 
     private fun performSignup(
@@ -315,8 +401,33 @@ class AuthenticationSection : SettingsSection {
         email: String,
         password: String,
     ): String? {
-        // TODO : Actually make this call an api
-        return "TEST_KEY"
+        return try {
+            // First create the user
+            val createResponse =
+                appService.createUser(
+                    email = email,
+                    name = fullName,
+                    password = password,
+                    provider = Provider.google,
+                )
+
+            // Then authenticate the user
+            // Authentication is now primarily handled via cookies
+            val authResponse = appService.authenticateUser(email, password)
+
+            // Return the token from the response message as a fallback
+            // The session token is already stored in cookies and AuthState
+            authResponse.message
+        } catch (e: ClientException) {
+            showError("Signup failed: ${e.message}")
+            null
+        } catch (e: ServerException) {
+            showError("Server error: ${e.message}")
+            null
+        } catch (e: Exception) {
+            showError("Unexpected error: ${e.message}")
+            null
+        }
     }
 
     private fun showError(message: String) {
@@ -336,20 +447,148 @@ class AuthenticationSection : SettingsSection {
     }
 }
 
-private class GoogleAuthDialog : DialogWrapper(true) {
+/**
+ * Dialog for collecting a password during Google signup.
+ */
+private class PasswordCreationDialog(private val email: String) : DialogWrapper(true) {
+    private val nameField = JBTextField()
+    private val passwordField = JBPasswordField()
+    private val confirmPasswordField = JBPasswordField()
+
     init {
-        title = "Google Authentication"
+        title = "Create Password"
         init()
     }
 
     override fun createCenterPanel(): JComponent {
         return panel {
             row {
-                label("Click the button below to open Google authentication in your browser")
+                label("Please create a password for your account")
             }
             row {
-                button("Open Google Auth") {
-                    TODO()
+                label("Email:")
+                label(email)
+            }
+            row {
+                label("Full Name:")
+                cell(nameField)
+                    .resizableColumn()
+                    .focused()
+            }
+            row {
+                label("Password:")
+                cell(passwordField)
+                    .resizableColumn()
+            }
+            row {
+                label("Confirm Password:")
+                cell(confirmPasswordField)
+                    .resizableColumn()
+            }
+        }
+    }
+
+    override fun doValidate(): ValidationInfo? {
+        if (nameField.text.isBlank()) {
+            return ValidationInfo("Full name is required", nameField)
+        }
+
+        if (passwordField.password.isEmpty()) {
+            return ValidationInfo("Password is required", passwordField)
+        }
+
+        if (!String(passwordField.password).equals(String(confirmPasswordField.password))) {
+            return ValidationInfo("Passwords do not match", confirmPasswordField)
+        }
+
+        return null
+    }
+
+    fun getPassword(): String {
+        return String(passwordField.password)
+    }
+
+    fun getName(): String {
+        return nameField.text
+    }
+}
+
+private class GoogleAuthDialog(
+    private val authSection: AuthenticationSection,
+    private val isSignup: Boolean,
+) : DialogWrapper(true) {
+    init {
+        title = if (isSignup) "Google Sign Up" else "Google Login"
+        init()
+    }
+
+    override fun createCenterPanel(): JComponent {
+        return panel {
+            row {
+                label("Click the button below to start the Google authentication process")
+            }
+            row {
+                button("Start Google Authentication") {
+                    try {
+                        val configService = getConfig()
+                        val googleOAuthConfig = configService.getGoogleOAuthConfig()
+
+                        if (googleOAuthConfig != null) {
+                            val clientId = googleOAuthConfig.clientId
+
+                            // Show a message to the user that the browser will open
+                            Messages.showInfoMessage(
+                                "Google authentication will open in your browser. " +
+                                    "Please complete the authentication process there.",
+                                "Google Authentication",
+                            )
+
+                            // Start the OAuth flow - this will open the browser and wait for the user to complete authentication
+                            try {
+                                val credential = GoogleAuthUtils.startAuthFlow(clientId)
+                                val accessToken = credential.accessToken
+                                val email = credential.toString().substringAfter("userId=").substringBefore(",")
+
+                                if (isSignup) {
+                                    // For signup, we need to collect a password
+                                    authSection.handleGoogleSignup(email, accessToken)
+                                } else {
+                                    // For login, we can authenticate directly
+                                    authSection.handleGoogleLogin(email, accessToken)
+                                }
+
+                                close(OK_EXIT_CODE)
+                            } catch (e: Exception) {
+                                val errorMsg = when {
+                                    e.message?.contains("client_secret is missing") == true -> 
+                                        "Failed to complete Google authentication. This may be a temporary issue with the Google OAuth service. Please try again later."
+                                    e.message?.contains("Authorization request denied") == true ->
+                                        "You cancelled the Google authentication process. Please try again if you want to authenticate with Google."
+                                    e.message?.contains("Connection refused") == true ->
+                                        "Could not establish connection to Google servers. Please check your internet connection and try again."
+                                    e.message?.contains("code_verifier") == true ->
+                                        "Failed to complete Google authentication due to a code verification issue. Please try again."
+                                    e.message?.contains("code_challenge") == true ->
+                                        "Failed to complete Google authentication due to a code challenge issue. Please try again."
+                                    else -> "Failed to complete Google authentication: ${e.message}"
+                                }
+                                Messages.showErrorDialog(
+                                    errorMsg,
+                                    "Authentication Error",
+                                )
+                            }
+                        } else {
+                            Messages.showErrorDialog(
+                                "Google OAuth configuration not found",
+                                "Configuration Error",
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Messages.showErrorDialog(
+                            "Error initiating Google authentication: ${e.message}",
+                            "Authentication Error",
+                        )
+                    }
                 }
             }
         }

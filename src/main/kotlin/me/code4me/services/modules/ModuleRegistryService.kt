@@ -2,7 +2,7 @@ package me.code4me.services.modules
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import me.code4me.services.config.ModuleConfigService
+import me.code4me.services.config.ConfigService
 import me.code4me.services.state.PrefState
 
 /**
@@ -10,7 +10,7 @@ import me.code4me.services.state.PrefState
  */
 @Service
 class ModuleRegistryService {
-    private val moduleConfigService = ModuleConfigService.getInstance()
+    private val configService = ConfigService.getInstance()
     private val modules: MutableList<PluginModule> = mutableListOf()
     private val enabledModuleIds: MutableSet<String> = mutableSetOf()
 
@@ -31,7 +31,7 @@ class ModuleRegistryService {
         modules.clear()
 
         // Load modules from configuration
-        val configModules = moduleConfigService.instantiateModules()
+        val configModules = configService.instantiateModules()
         modules.addAll(configModules)
 
         // Register modules with PrefState
@@ -39,7 +39,7 @@ class ModuleRegistryService {
             PrefState.registerModule(module)
 
             // Enable modules that are enabled by default in config
-            val moduleConfig = moduleConfigService.getAvailableModules().find { it.id == module.getPreferenceId() }
+            val moduleConfig = configService.getAvailableModules().find { it.id == module.getPreferenceId() }
             if (moduleConfig?.enabled == true) {
                 enableModule(module.getPreferenceId())
             }

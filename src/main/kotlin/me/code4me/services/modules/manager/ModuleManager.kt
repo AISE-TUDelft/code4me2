@@ -22,10 +22,7 @@ fun getModuleManager(): ModuleManager {
 @Service(Service.Level.PROJECT)
 class ModuleManager() : PluginModule {
     private val aggregators = mutableListOf<PluginModule>()
-
-    init {
-        initializeModules()
-    }
+    private val contextAggregators = mutableListOf<PluginModule>()
 
     // List of submodules to be initialized
     private val submodules =
@@ -33,6 +30,10 @@ class ModuleManager() : PluginModule {
             BaseContextAggregator(),
             BaseTelemetryAggregator(),
         )
+
+    init {
+        initializeModules()
+    }
 
     // Initialize modules and aggregators
     override fun initializeModules() {
