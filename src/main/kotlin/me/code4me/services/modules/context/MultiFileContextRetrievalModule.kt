@@ -8,7 +8,6 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
-import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
@@ -24,8 +23,8 @@ class MultiFileContextRetrievalModule : PluginModule {
 
     override fun collectData(request: InlineCompletionRequest): List<Record> {
         val moduleId = getPreferenceId()
-        //TODO switch to preferences once fully implemented
-        val includeContent =  true
+        // TODO switch to preferences once fully implemented
+        val includeContent = true
         val includeLocation = true
         val includePsi = true
 
@@ -46,7 +45,6 @@ class MultiFileContextRetrievalModule : PluginModule {
                     psiFile.findElementAt(caretOffset),
                     PsiElement::class.java,
                 )
-
 
             val location = if (includeLocation) file.path else ""
             val psi = if (includePsi) topElement?.text ?: "" else ""

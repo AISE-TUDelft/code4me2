@@ -14,7 +14,7 @@ class BaseContextAggregator : BaseAggregator() {
             BasicContextRetrievalModule(),
             EditorContextRetrievalModule(),
             FileContextRetrievalModule(),
-            MultiFileContextRetrievalModule()
+            MultiFileContextRetrievalModule(),
         )
 
     override fun getStatus(): String {
