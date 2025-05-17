@@ -96,6 +96,20 @@ class ModuleManager() : PluginModule {
                 displayName = "Max Suggestions",
                 description = "Maximum number of suggestions to show",
             ),
+            Preference(
+                key = "mockInt",
+                type = PreferenceType.INT,
+                defaultValue = "1",
+                displayName = "To test INT preference",
+                description = "To test INT preference",
+            ),
+            Preference(
+                key = "mockDouble",
+                type = PreferenceType.DOUBLE,
+                defaultValue = "1.0",
+                displayName = "To test DOUBLE preference",
+                description = "To test DOUBLE preference",
+            ),
         )
     }
 
