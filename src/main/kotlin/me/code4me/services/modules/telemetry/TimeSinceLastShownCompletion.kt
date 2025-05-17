@@ -5,6 +5,7 @@ import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
+import me.code4me.utils.configuration.PreferenceType
 
 /**
  * This module collects the time since the last shown completion.
@@ -43,10 +44,18 @@ class TimeSinceLastShownCompletion : PluginModule {
     }
 
     override fun getPreferenceList(): List<Preference> {
-        return emptyList()
+        return listOf(
+            Preference(
+                "telemetry.time_since_last_shown_completion",
+                PreferenceType.BOOLEAN,
+                "true",
+                "Enable Time Since Last Shown Completion Telemetry",
+                "Enable or disable time since last shown completion telemetry. This will send the time since the last shown completion to the server for analysis.",
+            ),
+        )
     }
 
     override fun getPreferenceClass(): PreferenceClass {
-        TODO("Not yet implemented")
+        return PreferenceClass.TELEMETRY
     }
 }

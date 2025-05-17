@@ -69,6 +69,6 @@ class TypingSpeed() : PluginModule {
     }
 
     override fun getPreferenceClass(): PreferenceClass {
-        TODO("Not yet implemented")
+        return PreferenceClass.TELEMETRY
     }
 }

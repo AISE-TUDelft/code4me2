@@ -33,23 +33,23 @@ class EditorContextRetrievalModule : PluginModule {
 
         val expanded = mutableMapOf<Record.EntryKey, Any>()
 
-        if (/*PrefState.getPreferenceValue(moduleId, "context.include.language")?.toBoolean() == true*/true) {//TODO change to preference once implemented
+        if (/*PrefState.getPreferenceValue(moduleId, "context.include.language")?.toBoolean() == true*/true) { // TODO change to preference once implemented
             val languageKey = Record.key<String>("context.language")
             expanded[languageKey] = psiFile.language.displayName
         }
-        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filename")?.toBoolean() == true*/true) { //TODO change to preference once implemented
+        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filename")?.toBoolean() == true*/true) { // TODO change to preference once implemented
             val fileNameKey = Record.key<String>("context.file.name")
-            expanded[fileNameKey] =  virtualFile.name
+            expanded[fileNameKey] = virtualFile.name
         }
-        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filepath")?.toBoolean() == true*/true) { //TODO change to preference once implemented
+        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filepath")?.toBoolean() == true*/true) { // TODO change to preference once implemented
             val filePathKey = Record.key<String>("context.file.path")
             expanded[filePathKey] = virtualFile.path
         }
-        if (/*PrefState.getPreferenceValue(moduleId, "context.include.caret.offset")?.toBoolean() == true*/true) { //TODO change to preference once implemented
+        if (/*PrefState.getPreferenceValue(moduleId, "context.include.caret.offset")?.toBoolean() == true*/true) { // TODO change to preference once implemented
             val caretOffsetKey = Record.key<Int>("context.caret.offset")
             expanded[caretOffsetKey] = caretModel.offset
         }
-        if (/*PrefState.getPreferenceValue(moduleId, "context.include.caret.position")?.toBoolean() == true*/true) {//TODO change to preference once implemented
+        if (/*PrefState.getPreferenceValue(moduleId, "context.include.caret.position")?.toBoolean() == true*/true) { // TODO change to preference once implemented
             val caretLineKey = Record.key<Int>("context.caret.line")
 
             val caretColumnKey = Record.key<Int>("context.caret.column")
