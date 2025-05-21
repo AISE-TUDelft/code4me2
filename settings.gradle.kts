@@ -3,3 +3,4 @@ plugins {
 }
 
 rootProject.name = "Code4Me V2"
+include("generated")

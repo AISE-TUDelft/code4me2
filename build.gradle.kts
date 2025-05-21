@@ -18,7 +18,7 @@ version = providers.gradleProperty("pluginVersion").get()
 
 // Set the JVM language level used to build the project.
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(21)
 }
 
 // Configure project's dependencies
@@ -33,7 +33,13 @@ repositories {
 
 // Dependencies are managed with Gradle version catalog - read more: https://docs.gradle.org/current/userguide/platforms.html#sub:version-catalog
 dependencies {
+    implementation(project(":generated"))
+
     implementation("com.typesafe:config:1.4.2") // Hocon configuration library
+    implementation("com.squareup.okhttp3:okhttp:4.12.0") // OkHttp library for HTTP requests
+    implementation("com.google.api-client:google-api-client:2.2.0") // Google API Client Library
+    implementation("com.google.oauth-client:google-oauth-client-jetty:1.34.1") // Google OAuth Client Library
+    implementation("com.google.auth:google-auth-library-oauth2-http:1.20.0") // Google Auth Library
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
 

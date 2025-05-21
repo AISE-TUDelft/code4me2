@@ -2,18 +2,25 @@ package me.code4me.components.settings.sections
 
 import com.intellij.openapi.components.service
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.FormBuilder
+import me.code4me.api.generated.infrastructure.ClientException
+import me.code4me.api.generated.infrastructure.ServerException
+import me.code4me.api.generated.model.Provider
 import me.code4me.components.settings.fields.CredentialField
 import me.code4me.components.settings.fields.FieldInfo
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
+import me.code4me.services.app.AppService
+import me.code4me.services.config.getConfig
 import me.code4me.services.state.AuthState
-import me.code4me.services.state.getAuthState
+import me.code4me.utils.GoogleAuthUtils
 import java.awt.BorderLayout
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JButton
@@ -110,6 +117,7 @@ class AuthenticationSection : SettingsSection {
     private val googleAuthButton = JButton("Login with Google")
 
     private val authState = service<AuthState>()
+    private val appService = service<AppService>()
 
     // Panel components
     private val fullNameLabel = JLabel("Full name:")
@@ -279,35 +287,73 @@ class AuthenticationSection : SettingsSection {
             }
 
         if (token != null) {
-            val authSettings = getAuthState()
-            authSettings.setToken(token)
-
-            // Store user information
-            authSettings.setUserEmail(emailField.text)
-
-            if (isSignup) {
-                authSettings.setUserName(fullNameField.text)
-            } else {
-                authSettings.setUserName("Retrieved User Name")
-            }
+            // Authentication successful - the session is now managed via cookies
+            // and the token is stored in AuthState by the AppService methods
 
             showSuccess("Authentication successful!")
 
             // Clear all fields for security reasons
             clearAllFields()
+
+            // Refresh the UI to show the authenticated state
+            requiresUIRefresh.set(true)
         }
     }
 
     private fun initiateGoogleAuth() {
-        GoogleAuthDialog().show()
+        val isSignup = !authModeToggle.isSelected
+        GoogleAuthDialog(this, isSignup).show()
+    }
+
+    /**
+     * Handles Google login for an existing user.
+     * Currently a stub as Google authentication is a future feature.
+     *
+     * @param email The user's email from Google.
+     * @param token The OAuth token from Google.
+     */
+    fun handleGoogleLogin(
+        email: String,
+        token: String,
+    ) {
+        showSuccess("Google authentication is not yet available in this version. This feature will be implemented in a future release.")
+    }
+
+    /**
+     * Handles Google signup for a new user.
+     * Currently a stub as Google authentication is a future feature.
+     *
+     * @param email The user's email from Google.
+     * @param token The OAuth token from Google.
+     */
+    fun handleGoogleSignup(
+        email: String,
+        token: String,
+    ) {
+        showSuccess("Google authentication is not yet available in this version. This feature will be implemented in a future release.")
     }
 
     private fun performLogin(
         email: String,
         password: String,
     ): String? {
-        // TODO : Actually make this call an api
-        return "TEST_KEY"
+        return try {
+            // Use the AppService to authenticate the user
+            // Authentication is now primarily handled via cookies
+            val response = appService.authenticateUser(email, password)
+            // Return the token from the response message as a fallback
+            // The session token is already stored in cookies and AuthState
+            response.message
+        } catch (e: ClientException) {
+            showError("Login failed: ${e.message}")
+            null
+        } catch (e: ServerException) {
+            showError("Server error: ${e.message}")
+            null
+        } catch (e: Exception) {
+            showError("Unexpected error: ${e.message}")
+            null
+        }
     }
 
     private fun performSignup(
@@ -315,8 +361,32 @@ class AuthenticationSection : SettingsSection {
         email: String,
         password: String,
     ): String? {
-        // TODO : Actually make this call an api
-        return "TEST_KEY"
+        return try {
+            // First create the user
+            val createResponse =
+                appService.createUser(
+                    email = email,
+                    name = fullName,
+                    password = password,
+                )
+
+            // Then authenticate the user
+            // Authentication is now primarily handled via cookies
+            val authResponse = appService.authenticateUser(email, password)
+
+            // Return the token from the response message as a fallback
+            // The session token is already stored in cookies and AuthState
+            authResponse.message
+        } catch (e: ClientException) {
+            showError("Signup failed: ${e.message}")
+            null
+        } catch (e: ServerException) {
+            showError("Server error: ${e.message}")
+            null
+        } catch (e: Exception) {
+            showError("Unexpected error: ${e.message}")
+            null
+        }
     }
 
     private fun showError(message: String) {
@@ -336,20 +406,95 @@ class AuthenticationSection : SettingsSection {
     }
 }
 
-private class GoogleAuthDialog : DialogWrapper(true) {
+/**
+ * Dialog for collecting a password during Google signup.
+ */
+private class PasswordCreationDialog(private val email: String) : DialogWrapper(true) {
+    private val nameField = JBTextField()
+    private val passwordField = JBPasswordField()
+    private val confirmPasswordField = JBPasswordField()
+
     init {
-        title = "Google Authentication"
+        title = "Create Password"
         init()
     }
 
     override fun createCenterPanel(): JComponent {
         return panel {
             row {
-                label("Click the button below to open Google authentication in your browser")
+                label("Please create a password for your account")
             }
             row {
-                button("Open Google Auth") {
-                    TODO()
+                label("Email:")
+                label(email)
+            }
+            row {
+                label("Full Name:")
+                cell(nameField)
+                    .resizableColumn()
+                    .focused()
+            }
+            row {
+                label("Password:")
+                cell(passwordField)
+                    .resizableColumn()
+            }
+            row {
+                label("Confirm Password:")
+                cell(confirmPasswordField)
+                    .resizableColumn()
+            }
+        }
+    }
+
+    override fun doValidate(): ValidationInfo? {
+        if (nameField.text.isBlank()) {
+            return ValidationInfo("Full name is required", nameField)
+        }
+
+        if (passwordField.password.isEmpty()) {
+            return ValidationInfo("Password is required", passwordField)
+        }
+
+        if (!String(passwordField.password).equals(String(confirmPasswordField.password))) {
+            return ValidationInfo("Passwords do not match", confirmPasswordField)
+        }
+
+        return null
+    }
+
+    fun getPassword(): String {
+        return String(passwordField.password)
+    }
+
+    fun getName(): String {
+        return nameField.text
+    }
+}
+
+private class GoogleAuthDialog(
+    private val authSection: AuthenticationSection,
+    private val isSignup: Boolean,
+) : DialogWrapper(true) {
+    init {
+        title = if (isSignup) "Google Sign Up" else "Google Login"
+        init()
+    }
+
+    override fun createCenterPanel(): JComponent {
+        return panel {
+            row {
+                label("Google Authentication - Coming Soon!")
+            }
+            row {
+                label("Google authentication is not yet available in this version.")
+            }
+            row {
+                label("This feature will be implemented in a future release.")
+            }
+            row {
+                button("OK") {
+                    close(OK_EXIT_CODE)
                 }
             }
         }
