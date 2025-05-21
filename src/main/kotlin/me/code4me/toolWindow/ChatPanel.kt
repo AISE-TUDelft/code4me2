@@ -2,30 +2,18 @@ package me.code4me.toolWindow
 
 import com.intellij.ui.components.JBScrollPane
 import java.awt.*
-import java.util.UUID
 import javax.swing.*
 import javax.swing.border.EmptyBorder
-
-/**
- * Data class representing a chat session with unique ID, title and messages.
- */
-data class ChatSession(
-    val id: String = UUID.randomUUID().toString(),
-    val title: String = "New Chat",
-    val messages: MutableList<Pair<String, String>> = mutableListOf(), // Pair<Sender, Message>
-)
 
 /**
  * Main chat panel that manages UI and chat interactions.
  */
 class ChatPanel : JPanel(BorderLayout()) {
-    // Constants
     companion object {
         private const val WELCOME_MESSAGE = "Welcome! Ask me anything."
         private const val USER_NAME = "You"
         private const val AI_NAME = "Code4Me2"
 
-        // UI Colors
         private val DARK_BG_COLOR = Color(43, 43, 43)
         private val BUTTON_BG_COLOR = Color(75, 75, 75)
         private val WEB_TOGGLE_INACTIVE = Color(60, 63, 65)
@@ -33,16 +21,13 @@ class ChatPanel : JPanel(BorderLayout()) {
         private val BORDER_COLOR = Color(120, 120, 120)
     }
 
-    // session management
-    private val chatSessions = mutableListOf<ChatSession>()
-    private var currentSession: ChatSession
-
-    // ui state
+    private val ioManager = ChatIOManager()
+    private val sessionManager = ChatSessionManager()
     private val selectedFiles = mutableListOf<String>()
     private var welcomeShown = true
     private var useWeb = false
 
-    // UI components
+    private val sessionTitleLabel = JLabel()
     private val chatHistory = StringBuilder()
     private val chatArea = JTextPane()
     private val inputField = JTextField()
@@ -52,13 +37,11 @@ class ChatPanel : JPanel(BorderLayout()) {
     private val topPanel = JPanel(FlowLayout(FlowLayout.LEFT))
 
     init {
-        // first session
-        currentSession = createNewSession()
-
         setupPanelLayout()
         setupUIComponents()
         initializeEventListeners()
         initializeChatHistory()
+        updateSessionTitle()
     }
 
     /**
@@ -74,14 +57,22 @@ class ChatPanel : JPanel(BorderLayout()) {
 
         val inputPanel = createInputPanel()
 
+        val centerPanel =
+            JPanel(BorderLayout()).apply {
+                add(scrollPane, BorderLayout.CENTER)
+            }
+
         add(topPanel, BorderLayout.NORTH)
-        add(scrollPane, BorderLayout.CENTER)
+        add(centerPanel, BorderLayout.CENTER)
         add(inputPanel, BorderLayout.SOUTH)
     }
 
-    /**
-     * sets up the input text field and web, file selection and send buttons
-     */
+    private fun updateSessionTitle() {
+        sessionTitleLabel.text = sessionManager.currentSession.title
+        sessionTitleLabel.font = Font("SansSerif", Font.BOLD, 16)
+        sessionTitleLabel.foreground = Color.WHITE
+    }
+
     private fun createInputPanel(): JPanel {
         return JPanel(BorderLayout()).apply {
             val rightPanel =
@@ -100,7 +91,6 @@ class ChatPanel : JPanel(BorderLayout()) {
      * Sets up individual UI components with their properties
      */
     private fun setupUIComponents() {
-        // Chat Area
         chatArea.apply {
             contentType = "text/html"
             isEditable = false
@@ -120,9 +110,24 @@ class ChatPanel : JPanel(BorderLayout()) {
             val newChatButton =
                 JButton("＋ New Chat").apply {
                     addActionListener {
-                        currentSession = createNewSession()
+                        val title =
+                            JOptionPane.showInputDialog(
+                                this@ChatPanel,
+                                "Enter a name for the new chat:",
+                                "New Chat",
+                                JOptionPane.PLAIN_MESSAGE,
+                            )
+                        sessionManager.createNewSession(title)
+                        welcomeShown = true
                         refreshChatDisplay()
+                        updateSessionTitle()
                     }
+                }
+
+            val sessionTitlePanel =
+                JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+                    background = DARK_BG_COLOR
+                    add(sessionTitleLabel)
                 }
 
             val historyButton =
@@ -130,6 +135,7 @@ class ChatPanel : JPanel(BorderLayout()) {
                     addActionListener { showHistoryPopup(this) }
                 }
 
+            add(sessionTitlePanel, BorderLayout.NORTH)
             add(newChatButton)
             add(historyButton)
         }
@@ -140,11 +146,12 @@ class ChatPanel : JPanel(BorderLayout()) {
      */
     private fun showHistoryPopup(component: JComponent) {
         val popup = JPopupMenu()
-        for (session in chatSessions) {
+        for (session in sessionManager.getAllSessions()) {
             val item = JMenuItem(session.title)
             item.addActionListener {
-                currentSession = session
+                sessionManager.switchToSession(session)
                 refreshChatDisplay()
+                updateSessionTitle()
             }
             popup.add(item)
         }
@@ -163,7 +170,7 @@ class ChatPanel : JPanel(BorderLayout()) {
             isOpaque = true
             background = BUTTON_BG_COLOR
             foreground = Color.WHITE
-            border = RoundedBorder(10)
+            border = roundedBorder(10)
 
             addActionListener { showFileSelectionPopup() }
         }
@@ -173,7 +180,7 @@ class ChatPanel : JPanel(BorderLayout()) {
      * Shows the file selection popup
      */
     private fun showFileSelectionPopup() {
-        val openFiles = getOpenEditorFiles()
+        val openFiles = ioManager.getOpenEditorFiles()
         val popup = JPopupMenu()
 
         for (file in openFiles) {
@@ -192,7 +199,7 @@ class ChatPanel : JPanel(BorderLayout()) {
     }
 
     /**
-     * Sets up the web  button
+     * sets up the web  button
      */
     private fun setupWebButton() {
         webButton.apply {
@@ -203,13 +210,13 @@ class ChatPanel : JPanel(BorderLayout()) {
             foreground = Color.WHITE
             preferredSize = Dimension(50, 28)
             font = Font("SansSerif", Font.PLAIN, 12)
-            border = RoundedBorder(15)
+            border = roundedBorder(15)
             horizontalAlignment = SwingConstants.CENTER
         }
     }
 
     /**
-     * Initializes all event listeners
+     * Initializes some of the vent listeners
      */
     private fun initializeEventListeners() {
         sendButton.addActionListener { sendMessage() }
@@ -221,33 +228,11 @@ class ChatPanel : JPanel(BorderLayout()) {
         }
     }
 
-    /**
-     * Creates a new chat session and adds it to the list
-     */
-    private fun createNewSession(): ChatSession {
-        val session = ChatSession()
-        chatSessions.add(session)
-        return session
-    }
-
-    /**
-     * Initializes the chat history with welcome message
-     */
     private fun initializeChatHistory() {
         chatHistory.clear()
         chatHistory.append("<html><body style='font-family:sans-serif;'>")
         chatHistory.append("<div style='text-align:center; font-size: 16px; margin-top: 20px; margin-bottom: 20px;'>$WELCOME_MESSAGE</div>")
         updateChatDisplay()
-    }
-
-    /**
-     * Returns a list of open editor files
-     * TODO: Implement actual file retrieval
-     */
-    private fun getOpenEditorFiles(): List<String> {
-        // TODO add search (all project files)
-        // TODO add actual open files
-        return listOf("Main.kt", "Utils.kt", "ChatPanel.kt", "AIService.kt")
     }
 
     /**
@@ -262,65 +247,39 @@ class ChatPanel : JPanel(BorderLayout()) {
         }
         appendMessage(USER_NAME, message)
         inputField.text = ""
-
-        val aiResponse = getAIResponse(message, useWeb, selectedFiles.toList())
+        //TODO coroutines
+        val aiResponse = ioManager.getAIResponse(message, useWeb, selectedFiles.toList())
         appendMessage(AI_NAME, aiResponse)
     }
 
-    /**
-     * Gets AI response based on the input and context
-     * TODO: Implement actual AI response logic
-     */
-    private fun getAIResponse(
-        query: String,
-        useWeb: Boolean,
-        selectedFiles: List<String>,
-    ): String {
-        return "Query: $query | Web: $useWeb | Files: ${selectedFiles.joinToString()}"
-    }
-
-    /**
-     * Appends a message to the current session and refreshes the display
-     */
     private fun appendMessage(
         sender: String,
         message: String,
     ) {
-        currentSession.messages.add(sender to message)
+        sessionManager.currentSession.messages.add(sender to message)
         refreshChatDisplay()
     }
 
-    /**
-     * Removes the welcome message from the chat history
-     */
     private fun removeWelcomeMessage() {
         chatHistory.clear()
         chatHistory.append("<html><body style='font-family:sans-serif;'>")
     }
 
-    /**
-     * Refreshes the chat display with all messages from the current session
-     */
     private fun refreshChatDisplay() {
         chatHistory.clear()
         chatHistory.append("<html><body style='font-family:sans-serif;'>")
-
-        for ((sender, message) in currentSession.messages) {
+        for ((sender, message) in sessionManager.currentSession.messages) {
             val formattedMessage = formatMessageWithCodeBlocks(message)
             chatHistory.append(
                 "<div style='margin-top:10px;'>" +
                     "<div style='font-weight:bold;'>$sender</div>" +
                     "<div>$formattedMessage</div>" +
-                    "Chat are we cooked?</div>",
+                    "</div>",
             )
         }
-
         updateChatDisplay()
     }
 
-    /**
-     * Updates the chat area with the current chat history
-     */
     private fun updateChatDisplay() {
         chatArea.text = chatHistory.toString() + "</body></html>"
         chatArea.caretPosition = chatArea.document.length
@@ -330,28 +289,30 @@ class ChatPanel : JPanel(BorderLayout()) {
      * Formats a message to properly display code blocks
      */
     private fun formatMessageWithCodeBlocks(text: String): String {
-        return text //Todo do actual formatting, previous implementation didn't work.
+        return text // Todo do actual formatting, previous implementation didn't work.
     }
 
     /**
-     * Custom rounded border class for buttons
+     *  rounded borders for buttons
      */
-    class RoundedBorder(private val radius: Int) : javax.swing.border.Border {
-        override fun getBorderInsets(c: Component): Insets = Insets(4, 10, 4, 10)
+    private fun roundedBorder(radius: Int): javax.swing.border.Border {
+        return object : javax.swing.border.Border {
+            override fun getBorderInsets(c: Component) = Insets(4, 10, 4, 10)
 
-        override fun isBorderOpaque(): Boolean = false
+            override fun isBorderOpaque() = false
 
-        override fun paintBorder(
-            c: Component,
-            g: Graphics,
-            x: Int,
-            y: Int,
-            width: Int,
-            height: Int,
-        ) {
-            val g2 = g as Graphics2D
-            g2.color = BORDER_COLOR
-            g2.drawRoundRect(x, y, width - 1, height - 1, radius, radius)
+            override fun paintBorder(
+                c: Component,
+                g: Graphics,
+                x: Int,
+                y: Int,
+                width: Int,
+                height: Int,
+            ) {
+                val g2 = g as Graphics2D
+                g2.color = BORDER_COLOR
+                g2.drawRoundRect(x, y, width - 1, height - 1, radius, radius)
+            }
         }
     }
 }
