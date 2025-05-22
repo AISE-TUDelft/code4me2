@@ -1,4 +1,4 @@
-package me.code4me.toolWindow
+package me.code4me.toolWindow.managers
 
 import java.util.UUID
 
