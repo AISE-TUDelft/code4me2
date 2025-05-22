@@ -559,19 +559,20 @@ private class GoogleAuthDialog(
 
                                 close(OK_EXIT_CODE)
                             } catch (e: Exception) {
-                                val errorMsg = when {
-                                    e.message?.contains("client_secret is missing") == true -> 
-                                        "Failed to complete Google authentication. This may be a temporary issue with the Google OAuth service. Please try again later."
-                                    e.message?.contains("Authorization request denied") == true ->
-                                        "You cancelled the Google authentication process. Please try again if you want to authenticate with Google."
-                                    e.message?.contains("Connection refused") == true ->
-                                        "Could not establish connection to Google servers. Please check your internet connection and try again."
-                                    e.message?.contains("code_verifier") == true ->
-                                        "Failed to complete Google authentication due to a code verification issue. Please try again."
-                                    e.message?.contains("code_challenge") == true ->
-                                        "Failed to complete Google authentication due to a code challenge issue. Please try again."
-                                    else -> "Failed to complete Google authentication: ${e.message}"
-                                }
+                                val errorMsg =
+                                    when {
+                                        e.message?.contains("client_secret is missing") == true ->
+                                            "Failed to complete Google authentication. This may be a temporary issue with the Google OAuth service. Please try again later."
+                                        e.message?.contains("Authorization request denied") == true ->
+                                            "You cancelled the Google authentication process. Please try again if you want to authenticate with Google."
+                                        e.message?.contains("Connection refused") == true ->
+                                            "Could not establish connection to Google servers. Please check your internet connection and try again."
+                                        e.message?.contains("code_verifier") == true ->
+                                            "Failed to complete Google authentication due to a code verification issue. Please try again."
+                                        e.message?.contains("code_challenge") == true ->
+                                            "Failed to complete Google authentication due to a code challenge issue. Please try again."
+                                        else -> "Failed to complete Google authentication: ${e.message}"
+                                    }
                                 Messages.showErrorDialog(
                                     errorMsg,
                                     "Authentication Error",
