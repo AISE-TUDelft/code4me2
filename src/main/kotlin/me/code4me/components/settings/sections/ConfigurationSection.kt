@@ -22,7 +22,17 @@ import java.awt.Font
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.GridLayout
-import javax.swing.*
+import javax.swing.BorderFactory
+import javax.swing.DefaultListCellRenderer
+import javax.swing.JButton
+import javax.swing.JCheckBox
+import javax.swing.JLabel
+import javax.swing.JOptionPane
+import javax.swing.JPanel
+import javax.swing.JScrollPane
+import javax.swing.JSeparator
+import javax.swing.ListCellRenderer
+import javax.swing.ListSelectionModel
 import javax.swing.border.EmptyBorder
 import javax.swing.text.AttributeSet
 import javax.swing.text.DocumentFilter
@@ -190,150 +200,196 @@ class ConfigurationSection : SettingsSection {
                             textField
                         }
                         PreferenceType.INT, PreferenceType.LONG -> {
-                            val intField = JBTextField(PrefState.getPreferenceValue(selectedModule.getPreferenceId(), pref.key) ?: pref.defaultValue)
-                            val warningHint = JBLabel().apply {
-                                foreground = UIUtil.getErrorForeground()
-                                isVisible = false
-                            }
+                            val intField =
+                                JBTextField(PrefState.getPreferenceValue(selectedModule.getPreferenceId(), pref.key) ?: pref.defaultValue)
+                            val warningHint =
+                                JBLabel().apply {
+                                    foreground = UIUtil.getErrorForeground()
+                                    isVisible = false
+                                }
 
                             // Allow any input while typing
-                            (intField.document as PlainDocument).documentFilter = object : DocumentFilter() {
-                                override fun insertString(fb: FilterBypass, offset: Int, string: String?, attr: AttributeSet?) {
-                                    if (string?.matches(Regex("-?\\d*")) == true || string?.isEmpty() == true) {
-                                        super.insertString(fb, offset, string, attr)
+                            (intField.document as PlainDocument).documentFilter =
+                                object : DocumentFilter() {
+                                    override fun insertString(
+                                        fb: FilterBypass,
+                                        offset: Int,
+                                        string: String?,
+                                        attr: AttributeSet?,
+                                    ) {
+                                        if (string?.matches(Regex("-?\\d*")) == true || string?.isEmpty() == true) {
+                                            super.insertString(fb, offset, string, attr)
+                                            warningHint.isVisible = false
+                                        }
+                                    }
+
+                                    override fun replace(
+                                        fb: FilterBypass,
+                                        offset: Int,
+                                        length: Int,
+                                        text: String?,
+                                        attrs: AttributeSet?,
+                                    ) {
+                                        if (text?.matches(Regex("-?\\d*")) == true || text?.isEmpty() == true) {
+                                            super.replace(fb, offset, length, text, attrs)
+                                            warningHint.isVisible = false
+                                        }
+                                    }
+
+                                    override fun remove(
+                                        fb: FilterBypass,
+                                        offset: Int,
+                                        length: Int,
+                                    ) {
+                                        super.remove(fb, offset, length)
                                         warningHint.isVisible = false
                                     }
                                 }
-
-                                override fun replace(fb: FilterBypass, offset: Int, length: Int, text: String?, attrs: AttributeSet?) {
-                                    if (text?.matches(Regex("-?\\d*")) == true || text?.isEmpty() == true) {
-                                        super.replace(fb, offset, length, text, attrs)
-                                        warningHint.isVisible = false
-                                    }
-                                }
-
-                                override fun remove(fb: FilterBypass, offset: Int, length: Int) {
-                                    super.remove(fb, offset, length)
-                                    warningHint.isVisible = false
-                                }
-                            }
 
                             // Validate on focus loss
-                            intField.addFocusListener(object : java.awt.event.FocusAdapter() {
-                                override fun focusLost(e: java.awt.event.FocusEvent?) {
-                                    val text = intField.text
-                                    if (text.isEmpty()) {
-                                        warningHint.isVisible = false
-                                        return
-                                    }
-
-                                    try {
-                                        val value = when (pref.type) {
-                                            PreferenceType.INT -> text.toInt()
-                                            PreferenceType.LONG -> text.toLong()
-                                            else -> return
+                            intField.addFocusListener(
+                                object : java.awt.event.FocusAdapter() {
+                                    override fun focusLost(e: java.awt.event.FocusEvent?) {
+                                        val text = intField.text
+                                        if (text.isEmpty()) {
+                                            warningHint.isVisible = false
+                                            return
                                         }
-                                        PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value.toString())
-                                        warningHint.isVisible = false
-                                    } catch (ex: NumberFormatException) {
-                                        val typeName = if (pref.type == PreferenceType.INT) "integer" else "long"
-                                        warningHint.text = "Invalid $typeName value"
-                                        warningHint.isVisible = true
+
+                                        try {
+                                            val value =
+                                                when (pref.type) {
+                                                    PreferenceType.INT -> text.toInt()
+                                                    PreferenceType.LONG -> text.toLong()
+                                                    else -> return
+                                                }
+                                            PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value.toString())
+                                            warningHint.isVisible = false
+                                        } catch (ex: NumberFormatException) {
+                                            val typeName = if (pref.type == PreferenceType.INT) "integer" else "long"
+                                            warningHint.text = "Invalid $typeName value"
+                                            warningHint.isVisible = true
+                                        }
+                                    }
+                                },
+                            )
+
+                            val panel =
+                                JPanel(BorderLayout(5, 0)).apply {
+                                    add(intField, BorderLayout.CENTER)
+                                    add(warningHint, BorderLayout.EAST)
+                                }
+
+                            val svf =
+                                object : TextField(intField) {
+                                    override fun getStateValue(): String? {
+                                        return intField.text.takeIf { it.isNotEmpty() }
+                                    }
+
+                                    override fun setStateValue(value: String) {
+                                        intField.text = value
+                                        if (value.isNotEmpty()) {
+                                            PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value)
+                                        }
                                     }
                                 }
-                            })
-
-                            val panel = JPanel(BorderLayout(5, 0)).apply {
-                                add(intField, BorderLayout.CENTER)
-                                add(warningHint, BorderLayout.EAST)
-                            }
-
-                            val svf = object : TextField(intField) {
-                                override fun getStateValue(): String? {
-                                    return intField.text.takeIf { it.isNotEmpty() }
-                                }
-
-                                override fun setStateValue(value: String) {
-                                    intField.text = value
-                                    if (value.isNotEmpty()) {
-                                        PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value)
-                                    }
-                                }
-                            }
                             modulePreferenceFields["${selectedModule.getPreferenceId()}.${pref.key}"] = svf
                             panel
                         }
                         PreferenceType.DOUBLE, PreferenceType.FLOAT -> {
-                            val floatField = JBTextField(PrefState.getPreferenceValue(selectedModule.getPreferenceId(), pref.key) ?: pref.defaultValue)
-                            val warningHint = JBLabel().apply {
-                                foreground = UIUtil.getErrorForeground()
-                                isVisible = false
-                            }
+                            val floatField =
+                                JBTextField(PrefState.getPreferenceValue(selectedModule.getPreferenceId(), pref.key) ?: pref.defaultValue)
+                            val warningHint =
+                                JBLabel().apply {
+                                    foreground = UIUtil.getErrorForeground()
+                                    isVisible = false
+                                }
 
                             // Allow decimal numbers while typing
-                            (floatField.document as PlainDocument).documentFilter = object : DocumentFilter() {
-                                override fun insertString(fb: FilterBypass, offset: Int, string: String?, attr: AttributeSet?) {
-                                    if (string?.matches(Regex("-?\\d*\\.?\\d*")) == true || string?.isEmpty() == true) {
-                                        super.insertString(fb, offset, string, attr)
+                            (floatField.document as PlainDocument).documentFilter =
+                                object : DocumentFilter() {
+                                    override fun insertString(
+                                        fb: FilterBypass,
+                                        offset: Int,
+                                        string: String?,
+                                        attr: AttributeSet?,
+                                    ) {
+                                        if (string?.matches(Regex("-?\\d*\\.?\\d*")) == true || string?.isEmpty() == true) {
+                                            super.insertString(fb, offset, string, attr)
+                                            warningHint.isVisible = false
+                                        }
+                                    }
+
+                                    override fun replace(
+                                        fb: FilterBypass,
+                                        offset: Int,
+                                        length: Int,
+                                        text: String?,
+                                        attrs: AttributeSet?,
+                                    ) {
+                                        if (text?.matches(Regex("-?\\d*\\.?\\d*")) == true || text?.isEmpty() == true) {
+                                            super.replace(fb, offset, length, text, attrs)
+                                            warningHint.isVisible = false
+                                        }
+                                    }
+
+                                    override fun remove(
+                                        fb: FilterBypass,
+                                        offset: Int,
+                                        length: Int,
+                                    ) {
+                                        super.remove(fb, offset, length)
                                         warningHint.isVisible = false
                                     }
                                 }
-
-                                override fun replace(fb: FilterBypass, offset: Int, length: Int, text: String?, attrs: AttributeSet?) {
-                                    if (text?.matches(Regex("-?\\d*\\.?\\d*")) == true || text?.isEmpty() == true) {
-                                        super.replace(fb, offset, length, text, attrs)
-                                        warningHint.isVisible = false
-                                    }
-                                }
-
-                                override fun remove(fb: FilterBypass, offset: Int, length: Int) {
-                                    super.remove(fb, offset, length)
-                                    warningHint.isVisible = false
-                                }
-                            }
 
                             // Validate on focus loss
-                            floatField.addFocusListener(object : java.awt.event.FocusAdapter() {
-                                override fun focusLost(e: java.awt.event.FocusEvent?) {
-                                    val text = floatField.text
-                                    if (text.isEmpty()) {
-                                        warningHint.isVisible = false
-                                        return
-                                    }
-
-                                    try {
-                                        val value = when (pref.type) {
-                                            PreferenceType.DOUBLE -> text.toDouble()
-                                            PreferenceType.FLOAT -> text.toFloat()
-                                            else -> return
+                            floatField.addFocusListener(
+                                object : java.awt.event.FocusAdapter() {
+                                    override fun focusLost(e: java.awt.event.FocusEvent?) {
+                                        val text = floatField.text
+                                        if (text.isEmpty()) {
+                                            warningHint.isVisible = false
+                                            return
                                         }
-                                        PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value.toString())
-                                        warningHint.isVisible = false
-                                    } catch (ex: NumberFormatException) {
-                                        val typeName = if (pref.type == PreferenceType.DOUBLE) "decimal" else "float"
-                                        warningHint.text = "Invalid $typeName value"
-                                        warningHint.isVisible = true
+
+                                        try {
+                                            val value =
+                                                when (pref.type) {
+                                                    PreferenceType.DOUBLE -> text.toDouble()
+                                                    PreferenceType.FLOAT -> text.toFloat()
+                                                    else -> return
+                                                }
+                                            PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value.toString())
+                                            warningHint.isVisible = false
+                                        } catch (ex: NumberFormatException) {
+                                            val typeName = if (pref.type == PreferenceType.DOUBLE) "decimal" else "float"
+                                            warningHint.text = "Invalid $typeName value"
+                                            warningHint.isVisible = true
+                                        }
+                                    }
+                                },
+                            )
+
+                            val panel =
+                                JPanel(BorderLayout(5, 0)).apply {
+                                    add(floatField, BorderLayout.CENTER)
+                                    add(warningHint, BorderLayout.EAST)
+                                }
+
+                            val svf =
+                                object : TextField(floatField) {
+                                    override fun getStateValue(): String? {
+                                        return floatField.text.takeIf { it.isNotEmpty() }
+                                    }
+
+                                    override fun setStateValue(value: String) {
+                                        floatField.text = value
+                                        if (value.isNotEmpty()) {
+                                            PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value)
+                                        }
                                     }
                                 }
-                            })
-
-                            val panel = JPanel(BorderLayout(5, 0)).apply {
-                                add(floatField, BorderLayout.CENTER)
-                                add(warningHint, BorderLayout.EAST)
-                            }
-
-                            val svf = object : TextField(floatField) {
-                                override fun getStateValue(): String? {
-                                    return floatField.text.takeIf { it.isNotEmpty() }
-                                }
-
-                                override fun setStateValue(value: String) {
-                                    floatField.text = value
-                                    if (value.isNotEmpty()) {
-                                        PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value)
-                                    }
-                                }
-                            }
                             modulePreferenceFields["${selectedModule.getPreferenceId()}.${pref.key}"] = svf
                             panel
                         }
