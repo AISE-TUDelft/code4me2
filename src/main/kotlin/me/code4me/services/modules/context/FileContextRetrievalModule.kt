@@ -18,9 +18,6 @@ class FileContextRetrievalModule : PluginModule {
         val fileText = document.text
         val caretOffset = editor.caretModel.offset
 
-
-
-
         val expanded = mutableMapOf<Record.EntryKey, Any>()
 
         // TODO: change to use preference when properly implemented
