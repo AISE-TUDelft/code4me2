@@ -8,7 +8,8 @@ import java.util.UUID
 data class ChatSession(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "New Chat",
-    val messages: MutableList<Pair<String, String>> = mutableListOf(), // sender, messanger
+    val messages: MutableList<Pair<String, String>> = mutableListOf(),
+    // sender, messanger
 )
 
 class ChatSessionManager {

@@ -1,28 +1,27 @@
 package me.code4me.toolWindow
-
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.ui.components.JBPanel
+import com.intellij.util.ui.JBUI
 import me.code4me.toolWindow.chatPanelUI.ChatDisplayPanel
 import me.code4me.toolWindow.chatPanelUI.InputPanel
 import me.code4me.toolWindow.chatPanelUI.TopBarPanel
 import me.code4me.toolWindow.managers.ChatIOManager
 import me.code4me.toolWindow.managers.ChatSessionManager
 import me.code4me.toolWindow.utils.ChatMessageRenderer
-import java.awt.*
-import javax.swing.*
-import javax.swing.border.EmptyBorder
+import java.awt.BorderLayout
+import java.awt.Color
+import javax.swing.BoxLayout
+import javax.swing.JCheckBox
+import javax.swing.JPanel
 
 /**
  * Main chat panel that manages UI and chat interactions.
  */
-class ChatPanel : JPanel(BorderLayout()) {
+class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     companion object {
         private const val WELCOME_MESSAGE = "Welcome! Ask me anything."
         private const val USER_NAME = "You"
         private const val AI_NAME = "Code4Me2"
-
-        private val DARK_BG_COLOR = Color(43, 43, 43)
-        private val BUTTON_BG_COLOR = Color(75, 75, 75)
-        private val WEB_TOGGLE_INACTIVE = Color(60, 63, 65)
-        private val WEB_TOGGLE_ACTIVE = Color(75, 110, 175)
         private val BORDER_COLOR = Color(120, 120, 120)
     }
 
@@ -47,7 +46,7 @@ class ChatPanel : JPanel(BorderLayout()) {
      *  basic panel layout and borders
      */
     private fun setupPanelLayout() {
-        border = EmptyBorder(10, 10, 10, 10)
+        border = JBUI.Borders.empty(10)
 
         inputPanel =
             InputPanel(
@@ -72,21 +71,32 @@ class ChatPanel : JPanel(BorderLayout()) {
      */
     private fun showFileSelectionPopup() {
         val openFiles = ioManager.getOpenEditorFiles()
-        val popup = JPopupMenu()
 
-        for (file in openFiles) {
-            val item = JCheckBoxMenuItem(file, selectedFiles.contains(file))
-            item.addActionListener {
-                if (item.state) {
-                    selectedFiles.add(file)
-                } else {
-                    selectedFiles.remove(file)
+        val panel = JPanel()
+        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+
+        val checkBoxes =
+            openFiles.map { file ->
+                JCheckBox(file, selectedFiles.contains(file)).apply {
+                    addActionListener {
+                        if (isSelected) {
+                            selectedFiles.add(file)
+                        } else {
+                            selectedFiles.remove(file)
+                        }
+                    }
                 }
             }
-            popup.add(item)
-        }
 
-        popup.show(inputPanel, inputPanel.width - popup.preferredSize.width, inputPanel.height)
+        checkBoxes.forEach(panel::add)
+
+        JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(panel, panel)
+            .setTitle("Select Files")
+            .setResizable(true)
+            .setMovable(true)
+            .createPopup()
+            .showInCenterOf(inputPanel)
     }
 
     private fun initializeChatHistory() {

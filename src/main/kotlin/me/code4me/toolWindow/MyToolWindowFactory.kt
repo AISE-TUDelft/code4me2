@@ -1,16 +1,10 @@
 package me.code4me.toolWindow
 
-import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBPanel
 import com.intellij.ui.content.ContentFactory
-import me.code4me.MyBundle
-import me.code4me.services.MyProjectService
-import javax.swing.JButton
 
 class MyToolWindowFactory : ToolWindowFactory {
     init {
@@ -28,5 +22,4 @@ class MyToolWindowFactory : ToolWindowFactory {
     }
 
     override fun shouldBeAvailable(project: Project) = true
-
 }

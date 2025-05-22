@@ -1,12 +1,15 @@
 package me.code4me.toolWindow.chatPanelUI
 
+import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import me.code4me.toolWindow.utils.ChatMessageRenderer
-import java.awt.*
-import javax.swing.*
+import java.awt.BorderLayout
+import java.awt.Color
+import javax.swing.JTextPane
+import javax.swing.ScrollPaneConstants
 import javax.swing.border.EmptyBorder
 
-class ChatDisplayPanel : JPanel(BorderLayout()) {
+class ChatDisplayPanel : JBPanel<ChatDisplayPanel>(BorderLayout()) {
     private val chatArea =
         JTextPane().apply {
             contentType = "text/html"

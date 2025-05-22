@@ -1,7 +1,18 @@
 package me.code4me.toolWindow.chatPanelUI
 
-import java.awt.*
-import javax.swing.*
+import com.intellij.ui.components.JBPanel
+import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Component
+import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.Font
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.Insets
+import javax.swing.JButton
+import javax.swing.JTextField
+import javax.swing.SwingConstants
 import javax.swing.border.Border
 
 class InputPanel(
@@ -9,7 +20,7 @@ class InputPanel(
     private val onWebToggle: (Boolean) -> Unit,
     private val onFileSelect: () -> Unit,
     private val borderColor: Color,
-) : JPanel(BorderLayout()) {
+) : JBPanel<InputPanel>(BorderLayout()) {
     val inputField = JTextField()
     private val sendButton = JButton("Send")
     private val plusButton = JButton("+")
@@ -21,7 +32,7 @@ class InputPanel(
         background = Color(43, 43, 43)
 
         val rightPanel =
-            JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+            JBPanel<Nothing>(FlowLayout(FlowLayout.RIGHT)).apply {
                 isOpaque = false
                 add(plusButton)
                 add(webButton)
