@@ -1,5 +1,3 @@
-import me.code4me.services.modules.context.BasicContextRetrievalModule
-import me.code4me.services.modules.telemetry.BasicTelemetryModule
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

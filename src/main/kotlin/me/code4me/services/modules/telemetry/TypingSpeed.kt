@@ -4,7 +4,7 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.components.service
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
-import me.code4me.services.modules.telemetry.typingSpeedHelpers.TypingSpeedService
+import me.code4me.services.modules.telemetry.helpers.typing.speed.TypingSpeedService
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
@@ -30,7 +30,10 @@ class TypingSpeed() : PluginModule {
         val trackingService: TypingSpeedService = project.service()
 
         val cpsKey = Record.key<Double>("typing_speed_cps")
-        val windowSize = PrefState.getPreferenceValue(getPreferenceId(), "telemetry.typing_speed.window_size")?.toInt() ?: 10
+        val windowSize =
+            PrefState
+                .getPreferenceValue(getPreferenceId(), "telemetry.typing_speed.window_size")?.
+                toInt() ?: 10
         val cps = trackingService.getTypingSpeed(windowSize).toDouble()
 
         record.put(cpsKey, cps)

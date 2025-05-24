@@ -112,9 +112,6 @@ class ConfigurationSection : SettingsSection {
         storeCompletionField.isSelected = getPrefState().storeCompletions
         storeContextField.isSelected = getPrefState().storeContext
 
-        // Register sample modules for testing
-        registerSampleModules()
-
         // Initialize module list
         updateModuleList()
 
@@ -124,13 +121,6 @@ class ConfigurationSection : SettingsSection {
                 updateModulePreferencesPanel()
             }
         }
-    }
-
-    private fun registerSampleModules() {
-        // Sample module 1: Code Completion
-        val mainModule = getModuleManager()
-
-        PrefState.registerModule(mainModule)
     }
 
     private fun updateModuleList() {

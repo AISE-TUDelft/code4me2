@@ -6,10 +6,11 @@ import com.intellij.openapi.components.SimplePersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.util.xmlb.annotations.MapAnnotation
 import com.intellij.util.xmlb.annotations.Tag
-import me.code4me.services.modules.ModuleRegistryService
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.utils.configuration.Preference
 import kotlin.reflect.KProperty
 
@@ -54,13 +55,18 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
         }
 
         /**
-         * Retrieves all available modules from the ModuleRegistryService.
+         * Retrieves all available modules from the ModuleManager.
          *
          * @return A list of available [PluginModule] instances.
          */
         fun getAvailableModules(): List<PluginModule> {
-            // Use ModuleRegistryService to get available modules
-            return service<ModuleRegistryService>().getAvailableModules()
+            // Get the active project and use ModuleManager to get available modules
+            val activeProject = ProjectManager.getInstance().openProjects.firstOrNull()
+            return if (activeProject != null) {
+                getModuleManager(activeProject).getAvailableModules()
+            } else {
+                emptyList()
+            }
         }
 
         /**

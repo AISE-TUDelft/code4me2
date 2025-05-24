@@ -13,10 +13,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 abstract class BaseAggregator : PluginModule {
     protected val modules = mutableListOf<PluginModule>()
-    abstract val submodules: List<PluginModule>
+    abstract val modulesList: List<PluginModule>
 
     override fun initializeModules() {
-        submodules.forEach {
+        modulesList.forEach {
             it.initializeModules()
             registerModule(it)
         }
@@ -69,5 +69,9 @@ abstract class BaseAggregator : PluginModule {
 
     fun retrieveModules(): List<PluginModule> {
         return modules.toList()
+    }
+
+    override fun getSubmodules(): List<PluginModule> {
+        return modulesList
     }
 }

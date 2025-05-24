@@ -1,6 +1,8 @@
 package me.code4me.services.modules
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.components.Service
 import me.code4me.utils.configuration.PreferenceCapable
 
 /**
@@ -14,8 +16,11 @@ import me.code4me.utils.configuration.PreferenceCapable
  * - Providing telemetry data
  * - Retrieving some sort of information and sending it to the core application
  * - Reporting their status
+ * - Managing submodules and dependencies
+ * 
+ * All plugin modules are also project-level services and can be disposed when no longer needed.
  */
-interface PluginModule : PreferenceCapable {
+interface PluginModule : PreferenceCapable, Disposable {
     /**
      * The display name of the module.
      *
@@ -51,4 +56,49 @@ interface PluginModule : PreferenceCapable {
      * necessary components of the module are properly initialized and ready to use.
      */
     fun initializeModules()
+
+    /**
+     * Gets the submodules of this module.
+     *
+     * @return A list of submodules.
+     */
+    fun getSubmodules(): List<PluginModule> = emptyList()
+
+    /**
+     * Registers a submodule with this module.
+     *
+     * @param submodule The submodule to register.
+     * @param isHardDependency Whether this is a hard dependency (true) or soft dependency (false).
+     *        Hard dependencies are required for the module to function, while soft dependencies are optional.
+     */
+    fun registerSubmodule(
+        submodule: PluginModule,
+        isHardDependency: Boolean = false,
+    ) {
+        // Default implementation does nothing
+    }
+
+    /**
+     * Checks if all required dependencies are available.
+     *
+     * @return True if all required dependencies are available, false otherwise.
+     */
+    fun checkDependencies(): Boolean = true
+
+    /**
+     * Gets the module ID used for dependency tracking.
+     *
+     * @return The module ID.
+     */
+    fun getModuleId(): String = getPreferenceId()
+
+    /**
+     * Disposes the module when it's no longer needed.
+     * This method is called when the module is disabled or when the project is closed.
+     * 
+     * Default implementation does nothing, but subclasses can override this to release resources.
+     */
+    override fun dispose() {
+        // Default implementation does nothing
+    }
 }
