@@ -4,21 +4,16 @@ import com.google.api.client.auth.oauth2.AuthorizationCodeRequestUrl
 import com.google.api.client.auth.oauth2.AuthorizationCodeTokenRequest
 import com.google.api.client.auth.oauth2.Credential
 import com.google.api.client.auth.oauth2.TokenResponse
-import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp
 import com.google.api.client.extensions.java6.auth.oauth2.VerificationCodeReceiver
 import com.google.api.client.extensions.jetty.auth.oauth2.LocalServerReceiver
-import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow
-import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets
 import com.google.api.client.googleapis.auth.oauth2.GoogleCredential
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport
 import com.google.api.client.http.GenericUrl
 import com.google.api.client.http.HttpTransport
 import com.google.api.client.json.JsonFactory
 import com.google.api.client.json.gson.GsonFactory
-import com.google.api.client.util.store.FileDataStoreFactory
 import me.code4me.services.config.getConfig
 import java.awt.Desktop
-import java.io.File
 import java.io.IOException
 import java.net.URI
 import java.security.MessageDigest
@@ -71,10 +66,11 @@ object GoogleAuthUtils {
     @Throws(IOException::class)
     fun startAuthFlow(clientId: String): Credential {
         val httpTransport = GoogleNetHttpTransport.newTrustedTransport()
-        val receiver = LocalServerReceiver.Builder()
-            .setPort(8899)
-            .setCallbackPath("Callback")
-            .build()
+        val receiver =
+            LocalServerReceiver.Builder()
+                .setPort(8899)
+                .setCallbackPath("Callback")
+                .build()
 
         // Generate code verifier and challenge for PKCE
         val codeVerifier = generateCodeVerifier()
@@ -87,13 +83,13 @@ object GoogleAuthUtils {
             clientId,
             codeVerifier,
             codeChallenge,
-            receiver
+            receiver,
         ).authorize("user")
     }
 
     /**
      * Generates a random code verifier for PKCE.
-     * 
+     *
      * @return A random string to be used as the code verifier.
      */
     private fun generateCodeVerifier(): String {
@@ -105,7 +101,7 @@ object GoogleAuthUtils {
 
     /**
      * Generates a code challenge from the code verifier using SHA-256 hashing.
-     * 
+     *
      * @param codeVerifier The code verifier to generate the challenge from.
      * @return The code challenge string.
      */
@@ -126,7 +122,7 @@ object GoogleAuthUtils {
         private val clientId: String,
         private val codeVerifier: String,
         private val codeChallenge: String,
-        private val receiver: VerificationCodeReceiver
+        private val receiver: VerificationCodeReceiver,
     ) {
         /**
          * Authorizes the installed application to access user's protected data.
@@ -138,12 +134,13 @@ object GoogleAuthUtils {
         fun authorize(userId: String): Credential {
             try {
                 // Open browser with authorization URL that includes the code challenge
-                val authorizationUrl = AuthorizationCodeRequestUrl(AUTH_URI, clientId)
-                    .setRedirectUri(REDIRECT_URI)
-                    .setScopes(SCOPES)
-                    .set("code_challenge", codeChallenge)
-                    .set("code_challenge_method", CODE_CHALLENGE_METHOD)
-                    .set("access_type", "offline")
+                val authorizationUrl =
+                    AuthorizationCodeRequestUrl(AUTH_URI, clientId)
+                        .setRedirectUri(REDIRECT_URI)
+                        .setScopes(SCOPES)
+                        .set("code_challenge", codeChallenge)
+                        .set("code_challenge_method", CODE_CHALLENGE_METHOD)
+                        .set("access_type", "offline")
 
                 // Open browser
                 if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
@@ -158,12 +155,13 @@ object GoogleAuthUtils {
                 val code = receiver.waitForCode()
 
                 // Request access token using the authorization code and code verifier
-                val tokenRequest = AuthorizationCodeTokenRequest(
-                    httpTransport,
-                    jsonFactory,
-                    GenericUrl(TOKEN_URI),
-                    code
-                )
+                val tokenRequest =
+                    AuthorizationCodeTokenRequest(
+                        httpTransport,
+                        jsonFactory,
+                        GenericUrl(TOKEN_URI),
+                        code,
+                    )
                 tokenRequest.redirectUri = REDIRECT_URI
                 tokenRequest.set("client_id", clientId)
                 tokenRequest.set("code_verifier", codeVerifier)
@@ -174,7 +172,7 @@ object GoogleAuthUtils {
                     httpTransport,
                     jsonFactory,
                     tokenResponse,
-                    userId
+                    userId,
                 )
             } finally {
                 receiver.stop()
@@ -188,13 +186,14 @@ object GoogleAuthUtils {
             transport: HttpTransport,
             jsonFactory: JsonFactory,
             tokenResponse: TokenResponse,
-            userId: String
+            userId: String,
         ): Credential {
             // Create a credential with the access token
-            val credential = GoogleCredential.Builder()
-                .setTransport(transport)
-                .setJsonFactory(jsonFactory)
-                .build()
+            val credential =
+                GoogleCredential.Builder()
+                    .setTransport(transport)
+                    .setJsonFactory(jsonFactory)
+                    .build()
 
             // Set the tokens
             credential.accessToken = tokenResponse.accessToken

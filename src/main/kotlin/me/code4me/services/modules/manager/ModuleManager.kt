@@ -96,6 +96,20 @@ class ModuleManager() : PluginModule {
                 displayName = "Max Suggestions",
                 description = "Maximum number of suggestions to show",
             ),
+            Preference(
+                key = "minConfidence",
+                type = PreferenceType.DOUBLE,
+                defaultValue = "0.85",
+                displayName = "Minimum Confidence",
+                description = "Minimum confidence threshold for suggestions (0.0 to 1.0)",
+            ),
+            Preference(
+                key = "requestTimeout",
+                type = PreferenceType.INT,
+                defaultValue = "5000",
+                displayName = "Request Timeout",
+                description = "Maximum time in milliseconds to wait for completions",
+            ),
         )
     }
 
