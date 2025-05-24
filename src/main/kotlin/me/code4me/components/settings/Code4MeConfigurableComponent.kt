@@ -6,6 +6,7 @@ import me.code4me.components.settings.sections.AuthenticationSection
 import me.code4me.components.settings.sections.ConfigurationSection
 import me.code4me.services.state.TOKEN_PROPERTY
 import me.code4me.services.state.getAuthState
+import java.awt.BorderLayout
 import java.beans.PropertyChangeListener
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
@@ -38,6 +39,13 @@ class Code4MeConfigurableComponent {
         val builder = FormBuilder.createFormBuilder()
         fieldStates.clear()
 
+        // Main container with fixed minimum/preferred size to prevent shrinking
+        val mainPanel =
+            JPanel(BorderLayout()).apply {
+                minimumSize = java.awt.Dimension(500, 400)
+                preferredSize = java.awt.Dimension(600, 500)
+            }
+
         // check whether the user has been authenticated
         // if not, then show the authentication section
         // otherwise show the configuration page
@@ -49,9 +57,12 @@ class Code4MeConfigurableComponent {
         // add a separator between the two sections with a bit of padding
         builder.addSeparator()
         // TODO : add other sections here
-        return builder
-            .addComponentFillVertically(JPanel(), 0)
-            .panel
+        val contentPanel =
+            builder
+                .addComponentFillVertically(JPanel(), 0)
+                .panel
+        mainPanel.add(contentPanel, BorderLayout.CENTER)
+        return mainPanel
     }
 
     private fun rebuildUI() {

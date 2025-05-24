@@ -50,7 +50,8 @@ class TimeSinceLastShownCompletion : PluginModule {
                 PreferenceType.BOOLEAN,
                 "true",
                 "Enable Time Since Last Shown Completion Telemetry",
-                "Enable or disable time since last shown completion telemetry. This will send the time since the last shown completion to the server for analysis.",
+                "Enable or disable time since last shown completion telemetry. " +
+                    "This will send the time since the last shown completion to the server for analysis.",
             ),
         )
     }

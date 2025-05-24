@@ -32,8 +32,8 @@ class TypingSpeed() : PluginModule {
         val cpsKey = Record.key<Double>("typing_speed_cps")
         val windowSize =
             PrefState
-                .getPreferenceValue(getPreferenceId(), "telemetry.typing_speed.window_size")?.
-                toInt() ?: 10
+                .getPreferenceValue(getPreferenceId(), "telemetry.typing_speed.window_size")
+                ?.toInt() ?: 10
         val cps = trackingService.getTypingSpeed(windowSize).toDouble()
 
         record.put(cpsKey, cps)

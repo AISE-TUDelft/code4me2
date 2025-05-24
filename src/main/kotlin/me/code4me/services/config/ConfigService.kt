@@ -27,7 +27,6 @@ class ConfigService {
     /**
      * The parsed configuration from the plugin.conf resource file.
      */
-    // first make sure the config is loaded
     private var config: Config =
         ConfigFactory.parseResources(this.javaClass.classLoader, "plugin.conf").resolve()
 
@@ -93,8 +92,9 @@ class ConfigService {
         }
 
         // Parse Google OAuth configuration
-        if (highLevelConfig.hasPath("auth")
-            && highLevelConfig.getConfig("auth").hasPath("google")) {
+        if (highLevelConfig.hasPath("auth") &&
+            highLevelConfig.getConfig("auth").hasPath("google")
+        ) {
             val googleConfig = highLevelConfig.getConfig("auth").getConfig("google")
             this.googleOAuthConfig = GoogleOAuthConfig.fromConfig(googleConfig)
         }
@@ -203,6 +203,18 @@ class ConfigService {
      */
     fun instantiateModules(): List<PluginModule> {
         return instantiateModulesRecursive(availableModules)
+    }
+
+    /**
+     * Instantiates modules from a specific list of module configurations.
+     *
+     * This is useful for instantiating submodules of a specific module.
+     *
+     * @param moduleConfigs List of module configurations to instantiate.
+     * @return A list of instantiated [PluginModule] objects.
+     */
+    fun instantiateModulesFromConfigs(moduleConfigs: List<ModuleConfig>): List<PluginModule> {
+        return instantiateModulesRecursive(moduleConfigs)
     }
 
     /**

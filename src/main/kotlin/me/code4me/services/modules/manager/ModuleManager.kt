@@ -9,8 +9,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
-import me.code4me.services.modules.aggregators.BaseContextAggregator
-import me.code4me.services.modules.aggregators.BaseTelemetryAggregator
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
@@ -32,13 +30,6 @@ class ModuleManager(private val project: Project) : PluginModule {
     private val initializedModules: MutableSet<String> = mutableSetOf()
     private val moduleInstances: MutableMap<String, Any> = mutableMapOf()
 
-    // List of submodules to be initialized
-    private val submodules =
-        listOf(
-            BaseContextAggregator(),
-            BaseTelemetryAggregator(),
-        )
-
     init {
         // Initialize the base aggregators
         initializeBaseAggregators()
@@ -50,8 +41,18 @@ class ModuleManager(private val project: Project) : PluginModule {
 
     // Initialize base aggregators
     private fun initializeBaseAggregators() {
-        // Create and register aggregators
-        submodules.forEach {
+        // Load aggregators from config
+        val configService = me.code4me.services.config.getConfig()
+        val availableModules = configService.getAvailableModules()
+
+        // Find and instantiate aggregator modules
+        val aggregatorModules =
+            availableModules
+                .filter { it.type.id == "aggregator" }
+                .let { configService.instantiateModulesFromConfigs(it) }
+
+        // Initialize and register aggregators
+        aggregatorModules.forEach {
             it.initializeModules()
             registerAggregator(it)
         }
@@ -71,7 +72,7 @@ class ModuleManager(private val project: Project) : PluginModule {
 
     /**
      * Store modules in the module manager
-     * 
+     *
      * @param modulesToStore List of modules to store
      */
     fun storeModules(modulesToStore: List<PluginModule>) {
@@ -83,7 +84,7 @@ class ModuleManager(private val project: Project) : PluginModule {
 
         // Register modules with PrefState
         modules.forEach { module ->
-            PrefState.registerModule(module)
+            registerModuleRecursively(module)
 
             // Enable modules that are enabled by default in config
             if (module.getPreferenceId() in enabledModuleIds) {
@@ -91,6 +92,33 @@ class ModuleManager(private val project: Project) : PluginModule {
             }
         }
     }
+
+    /**
+     * Recursively registers a module and all its submodules with PrefState
+     *
+     * @param module The module to register
+     */
+    private fun registerModuleRecursively(module: PluginModule) {
+        // Register the module itself
+        PrefState.registerModule(module)
+
+        // Get all submodules and register them recursively
+        try {
+            val submodules = module.getSubmodules()
+            submodules.forEach { submodule ->
+                registerModuleRecursively(submodule)
+
+                // Enable submodules that are enabled by default in config
+                if (submodule.getPreferenceId() in enabledModuleIds) {
+                    enableModule(submodule.getPreferenceId())
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore exceptions if getSubmodules fails or is not implemented
+            println("Warning: Failed to get submodules for ${module.moduleName}: ${e.message}")
+        }
+    }
+
 
     /**
      * Initialize a specific module and its dependencies.
@@ -126,7 +154,7 @@ class ModuleManager(private val project: Project) : PluginModule {
 
     /**
      * Gets or creates a module service instance.
-     * 
+     *
      * @param module The module to get or create a service for.
      * @return The module service instance.
      */

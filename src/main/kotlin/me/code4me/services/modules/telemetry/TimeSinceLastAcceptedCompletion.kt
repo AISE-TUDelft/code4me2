@@ -30,7 +30,8 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
                 PreferenceType.BOOLEAN,
                 "true",
                 "Enable Time Since Last Accepted Completion Telemetry",
-                "Enable or disable time since last accepted completion telemetry. This will send the time since the last accepted completion to the server for analysis.",
+                "Enable or disable time since last accepted completion telemetry. " +
+                    "This will send the time since the last accepted completion to the server for analysis.",
             ),
         )
     }

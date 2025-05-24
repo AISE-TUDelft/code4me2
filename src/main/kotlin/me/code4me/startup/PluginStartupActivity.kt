@@ -9,7 +9,7 @@ import me.code4me.services.modules.manager.getModuleManager
 
 /**
  * Project activity that initializes modules at startup.
- * 
+ *
  * This activity is executed after the ConfigService has been initialized
  * by the ConfigInitializer, ensuring that configuration is loaded first
  * before modules are initialized.

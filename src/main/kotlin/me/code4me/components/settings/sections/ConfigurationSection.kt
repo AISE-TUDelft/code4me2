@@ -1,10 +1,9 @@
 package me.code4me.components.settings.sections
 
-import com.intellij.ui.CollectionListModel
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBTextField
+import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -12,18 +11,19 @@ import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.PreferenceType
 import java.awt.BorderLayout
+import java.awt.Component
 import java.awt.Font
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.GridLayout
 import javax.swing.BorderFactory
-import javax.swing.DefaultListCellRenderer
+import javax.swing.Box
+import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JLabel
@@ -31,12 +31,17 @@ import javax.swing.JOptionPane
 import javax.swing.JPanel
 import javax.swing.JScrollPane
 import javax.swing.JSeparator
-import javax.swing.ListCellRenderer
-import javax.swing.ListSelectionModel
+import javax.swing.JTree
 import javax.swing.border.EmptyBorder
+import javax.swing.event.TreeSelectionEvent
+import javax.swing.event.TreeSelectionListener
 import javax.swing.text.AttributeSet
 import javax.swing.text.DocumentFilter
 import javax.swing.text.PlainDocument
+import javax.swing.tree.DefaultMutableTreeNode
+import javax.swing.tree.DefaultTreeCellRenderer
+import javax.swing.tree.DefaultTreeModel
+import javax.swing.tree.TreeSelectionModel
 
 class ConfigurationSection : SettingsSection {
     private val storeContextField = JCheckBox()
@@ -82,27 +87,46 @@ class ConfigurationSection : SettingsSection {
             border = EmptyBorder(0, 0, 5, 0)
         }
 
-    private val moduleListModel = CollectionListModel<PluginModule>()
-    private val moduleList =
-        JBList(moduleListModel).apply {
-            selectionMode = ListSelectionModel.SINGLE_SELECTION
+    // Tree model for hierarchical module display
+    private val moduleTreeModel = DefaultTreeModel(DefaultMutableTreeNode("Modules"))
+    private val moduleTree =
+        Tree(moduleTreeModel).apply {
+            isRootVisible = false
+            showsRootHandles = true
+            selectionModel.selectionMode = TreeSelectionModel.SINGLE_TREE_SELECTION
             border = BorderFactory.createEtchedBorder()
+
+            // Custom renderer to display module names
             cellRenderer =
-                DefaultListCellRenderer().apply {
-                    @Suppress("UNCHECKED_CAST")
-                    (this as ListCellRenderer<PluginModule>).apply {
-                        ListCellRenderer { list, value, index, isSelected, cellHasFocus ->
-                            val component = getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
-                            if (component is JLabel && value is PluginModule) {
-                                component.text = value.moduleName
+                object : DefaultTreeCellRenderer() {
+                    override fun getTreeCellRendererComponent(
+                        tree: JTree,
+                        value: Any,
+                        selected: Boolean,
+                        expanded: Boolean,
+                        leaf: Boolean,
+                        row: Int,
+                        hasFocus: Boolean,
+                    ): Component {
+                        val component = super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus)
+
+                        if (component is JLabel && value is DefaultMutableTreeNode) {
+                            val userObject = value.userObject
+                            if (userObject is PluginModule) {
+                                // Use the module name from the interface
+                                component.text = userObject.moduleName
                             }
-                            component
                         }
+
+                        return component
                     }
                 }
         }
 
-    private val modulePreferencesPanel = JPanel(GridLayout(0, 2, 5, 5))
+    private val modulePreferencesPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = JBUI.Borders.empty(0, 0, 8, 0) // 8px bottom margin
+    }
     private val modulePreferenceFields = mutableMapOf<String, StateValueField<*>>()
 
     // Reference to the auth state
@@ -112,42 +136,112 @@ class ConfigurationSection : SettingsSection {
         storeCompletionField.isSelected = getPrefState().storeCompletions
         storeContextField.isSelected = getPrefState().storeContext
 
-        // Initialize module list
-        updateModuleList()
+        // Initialize module tree
+        updateModuleTree()
 
-        // Add selection listener to module list
-        moduleList.addListSelectionListener { e ->
-            if (!e.valueIsAdjusting) {
-                updateModulePreferencesPanel()
-            }
+        // Add selection listener to module tree
+        moduleTree.addTreeSelectionListener(
+            object : TreeSelectionListener {
+                override fun valueChanged(e: TreeSelectionEvent) {
+                    // Always update panel when selection changes
+                    updateModulePreferencesPanel()
+                }
+            },
+        )
+
+        // Expand all nodes by default for better visibility
+        expandAllNodes()
+    }
+
+    private fun expandAllNodes() {
+        for (i in 0 until moduleTree.rowCount) {
+            moduleTree.expandRow(i)
         }
     }
 
-    private fun updateModuleList() {
-        moduleListModel.removeAll()
-        moduleListModel.add(getPrefState().availableModules)
+    private fun updateModuleTree() {
+        val rootNode = DefaultMutableTreeNode("Modules")
+
+        // Use the actual registered modules from PrefState (which delegates to ModuleManager)
+        val modules = PrefState.getAvailableModules()
+        modules.forEach { module ->
+            val moduleNode = DefaultMutableTreeNode(module)
+            addSubmodulesRecursively(module, moduleNode)
+            rootNode.add(moduleNode)
+        }
+        moduleTreeModel.setRoot(rootNode)
+        moduleTreeModel.reload()
+        expandAllNodes()
+    }
+
+    // Recursively add submodules to the tree
+    private fun addSubmodulesRecursively(
+        module: PluginModule,
+        parentNode: DefaultMutableTreeNode,
+    ) {
+        try {
+            val submodules = module.getSubmodules()
+            submodules.forEach { submodule ->
+                val submoduleNode = DefaultMutableTreeNode(submodule)
+                addSubmodulesRecursively(submodule, submoduleNode)
+                parentNode.add(submoduleNode)
+            }
+        } catch (e: Exception) {
+            // Ignore if getSubmodules is not implemented or fails
+        }
     }
 
     private fun updateModulePreferencesPanel() {
         modulePreferencesPanel.removeAll()
         modulePreferenceFields.clear()
 
-        val selectedModule = moduleList.selectedValue
+        val selectedNode = moduleTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+        val selectedModule = selectedNode?.userObject as? PluginModule
+
+        val prefState = getPrefState()
+
         if (selectedModule != null) {
-            val preferences = PrefState.getModulePreferences(selectedModule.getPreferenceId())
+            // First add a label with module name and description
+            val moduleNameLabel =
+                JBLabel(selectedModule.moduleName).apply {
+                    font = font.deriveFont(Font.BOLD)
+                }
+            modulePreferencesPanel.add(moduleNameLabel)
+
+            // Add an empty label for spacing
+            modulePreferencesPanel.add(JLabel())
+
+            // TODO: add a method to get module description and display it
+
+            // Add a separator
+            val separator = JSeparator()
+            modulePreferencesPanel.add(separator)
+            modulePreferencesPanel.add(JLabel()) // Empty cell for grid layout
 
             // Add module enabled checkbox
             val enabledCheckBox = JBCheckBox("Enabled")
-            enabledCheckBox.isSelected = PrefState.getEnabledModules().contains(selectedModule.getPreferenceId())
+            enabledCheckBox.isSelected = prefState.enabledModules.contains(selectedModule.getPreferenceId())
             enabledCheckBox.addActionListener {
                 if (enabledCheckBox.isSelected) {
-                    PrefState.enableModule(selectedModule.getPreferenceId())
+                    prefState.enabledModules = prefState.enabledModules + selectedModule.getPreferenceId()
                 } else {
-                    PrefState.disableModule(selectedModule.getPreferenceId())
+                    prefState.enabledModules = prefState.enabledModules - selectedModule.getPreferenceId()
                 }
             }
+
             modulePreferencesPanel.add(JLabel("Module Status:"))
             modulePreferencesPanel.add(enabledCheckBox)
+
+            // Get module preferences
+            val preferences = PrefState.getModulePreferences(selectedModule.getPreferenceId())
+
+            if (preferences.isNotEmpty()) {
+                // Add a preferences section header
+                val prefsHeaderLabel = JLabel("Module Preferences")
+                prefsHeaderLabel.font = prefsHeaderLabel.font.deriveFont(Font.BOLD)
+                modulePreferencesPanel.add(prefsHeaderLabel)
+                modulePreferencesPanel.add(JLabel()) // Empty cell for grid layout
+            }
 
             // Add preference fields
             for (pref in preferences) {
@@ -169,7 +263,7 @@ class ConfigurationSection : SettingsSection {
                                         PrefState.setPreferenceValue(selectedModule.getPreferenceId(), pref.key, value.toString())
                                     }
                                 }
-                            modulePreferenceFields["$selectedModule.${pref.key}"] = svf
+                            modulePreferenceFields["${selectedModule.getPreferenceId()}.${pref.key}"] = svf
                             checkBox
                         }
                         PreferenceType.STRING -> {
@@ -388,8 +482,18 @@ class ConfigurationSection : SettingsSection {
                     }
 
                 modulePreferencesPanel.add(field)
+
+                // Add description if available add it as an on-hover tooltip
+                if( pref.description.isNotEmpty()) {
+                    field.toolTipText = pref.description
+                }
             }
+        } else {
+            // No module selected, show a prompt
+            modulePreferencesPanel.add(JLabel("Select a module to view and edit its preferences"))
         }
+
+        modulePreferencesPanel.add(Box.createRigidArea(java.awt.Dimension(0, 8)))
 
         modulePreferencesPanel.revalidate()
         modulePreferencesPanel.repaint()
@@ -518,16 +622,27 @@ class ConfigurationSection : SettingsSection {
                                     gridy = 0
                                 }
 
-                            // Left side: module list with scroll pane
-                            val scrollPane = JScrollPane(moduleList)
+                            // Left side: module tree with scroll pane
+                            val scrollPane = JScrollPane(moduleTree)
+                            scrollPane.preferredSize = java.awt.Dimension(220, 350)
+                            scrollPane.minimumSize = java.awt.Dimension(200, 300)
+                            scrollPane.border = BorderFactory.createEtchedBorder()
                             add(scrollPane, gbc)
 
-                            // Right side: module preferences
+                            // Right side: module preferences (scrollable)
                             gbc.gridx = 1
                             gbc.weightx = 0.6 // This makes the preferences panel take the remaining 60%
+
+                            // Make sure modulePreferencesPanel uses a layout that respects preferred size
+                            modulePreferencesPanel.layout = GridLayout(0, 2, 5, 5)
+
                             val preferencesScrollPane =
                                 JScrollPane(modulePreferencesPanel).apply {
                                     border = JBUI.Borders.empty(0, 10, 0, 0)
+                                    preferredSize = java.awt.Dimension(350, 350)
+                                    minimumSize = java.awt.Dimension(300, 300)
+                                    horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
+                                    verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
                                 }
                             add(preferencesScrollPane, gbc)
                         }

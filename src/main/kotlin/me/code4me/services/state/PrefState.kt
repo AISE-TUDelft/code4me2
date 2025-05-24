@@ -116,21 +116,40 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
             val preferences = module.getPreferenceList()
 
             // Add module if not already registered
-            if (state.availableModules.none { it.getPreferenceId() == module.getPreferenceId() }) {
+            if (state.availableModules.none { it != null && it.getPreferenceId() == module.getPreferenceId() }) {
                 state.availableModules = state.availableModules + module
+            } else {
+                // Update the module in the list to ensure it has the latest information
+                state.availableModules =
+                    state.availableModules.map {
+                        if (it.getPreferenceId() == module.getPreferenceId()) module else it
+                    }
             }
 
-            // Register preferences
+            // Register preferences - always update to ensure latest definitions are used
             preferences.forEach { pref ->
                 val key = "${module.getPreferenceId()}.${pref.key}"
-                if (!state.modulePreferences.containsKey(key)) {
-                    state.modulePreferences[key] = pref
+                state.modulePreferences[key] = pref
 
-                    // Initialize with default value if not already set
-                    if (!state.moduleValues.containsKey(key)) {
-                        state.moduleValues[key] = pref.defaultValue
-                    }
+                // Initialize with default value if not already set
+                if (!state.moduleValues.containsKey(key)) {
+                    state.moduleValues[key] = pref.defaultValue
                 }
+            }
+
+            // Remove any preferences that are no longer defined by the module
+            val moduleKeyPrefix = "${module.getPreferenceId()}."
+            val currentPrefKeys = preferences.map { "$moduleKeyPrefix${it.key}" }.toSet()
+
+            // Find keys that start with the module prefix but aren't in the current preferences
+            val keysToRemove =
+                state.modulePreferences.keys
+                    .filter { it.startsWith(moduleKeyPrefix) && it !in currentPrefKeys }
+
+            // Remove obsolete preferences and their values
+            keysToRemove.forEach { key ->
+                state.modulePreferences.remove(key)
+                state.moduleValues.remove(key)
             }
         }
 

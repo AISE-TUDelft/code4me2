@@ -2,7 +2,6 @@ package me.code4me.services.modules
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.components.Service
 import me.code4me.utils.configuration.PreferenceCapable
 
 /**
@@ -17,7 +16,7 @@ import me.code4me.utils.configuration.PreferenceCapable
  * - Retrieving some sort of information and sending it to the core application
  * - Reporting their status
  * - Managing submodules and dependencies
- * 
+ *
  * All plugin modules are also project-level services and can be disposed when no longer needed.
  */
 interface PluginModule : PreferenceCapable, Disposable {
@@ -95,7 +94,7 @@ interface PluginModule : PreferenceCapable, Disposable {
     /**
      * Disposes the module when it's no longer needed.
      * This method is called when the module is disabled or when the project is closed.
-     * 
+     *
      * Default implementation does nothing, but subclasses can override this to release resources.
      */
     override fun dispose() {
