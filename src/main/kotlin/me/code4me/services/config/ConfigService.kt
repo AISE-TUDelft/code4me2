@@ -245,14 +245,13 @@ data class ServerConfig(
  * @property clientId The Google OAuth client ID.
  */
 data class GoogleOAuthConfig(
-    val clientId: String
+    val clientId: String,
 ) {
     companion object {
         fun fromConfig(config: Config): GoogleOAuthConfig {
             return GoogleOAuthConfig(
-                clientId = config.getString("clientId")
+                clientId = config.getString("clientId"),
             )
         }
     }
 }
-
