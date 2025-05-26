@@ -1,10 +1,11 @@
-package me.code4me.services.modules.context
+package me.code4me.services.modules.telemetry
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
 import me.code4me.services.state.PrefState
+import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
@@ -13,6 +14,11 @@ class EditorContextRetrievalModule : PluginModule {
     override val moduleName = "EditorContextRetrievalModule"
 
     override fun collectData(request: InlineCompletionRequest): List<Record> {
+        val prefState = getPrefState()
+        if (!prefState.enabledModules.contains(getPreferenceId())) {
+            return emptyList()
+        }
+
         val moduleId = getPreferenceId()
         val project = request.file.project
         val editor = request.editor
@@ -36,41 +42,41 @@ class EditorContextRetrievalModule : PluginModule {
         // TODO: uncomment when the preference storage properly works
 //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.language")?.toBoolean() == true*/true) {
         if (true) {
-            val languageKey = Record.key<String>("context.language")
+            val languageKey = Record.Companion.key<String>("context.language")
             expanded[languageKey] = psiFile.language.displayName
         }
 //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filename")?.toBoolean() == true*/true) {
         if (true) {
-            val fileNameKey = Record.key<String>("context.file.name")
+            val fileNameKey = Record.Companion.key<String>("context.file.name")
             expanded[fileNameKey] = virtualFile.name
         }
 
 //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filepath")?.toBoolean() == true*/true) {
         if (true) {
-            val filePathKey = Record.key<String>("context.file.path")
+            val filePathKey = Record.Companion.key<String>("context.file.path")
             expanded[filePathKey] = virtualFile.path
         }
 
 //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.caret.offset")?.toBoolean() == true*/true) {
         if (true) {
-            val caretOffsetKey = Record.key<Int>("context.caret.offset")
+            val caretOffsetKey = Record.Companion.key<Int>("context.caret.offset")
             expanded[caretOffsetKey] = caretModel.offset
         }
 
 //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.caret.position")?.toBoolean() == true*/true) {]
         if (true) {
-            val caretLineKey = Record.key<Int>("context.caret.line")
+            val caretLineKey = Record.Companion.key<Int>("context.caret.line")
 
-            val caretColumnKey = Record.key<Int>("context.caret.column")
+            val caretColumnKey = Record.Companion.key<Int>("context.caret.column")
             expanded[caretLineKey] = logicalPosition.line
             expanded[caretColumnKey] = logicalPosition.column
         }
-        if (PrefState.getPreferenceValue(
+        if (PrefState.Companion.getPreferenceValue(
                 moduleId,
                 "context.include.selection.text",
             )?.toBoolean() == true && !selectedText.isNullOrEmpty()
         ) {
-            val selectionTextKey = Record.key<String>("context.selection.text")
+            val selectionTextKey = Record.Companion.key<String>("context.selection.text")
             expanded[selectionTextKey] = selectedText
         }
 
@@ -132,7 +138,7 @@ class EditorContextRetrievalModule : PluginModule {
         )
 
     override fun getPreferenceClass(): PreferenceClass {
-        return PreferenceClass.CONTEXT
+        return PreferenceClass.TELEMETRY
     }
 
     override fun getPreferenceId(): String {

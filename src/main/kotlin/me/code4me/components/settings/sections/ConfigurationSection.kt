@@ -7,10 +7,14 @@ import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import groovy.lang.Tuple2
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
+import me.code4me.services.config.ModuleConfig
+import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
@@ -123,10 +127,11 @@ class ConfigurationSection : SettingsSection {
                 }
         }
 
-    private val modulePreferencesPanel = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(0, 0, 8, 0) // 8px bottom margin
-    }
+    private val modulePreferencesPanel =
+        JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = JBUI.Borders.empty(0, 0, 8, 0) // 8px bottom margin
+        }
     private val modulePreferenceFields = mutableMapOf<String, StateValueField<*>>()
 
     // Reference to the auth state
@@ -191,6 +196,45 @@ class ConfigurationSection : SettingsSection {
         }
     }
 
+    private fun checkModuleCanBeDisabled(module: PluginModule): Tuple2<Boolean, List<String>> {
+        // Check if the module is a top-level module (has no parent in the tree)
+        val selectedNode = moduleTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+        val isTopLevelNode = selectedNode?.parent?.parent == null
+
+        if (isTopLevelNode) {
+            // Top-level modules cannot be disabled
+            return Tuple2(false, emptyList())
+        }
+
+        val moduleId = module.getPreferenceId()
+
+        val dependentModules = getConfig().getTransitiveHardDependants(moduleId)
+
+        // Check if any dependent module is a top-level module
+        val hasTopLevelDependency = dependentModules.any { dependant ->
+            val dependentNode = findModuleNodeById(dependant.id)
+            dependentNode?.parent?.parent == null
+        }
+
+        return Tuple2(!hasTopLevelDependency, dependentModules.toList().map { it.id })
+    }
+
+    private fun findModuleNodeById(
+        moduleId: String,
+        root: DefaultMutableTreeNode = moduleTreeModel.root as DefaultMutableTreeNode
+    ): DefaultMutableTreeNode? {
+        val children = root.children()
+        while (children.hasMoreElements()) {
+            val child = children.nextElement() as DefaultMutableTreeNode
+            val module = child.userObject as? PluginModule
+            if (module?.getPreferenceId() == moduleId) {
+                return child
+            }
+            findModuleNodeById(moduleId, child)?.let { return it }
+        }
+        return null
+    }
+
     private fun updateModulePreferencesPanel() {
         modulePreferencesPanel.removeAll()
         modulePreferenceFields.clear()
@@ -221,11 +265,63 @@ class ConfigurationSection : SettingsSection {
             // Add module enabled checkbox
             val enabledCheckBox = JBCheckBox("Enabled")
             enabledCheckBox.isSelected = prefState.enabledModules.contains(selectedModule.getPreferenceId())
+
+            // check if a module is a top-level by checking if it has no parent in the module tree
+            val canBeDisabled = checkModuleCanBeDisabled(selectedModule)
+            enabledCheckBox.isEnabled = canBeDisabled[0] as Boolean
+            if (!enabledCheckBox.isEnabled) {
+                enabledCheckBox.isSelected = true
+                // If it cannot be disabled, show a warning message
+                val dependentModules = canBeDisabled[1] as List<String>
+                val warningMessage =
+                    if (dependentModules.isNotEmpty()) {
+                        val filteredDependantModules = dependentModules.filter { it != selectedModule.getPreferenceId() }
+                        "This module cannot be disabled because it has hard dependencies on the following top-level modules: ${filteredDependantModules.joinToString(", ")}"
+                    } else {
+                        "This module cannot be disabled."
+                    }
+                enabledCheckBox.toolTipText = warningMessage
+            }
+
+
             enabledCheckBox.addActionListener {
                 if (enabledCheckBox.isSelected) {
-                    prefState.enabledModules = prefState.enabledModules + selectedModule.getPreferenceId()
+                    // Enable this module
+                    prefState.enabledModules = HashSet(prefState.enabledModules + selectedModule.getPreferenceId())
+
+                    // Enable all modules that this module has hard dependencies on
+                    val configService = getConfig()
+                    val availableModules = configService.getAvailableModules()
+
+                    // Find this module's configuration
+                    val moduleConfig =
+                        availableModules.find {
+                            it.className == selectedModule.javaClass.name
+                        }
+
+                    // Enable dependencies
+                    moduleConfig?.dependencies?.forEach { dependency ->
+                        if (dependency.isHard) {
+                            prefState.enabledModules = HashSet(prefState.enabledModules + dependency.moduleId)
+                        }
+                    }
                 } else {
-                    prefState.enabledModules = prefState.enabledModules - selectedModule.getPreferenceId()
+                    // Disable this module
+                    prefState.enabledModules = HashSet(prefState.enabledModules - selectedModule.getPreferenceId())
+
+                    // Find modules that have hard dependencies on this module and disable them
+                    val configService = getConfig()
+                    val availableModules = configService.getAvailableModules()
+
+                    // Find modules that depend on this module
+                    availableModules.forEach { moduleConfig ->
+                        moduleConfig.dependencies.forEach { dependency ->
+                            if (dependency.moduleId == selectedModule.getPreferenceId() && dependency.isHard) {
+                                // This module has a hard dependency on the disabled module, so disable it too
+                                prefState.enabledModules = HashSet(prefState.enabledModules - moduleConfig.id)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -245,7 +341,22 @@ class ConfigurationSection : SettingsSection {
 
             // Add preference fields
             for (pref in preferences) {
-                modulePreferencesPanel.add(JLabel(pref.displayName + ":"))
+                // Create a label with a tooltip indicator if there's a description
+                val labelText =
+                    if (pref.description.isNotEmpty()) {
+                        pref.displayName + " ⓘ"
+                    } else {
+                        pref.displayName
+                    }
+
+                val label = JLabel(labelText + ":")
+
+                // Add tooltip to the label if there's a description
+                if (pref.description.isNotEmpty()) {
+                    label.toolTipText = pref.description
+                }
+
+                modulePreferencesPanel.add(label)
 
                 val field =
                     when (pref.type) {
@@ -481,12 +592,12 @@ class ConfigurationSection : SettingsSection {
                         else -> JLabel("Unsupported type: ${pref.type}")
                     }
 
-                modulePreferencesPanel.add(field)
-
-                // Add description if available add it as an on-hover tooltip
-                if( pref.description.isNotEmpty()) {
+                // Also add tooltip to the field itself for better UX
+                if (pref.description.isNotEmpty()) {
                     field.toolTipText = pref.description
                 }
+
+                modulePreferencesPanel.add(field)
             }
         } else {
             // No module selected, show a prompt

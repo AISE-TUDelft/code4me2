@@ -20,8 +20,15 @@ class TypingSpeed() : PluginModule {
     /**
      * Collects typing speed telemetry data.
      * This method uses the TypingSpeedService to get the typing speed in characters per second (CPS).
+     * Only collects data if the module is enabled in the global configuration.
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
+        // Check if this module is enabled in the global configuration
+        val prefState = me.code4me.services.state.getPrefState()
+        if (!prefState.enabledModules.contains(getPreferenceId())) {
+            return emptyList()
+        }
+
         val record = Record(Record.Type.TELEMETRY)
 
         val editor = request.editor ?: return emptyList() // Editor might be nullable
@@ -48,19 +55,16 @@ class TypingSpeed() : PluginModule {
     override fun initializeModules() {
     }
 
+    override fun getPreferenceId(): String {
+        return "typing_speed"
+    }
+
     /**
      * this class has a variable windowSize that determines the time window for calculating typing speed.
      * this is set in the preferences.
      */
     override fun getPreferenceList(): List<Preference> {
         return listOf(
-            Preference(
-                "telemetry.typing_speed",
-                PreferenceType.BOOLEAN,
-                "true",
-                "Enable Typing Speed Telemetry",
-                "Enable or disable typing speed telemetry. This will send your typing speed to the server for analysis.",
-            ),
             Preference(
                 "telemetry.typing_speed.window_size",
                 PreferenceType.INT,

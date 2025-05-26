@@ -20,6 +20,11 @@ import me.code4me.utils.configuration.PreferenceCapable
  * All plugin modules are also project-level services and can be disposed when no longer needed.
  */
 interface PluginModule : PreferenceCapable, Disposable {
+    companion object {
+        private val moduleSubmodules = mutableMapOf<String, MutableList<PluginModule>>()
+        private val moduleHardDependencies = mutableMapOf<String, MutableSet<String>>()
+    }
+
     /**
      * The display name of the module.
      *
@@ -61,7 +66,7 @@ interface PluginModule : PreferenceCapable, Disposable {
      *
      * @return A list of submodules.
      */
-    fun getSubmodules(): List<PluginModule> = emptyList()
+    fun getSubmodules(): List<PluginModule> = moduleSubmodules.getOrDefault(getModuleId(), mutableListOf())
 
     /**
      * Registers a submodule with this module.
@@ -74,7 +79,11 @@ interface PluginModule : PreferenceCapable, Disposable {
         submodule: PluginModule,
         isHardDependency: Boolean = false,
     ) {
-        // Default implementation does nothing
+        val moduleId = getModuleId()
+        if (isHardDependency) {
+            moduleHardDependencies.getOrPut(moduleId) { mutableSetOf() }.add(submodule.getModuleId())
+        }
+        moduleSubmodules.getOrPut(moduleId) { mutableListOf() }.add(submodule)
     }
 
     /**

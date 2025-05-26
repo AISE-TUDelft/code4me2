@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
 import me.code4me.services.state.PrefState
@@ -42,7 +43,7 @@ class ModuleManager(private val project: Project) : PluginModule {
     // Initialize base aggregators
     private fun initializeBaseAggregators() {
         // Load aggregators from config
-        val configService = me.code4me.services.config.getConfig()
+        val configService = getConfig()
         val availableModules = configService.getAvailableModules()
 
         // Find and instantiate aggregator modules
@@ -82,13 +83,28 @@ class ModuleManager(private val project: Project) : PluginModule {
         // Store the modules
         modules.addAll(modulesToStore)
 
+        // Get the configuration service to check default enabled state
+        val configService = getConfig()
+        val availableModuleConfigs = configService.getAvailableModules()
+
         // Register modules with PrefState
         modules.forEach { module ->
-            registerModuleRecursively(module)
+            val newlyAddedModuleIds = registerModuleRecursively(module)
 
-            // Enable modules that are enabled by default in config
-            if (module.getPreferenceId() in enabledModuleIds) {
-                enableModule(module.getPreferenceId())
+            // Find the module config to check if it should be enabled by default
+            val moduleConfig =
+                availableModuleConfigs.find {
+                    it.className == module.javaClass.name || it.id == module.getPreferenceId()
+                }
+
+            // Enable newly added modules that should be enabled by default
+            newlyAddedModuleIds.forEach { moduleId ->
+                val moduleConfigForId = availableModuleConfigs.find {
+                    it.id == moduleId || it.submodules.any { sub -> sub.id == moduleId }
+                }
+                if (moduleConfigForId?.enabled == true && !enabledModuleIds.contains(moduleId)) {
+                    enableModule(moduleId)
+                }
             }
         }
     }
@@ -98,18 +114,51 @@ class ModuleManager(private val project: Project) : PluginModule {
      *
      * @param module The module to register
      */
-    private fun registerModuleRecursively(module: PluginModule) {
-        // Register the module itself
-        PrefState.registerModule(module)
+    private fun registerModuleRecursively(module: PluginModule) : List<String> {
+        val newModuleIds = mutableListOf<String>()
+
+        // Register the module itself and add to list if newly registered
+        if (PrefState.registerModule(module)) {
+            newModuleIds.add(module.getPreferenceId())
+        }
 
         // Get all submodules and register them recursively
         try {
             val submodules = module.getSubmodules()
-            submodules.forEach { submodule ->
-                registerModuleRecursively(submodule)
 
-                // Enable submodules that are enabled by default in config
-                if (submodule.getPreferenceId() in enabledModuleIds) {
+            // Get the configuration service to check default enabled state
+            val configService = me.code4me.services.config.getConfig()
+            val availableModuleConfigs = configService.getAvailableModules()
+
+            submodules.forEach { submodule ->
+                newModuleIds.addAll(registerModuleRecursively(submodule))
+
+                // Find the submodule config to check if it should be enabled by default
+                val submoduleConfig =
+                    availableModuleConfigs.find {
+                        it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId()
+                    }
+
+                // Also check if this submodule is in any module's submodules list in the config
+                val isSubmoduleInConfig =
+                    availableModuleConfigs.any { moduleConfig ->
+                        moduleConfig.submodules.any {
+                            it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId()
+                        }
+                    }
+
+                // If submodule is found in config, check its enabled status
+                val isEnabledInConfig =
+                    if (isSubmoduleInConfig) {
+                        availableModuleConfigs.flatMap { it.submodules }
+                            .find { it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId() }
+                            ?.enabled ?: false
+                    } else {
+                        submoduleConfig?.enabled ?: false
+                    }
+
+                // Enable submodules that are enabled by default in config or already in enabledModuleIds
+                if (isEnabledInConfig || submodule.getPreferenceId() in enabledModuleIds) {
                     enableModule(submodule.getPreferenceId())
                 }
             }
@@ -117,8 +166,9 @@ class ModuleManager(private val project: Project) : PluginModule {
             // Ignore exceptions if getSubmodules fails or is not implemented
             println("Warning: Failed to get submodules for ${module.moduleName}: ${e.message}")
         }
-    }
 
+        return newModuleIds
+    }
 
     /**
      * Initialize a specific module and its dependencies.

@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import me.code4me.services.config.ConfigService
+import me.code4me.services.config.getConfig
 import me.code4me.services.modules.manager.getModuleManager
 
 /**
@@ -17,7 +18,7 @@ import me.code4me.services.modules.manager.getModuleManager
 class PluginStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
         // Ensure ConfigService is loaded
-        val configService = service<ConfigService>()
+        val configService = getConfig()
 
         // Instantiate modules from configuration
         val instantiatedModules = configService.instantiateModules()

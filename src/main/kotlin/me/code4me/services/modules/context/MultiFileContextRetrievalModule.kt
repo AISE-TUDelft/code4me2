@@ -22,6 +22,11 @@ class MultiFileContextRetrievalModule : PluginModule {
     override val moduleName: String = "MultiFileContextRetrievalModule"
 
     override fun collectData(request: InlineCompletionRequest): List<Record> {
+        val prefState = me.code4me.services.state.getPrefState()
+        if (!prefState.enabledModules.contains(getPreferenceId())) {
+            return emptyList()
+        }
+
         val moduleId = getPreferenceId()
         // TODO switch to preferences once fully implemented
         val includeContent = true

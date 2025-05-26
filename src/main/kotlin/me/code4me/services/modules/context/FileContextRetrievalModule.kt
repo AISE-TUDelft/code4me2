@@ -12,6 +12,11 @@ class FileContextRetrievalModule : PluginModule {
     override val moduleName: String = "FileContextRetrievalModule"
 
     override fun collectData(request: InlineCompletionRequest): List<Record> {
+        val prefState = me.code4me.services.state.getPrefState()
+        if (!prefState.enabledModules.contains(getPreferenceId())) {
+            return emptyList()
+        }
+
         val moduleId = getPreferenceId()
         val editor = request.editor
         val document = request.document
@@ -82,13 +87,6 @@ class FileContextRetrievalModule : PluginModule {
                 defaultValue = "120",
                 displayName = "Postfix Length",
                 description = "Number of characters to include after the cursor.",
-            ),
-            Preference(
-                key = "context.include.contents",
-                type = PreferenceType.BOOLEAN,
-                defaultValue = "false",
-                displayName = "Include Full File Contents",
-                description = "Include the entire contents of the file.",
             ),
             Preference(
                 key = "context.include.prefix",
