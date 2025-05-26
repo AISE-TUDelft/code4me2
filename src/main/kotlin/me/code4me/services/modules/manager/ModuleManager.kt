@@ -22,9 +22,6 @@ fun getModuleManager(project: Project): ModuleManager {
 
 @Service(Service.Level.PROJECT)
 class ModuleManager(private val project: Project) : PluginModule {
-    private val aggregators = mutableListOf<PluginModule>()
-    private val contextAggregators = mutableListOf<PluginModule>()
-
     // Module management
     private val modules: MutableList<PluginModule> = mutableListOf()
     private val enabledModuleIds: MutableSet<String> = mutableSetOf()
@@ -32,33 +29,9 @@ class ModuleManager(private val project: Project) : PluginModule {
     private val moduleInstances: MutableMap<String, Any> = mutableMapOf()
 
     init {
-        // Initialize the base aggregators
-        initializeBaseAggregators()
-
         // Initialize enabled modules from preferences
         val enabledModules = PrefState.getEnabledModules()
         enabledModuleIds.addAll(enabledModules)
-    }
-
-    // Initialize base aggregators
-    private fun initializeBaseAggregators() {
-        // Load aggregators from config
-        val configService = getConfig()
-        val availableModules = configService.getAvailableModules()
-
-        // Find and instantiate aggregator modules
-        val aggregatorModules =
-            availableModules
-                .filter { it.type.id == "aggregator" }
-                .let { configService.instantiateModulesFromConfigs(it) }
-
-        // Initialize and register aggregators
-        aggregatorModules.forEach {
-            it.initializeModules()
-            registerAggregator(it)
-        }
-
-        println("Base aggregators initialized successfully.")
     }
 
     // Initialize modules and aggregators
@@ -223,12 +196,6 @@ class ModuleManager(private val project: Project) : PluginModule {
         return module
     }
 
-    // Register a module
-    fun registerAggregator(aggregator: PluginModule) {
-        aggregators.add(aggregator)
-        println("Aggregator registered: ${aggregator.moduleName}")
-    }
-
     override val moduleName: String
         get() = "ModuleManager"
 
@@ -241,7 +208,7 @@ class ModuleManager(private val project: Project) : PluginModule {
             val aggregatedData = CopyOnWriteArrayList<Record>()
             coroutineScope {
                 val deferredResults =
-                    aggregators.map { module ->
+                    modules.map { module ->
                         async {
                             module.collectData(request)
                         }
@@ -296,10 +263,6 @@ class ModuleManager(private val project: Project) : PluginModule {
 
     override fun toString(): String {
         return moduleName
-    }
-
-    fun getAggregators(): List<PluginModule> {
-        return aggregators.toList()
     }
 
     /**

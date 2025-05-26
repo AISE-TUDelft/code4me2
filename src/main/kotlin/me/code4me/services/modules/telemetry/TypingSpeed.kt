@@ -4,7 +4,7 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.components.service
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
-import me.code4me.services.modules.telemetry.helpers.typing.speed.TypingSpeedService
+import me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingSpeedService
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass

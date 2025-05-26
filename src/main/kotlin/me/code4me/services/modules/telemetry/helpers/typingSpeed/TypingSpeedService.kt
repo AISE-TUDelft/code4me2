@@ -1,4 +1,4 @@
-package me.code4me.services.modules.telemetry.helpers.typing.speed
+package me.code4me.services.modules.telemetry.helpers.typingSpeed
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project

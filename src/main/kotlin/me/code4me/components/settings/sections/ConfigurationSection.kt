@@ -2,6 +2,7 @@ package me.code4me.components.settings.sections
 
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
@@ -31,7 +32,6 @@ import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JOptionPane
 import javax.swing.JPanel
-import javax.swing.JScrollPane
 import javax.swing.JSeparator
 import javax.swing.JTree
 import javax.swing.border.EmptyBorder
@@ -734,7 +734,7 @@ class ConfigurationSection : SettingsSection {
                                 }
 
                             // Left side: module tree with scroll pane
-                            val scrollPane = JScrollPane(moduleTree)
+                            val scrollPane = JBScrollPane(moduleTree)
                             scrollPane.preferredSize = java.awt.Dimension(220, 350)
                             scrollPane.minimumSize = java.awt.Dimension(200, 300)
                             scrollPane.border = BorderFactory.createEtchedBorder()
@@ -748,12 +748,12 @@ class ConfigurationSection : SettingsSection {
                             modulePreferencesPanel.layout = GridLayout(0, 2, 5, 5)
 
                             val preferencesScrollPane =
-                                JScrollPane(modulePreferencesPanel).apply {
+                                JBScrollPane(modulePreferencesPanel).apply {
                                     border = JBUI.Borders.empty(0, 10, 0, 0)
                                     preferredSize = java.awt.Dimension(350, 350)
                                     minimumSize = java.awt.Dimension(300, 300)
-                                    horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
-                                    verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+                                    horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
+                                    verticalScrollBarPolicy = JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
                                 }
                             add(preferencesScrollPane, gbc)
                         }
