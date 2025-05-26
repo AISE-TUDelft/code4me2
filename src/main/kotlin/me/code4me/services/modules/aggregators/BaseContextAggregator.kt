@@ -10,8 +10,6 @@ class BaseContextAggregator : BaseAggregator() {
     // ID used to find this module's configuration in the config file
     override val configModuleId: String = "contextAggregator"
 
-
-
     override fun getStatus(): String {
         TODO("not yet implemented")
     }

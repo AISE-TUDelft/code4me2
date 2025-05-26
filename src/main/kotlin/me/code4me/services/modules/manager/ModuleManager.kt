@@ -99,9 +99,10 @@ class ModuleManager(private val project: Project) : PluginModule {
 
             // Enable newly added modules that should be enabled by default
             newlyAddedModuleIds.forEach { moduleId ->
-                val moduleConfigForId = availableModuleConfigs.find {
-                    it.id == moduleId || it.submodules.any { sub -> sub.id == moduleId }
-                }
+                val moduleConfigForId =
+                    availableModuleConfigs.find {
+                        it.id == moduleId || it.submodules.any { sub -> sub.id == moduleId }
+                    }
                 if (moduleConfigForId?.enabled == true && !enabledModuleIds.contains(moduleId)) {
                     enableModule(moduleId)
                 }
@@ -114,7 +115,7 @@ class ModuleManager(private val project: Project) : PluginModule {
      *
      * @param module The module to register
      */
-    private fun registerModuleRecursively(module: PluginModule) : List<String> {
+    private fun registerModuleRecursively(module: PluginModule): List<String> {
         val newModuleIds = mutableListOf<String>()
 
         // Register the module itself and add to list if newly registered

@@ -1,10 +1,8 @@
 package me.code4me.startup
 
-import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
-import me.code4me.services.config.ConfigService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.manager.getModuleManager
 

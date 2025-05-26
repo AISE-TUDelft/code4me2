@@ -12,7 +12,6 @@ import com.intellij.util.xmlb.annotations.Tag
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.utils.configuration.Preference
-import kotlin.reflect.KProperty
 
 /**
  * Constant defining the name of the preference state component.
@@ -227,7 +226,6 @@ class PrefSettings : BaseState() {
      * When true, the application will save context information.
      */
     var storeContext by property(false)
-
 
     // ================= MODULES =================
 

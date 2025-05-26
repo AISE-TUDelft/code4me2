@@ -11,10 +11,8 @@ import groovy.lang.Tuple2
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
-import me.code4me.services.config.ModuleConfig
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
@@ -211,17 +209,18 @@ class ConfigurationSection : SettingsSection {
         val dependentModules = getConfig().getTransitiveHardDependants(moduleId)
 
         // Check if any dependent module is a top-level module
-        val hasTopLevelDependency = dependentModules.any { dependant ->
-            val dependentNode = findModuleNodeById(dependant.id)
-            dependentNode?.parent?.parent == null
-        }
+        val hasTopLevelDependency =
+            dependentModules.any { dependant ->
+                val dependentNode = findModuleNodeById(dependant.id)
+                dependentNode?.parent?.parent == null
+            }
 
         return Tuple2(!hasTopLevelDependency, dependentModules.toList().map { it.id })
     }
 
     private fun findModuleNodeById(
         moduleId: String,
-        root: DefaultMutableTreeNode = moduleTreeModel.root as DefaultMutableTreeNode
+        root: DefaultMutableTreeNode = moduleTreeModel.root as DefaultMutableTreeNode,
     ): DefaultMutableTreeNode? {
         val children = root.children()
         while (children.hasMoreElements()) {
@@ -276,13 +275,14 @@ class ConfigurationSection : SettingsSection {
                 val warningMessage =
                     if (dependentModules.isNotEmpty()) {
                         val filteredDependantModules = dependentModules.filter { it != selectedModule.getPreferenceId() }
-                        "This module cannot be disabled because it has hard dependencies on the following top-level modules: ${filteredDependantModules.joinToString(", ")}"
+                        "This module cannot be disabled because it has hard dependencies on the following top-level modules: ${filteredDependantModules.joinToString(
+                            ", ",
+                        )}"
                     } else {
                         "This module cannot be disabled."
                     }
                 enabledCheckBox.toolTipText = warningMessage
             }
-
 
             enabledCheckBox.addActionListener {
                 if (enabledCheckBox.isSelected) {

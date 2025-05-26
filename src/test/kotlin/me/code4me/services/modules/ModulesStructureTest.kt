@@ -41,6 +41,10 @@ class ModulesStructureTest {
             "TelemetryAggregator should have TimeSinceLastShownCompletion submodule",
             telemetryAggregator.submodules.any { it.id == "TimeSinceLastShownCompletion" },
         )
+        assertTrue(
+            "TelemetryAggregator should have EditorContextRetrievalModule submodule",
+            telemetryAggregator.submodules.any { it.id == "EditorContextRetrievalModule" },
+        )
 
         // Verify context aggregator
         val contextAggregator = availableModules.find { it.id == "contextAggregator" }
@@ -51,10 +55,6 @@ class ModulesStructureTest {
         )
 
         // Verify specific submodules
-        assertTrue(
-            "contextAggregator should have EditorContextRetrievalModule submodule",
-            contextAggregator.submodules.any { it.id == "EditorContextRetrievalModule" },
-        )
         assertTrue(
             "contextAggregator should have FileContextRetrievalModule submodule",
             contextAggregator.submodules.any { it.id == "FileContextRetrievalModule" },

@@ -282,15 +282,19 @@ class ConfigService {
 
         // Precompute direct hard dependants for each module
         allModules.forEach { module ->
-            directDependantsMap[module.id] = allModules.filter { potentialDependant ->
-                potentialDependant.dependencies.any {
-                    it.moduleId == module.id && it.isHard
+            directDependantsMap[module.id] =
+                allModules.filter { potentialDependant ->
+                    potentialDependant.dependencies.any {
+                        it.moduleId == module.id && it.isHard
+                    }
                 }
-            }
         }
 
         // Recursively build all dependency chains
-        fun buildDependencyChains(currentModule: ModuleConfig, currentChain: List<ModuleConfig>) {
+        fun buildDependencyChains(
+            currentModule: ModuleConfig,
+            currentChain: List<ModuleConfig>,
+        ) {
             val directDependants = directDependantsMap[currentModule.id] ?: emptyList()
 
             if (directDependants.isEmpty()) {
