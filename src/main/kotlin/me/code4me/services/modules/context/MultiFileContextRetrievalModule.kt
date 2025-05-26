@@ -73,8 +73,6 @@ class MultiFileContextRetrievalModule : PluginModule {
 
     override fun initializeModules() {}
 
-    override fun getPreferenceId(): String = "multi_file_context_retrieval"
-
     override fun getPreferenceClass(): PreferenceClass = PreferenceClass.CONTEXT
 
     override fun getPreferenceList(): List<Preference> =

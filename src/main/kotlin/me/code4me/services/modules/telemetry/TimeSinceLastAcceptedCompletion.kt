@@ -37,10 +37,6 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
         return emptyList()
     }
 
-    override fun getPreferenceId(): String {
-        return "time_since_last_accepted_completion"
-    }
-
     override fun getPreferenceClass(): PreferenceClass {
         return PreferenceClass.TELEMETRY
     }

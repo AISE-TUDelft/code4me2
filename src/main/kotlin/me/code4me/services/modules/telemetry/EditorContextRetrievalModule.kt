@@ -140,8 +140,4 @@ class EditorContextRetrievalModule : PluginModule {
     override fun getPreferenceClass(): PreferenceClass {
         return PreferenceClass.TELEMETRY
     }
-
-    override fun getPreferenceId(): String {
-        return "editor_context_retrieval"
-    }
 }

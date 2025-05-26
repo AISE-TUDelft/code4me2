@@ -55,10 +55,6 @@ class TypingSpeed() : PluginModule {
     override fun initializeModules() {
     }
 
-    override fun getPreferenceId(): String {
-        return "typing_speed"
-    }
-
     /**
      * this class has a variable windowSize that determines the time window for calculating typing speed.
      * this is set in the preferences.

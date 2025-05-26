@@ -32,6 +32,10 @@ abstract class BaseAggregator : PluginModule {
         }
     }
 
+    override fun getPreferenceId(): String {
+        return super.getPreferenceId()
+    }
+
     /**
      * Loads modules from the configuration service based on the aggregator's module ID.
      *

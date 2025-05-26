@@ -64,10 +64,6 @@ class FileContextRetrievalModule : PluginModule {
     override fun initializeModules() {
     }
 
-    override fun getPreferenceId(): String {
-        return "file_context_retrieval"
-    }
-
     override fun getPreferenceClass(): PreferenceClass {
         return PreferenceClass.CONTEXT
     }
