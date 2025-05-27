@@ -1,74 +1,67 @@
-import me.code4me.services.modules.context.BasicContextRetrievalModule
-import me.code4me.services.modules.telemetry.BasicTelemetryModule
-import org.junit.Assert.assertEquals
-import org.junit.Test
-
 /**
  * IMPORTANT: This test class needs to be modified whenever the structure of the modules changes.
  * For example, if a new module is added or an existing module is removed, the tests should be updated accordingly.
  */
+import me.code4me.services.config.ConfigService
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
 class ModulesStructureTest {
     @Test
-    fun testModuleNameTel() {
-        val module = BasicTelemetryModule()
-        assertEquals("BasicTelemetryModule", module.moduleName)
-    }
+    fun testDynamicModuleLoading() {
+        // Test that the ConfigService correctly loads module configurations
+        val configService = ConfigService()
+        val availableModules = configService.getAvailableModules()
 
-    @Test
-    fun testModuleNameCon() {
-        val module = BasicContextRetrievalModule()
-        assertEquals("BasicContextRetrievalModule", module.moduleName)
-    }
+        // Verify that the expected modules are loaded from the config
+        assertTrue(
+            "TelemetryAggregator should be in available modules",
+            availableModules.any { it.id == "TelemetryAggregator" },
+        )
+        assertTrue(
+            "contextAggregator should be in available modules",
+            availableModules.any { it.id == "contextAggregator" },
+        )
 
-//    @Test
-//    fun testModuleNameModuleManager() {
-//        val module = ModuleManager()
-//        assertEquals("ModuleManager", module.moduleName)
-//    }
-//
-//    @Test
-//    fun testModuleManagerInitialization() {
-//        val moduleManager = ModuleManager()
-//        assertNotNull(moduleManager)
-//        assertEquals(2, moduleManager.getAggregators().size)
-//    }
-//
-//    @Test
-//    fun testAggregators() {
-//        val moduleManager = ModuleManager()
-//        val aggregators = moduleManager.getAggregators()
-//        assertTrue(aggregators.any { it is BaseTelemetryAggregator })
-//        assertTrue(aggregators.any { it is BaseContextAggregator })
-//    }
-//
-//    @Test
-//    fun testAggregatorsModules() {
-//        val moduleManager = ModuleManager()
-//        val aggregators = moduleManager.getAggregators()
-//        assertTrue(aggregators.any { it is BaseTelemetryAggregator })
-//        assertTrue(aggregators.any { it is BaseContextAggregator })
-//
-//        val telemetryAggregator = aggregators.find { it is BaseTelemetryAggregator } as BaseTelemetryAggregator
-//        val contextAggregator = aggregators.find { it is BaseContextAggregator } as BaseContextAggregator
-//
-//        assertNotNull(telemetryAggregator)
-//        assertNotNull(contextAggregator)
-//
-//        assertEquals(1, telemetryAggregator.retrieveModules().size)
-//        assertEquals(1, contextAggregator.retrieveModules().size)
-//
-//        assertTrue(telemetryAggregator.retrieveModules().any { it is BasicTelemetryModule })
-//        assertTrue(contextAggregator.retrieveModules().any { it is BasicContextRetrievalModule })
-//    }
-//
-//    @Test
-//    fun testCollectData() {
-//        val moduleManager = ModuleManager()
-//        val data = moduleManager.collectData()
-//        assertNotNull(data)
-//        assertTrue(data.isNotEmpty())
-//        assertEquals(2, data.size)
-//        assertTrue(data.any { it.type == Record.Type.TELEMETRY })
-//        assertTrue(data.any { it.type == Record.Type.CONTEXT })
-//    }
+        // Verify that the modules have the expected submodules
+        val telemetryAggregator = availableModules.find { it.id == "TelemetryAggregator" }
+        assertNotNull("TelemetryAggregator should not be null", telemetryAggregator)
+        assertTrue(
+            "TelemetryAggregator should have submodules",
+            telemetryAggregator!!.submodules.isNotEmpty(),
+        )
+
+        // Verify specific submodules
+        assertTrue(
+            "TelemetryAggregator should have TypingSpeed submodule",
+            telemetryAggregator.submodules.any { it.id == "TypingSpeed" },
+        )
+        assertTrue(
+            "TelemetryAggregator should have TimeSinceLastShownCompletion submodule",
+            telemetryAggregator.submodules.any { it.id == "TimeSinceLastShownCompletion" },
+        )
+        assertTrue(
+            "TelemetryAggregator should have EditorContextRetrievalModule submodule",
+            telemetryAggregator.submodules.any { it.id == "EditorContextRetrievalModule" },
+        )
+
+        // Verify context aggregator
+        val contextAggregator = availableModules.find { it.id == "contextAggregator" }
+        assertNotNull("contextAggregator should not be null", contextAggregator)
+        assertTrue(
+            "contextAggregator should have submodules",
+            contextAggregator!!.submodules.isNotEmpty(),
+        )
+
+        // Verify specific submodules
+        assertTrue(
+            "contextAggregator should have FileContextRetrievalModule submodule",
+            contextAggregator.submodules.any { it.id == "FileContextRetrievalModule" },
+        )
+        assertTrue(
+            "contextAggregator should have MultiFileContextRetrievalModule submodule",
+            contextAggregator.submodules.any { it.id == "MultiFileContextRetrievalModule" },
+        )
+    }
 }

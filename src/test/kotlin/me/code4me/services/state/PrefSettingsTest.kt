@@ -30,32 +30,6 @@ class PrefSettingsTest {
     }
 
     @Test
-    fun testModulePreferenceDelegate() {
-        // Create a new PrefSettings instance
-        val prefSettings = PrefSettings()
-
-        // Create a test class that uses the ModulePreferenceDelegate
-        class TestClass(private val prefSettings: PrefSettings) {
-            var testPreference by prefSettings.ModulePreferenceDelegate("testModule", "testKey", "defaultValue")
-        }
-
-        // Create an instance of the test class
-        val testClass = TestClass(prefSettings)
-
-        // Test getting the default value
-        assertEquals("defaultValue", testClass.testPreference)
-
-        // Test setting a value
-        testClass.testPreference = "newValue"
-
-        // Verify the value was set in the moduleValues map
-        assertEquals("newValue", prefSettings.moduleValues["testModule.testKey"])
-
-        // Test getting the set value
-        assertEquals("newValue", testClass.testPreference)
-    }
-
-    @Test
     fun testModuleValuesMap() {
         // Create a new PrefSettings instance
         val prefSettings = PrefSettings()

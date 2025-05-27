@@ -4,7 +4,7 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.components.service
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
-import me.code4me.services.modules.telemetry.typingSpeedHelpers.TypingSpeedService
+import me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingSpeedService
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
@@ -20,8 +20,15 @@ class TypingSpeed() : PluginModule {
     /**
      * Collects typing speed telemetry data.
      * This method uses the TypingSpeedService to get the typing speed in characters per second (CPS).
+     * Only collects data if the module is enabled in the global configuration.
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
+        // Check if this module is enabled in the global configuration
+        val prefState = me.code4me.services.state.getPrefState()
+        if (!prefState.enabledModules.contains(getPreferenceId())) {
+            return emptyList()
+        }
+
         val record = Record(Record.Type.TELEMETRY)
 
         val editor = request.editor ?: return emptyList() // Editor might be nullable
@@ -30,7 +37,10 @@ class TypingSpeed() : PluginModule {
         val trackingService: TypingSpeedService = project.service()
 
         val cpsKey = Record.key<Double>("typing_speed_cps")
-        val windowSize = PrefState.getPreferenceValue(getPreferenceId(), "telemetry.typing_speed.window_size")?.toInt() ?: 10
+        val windowSize =
+            PrefState
+                .getPreferenceValue(getPreferenceId(), "telemetry.typing_speed.window_size")
+                ?.toInt() ?: 10
         val cps = trackingService.getTypingSpeed(windowSize).toDouble()
 
         record.put(cpsKey, cps)
@@ -51,13 +61,6 @@ class TypingSpeed() : PluginModule {
      */
     override fun getPreferenceList(): List<Preference> {
         return listOf(
-            Preference(
-                "telemetry.typing_speed",
-                PreferenceType.BOOLEAN,
-                "true",
-                "Enable Typing Speed Telemetry",
-                "Enable or disable typing speed telemetry. This will send your typing speed to the server for analysis.",
-            ),
             Preference(
                 "telemetry.typing_speed.window_size",
                 PreferenceType.INT,

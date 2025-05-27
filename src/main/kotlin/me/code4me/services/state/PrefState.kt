@@ -6,12 +6,12 @@ import com.intellij.openapi.components.SimplePersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.util.xmlb.annotations.MapAnnotation
 import com.intellij.util.xmlb.annotations.Tag
-import me.code4me.services.modules.ModuleRegistryService
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.utils.configuration.Preference
-import kotlin.reflect.KProperty
 
 /**
  * Constant defining the name of the preference state component.
@@ -54,13 +54,18 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
         }
 
         /**
-         * Retrieves all available modules from the ModuleRegistryService.
+         * Retrieves all available modules from the ModuleManager.
          *
          * @return A list of available [PluginModule] instances.
          */
         fun getAvailableModules(): List<PluginModule> {
-            // Use ModuleRegistryService to get available modules
-            return service<ModuleRegistryService>().getAvailableModules()
+            // Get the active project and use ModuleManager to get available modules
+            val activeProject = ProjectManager.getInstance().openProjects.firstOrNull()
+            return if (activeProject != null) {
+                getModuleManager(activeProject).getAvailableModules()
+            } else {
+                emptyList()
+            }
         }
 
         /**
@@ -68,7 +73,7 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
          *
          * @return A list of strings representing the IDs of enabled modules.
          */
-        fun getEnabledModules(): List<String> {
+        fun getEnabledModules(): HashSet<String> {
             return getPrefState().enabledModules
         }
 
@@ -81,7 +86,7 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
         fun enableModule(moduleId: String) {
             val state = getPrefState()
             if (!state.enabledModules.contains(moduleId)) {
-                state.enabledModules = state.enabledModules + moduleId
+                state.enabledModules.add(moduleId)
             }
         }
 
@@ -92,7 +97,7 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
          */
         fun disableModule(moduleId: String) {
             val state = getPrefState()
-            state.enabledModules = state.enabledModules.filter { it != moduleId }
+            state.enabledModules.remove(moduleId)
         }
 
         /**
@@ -105,27 +110,51 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
          *
          * @param module The [PluginModule] to register.
          */
-        fun registerModule(module: PluginModule) {
+        fun registerModule(module: PluginModule): Boolean {
             val state = getPrefState()
             val preferences = module.getPreferenceList()
 
+            val isNewModule =
+                state.availableModules.none { it != null && it.getPreferenceId() == module.getPreferenceId() }
+
             // Add module if not already registered
-            if (state.availableModules.none { it.getPreferenceId() == module.getPreferenceId() }) {
+            if (isNewModule) {
                 state.availableModules = state.availableModules + module
+            } else {
+                // Update the module in the list to ensure it has the latest information
+                state.availableModules =
+                    state.availableModules.map {
+                        if (it.getPreferenceId() == module.getPreferenceId()) module else it
+                    }
             }
 
-            // Register preferences
+            // Register preferences - always update to ensure latest definitions are used
             preferences.forEach { pref ->
                 val key = "${module.getPreferenceId()}.${pref.key}"
-                if (!state.modulePreferences.containsKey(key)) {
-                    state.modulePreferences[key] = pref
+                state.modulePreferences[key] = pref
 
-                    // Initialize with default value if not already set
-                    if (!state.moduleValues.containsKey(key)) {
-                        state.moduleValues[key] = pref.defaultValue
-                    }
+                // Initialize with default value if not already set
+                if (!state.moduleValues.containsKey(key)) {
+                    state.moduleValues[key] = pref.defaultValue
                 }
             }
+
+            // Remove any preferences that are no longer defined by the module
+            val moduleKeyPrefix = "${module.getPreferenceId()}."
+            val currentPrefKeys = preferences.map { "$moduleKeyPrefix${it.key}" }.toSet()
+
+            // Find keys that start with the module prefix but aren't in the current preferences
+            val keysToRemove =
+                state.modulePreferences.keys
+                    .filter { it.startsWith(moduleKeyPrefix) && it !in currentPrefKeys }
+
+            // Remove obsolete preferences and their values
+            keysToRemove.forEach { key ->
+                state.modulePreferences.remove(key)
+                state.moduleValues.remove(key)
+            }
+
+            return isNewModule
         }
 
         /**
@@ -185,6 +214,7 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
  * state persistence mechanism.
  */
 class PrefSettings : BaseState() {
+    // ================= APPLICATION SETTINGS =================
     /**
      * Flag indicating whether completions should be stored.
      * When true, the application will save completion history.
@@ -196,6 +226,8 @@ class PrefSettings : BaseState() {
      * When true, the application will save context information.
      */
     var storeContext by property(false)
+
+    // ================= MODULES =================
 
     /**
      * List of all available modules in the application.
@@ -209,7 +241,9 @@ class PrefSettings : BaseState() {
      * Only modules with IDs in this list will be active in the application.
      */
     @Tag("enabledModules")
-    var enabledModules: List<String> = emptyList()
+    var enabledModules: HashSet<String> = hashSetOf()
+
+    // ================= PREFERENCES =================
 
     /**
      * Map of module preference definitions.
@@ -228,48 +262,4 @@ class PrefSettings : BaseState() {
     @Tag("moduleValues")
     @MapAnnotation(surroundWithTag = true, surroundKeyWithTag = true, surroundValueWithTag = true)
     var moduleValues: MutableMap<String, String> = mutableMapOf()
-
-    /**
-     * Delegate class for convenient access to module preferences.
-     *
-     * This class provides property delegate functionality that allows module preferences
-     * to be accessed as if they were direct properties of a class, while automatically
-     * handling the storage and retrieval from the moduleValues map.
-     *
-     * @property moduleId The ID of the module.
-     * @property key The key of the preference.
-     * @property defaultValue The default value to return if the preference is not set.
-     */
-    inner class ModulePreferenceDelegate(private val moduleId: String, private val key: String, private val defaultValue: String) {
-        /**
-         * Gets the value of the preference.
-         *
-         * @param thisRef The reference to the object on which this delegate is used.
-         * @param property The property being accessed.
-         * @return The preference value, or the default value if not set.
-         */
-        operator fun getValue(
-            thisRef: Any?,
-            property: KProperty<*>,
-        ): String {
-            val fullKey = "$moduleId.$key"
-            return moduleValues[fullKey] ?: defaultValue
-        }
-
-        /**
-         * Sets the value of the preference.
-         *
-         * @param thisRef The reference to the object on which this delegate is used.
-         * @param property The property being modified.
-         * @param value The new value to set.
-         */
-        operator fun setValue(
-            thisRef: Any?,
-            property: KProperty<*>,
-            value: String,
-        ) {
-            val fullKey = "$moduleId.$key"
-            moduleValues[fullKey] = value
-        }
-    }
 }

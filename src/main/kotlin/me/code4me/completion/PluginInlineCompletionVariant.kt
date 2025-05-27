@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 class PluginInlineCompletionVariant(
-    private val CompletionText: String,
+    private val completionText: String,
     private val requestId: Long,
     private val completionModel: String,
 ) : InlineCompletionVariant {
@@ -17,7 +17,7 @@ class PluginInlineCompletionVariant(
         get() =
             flowOf(
                 PluginInlineCompletionElement(
-                    CompletionText,
+                    completionText,
                     requestId,
                     completionModel,
                 ),

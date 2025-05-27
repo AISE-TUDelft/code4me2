@@ -1,108 +1,40 @@
 package me.code4me.services.modules
 
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.service
-import me.code4me.services.config.ConfigService
-import me.code4me.services.state.PrefState
+import com.intellij.openapi.project.Project
+import me.code4me.services.modules.manager.getModuleManager
 
 /**
- * Service for managing plugin modules
+ * DEPRECATED: This service has been refactored and its functionality moved to ModuleManager.
+ *
+ * The ModuleRegistryService has been removed as part of a refactoring to improve the module management architecture.
+ * Its responsibilities have been moved to the ModuleManager class.
+ *
+ * The new architecture flow is:
+ * 1. ConfigService instantiates modules from configuration
+ * 2. MyProjectActivity gets the instantiated modules and stores them in ModuleManager
+ * 3. ModuleManager handles module storage, initialization, and management
+ *
+ * @see me.code4me.services.modules.manager.ModuleManager
+ * @see me.code4me.startup.PluginStartupActivity
  */
-@Service
-class ModuleRegistryService {
-    private val configService = ConfigService.getInstance()
-    private val modules: MutableList<PluginModule> = mutableListOf()
-    private val enabledModuleIds: MutableSet<String> = mutableSetOf()
-
-    init {
-        // Load modules from configuration
-        loadModules()
-
-        // Initialize enabled modules from preferences
-        val enabledModules = PrefState.getEnabledModules()
-        enabledModuleIds.addAll(enabledModules)
-    }
-
+@Deprecated("This service has been refactored and its functionality moved to ModuleManager")
+@Service(Service.Level.PROJECT)
+class ModuleRegistryService(private val project: Project) {
     /**
-     * Load modules from configuration
+     * This method is deprecated. Use ModuleManager.initializeModules() instead.
+     *
+     * @see me.code4me.services.modules.manager.ModuleManager.initializeModules
      */
-    private fun loadModules() {
-        // Clear existing modules
-        modules.clear()
-
-        // Load modules from configuration
-        val configModules = configService.instantiateModules()
-        modules.addAll(configModules)
-
-        // Register modules with PrefState
-        modules.forEach { module ->
-            PrefState.registerModule(module)
-
-            // Enable modules that are enabled by default in config
-            val moduleConfig = configService.getAvailableModules().find { it.id == module.getPreferenceId() }
-            if (moduleConfig?.enabled == true) {
-                enableModule(module.getPreferenceId())
-            }
-        }
-    }
-
-    /**
-     * Get all available modules
-     */
-    fun getAvailableModules(): List<PluginModule> {
-        return modules.toList()
-    }
-
-    /**
-     * Get enabled module IDs
-     */
-    fun getEnabledModuleIds(): Set<String> {
-        return enabledModuleIds.toSet()
-    }
-
-    /**
-     * Get enabled modules
-     */
-    fun getEnabledModules(): List<PluginModule> {
-        return modules.filter { enabledModuleIds.contains(it.getPreferenceId()) }
-    }
-
-    /**
-     * Enable a module
-     */
-    fun enableModule(moduleId: String) {
-        enabledModuleIds.add(moduleId)
-        PrefState.enableModule(moduleId)
-    }
-
-    /**
-     * Disable a module
-     */
-    fun disableModule(moduleId: String) {
-        enabledModuleIds.remove(moduleId)
-        PrefState.disableModule(moduleId)
-    }
-
-    /**
-     * Check if a module is enabled
-     */
-    fun isModuleEnabled(moduleId: String): Boolean {
-        return enabledModuleIds.contains(moduleId)
-    }
-
-    /**
-     * Get a module by ID
-     */
-    fun getModule(moduleId: String): PluginModule? {
-        return modules.find { it.getPreferenceId() == moduleId }
-    }
-
-    companion object {
-        /**
-         * Get the ModuleRegistryService instance
-         */
-        fun getInstance(): ModuleRegistryService {
-            return service()
-        }
+    @Deprecated(
+        "Use ModuleManager.initializeModules() instead",
+        ReplaceWith(
+            "getModuleManager(project).initializeModules()",
+            "me.code4me.services.modules.manager.getModuleManager",
+        ),
+    )
+    fun initializeModules() {
+        // Delegate to ModuleManager
+        getModuleManager(project).initializeModules()
     }
 }

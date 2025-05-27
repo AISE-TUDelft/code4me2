@@ -1,26 +1,26 @@
 package me.code4me.components.settings.sections
 
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
 import com.intellij.openapi.ui.DialogWrapper
-import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.FormBuilder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
-import me.code4me.api.generated.model.Provider
 import me.code4me.components.settings.fields.CredentialField
 import me.code4me.components.settings.fields.FieldInfo
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.app.AppService
-import me.code4me.services.config.getConfig
 import me.code4me.services.state.AuthState
-import me.code4me.utils.GoogleAuthUtils
 import java.awt.BorderLayout
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JButton
@@ -248,25 +248,28 @@ class AuthenticationSection : SettingsSection {
     }
 
     private fun performAuthentication() {
-        handleCredentialsAuth()
+        // Run authentication off the EDT
+        CoroutineScope(Dispatchers.IO).launch {
+            handleCredentialsAuthAsync()
+        }
     }
 
-    private fun handleCredentialsAuth() {
+    private suspend fun handleCredentialsAuthAsync() {
         val isSignup = !authModeToggle.isSelected
 
         if (isSignup) {
             if (!String(passwordField.password).equals(String(confirmPasswordField.password))) {
-                showError("Passwords do not match")
+                showErrorOnEDT("Passwords do not match")
                 return
             }
             if (fullNameField.text.isBlank() || fullNameField.text.isEmpty()) {
-                showError("Full name is required")
+                showErrorOnEDT("Full name is required")
                 return
             }
         }
 
         if (emailField.text.isBlank() || passwordField.password.isEmpty()) {
-            showError("Email and password are required")
+            showErrorOnEDT("Email and password are required")
             return
         }
 
@@ -274,13 +277,13 @@ class AuthenticationSection : SettingsSection {
 
         val token =
             if (isSignup) {
-                performSignup(
+                performSignupAsync(
                     fullName = fullNameField.text,
                     email = emailField.text,
                     password = String(passwordField.password),
                 )
             } else {
-                performLogin(
+                performLoginAsync(
                     email = emailField.text,
                     password = String(passwordField.password),
                 )
@@ -289,14 +292,73 @@ class AuthenticationSection : SettingsSection {
         if (token != null) {
             // Authentication successful - the session is now managed via cookies
             // and the token is stored in AuthState by the AppService methods
-
-            showSuccess("Authentication successful!")
-
+            showSuccessOnEDT("Authentication successful!")
             // Clear all fields for security reasons
-            clearAllFields()
-
+            clearAllFieldsOnEDT()
             // Refresh the UI to show the authenticated state
             requiresUIRefresh.set(true)
+        }
+    }
+
+    private suspend fun performLoginAsync(
+        email: String,
+        password: String,
+    ): String? {
+        return try {
+            val response = appService.authenticateUser(email, password)
+            response.message
+        } catch (e: ClientException) {
+            showErrorOnEDT("Login failed: ${e.message}")
+            null
+        } catch (e: ServerException) {
+            showErrorOnEDT("Server error: ${e.message}")
+            null
+        } catch (e: Exception) {
+            showErrorOnEDT("Unexpected error: ${e.message}")
+            null
+        }
+    }
+
+    private suspend fun performSignupAsync(
+        fullName: String,
+        email: String,
+        password: String,
+    ): String? {
+        return try {
+            appService.createUser(
+                email = email,
+                name = fullName,
+                password = password,
+            )
+            val authResponse = appService.authenticateUser(email, password)
+            authResponse.message
+        } catch (e: ClientException) {
+            showErrorOnEDT("Signup failed: ${e.message}")
+            null
+        } catch (e: ServerException) {
+            showErrorOnEDT("Server error: ${e.message}")
+            null
+        } catch (e: Exception) {
+            showErrorOnEDT("Unexpected error: ${e.message}")
+            null
+        }
+    }
+
+    private fun showErrorOnEDT(message: String) {
+        CoroutineScope(Dispatchers.EDT).launch {
+            showError(message)
+        }
+    }
+
+    private fun showSuccessOnEDT(message: String) {
+        CoroutineScope(Dispatchers.EDT).launch {
+            showSuccess(message)
+        }
+    }
+
+    private fun clearAllFieldsOnEDT() {
+        CoroutineScope(Dispatchers.EDT).launch {
+            clearAllFields()
         }
     }
 

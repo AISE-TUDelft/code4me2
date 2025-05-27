@@ -5,7 +5,6 @@ import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
-import me.code4me.utils.configuration.PreferenceType
 
 /**
  * This module collects the time since the last shown completion.
@@ -20,8 +19,15 @@ class TimeSinceLastShownCompletion : PluginModule {
     /**
      * Collects the time since the last shown completion.
      * It returns record containing the time difference in milliseconds.
+     * Only collects data if the module is enabled in the global configuration.
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
+        // Check if this module is enabled in the global configuration
+        val prefState = me.code4me.services.state.getPrefState()
+        if (!prefState.enabledModules.contains(getPreferenceId())) {
+            return emptyList()
+        }
+
         if (lastCollectDataTime == null) {
             lastCollectDataTime = System.currentTimeMillis()
             return emptyList()
@@ -44,15 +50,7 @@ class TimeSinceLastShownCompletion : PluginModule {
     }
 
     override fun getPreferenceList(): List<Preference> {
-        return listOf(
-            Preference(
-                "telemetry.time_since_last_shown_completion",
-                PreferenceType.BOOLEAN,
-                "true",
-                "Enable Time Since Last Shown Completion Telemetry",
-                "Enable or disable time since last shown completion telemetry. This will send the time since the last shown completion to the server for analysis.",
-            ),
-        )
+        return emptyList()
     }
 
     override fun getPreferenceClass(): PreferenceClass {

@@ -4,6 +4,7 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.Preference
@@ -13,13 +14,49 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 abstract class BaseAggregator : PluginModule {
     protected val modules = mutableListOf<PluginModule>()
-    abstract val submodules: List<PluginModule>
+
+    // This property is now deprecated - submodules should be loaded from config
+    @Deprecated("Use loadModulesFromConfig() instead", ReplaceWith("loadModulesFromConfig()"))
+    open val modulesList: List<PluginModule> = emptyList()
+
+    // The module ID used to find configuration in the config file
+    abstract val configModuleId: String
 
     override fun initializeModules() {
-        submodules.forEach {
+        // Load modules from config instead of using hard-coded list
+        val configModules = loadModulesFromConfig()
+
+        configModules.forEach {
             it.initializeModules()
             registerModule(it)
         }
+    }
+
+    override fun getPreferenceId(): String {
+        return super.getPreferenceId()
+    }
+
+    /**
+     * Loads modules from the configuration service based on the aggregator's module ID.
+     *
+     * @return List of instantiated modules from configuration
+     */
+    protected fun loadModulesFromConfig(): List<PluginModule> {
+        val configService = getConfig()
+
+        // Get all available modules from config
+        val availableModules = configService.getAvailableModules()
+
+        // Find this aggregator's configuration
+        val aggregatorConfig = availableModules.find { it.id == configModuleId }
+
+        // If no configuration is found or no submodules are defined, return empty list
+        if (aggregatorConfig == null || aggregatorConfig.submodules.isEmpty()) {
+            return emptyList()
+        }
+
+        // Instantiate the submodules
+        return configService.instantiateModulesFromConfigs(aggregatorConfig.submodules)
     }
 
     fun registerModule(pluginModule: PluginModule) {
@@ -64,10 +101,14 @@ abstract class BaseAggregator : PluginModule {
     }
 
     override fun getPreferenceClass(): PreferenceClass {
-        TODO("Not yet implemented")
+        return PreferenceClass.MODULE
     }
 
     fun retrieveModules(): List<PluginModule> {
         return modules.toList()
+    }
+
+    override fun getSubmodules(): List<PluginModule> {
+        return loadModulesFromConfig()
     }
 }
