@@ -2,7 +2,7 @@ package me.code4me.services.modules.telemetry
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.Record
+import me.code4me.utils.record.Record
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 
@@ -28,15 +28,15 @@ class TimeSinceLastShownCompletion : PluginModule {
             return emptyList()
         }
 
-        if (lastCollectDataTime == null) {
-            lastCollectDataTime = System.currentTimeMillis()
-            return emptyList()
-        }
         val previousTime = lastCollectDataTime
         lastCollectDataTime = System.currentTimeMillis()
         val record = Record(Record.Type.TELEMETRY)
-        val timeSinceLastShownCompletionKey = Record.key<Long>("time_since_last_shown_completion")
-        val timeSinceLastShownCompletion = lastCollectDataTime!! - previousTime!!
+        val timeSinceLastShownCompletionKey = Record.key<Long>("time_since_last_completion")
+        var timeSinceLastShownCompletion = 0L
+        if (previousTime != null) {
+            // Calculate the time difference in milliseconds
+            timeSinceLastShownCompletion = lastCollectDataTime!! - previousTime
+        }
         record.put(timeSinceLastShownCompletionKey, timeSinceLastShownCompletion)
         return listOf(record)
     }

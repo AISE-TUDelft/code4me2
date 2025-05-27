@@ -2,18 +2,23 @@ package me.code4me.services.app
 
 import com.intellij.openapi.components.Service
 import me.code4me.api.generated.api.AuthenticateApi
+import me.code4me.api.generated.api.CompletionApi
 import me.code4me.api.generated.api.CreateUserApi
 import me.code4me.api.generated.api.UserApi
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
+import me.code4me.api.generated.model.CompletionPostResponse
+import me.code4me.api.generated.model.CompletionResponseData
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.Provider
+import me.code4me.api.generated.model.RequestCompletion
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
 import me.code4me.services.config.getConfig
 import me.code4me.services.state.getAuthState
+import me.code4me.utils.record.Record
 import java.io.IOException
 
 /**
@@ -35,6 +40,7 @@ class AppService {
     private val authApi = AuthenticateApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val userApi = UserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val createUserApi = CreateUserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
 
     /**
      * Initializes the AppService.
@@ -44,6 +50,8 @@ class AppService {
     init {
         println("AppService initialized with API base URL: $apiBaseUrl")
     }
+
+    // ========= Authentication Methods =========
 
     /**
      * Stores the authentication response in the AuthState.
@@ -211,4 +219,24 @@ class AppService {
         getAuthState().clearUserData()
         println("User logged out successfully")
     }
+
+
+    // ============ Completion Methods ============
+    fun getInlineCompletion(aggregatedCollectedData: Map<Record.Type, Map<String, Any>>): CompletionResponseData? {
+        val requestCompletion = RequestCompletion(
+            modelIds = listOf(1),
+            context = aggregatedCollectedData.get(Record.Type.CONTEXT) ?: emptyMap(),
+            telemetry = aggregatedCollectedData.get(Record.Type.TELEMETRY) ?: emptyMap(),
+        )
+
+        try {
+            val response = completionApi.requestCompletionApiCompletionRequestPost(requestCompletion)
+            println("Inline completion response: ${response.message}")
+            return response.data
+        } catch (e: Exception) {
+            println("Error getting inline completion: ${e.message}")
+            return  null
+        }
+    }
+
 }

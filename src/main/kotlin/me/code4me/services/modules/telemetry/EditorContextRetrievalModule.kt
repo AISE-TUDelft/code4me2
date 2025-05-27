@@ -3,7 +3,7 @@ package me.code4me.services.modules.telemetry
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.Record
+import me.code4me.utils.record.Record
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.Preference
@@ -45,11 +45,6 @@ class EditorContextRetrievalModule : PluginModule {
             val languageKey = Record.Companion.key<String>("context.language")
             expanded[languageKey] = psiFile.language.displayName
         }
-//        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filename")?.toBoolean() == true*/true) {
-        if (true) {
-            val fileNameKey = Record.Companion.key<String>("context.file.name")
-            expanded[fileNameKey] = virtualFile.name
-        }
 
 //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filepath")?.toBoolean() == true*/true) {
         if (true) {
@@ -63,6 +58,13 @@ class EditorContextRetrievalModule : PluginModule {
             expanded[caretOffsetKey] = caretModel.offset
         }
 
+        if (true) {
+            val relativeDocumentPositionKey = Record.Companion.key<Float>("relative_document_position")
+            expanded[relativeDocumentPositionKey] = (
+                caretModel.offset.toFloat() / document.text.length.toFloat()
+            )
+        }
+
 //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.caret.position")?.toBoolean() == true*/true) {]
         if (true) {
             val caretLineKey = Record.Companion.key<Int>("context.caret.line")
@@ -71,6 +73,13 @@ class EditorContextRetrievalModule : PluginModule {
             expanded[caretLineKey] = logicalPosition.line
             expanded[caretColumnKey] = logicalPosition.column
         }
+
+        //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.length")?.toBoolean() == true*/true) {
+        if (true) {
+            val fileLengthKey = Record.key<Int>("document_char_length")
+            expanded[fileLengthKey] = document.text.length
+        }
+
         if (PrefState.Companion.getPreferenceValue(
                 moduleId,
                 "context.include.selection.text",
@@ -80,7 +89,7 @@ class EditorContextRetrievalModule : PluginModule {
             expanded[selectionTextKey] = selectedText
         }
 
-        val record = Record(type = Record.Type.CONTEXT, expanded = expanded)
+        val record = Record(type = Record.Type.TELEMETRY, expanded = expanded)
         return listOf(record)
     }
 
@@ -99,13 +108,6 @@ class EditorContextRetrievalModule : PluginModule {
                 defaultValue = "true",
                 displayName = "Include Language",
                 description = "Include the programming language of the current file in context data.",
-            ),
-            Preference(
-                key = "context.include.filename",
-                type = PreferenceType.BOOLEAN,
-                defaultValue = "true",
-                displayName = "Include File Name",
-                description = "Include the name of the file in context data.",
             ),
             Preference(
                 key = "context.include.filepath",
@@ -134,6 +136,13 @@ class EditorContextRetrievalModule : PluginModule {
                 defaultValue = "true",
                 displayName = "Include Selected Text",
                 description = "Include currently selected text, if any, in context data.",
+            ),
+            Preference(
+                key = "context.include.length",
+                type = PreferenceType.BOOLEAN,
+                defaultValue = "true",
+                displayName = "Include File Length",
+                description = "Include the total length of the file in characters.",
             ),
         )
 
