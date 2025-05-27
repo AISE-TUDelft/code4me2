@@ -12,6 +12,7 @@ import com.intellij.util.ui.FormBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.components.settings.fields.CredentialField
@@ -293,10 +294,21 @@ class AuthenticationSection : SettingsSection {
             // Authentication successful - the session is now managed via cookies
             // and the token is stored in AuthState by the AppService methods
             showSuccessOnEDT("Authentication successful!")
-            // Clear all fields for security reasons
-            clearAllFieldsOnEDT()
-            // Refresh the UI to show the authenticated state
-            requiresUIRefresh.set(true)
+
+            // Switch to EDT for UI operations
+            withContext(Dispatchers.EDT) {
+                // Clear all fields for security reasons
+                clearAllFields()
+                // Refresh the UI to show the authenticated state
+                requiresUIRefresh.set(true)
+
+                // Force UI refresh by triggering a property change event
+                val currentToken = authState.state.getToken()
+                if (currentToken != null) {
+                    // Re-set the token to trigger the property change event
+                    authState.state.setToken(currentToken)
+                }
+            }
         }
     }
 

@@ -9,18 +9,11 @@ stages:
   - test
   - documentation
 
-# Cache Gradle dependencies between jobs
-cache:
-  key: ${CI_COMMIT_REF_SLUG}
-  paths:
-    - .gradle/
-    - build/
-
 # Build stage: Compile the project
 build:
   stage: build
   script:
-    - gradle assemble
+    - gradle clean assemble
   artifacts:
     paths:
       - build/libs/*.jar

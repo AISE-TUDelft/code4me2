@@ -6,10 +6,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
-import me.code4me.utils.configuration.PreferenceType
+import me.code4me.utils.record.Record
 import java.util.concurrent.CopyOnWriteArrayList
 
 abstract class BaseAggregator : PluginModule {
@@ -68,8 +67,9 @@ abstract class BaseAggregator : PluginModule {
         runBlocking {
             val aggregatedData = CopyOnWriteArrayList<Record>()
             coroutineScope {
+                val submodules = getSubmodules()
                 val deferredResults =
-                    modules.map { module ->
+                    submodules.map { module ->
                         async {
                             module.collectData(request)
                         }
@@ -82,22 +82,7 @@ abstract class BaseAggregator : PluginModule {
         }
 
     override fun getPreferenceList(): List<Preference> {
-        return listOf(
-            Preference(
-                key = "useAI",
-                type = PreferenceType.BOOLEAN,
-                defaultValue = "true",
-                displayName = "Use AI Completion",
-                description = "Use AI-powered code completion",
-            ),
-            Preference(
-                key = "maxSuggestions",
-                type = PreferenceType.STRING,
-                defaultValue = "5",
-                displayName = "Max Suggestions",
-                description = "Maximum number of suggestions to show",
-            ),
-        )
+        return emptyList()
     }
 
     override fun getPreferenceClass(): PreferenceClass {

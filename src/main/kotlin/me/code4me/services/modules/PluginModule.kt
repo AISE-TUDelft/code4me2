@@ -3,6 +3,7 @@ package me.code4me.services.modules
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.Disposable
 import me.code4me.utils.configuration.PreferenceCapable
+import me.code4me.utils.record.Record
 
 /**
  * Shared interface for plugin modules in the Code4Me application.

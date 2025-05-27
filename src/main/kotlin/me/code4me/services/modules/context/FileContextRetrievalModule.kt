@@ -2,11 +2,11 @@ package me.code4me.services.modules.context
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.Record
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
+import me.code4me.utils.record.Record
 
 class FileContextRetrievalModule : PluginModule {
     override val moduleName: String = "FileContextRetrievalModule"
@@ -29,7 +29,7 @@ class FileContextRetrievalModule : PluginModule {
 
 //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.contents")?.toBoolean() == true*/true) {
         if (true) {
-            val fileContentsKey = Record.key<String>("context.file.contents")
+            val fileContentsKey = Record.key<String>("file_contents")
             expanded[fileContentsKey] = fileText
         }
 //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.prefix")?.toBoolean() == true*/ true) {
@@ -37,7 +37,7 @@ class FileContextRetrievalModule : PluginModule {
             val prefixLength = PrefState.getPreferenceValue(moduleId, "context.prefix.length")?.toIntOrNull() ?: 120
             val start = (caretOffset - prefixLength).coerceAtLeast(0)
             val prefix = fileText.substring(start, caretOffset.coerceAtMost(fileText.length))
-            val prefixKey = Record.key<String>("context.file.prefix")
+            val prefixKey = Record.key<String>("prefix")
             expanded[prefixKey] = prefix
         }
 //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.postfix")?.toBoolean() == true*/true) {
@@ -45,13 +45,15 @@ class FileContextRetrievalModule : PluginModule {
             val postfixLength = PrefState.getPreferenceValue(moduleId, "context.postfix.length")?.toIntOrNull() ?: 120
             val end = (caretOffset + postfixLength).coerceAtMost(fileText.length)
             val postfix = fileText.substring(caretOffset.coerceAtMost(fileText.length), end)
-            val postfixKey = Record.key<String>("context.file.postfix")
+            val postfixKey = Record.key<String>("suffix")
             expanded[postfixKey] = postfix
         }
-//        if (/*PrefState.getPreferenceValue(moduleId, "context.include.length")?.toBoolean() == true*/true) {
+
+        //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.filename")?.toBoolean() == true*/true) {
         if (true) {
-            val fileLengthKey = Record.key<Int>("context.file.length")
-            expanded[fileLengthKey] = fileText.length
+            val fileNameKey = Record.Companion.key<String>("file_name")
+            val virtualFile = request.file.virtualFile ?: return emptyList()
+            expanded[fileNameKey] = virtualFile.name
         }
 
         return listOf(
@@ -92,18 +94,18 @@ class FileContextRetrievalModule : PluginModule {
                 description = "Include the text before the caret, up to prefix length.",
             ),
             Preference(
-                key = "context.include.postfix",
+                key = "context.include.suffix",
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Include Postfix",
                 description = "Include the text after the caret, up to postfix length.",
             ),
             Preference(
-                key = "context.include.length",
+                key = "context.include.filename",
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
-                displayName = "Include File Length",
-                description = "Include the total length of the file in characters.",
+                displayName = "Include File Name",
+                description = "Include the name of the file in context data.",
             ),
         )
 }

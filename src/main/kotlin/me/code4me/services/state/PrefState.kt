@@ -215,6 +215,7 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
  */
 class PrefSettings : BaseState() {
     // ================= APPLICATION SETTINGS =================
+
     /**
      * Flag indicating whether completions should be stored.
      * When true, the application will save completion history.

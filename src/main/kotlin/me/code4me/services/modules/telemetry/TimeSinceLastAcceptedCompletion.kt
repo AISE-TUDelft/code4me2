@@ -2,9 +2,9 @@ package me.code4me.services.modules.telemetry
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.Record
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
+import me.code4me.utils.record.Record
 
 class TimeSinceLastAcceptedCompletion : PluginModule {
     override val moduleName: String

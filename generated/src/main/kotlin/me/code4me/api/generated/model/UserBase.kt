@@ -22,19 +22,16 @@ import com.squareup.moshi.JsonClass
 /**
  * 
  *
- * @param userId Unique id for the user
  * @param email User's email address
  * @param name User's full name
+ * @param password User's password
+ * @param userId Unique id for the user
  * @param joinedAt When the user was created
  * @param verified Whether the user's email has been verified
  */
 
 
 data class UserBase (
-
-    /* Unique id for the user */
-    @Json(name = "user_id")
-    val userId: java.util.UUID,
 
     /* User's email address */
     @Json(name = "email")
@@ -43,6 +40,14 @@ data class UserBase (
     /* User's full name */
     @Json(name = "name")
     val name: kotlin.String,
+
+    /* User's password */
+    @Json(name = "password")
+    val password: kotlin.String,
+
+    /* Unique id for the user */
+    @Json(name = "user_id")
+    val userId: java.util.UUID,
 
     /* When the user was created */
     @Json(name = "joined_at")

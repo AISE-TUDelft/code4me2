@@ -1,11 +1,11 @@
-package me.code4me.services.modules
+package me.code4me.utils.record
 
 /**
  * Represents a Record returned by context or telemetry modules.
  */
 data class Record(
     val type: Type,
-    private val expanded: MutableMap<EntryKey, Any> = mutableMapOf(),
+    internal val expanded: MutableMap<EntryKey, Any> = mutableMapOf(),
 ) {
     /**
      * High-level category indicating the purpose of the record.
@@ -74,4 +74,28 @@ data class Record(
      * @return A string representation of the Record.
      */
     override fun toString(): String = "Record(type=$type, expanded=$expanded)"
+}
+
+/**
+ * Converts the Record to a map where keys are the names of the EntryKeys.
+ * This is useful for serialization or when you need a simple key-value representation.
+ *
+ * @return A map representation of the Record with string keys.
+ */
+fun Record.toMap(): Map<String, Any> {
+    return expanded.mapKeys { it.key.name }
+}
+
+fun List<Record>.aggregateByType(): Map<Record.Type, Record> {
+    return this.groupBy { it.type }
+        .mapValues { (_, records) ->
+            // Combine all records of the same type into a single record
+            val combinedRecord = Record(records.first().type)
+            records.forEach { record ->
+                record.expanded.forEach { (key, value) ->
+                    combinedRecord.put(key, value)
+                }
+            }
+            combinedRecord
+        }
 }
