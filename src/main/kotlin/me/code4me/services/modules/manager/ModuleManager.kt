@@ -9,11 +9,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
-import me.code4me.utils.record.Record
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
+import me.code4me.utils.record.Record
 import java.util.concurrent.CopyOnWriteArrayList
 
 fun getModuleManager(project: Project): ModuleManager {

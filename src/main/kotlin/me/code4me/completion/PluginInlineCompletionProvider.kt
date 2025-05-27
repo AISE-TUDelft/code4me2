@@ -42,7 +42,7 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
 
         val completion =
             service<AppService>()
-            .getInlineCompletion(aggregatedCollectedData)
+                .getInlineCompletion(aggregatedCollectedData)
 
         val mappedCompletions = completion?.completions ?: emptyList()
 

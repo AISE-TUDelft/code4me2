@@ -3,12 +3,12 @@ package me.code4me.services.modules.telemetry
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import me.code4me.services.modules.PluginModule
-import me.code4me.utils.record.Record
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
+import me.code4me.utils.record.Record
 
 class EditorContextRetrievalModule : PluginModule {
     override val moduleName = "EditorContextRetrievalModule"

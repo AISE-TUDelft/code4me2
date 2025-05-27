@@ -8,7 +8,6 @@ import me.code4me.api.generated.api.UserApi
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
-import me.code4me.api.generated.model.CompletionPostResponse
 import me.code4me.api.generated.model.CompletionResponseData
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.Provider
@@ -220,14 +219,14 @@ class AppService {
         println("User logged out successfully")
     }
 
-
     // ============ Completion Methods ============
     fun getInlineCompletion(aggregatedCollectedData: Map<Record.Type, Map<String, Any>>): CompletionResponseData? {
-        val requestCompletion = RequestCompletion(
-            modelIds = listOf(1),
-            context = aggregatedCollectedData.get(Record.Type.CONTEXT) ?: emptyMap(),
-            telemetry = aggregatedCollectedData.get(Record.Type.TELEMETRY) ?: emptyMap(),
-        )
+        val requestCompletion =
+            RequestCompletion(
+                modelIds = listOf(1),
+                context = aggregatedCollectedData.get(Record.Type.CONTEXT) ?: emptyMap(),
+                telemetry = aggregatedCollectedData.get(Record.Type.TELEMETRY) ?: emptyMap(),
+            )
 
         try {
             val response = completionApi.requestCompletionApiCompletionRequestPost(requestCompletion)
@@ -235,8 +234,7 @@ class AppService {
             return response.data
         } catch (e: Exception) {
             println("Error getting inline completion: ${e.message}")
-            return  null
+            return null
         }
     }
-
 }

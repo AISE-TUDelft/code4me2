@@ -275,9 +275,10 @@ class ConfigurationSection : SettingsSection {
                 val warningMessage =
                     if (dependentModules.isNotEmpty()) {
                         val filteredDependantModules = dependentModules.filter { it != selectedModule.getPreferenceId() }
-                        "This module cannot be disabled because it has hard dependencies on the following top-level modules: ${filteredDependantModules.joinToString(
-                            ", ",
-                        )}"
+                        "This module cannot be disabled because it has hard dependencies on the following top-level " +
+                            "modules: ${filteredDependantModules.joinToString(
+                                ", ",
+                            )}"
                     } else {
                         "This module cannot be disabled."
                     }

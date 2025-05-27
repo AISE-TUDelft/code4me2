@@ -2,11 +2,11 @@ package me.code4me.services.modules.context
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import me.code4me.services.modules.PluginModule
-import me.code4me.utils.record.Record
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
+import me.code4me.utils.record.Record
 
 class FileContextRetrievalModule : PluginModule {
     override val moduleName: String = "FileContextRetrievalModule"

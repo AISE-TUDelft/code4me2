@@ -6,10 +6,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
-import me.code4me.utils.record.Record
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
-import me.code4me.utils.configuration.PreferenceType
+import me.code4me.utils.record.Record
 import java.util.concurrent.CopyOnWriteArrayList
 
 abstract class BaseAggregator : PluginModule {
@@ -93,8 +92,6 @@ abstract class BaseAggregator : PluginModule {
     fun retrieveModules(): List<PluginModule> {
         return modules.toList()
     }
-
-
 
     override fun getSubmodules(): List<PluginModule> {
         return loadModulesFromConfig()

@@ -86,7 +86,6 @@ fun Record.toMap(): Map<String, Any> {
     return expanded.mapKeys { it.key.name }
 }
 
-
 fun List<Record>.aggregateByType(): Map<Record.Type, Record> {
     return this.groupBy { it.type }
         .mapValues { (_, records) ->
@@ -100,4 +99,3 @@ fun List<Record>.aggregateByType(): Map<Record.Type, Record> {
             combinedRecord
         }
 }
-

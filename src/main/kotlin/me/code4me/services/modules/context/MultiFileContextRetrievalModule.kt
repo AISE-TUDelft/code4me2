@@ -7,10 +7,10 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
 import me.code4me.services.modules.PluginModule
-import me.code4me.utils.record.Record
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
+import me.code4me.utils.record.Record
 
 class MultiFileContextRetrievalModule : PluginModule {
     data class FileContext(
