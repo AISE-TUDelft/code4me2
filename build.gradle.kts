@@ -38,6 +38,8 @@ dependencies {
     implementation("com.typesafe:config:1.4.2") // Hocon configuration library
     implementation("com.squareup.okhttp3:okhttp:4.12.0") // OkHttp library for HTTP requests
     implementation("com.google.api-client:google-api-client:2.2.0") // Google API Client Library
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.8.1")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.8.1")
     implementation("com.google.oauth-client:google-oauth-client-jetty:1.34.1") // Google OAuth Client Library
     implementation("com.google.auth:google-auth-library-oauth2-http:1.20.0") // Google Auth Library
     testImplementation(libs.junit)
@@ -160,6 +162,10 @@ ktlint {
 }
 
 tasks {
+    test {
+        useJUnitPlatform()
+    }
+
     wrapper {
         gradleVersion = providers.gradleProperty("gradleVersion").get()
     }

@@ -1,5 +1,7 @@
 package me.code4me.services.config
 
+import me.code4me.services.config.models.ModuleCategoryConfig
+import me.code4me.services.config.models.ModuleConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
