@@ -176,6 +176,8 @@ class Code4MeConfigurableComponent {
         // Handle UI refresh requirements from authentication section
         val needsRefresh = authSettingsSection.requiresUIRefresh.getAndSet(false)
         if (needsRefresh) {
+            // Immediately rebuild UI when needed without waiting for apply
+            SwingUtilities.invokeLater { rebuildUI() }
             reset()
         }
 
@@ -189,6 +191,15 @@ class Code4MeConfigurableComponent {
                     false
                 }
             }
+    }
+
+    /**
+     * Check and refresh UI if needed. Can be called more frequently than isModified().
+     */
+    fun checkAndRefreshUIIfNeeded() {
+        if (authSettingsSection.requiresUIRefresh.getAndSet(false)) {
+            SwingUtilities.invokeLater { rebuildUI() }
+        }
     }
 
     /**

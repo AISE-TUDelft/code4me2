@@ -5,7 +5,6 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
-import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
@@ -24,12 +23,15 @@ import java.awt.BorderLayout
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.BorderFactory
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.JToggleButton
 import javax.swing.SwingUtilities
 
 /**
@@ -94,6 +96,20 @@ class AuthenticationSection : SettingsSection {
         JBTextField().apply {
             columns = FIELD_COLUMNS
             toolTipText = "Enter your email address"
+            addFocusListener(
+                object : FocusAdapter() {
+                    override fun focusLost(e: FocusEvent) {
+                        val text = text.trim()
+                        if (text.isNotEmpty() && !isValidEmail(text)) {
+                            background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
+                            putClientProperty("JComponent.outline", "error")
+                        } else {
+                            background = null
+                            putClientProperty("JComponent.outline", null)
+                        }
+                    }
+                },
+            )
         }
 
     private val emailFieldSVF =
@@ -112,6 +128,20 @@ class AuthenticationSection : SettingsSection {
         JBPasswordField().apply {
             columns = FIELD_COLUMNS
             toolTipText = "Enter your password"
+            addFocusListener(
+                object : FocusAdapter() {
+                    override fun focusLost(e: FocusEvent) {
+                        val pwd = String(password)
+                        if (pwd.isNotEmpty() && pwd.length < 8) {
+                            background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
+                            putClientProperty("JComponent.outline", "error")
+                        } else {
+                            background = null
+                            putClientProperty("JComponent.outline", null)
+                        }
+                    }
+                },
+            )
         }
 
     private val passwordFieldSVF =
@@ -130,6 +160,20 @@ class AuthenticationSection : SettingsSection {
         JBTextField().apply {
             columns = FIELD_COLUMNS
             toolTipText = "Enter your full name"
+            addFocusListener(
+                object : FocusAdapter() {
+                    override fun focusLost(e: FocusEvent) {
+                        val text = text.trim()
+                        if (text.isNotEmpty() && text.length < 3) {
+                            background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
+                            putClientProperty("JComponent.outline", "error")
+                        } else {
+                            background = null
+                            putClientProperty("JComponent.outline", null)
+                        }
+                    }
+                },
+            )
         }
 
     private val fullNameFieldSVF =
@@ -148,6 +192,21 @@ class AuthenticationSection : SettingsSection {
         JBPasswordField().apply {
             columns = FIELD_COLUMNS
             toolTipText = "Confirm your password"
+            addFocusListener(
+                object : FocusAdapter() {
+                    override fun focusLost(e: FocusEvent) {
+                        val pwd = String(password)
+                        val mainPwd = String(passwordField.password)
+                        if (pwd.isNotEmpty() && pwd != mainPwd) {
+                            background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
+                            putClientProperty("JComponent.outline", "error")
+                        } else {
+                            background = null
+                            putClientProperty("JComponent.outline", null)
+                        }
+                    }
+                },
+            )
         }
 
     private val confirmPasswordFieldSVF =
@@ -163,8 +222,9 @@ class AuthenticationSection : SettingsSection {
      * Mode toggle button for switching between login and signup.
      */
     private val authModeToggle =
-        JBCheckBox("Switch to Sign Up Mode").apply {
+        JToggleButton("Login Mode").apply {
             toolTipText = "Toggle between login and signup modes"
+            isSelected = false // Default to LOGIN mode
         }
 
     private val authModeToggleSVF =
@@ -176,6 +236,24 @@ class AuthenticationSection : SettingsSection {
                 updateToggleText()
                 requiresUIRefresh.set(true)
                 updateFormVisibility()
+            }
+
+            init {
+                // Add item listener to update UI immediately when toggle changes
+                authModeToggle.addItemListener { _ ->
+                    updateToggleText()
+                    updateFormVisibility()
+                    requiresUIRefresh.set(true)
+                }
+            }
+
+            init {
+                // Add item listener to update UI immediately when toggle changes
+                authModeToggle.addItemListener { _ ->
+                    updateToggleText()
+                    updateFormVisibility()
+                    requiresUIRefresh.set(true)
+                }
             }
         }
 
@@ -220,6 +298,16 @@ class AuthenticationSection : SettingsSection {
             border = JBUI.Borders.empty(0, 0, 5, 0)
         }
 
+    /**
+     * Help text label shown below the toggle button to guide users.
+     */
+    private val modeHelpLabel =
+        JBLabel("Don't have an account? Switch to Sign Up Mode").apply {
+            font = font.deriveFont(java.awt.Font.ITALIC)
+            foreground = JBUI.CurrentTheme.Label.disabledForeground()
+            border = JBUI.Borders.empty(2, 0, 8, 0)
+        }
+
     init {
         updateFormVisibility()
         LOG.debug("AuthenticationSection initialized")
@@ -230,7 +318,17 @@ class AuthenticationSection : SettingsSection {
      */
     private fun updateToggleText() {
         val isSignupMode = authModeToggle.isSelected
-        authModeToggle.text =
+        authModeToggle.text = if (isSignupMode) "Sign Up Mode" else "Login Mode"
+
+        // Set toggle button appearance based on mode
+        authModeToggle.background =
+            if (isSignupMode) {
+                JBUI.CurrentTheme.Validator.errorBackgroundColor()
+            } else {
+                JBUI.CurrentTheme.Validator.warningBackgroundColor()
+            }
+
+        modeHelpLabel.text =
             if (isSignupMode) {
                 "Already have an account? Switch to Login Mode"
             } else {
@@ -249,12 +347,15 @@ class AuthenticationSection : SettingsSection {
     private fun updateFormVisibility() {
         val isSignupMode = authModeToggle.isSelected
 
-        // Show/hide signup-specific fields
-        fullNameLabel.isVisible = isSignupMode
         fullNameField.isVisible = isSignupMode
-        confirmPasswordLabel.isVisible = isSignupMode
         confirmPasswordField.isVisible = isSignupMode
+        fullNameLabel.isVisible = isSignupMode
+        confirmPasswordLabel.isVisible = isSignupMode
 
+        LOG.debug("Form visibility updated: Signup mode = $isSignupMode")
+
+        // just to ensure the UI refreshes correctly
+        requiresUIRefresh.set(true)
         updateToggleText()
     }
 
@@ -318,42 +419,55 @@ class AuthenticationSection : SettingsSection {
                     anchor = GridBagConstraints.WEST
                 }
 
-            // Email field
+            // Mode toggle at the top
             gbc.gridx = 0
             gbc.gridy = 0
+            gbc.gridwidth = 2
+            formPanel.add(authModeToggle, gbc)
+
+            // Mode helper text
+            gbc.gridy = 1
+            formPanel.add(modeHelpLabel, gbc)
+
+            // Logical ordering of fields in sign-up mode:
+            // 1. Email
+            // 2. Full name (signup only)
+            // 3. Password
+            // 4. Confirm password (signup only)
+
+            // Email field
+            gbc.gridx = 0
+            gbc.gridy = 2
+            gbc.gridwidth = 1
             formPanel.add(JLabel("Email:"), gbc)
             gbc.gridx = 1
             formPanel.add(emailField, gbc)
 
-            // Password field
-            gbc.gridx = 0
-            gbc.gridy = 1
-            formPanel.add(JLabel("Password:"), gbc)
-            gbc.gridx = 1
-            formPanel.add(passwordField, gbc)
-
             // Full name field (signup only)
             gbc.gridx = 0
-            gbc.gridy = 2
+            gbc.gridy = 3
             formPanel.add(fullNameLabel, gbc)
             gbc.gridx = 1
             formPanel.add(fullNameField, gbc)
 
+            // Password field
+            gbc.gridx = 0
+            gbc.gridy = 4
+            formPanel.add(JLabel("Password:"), gbc)
+            gbc.gridx = 1
+            formPanel.add(passwordField, gbc)
+
             // Confirm password field (signup only)
             gbc.gridx = 0
-            gbc.gridy = 3
+            gbc.gridy = 5
             formPanel.add(confirmPasswordLabel, gbc)
             gbc.gridx = 1
             formPanel.add(confirmPasswordField, gbc)
 
-            // Mode toggle
-            gbc.gridx = 0
-            gbc.gridy = 4
-            gbc.gridwidth = 2
-            formPanel.add(authModeToggle, gbc)
-
             // Auth button
-            gbc.gridy = 5
+            gbc.gridx = 0
+            gbc.gridy = 6
+            gbc.gridwidth = 2
             formPanel.add(authButton, gbc)
 
             add(formPanel, BorderLayout.CENTER)
@@ -428,8 +542,8 @@ class AuthenticationSection : SettingsSection {
                 passwordField.requestFocus()
                 return false
             }
-            password.length < 6 -> {
-                showError("Password must be at least 6 characters long")
+            password.length < 8 -> {
+                showError("Password must be at least 8 characters long")
                 passwordField.requestFocus()
                 return false
             }
@@ -467,11 +581,18 @@ class AuthenticationSection : SettingsSection {
      * Clears any error styling from input fields.
      */
     private fun clearFieldErrors() {
-        // Reset field backgrounds to default
+        // Reset field backgrounds and outlines to default
         emailField.background = null
+        emailField.putClientProperty("JComponent.outline", null)
+
         passwordField.background = null
+        passwordField.putClientProperty("JComponent.outline", null)
+
         fullNameField.background = null
+        fullNameField.putClientProperty("JComponent.outline", null)
+
         confirmPasswordField.background = null
+        confirmPasswordField.putClientProperty("JComponent.outline", null)
     }
 
     /**
@@ -692,8 +813,8 @@ private class PasswordCreationDialog(private val email: String) : DialogWrapper(
     override fun doValidate(): ValidationInfo? {
         return when {
             nameField.text.isBlank() -> ValidationInfo("Name is required", nameField)
-            String(passwordField.password).length < 6 ->
-                ValidationInfo("Password must be at least 6 characters", passwordField)
+            String(passwordField.password).length < 8 ->
+                ValidationInfo("Password must be at least 8 characters", passwordField)
             String(passwordField.password) != String(confirmPasswordField.password) ->
                 ValidationInfo("Passwords do not match", confirmPasswordField)
             else -> null
