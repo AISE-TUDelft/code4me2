@@ -4,6 +4,11 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
+import me.code4me.services.config.models.GoogleOAuthConfig
+import me.code4me.services.config.models.ModuleCategoryConfig
+import me.code4me.services.config.models.ModuleConfig
+import me.code4me.services.config.models.ModuleDependency
+import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.modules.PluginModule
 
 fun getConfig(): ConfigService {
@@ -26,170 +31,84 @@ fun getConfig(): ConfigService {
 class ConfigService {
     /**
      * The parsed configuration from the plugin.conf resource file.
+     * Automatically resolved to handle any includes or substitutions.
      */
-    private var config: Config =
-        ConfigFactory.parseResources(this.javaClass.classLoader, "plugin.conf").resolve()
+    private val config: Config =
+        ConfigFactory.parseResources(
+            this.javaClass.classLoader,
+            "plugin.conf",
+        ).resolve()
 
     /**
      * List of available modules parsed from the configuration.
+     * Populated during initialization from the 'modules.available' section.
      */
     private val availableModules: MutableList<ModuleConfig> = mutableListOf()
 
     /**
      * Map of module categories parsed from the configuration.
-     * Keys are category IDs and values are [ModuleCategoryConfig] objects.
+     * Keys are category IDs and values are ModuleCategoryConfig objects.
+     * Used for categorizing and organizing modules by type.
      */
     private val moduleCategories: MutableMap<String, ModuleCategoryConfig> = mutableMapOf()
 
+    /**
+     * Server configuration parsed from the 'server' section.
+     * Contains host, port, context path, and timeout settings.
+     */
     private var serverConfig: ServerConfig? = null
 
     /**
-     * Google OAuth configuration parsed from the configuration.
+     * Google OAuth configuration parsed from the 'auth.google' section.
+     * Contains client credentials and OAuth flow settings.
      */
     private var googleOAuthConfig: GoogleOAuthConfig? = null
 
-    private var modulesFlattened: List<ModuleConfig>? = null
+    /**
+     * Lazy-initialized flattened list of all modules and their submodules.
+     * Built only when first accessed to improve startup performance.
+     */
+    private val modulesFlattened: List<ModuleConfig> by lazy {
+        buildFlattenedModulesList()
+    }
 
     /**
-     * Initializes the service by parsing the configuration file.
-     *
-     * This initialization block:
-     * 1. Loads the "modules" section from the configuration
-     * 2. Parses module categories if they exist
-     * 3. Parses available modules if they exist
+     * Initializes the service by parsing the entire configuration file.
+     * Called automatically when the service is first accessed.
      */
     init {
-
-        // load the high-level config configuration
-        val highLevelConfig = config.getConfig("config")
-        if (highLevelConfig.hasPath("modules")) {
-            val modulesConfig = highLevelConfig.getConfig("modules")
-
-            // Parse module categories
-            if (modulesConfig.hasPath("categories")) {
-                val categoriesConfig = modulesConfig.getConfig("categories")
-                categoriesConfig.root().keys.forEach { categoryKey ->
-                    val categoryConfig = categoriesConfig.getConfig(categoryKey)
-                    moduleCategories[categoryKey] =
-                        ModuleCategoryConfig(
-                            id = categoryKey,
-                            path = categoryConfig.getString("path"),
-                            description = categoryConfig.getString("description"),
-                        )
-                }
-            }
-
-            // Parse available modules
-            if (modulesConfig.hasPath("available")) {
-                val modulesList = modulesConfig.getConfigList("available")
-                modulesList.forEach { moduleConfig ->
-                    availableModules.add(parseModuleConfig(moduleConfig, moduleCategories))
-                }
-            }
-        }
-
-        if (highLevelConfig.hasPath("server")) {
-            val serverConfig = highLevelConfig.getConfig("server")
-            this.serverConfig = ServerConfig.fromConfig(serverConfig)
-        }
-
-        // Parse Google OAuth configuration
-        if (highLevelConfig.hasPath("auth") &&
-            highLevelConfig.getConfig("auth").hasPath("google")
-        ) {
-            val googleConfig = highLevelConfig.getConfig("auth").getConfig("google")
-            this.googleOAuthConfig = GoogleOAuthConfig.fromConfig(googleConfig)
-        }
+        parseConfiguration()
     }
+
+    // --- Public API ---
 
     /**
      * Gets all available modules from the configuration.
      *
-     * @return A list of [ModuleConfig] objects representing available modules.
+     * @return A defensive copy of the list of ModuleConfig objects representing available modules.
      */
-    fun getAvailableModules(): List<ModuleConfig> {
-        return availableModules
-    }
+    fun getAvailableModules(): List<ModuleConfig> = availableModules.toList()
 
     /**
      * Gets the server configuration.
      *
-     * @return The [ServerConfig] object representing the server configuration.
+     * @return The ServerConfig object representing the server configuration, or null if not configured.
      */
-    fun getServerConfig(): ServerConfig? {
-        return serverConfig
-    }
+    fun getServerConfig(): ServerConfig? = serverConfig
 
     /**
      * Gets the Google OAuth configuration.
      *
-     * @return The [GoogleOAuthConfig] object representing the Google OAuth configuration.
+     * @return The GoogleOAuthConfig object representing the Google OAuth configuration, or null if not configured.
      */
-    fun getGoogleOAuthConfig(): GoogleOAuthConfig? {
-        return googleOAuthConfig
-    }
+    fun getGoogleOAuthConfig(): GoogleOAuthConfig? = googleOAuthConfig
 
     /**
      * Gets all module categories from the configuration.
      *
-     * @return A map of category IDs to [ModuleCategoryConfig] objects.
+     * @return A defensive copy of the map of category IDs to ModuleCategoryConfig objects.
      */
-    fun getModuleCategories(): Map<String, ModuleCategoryConfig> {
-        return moduleCategories
-    }
-
-    /**
-     * Parses a module configuration from a Config object.
-     *
-     * This method recursively parses module configurations, including submodules and dependencies.
-     *
-     * @param moduleConfig The Config object containing the module configuration.
-     * @param moduleCategories Map of module categories.
-     * @return A ModuleConfig object representing the parsed module configuration.
-     */
-    private fun parseModuleConfig(
-        moduleConfig: com.typesafe.config.Config,
-        moduleCategories: Map<String, ModuleCategoryConfig>,
-    ): ModuleConfig {
-        // Parse submodules if they exist
-        val submodules =
-            if (moduleConfig.hasPath("submodules")) {
-                moduleConfig.getConfigList("submodules").map { submoduleConfig ->
-                    parseModuleConfig(submoduleConfig, moduleCategories)
-                }
-            } else {
-                emptyList()
-            }
-
-        // Parse dependencies if they exist
-        val dependencies =
-            if (moduleConfig.hasPath("dependencies")) {
-                moduleConfig.getConfigList("dependencies").map { dependencyConfig ->
-                    ModuleDependency(
-                        moduleId = dependencyConfig.getString("moduleId"),
-                        isHard = dependencyConfig.getBoolean("isHard"),
-                    )
-                }
-            } else {
-                emptyList()
-            }
-
-        return ModuleConfig(
-            id = moduleConfig.getString("id"),
-            className = moduleConfig.getString("class"),
-            name = moduleConfig.getString("name"),
-            type =
-                moduleCategories[moduleConfig.getString("type")] ?: ModuleCategoryConfig(
-                    id = "unknown",
-                    path = "unknown",
-                    description = "Unknown category",
-                ),
-            description = moduleConfig.getString("description"),
-            enabled = if (moduleConfig.hasPath("enabled")) moduleConfig.getBoolean("enabled") else false,
-            submodules = submodules,
-            dependencies = dependencies,
-        )
-    }
+    fun getModuleCategories(): Map<String, ModuleCategoryConfig> = moduleCategories.toMap()
 
     /**
      * Instantiates all available modules using reflection.
@@ -198,67 +117,25 @@ class ConfigService {
      * 1. Iterates through all available module configurations
      * 2. Attempts to load the class specified by the className property
      * 3. Instantiates the class using its default constructor
-     * 4. Casts the instance to a [PluginModule]
+     * 4. Recursively instantiates and registers submodules
      * 5. Returns a list of successfully instantiated modules
      *
-     * @return A list of instantiated [PluginModule] objects.
+     * @return A list of instantiated PluginModule objects.
      */
-    fun instantiateModules(): List<PluginModule> {
-        return instantiateModulesRecursive(availableModules)
-    }
+    fun instantiateModules(): List<PluginModule> = instantiateModulesRecursive(availableModules)
 
     /**
      * Instantiates modules from a specific list of module configurations.
      *
-     * This is useful for instantiating submodules of a specific module.
+     * This is useful for instantiating submodules of a specific module or a filtered set of modules.
      *
      * @param moduleConfigs List of module configurations to instantiate.
-     * @return A list of instantiated [PluginModule] objects.
+     * @return A list of instantiated PluginModule objects.
      */
-    fun instantiateModulesFromConfigs(moduleConfigs: List<ModuleConfig>): List<PluginModule> {
-        return instantiateModulesRecursive(moduleConfigs)
-    }
+    fun instantiateModulesFromConfigs(moduleConfigs: List<ModuleConfig>): List<PluginModule> = instantiateModulesRecursive(moduleConfigs)
 
     /**
-     * Recursively instantiates modules and their submodules.
-     *
-     * @param moduleConfigs List of module configurations to instantiate.
-     * @return A list of instantiated [PluginModule] objects.
-     */
-    private fun instantiateModulesRecursive(moduleConfigs: List<ModuleConfig>): List<PluginModule> {
-        val modules = mutableListOf<PluginModule>()
-
-        moduleConfigs.forEach { moduleConfig ->
-            try {
-                val moduleClass = Class.forName(moduleConfig.className)
-                val module = moduleClass.getDeclaredConstructor().newInstance() as? PluginModule
-
-                if (module != null) {
-                    modules.add(module)
-
-                    // Recursively instantiate submodules
-                    val submodules = instantiateModulesRecursive(moduleConfig.submodules)
-
-                    // Register submodules with their parent module
-                    submodules.forEach { submodule ->
-                        // Find the dependency configuration for this submodule
-                        val dependency = moduleConfig.dependencies.find { it.moduleId == submodule.getModuleId() }
-                        // Register the submodule, specifying whether it's a hard dependency
-                        module.registerSubmodule(submodule, dependency?.isHard ?: false)
-                    }
-                }
-            } catch (e: Exception) {
-                // If instantiation fails, skip this module
-                null
-            }
-        }
-
-        return modules
-    }
-
-    /**
-     * Finds all modules that transitively depend on the module with the given ID via hard dependencies,
-     * and returns the complete dependency chains leading to the target module.
+     * Finds all modules that transitively depend on the module with the given ID via hard dependencies.
      *
      * This method:
      * 1. Searches the entire module hierarchy including submodules to find the target module
@@ -266,175 +143,340 @@ class ConfigService {
      * 3. Constructs and returns the complete dependency chains from root modules to the target
      *
      * @param moduleId The ID of the module to find dependants for (can be at any level in the hierarchy)
-     * @return A list of lists of [ModuleConfig] objects, where each inner list represents a complete
-     *         dependency chain leading to the target module
+     * @return A flattened list of ModuleConfig objects that depend on the target module
      */
     fun getTransitiveHardDependants(moduleId: String): List<ModuleConfig> {
+        val allModules = modulesFlattened
+        val targetModule = allModules.find { it.id == moduleId } ?: return emptyList()
+
+        // Build a map of module ID -> list of modules that depend on it
+        val directDependantsMap = buildDependantsMap(allModules)
         val dependencyChains = mutableListOf<List<ModuleConfig>>()
-        val allModules = getAllModulesFlattened()
 
-        // Find the target module in the flattened list
-        val targetModule = allModules.find { it.id == moduleId }
-        if (targetModule == null) return emptyList()
-
-        // Map to store direct hard dependants for each module
-        val directDependantsMap = mutableMapOf<String, List<ModuleConfig>>()
-
-        // Precompute direct hard dependants for each module
-        allModules.forEach { module ->
-            directDependantsMap[module.id] =
-                allModules.filter { potentialDependant ->
-                    potentialDependant.dependencies.any {
-                        it.moduleId == module.id && it.isHard
-                    }
-                }
-        }
-
-        // Recursively build all dependency chains
-        fun buildDependencyChains(
-            currentModule: ModuleConfig,
-            currentChain: List<ModuleConfig>,
-        ) {
-            val directDependants = directDependantsMap[currentModule.id] ?: emptyList()
-
-            if (directDependants.isEmpty()) {
-                // If there are no dependants, this is a complete chain
-                if (currentChain.isNotEmpty()) {
-                    dependencyChains.add(currentChain)
-                }
-                return
-            }
-
-            for (dependant in directDependants) {
-                // Avoid cycles in the dependency chain
-                if (dependant.id !in currentChain.map { it.id }) {
-                    buildDependencyChains(dependant, currentChain + dependant)
-                }
-            }
-        }
-
-        // Start building chains from the target module
-        buildDependencyChains(targetModule, listOf(targetModule))
+        // Recursively build all dependency chains starting from the target module
+        buildDependencyChains(targetModule, emptyList(), directDependantsMap, dependencyChains)
 
         return dependencyChains.flatten()
     }
 
-    /**
-     * Returns a flattened list of all modules and their submodules.
-     */
-    private fun getAllModulesFlattened(): List<ModuleConfig> {
-        if (modulesFlattened != null) {
-            return modulesFlattened!!
-        }
-        val result = mutableListOf<ModuleConfig>()
+    // --- Private Implementation ---
 
-        fun addModuleAndSubmodules(module: ModuleConfig) {
-            result.add(module)
-            module.submodules.forEach { submodule ->
-                addModuleAndSubmodules(submodule)
+    /**
+     * Parses the entire configuration file by delegating to specific parsing methods.
+     * This method serves as the main entry point for configuration parsing.
+     */
+    private fun parseConfiguration() {
+        // All configuration is nested under the 'config' top-level key
+        val highLevelConfig = config.getConfig("config")
+
+        parseModulesConfiguration(highLevelConfig)
+        parseServerConfiguration(highLevelConfig)
+        parseAuthConfiguration(highLevelConfig)
+    }
+
+    /**
+     * Parses the modules section of the configuration.
+     * Handles both module categories and available module definitions.
+     *
+     * @param highLevelConfig The top-level configuration object
+     */
+    private fun parseModulesConfiguration(highLevelConfig: Config) {
+        if (!highLevelConfig.hasPath("modules")) return
+
+        val modulesConfig = highLevelConfig.getConfig("modules")
+
+        // Parse categories first as they're referenced by module definitions
+        parseModuleCategories(modulesConfig)
+        parseAvailableModules(modulesConfig)
+    }
+
+    /**
+     * Parses module categories from the 'modules.categories' section.
+     * Categories are used to organize and classify different types of modules.
+     *
+     * @param modulesConfig The modules configuration section
+     */
+    private fun parseModuleCategories(modulesConfig: Config) {
+        if (!modulesConfig.hasPath("categories")) return
+
+        val categoriesConfig = modulesConfig.getConfig("categories")
+
+        // Iterate through each category key and parse its configuration
+        categoriesConfig.root().keys.forEach { categoryKey ->
+            val categoryConfig = categoriesConfig.getConfig(categoryKey)
+            moduleCategories[categoryKey] =
+                ModuleCategoryConfig(
+                    id = categoryKey,
+                    path = categoryConfig.getString("path"),
+                    description = categoryConfig.getString("description"),
+                )
+        }
+    }
+
+    /**
+     * Parses available modules from the 'modules.available' section.
+     * Each module can have submodules and dependencies defined recursively.
+     *
+     * @param modulesConfig The modules configuration section
+     */
+    private fun parseAvailableModules(modulesConfig: Config) {
+        if (!modulesConfig.hasPath("available")) return
+
+        val modulesList = modulesConfig.getConfigList("available")
+
+        // Parse each module configuration and add to available modules list
+        modulesList.forEach { moduleConfig ->
+            availableModules.add(parseModuleConfig(moduleConfig, moduleCategories))
+        }
+    }
+
+    /**
+     * Parses server configuration from the 'server' section.
+     * Uses the ServerConfig.fromConfig() factory method for parsing.
+     *
+     * @param highLevelConfig The top-level configuration object
+     */
+    private fun parseServerConfiguration(highLevelConfig: Config) {
+        if (highLevelConfig.hasPath("server")) {
+            val serverConfigData = highLevelConfig.getConfig("server")
+            serverConfig = ServerConfig.fromConfig(serverConfigData)
+        }
+    }
+
+    /**
+     * Parses authentication configuration from the 'auth' section.
+     * Currently supports Google OAuth configuration under 'auth.google'.
+     *
+     * @param highLevelConfig The top-level configuration object
+     */
+    private fun parseAuthConfiguration(highLevelConfig: Config) {
+        if (highLevelConfig.hasPath("auth") && highLevelConfig.getConfig("auth").hasPath("google")) {
+            val googleConfig = highLevelConfig.getConfig("auth").getConfig("google")
+            googleOAuthConfig = GoogleOAuthConfig.fromConfig(googleConfig)
+        }
+    }
+
+    /**
+     * Parses a single module configuration from a Config object.
+     *
+     * This method recursively parses module configurations, including submodules and dependencies.
+     * It handles the complete module definition including metadata, type resolution, and relationships.
+     *
+     * @param moduleConfig The Config object containing the module configuration
+     * @param moduleCategories Map of module categories for type resolution
+     * @return A complete ModuleConfig object representing the parsed module configuration
+     */
+    private fun parseModuleConfig(
+        moduleConfig: Config,
+        moduleCategories: Map<String, ModuleCategoryConfig>,
+    ): ModuleConfig {
+        // Parse nested structures first
+        val submodules = parseSubmodules(moduleConfig, moduleCategories)
+        val dependencies = parseDependencies(moduleConfig)
+
+        return ModuleConfig(
+            id = moduleConfig.getString("id"),
+            className = moduleConfig.getString("class"),
+            name = moduleConfig.getString("name"),
+            type = resolveModuleType(moduleConfig.getString("type"), moduleCategories),
+            description = moduleConfig.getString("description"),
+            // Default to false if enabled flag is not specified
+            enabled = moduleConfig.getBoolean("enabled").takeIf { moduleConfig.hasPath("enabled") } ?: false,
+            submodules = submodules,
+            dependencies = dependencies,
+        )
+    }
+
+    /**
+     * Parses submodules for a given module configuration.
+     * Submodules are parsed recursively using the same parsing logic as top-level modules.
+     *
+     * @param moduleConfig The parent module configuration
+     * @param moduleCategories Map of module categories for type resolution
+     * @return List of parsed submodule configurations
+     */
+    private fun parseSubmodules(
+        moduleConfig: Config,
+        moduleCategories: Map<String, ModuleCategoryConfig>,
+    ): List<ModuleConfig> =
+        if (moduleConfig.hasPath("submodules")) {
+            moduleConfig.getConfigList("submodules").map { submoduleConfig ->
+                parseModuleConfig(submoduleConfig, moduleCategories)
+            }
+        } else {
+            emptyList()
+        }
+
+    /**
+     * Parses dependencies for a given module configuration.
+     * Dependencies define relationships between modules and whether they are hard or soft dependencies.
+     *
+     * @param moduleConfig The module configuration to parse dependencies from
+     * @return List of parsed module dependencies
+     */
+    private fun parseDependencies(moduleConfig: Config): List<ModuleDependency> =
+        if (moduleConfig.hasPath("dependencies")) {
+            moduleConfig.getConfigList("dependencies").map { dependencyConfig ->
+                ModuleDependency(
+                    moduleId = dependencyConfig.getString("moduleId"),
+                    isHard = dependencyConfig.getBoolean("isHard"),
+                )
+            }
+        } else {
+            emptyList()
+        }
+
+    /**
+     * Resolves a module type ID to its corresponding ModuleCategoryConfig.
+     * Falls back to an "unknown" category if the type is not found.
+     *
+     * @param typeId The type identifier from the module configuration
+     * @param moduleCategories Map of available module categories
+     * @return The resolved ModuleCategoryConfig or a default "unknown" category
+     */
+    private fun resolveModuleType(
+        typeId: String,
+        moduleCategories: Map<String, ModuleCategoryConfig>,
+    ): ModuleCategoryConfig =
+        moduleCategories[typeId] ?: ModuleCategoryConfig(
+            id = "unknown",
+            path = "unknown",
+            description = "Unknown category",
+        )
+
+    /**
+     * Recursively instantiates modules and their submodules using reflection.
+     *
+     * This method attempts to instantiate each module and, if successful, recursively
+     * instantiates its submodules and registers them with the parent module.
+     *
+     * @param moduleConfigs List of module configurations to instantiate
+     * @return List of successfully instantiated PluginModule objects
+     */
+    private fun instantiateModulesRecursive(moduleConfigs: List<ModuleConfig>): List<PluginModule> {
+        return moduleConfigs.mapNotNull { moduleConfig ->
+            instantiateModule(moduleConfig)?.also { module ->
+                // Register submodules with their parent after successful instantiation
+                registerSubmodules(module, moduleConfig)
             }
         }
+    }
 
-        availableModules.forEach { addModuleAndSubmodules(it) }
-        modulesFlattened = result
+    /**
+     * Instantiates a single module using reflection.
+     * Handles class loading and instantiation with appropriate error handling.
+     *
+     * @param moduleConfig The module configuration containing class name and metadata
+     * @return The instantiated PluginModule or null if instantiation fails
+     */
+    private fun instantiateModule(moduleConfig: ModuleConfig): PluginModule? =
+        try {
+            val moduleClass = Class.forName(moduleConfig.className)
+            // Use default constructor and cast to PluginModule
+            moduleClass.getDeclaredConstructor().newInstance() as? PluginModule
+        } catch (e: Exception) {
+            // Silently ignore instantiation failures - could be enhanced with logging
+            null
+        }
+
+    /**
+     * Registers submodules with their parent module.
+     * Instantiates submodules recursively and registers them based on dependency configuration.
+     *
+     * @param module The parent module to register submodules with
+     * @param moduleConfig The configuration containing submodule and dependency information
+     */
+    private fun registerSubmodules(
+        module: PluginModule,
+        moduleConfig: ModuleConfig,
+    ) {
+        val submodules = instantiateModulesRecursive(moduleConfig.submodules)
+
+        submodules.forEach { submodule ->
+            // Find the dependency configuration to determine if it's a hard dependency
+            val dependency = moduleConfig.dependencies.find { it.moduleId == submodule.getModuleId() }
+            module.registerSubmodule(submodule, dependency?.isHard ?: false)
+        }
+    }
+
+    /**
+     * Builds a flattened list of all modules and their submodules.
+     * This is used for efficient searching and dependency analysis.
+     *
+     * @return A flat list containing all modules and submodules at all levels
+     */
+    private fun buildFlattenedModulesList(): List<ModuleConfig> {
+        val result = mutableListOf<ModuleConfig>()
+
+        // Recursive function to add a module and all its submodules
+        fun addModuleAndSubmodules(module: ModuleConfig) {
+            result.add(module)
+            module.submodules.forEach(::addModuleAndSubmodules)
+        }
+
+        // Start with top-level modules and recurse through submodules
+        availableModules.forEach(::addModuleAndSubmodules)
         return result
+    }
+
+    /**
+     * Builds a map of module IDs to their direct hard dependants.
+     * This is used for efficient dependency chain analysis.
+     *
+     * @param allModules Complete list of all modules (flattened)
+     * @return Map where keys are module IDs and values are lists of modules that depend on them
+     */
+    private fun buildDependantsMap(allModules: List<ModuleConfig>): Map<String, List<ModuleConfig>> =
+        allModules.associateWith { module ->
+            // Find all modules that have this module as a hard dependency
+            allModules.filter { potentialDependant ->
+                potentialDependant.dependencies.any { dep ->
+                    dep.moduleId == module.id && dep.isHard
+                }
+            }
+        }.mapKeys { it.key.id }
+
+    /**
+     * Recursively builds dependency chains from a target module to all its dependants.
+     * Uses depth-first search to find all possible dependency paths.
+     *
+     * @param currentModule The current module in the dependency chain
+     * @param currentChain The current chain of modules leading to this point
+     * @param directDependantsMap Pre-computed map of direct dependants for efficiency
+     * @param dependencyChains Output list to collect all complete dependency chains
+     */
+    private fun buildDependencyChains(
+        currentModule: ModuleConfig,
+        currentChain: List<ModuleConfig>,
+        directDependantsMap: Map<String, List<ModuleConfig>>,
+        dependencyChains: MutableList<List<ModuleConfig>>,
+    ) {
+        val directDependants = directDependantsMap[currentModule.id] ?: emptyList()
+
+        // If no dependants, this is a leaf node - add the complete chain
+        if (directDependants.isEmpty()) {
+            if (currentChain.isNotEmpty()) {
+                dependencyChains.add(currentChain)
+            }
+            return
+        }
+
+        // Avoid cycles by checking if dependant is already in the chain
+        val currentChainIds = currentChain.map { it.id }.toSet()
+        directDependants.forEach { dependant ->
+            if (dependant.id !in currentChainIds) {
+                buildDependencyChains(dependant, currentChain + dependant, directDependantsMap, dependencyChains)
+            }
+        }
     }
 
     companion object {
         /**
-         * Gets the singleton instance of the ModuleConfigService.
+         * Gets the singleton instance of the ConfigService.
+         * This is an alternative to the top-level getConfig() function.
          *
-         * @return The [ConfigService] instance.
+         * @return The ConfigService instance managed by IntelliJ's service framework
          */
-        fun getInstance(): ConfigService {
-            return service()
-        }
-    }
-}
-
-/**
- * Data class representing a module configuration.
- *
- * This class holds all the configuration properties for a plugin module.
- *
- * @property id The unique identifier of the module.
- * @property className The fully qualified class name of the module implementation.
- * @property name The display name of the module.
- * @property type The category configuration to which this module belongs.
- * @property description A description of the module's functionality.
- * @property enabled Whether the module is enabled by default.
- * @property submodules List of submodules for this module.
- * @property dependencies List of module dependencies.
- */
-data class ModuleConfig(
-    val id: String,
-    val className: String,
-    val name: String,
-    val type: ModuleCategoryConfig,
-    val description: String,
-    val enabled: Boolean,
-    val submodules: List<ModuleConfig> = emptyList(),
-    val dependencies: List<ModuleDependency> = emptyList(),
-)
-
-/**
- * Data class representing a module dependency.
- *
- * @property moduleId The ID of the module that is depended on.
- * @property isHard Whether this is a hard dependency (true) or soft dependency (false).
- *             Hard dependencies are required for the module to function, while soft dependencies are optional.
- */
-data class ModuleDependency(
-    val moduleId: String,
-    val isHard: Boolean,
-)
-
-/**
- * Data class representing a module category configuration.
- *
- * Categories are used to group related modules together.
- *
- * @property id The unique identifier of the category.
- * @property path The path or location of the category in the UI hierarchy.
- * @property description A description of the category.
- */
-data class ModuleCategoryConfig(
-    val id: String,
-    val path: String,
-    val description: String,
-)
-
-data class ServerConfig(
-    val host: String,
-    val port: Int,
-    val contextPath: String,
-    val timeout: Int,
-) {
-    companion object {
-        fun fromConfig(config: Config): ServerConfig {
-            return ServerConfig(
-                host = config.getString("host"),
-                port = config.getInt("port"),
-                contextPath = config.getString("contextPath"),
-                timeout = config.getInt("timeout"),
-            )
-        }
-    }
-}
-
-/**
- * Data class representing Google OAuth configuration.
- *
- * @property clientId The Google OAuth client ID.
- */
-data class GoogleOAuthConfig(
-    val clientId: String,
-) {
-    companion object {
-        fun fromConfig(config: Config): GoogleOAuthConfig {
-            return GoogleOAuthConfig(
-                clientId = config.getString("clientId"),
-            )
-        }
+        fun getInstance(): ConfigService = service()
     }
 }

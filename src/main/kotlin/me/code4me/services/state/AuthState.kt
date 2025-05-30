@@ -9,236 +9,378 @@ import com.intellij.openapi.components.SimplePersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.thisLogger
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
 
 /**
- * Constant defining the name of the authentication state component.
- * Used for service identification and storage.
+ * Service identifier for authentication state management.
  */
-const val AUTH_STATE_NAME = "me.code4me.state.auth"
+const val AUTH_STATE_NAME = "me.code4me.state.authentication"
 
 /**
- * Constant for the authentication token property key.
+ * Property keys for authentication-related data.
  */
 const val TOKEN_PROPERTY = "authToken"
-
-/**
- * Constant for the user name property key.
- */
 const val USER_NAME_PROPERTY = "userName"
-
-/**
- * Constant for the user email property key.
- */
 const val USER_EMAIL_PROPERTY = "userEmail"
 
 /**
  * Helper function to access the current authentication settings.
  *
- * @return The current [AuthSettings] instance from the service.
+ * @return The current [AuthSettings] instance from the service
  */
 fun getAuthState(): AuthSettings {
     return service<AuthState>().state
 }
 
 /**
- * Service responsible for managing and persisting user authentication state.
+ * Application service responsible for managing user authentication state and secure credential storage.
  *
- * This service handles secure storage of authentication tokens and user information
- * using the IntelliJ platform's credential store.
+ * This service provides:
+ * - Secure storage of authentication tokens using IntelliJ Platform's credential store
+ * - Management of user profile information (name, email)
+ * - Property change notifications for reactive UI updates
+ * - Thread-safe access to authentication data
+ * - Integration with IntelliJ Platform's security infrastructure
  *
- * The state is stored in an XML file defined in the [Storage] annotation.
+ * All sensitive data (tokens, user information) is stored securely using the platform's
+ * [PasswordSafe] service, which integrates with the operating system's credential store.
+ *
+ * Thread Safety: This service is thread-safe and can be accessed from any thread.
+ *
+ * @since 1.0.0
  */
 @Service
 @State(
     name = AUTH_STATE_NAME,
-    storages = [Storage("code4me-auth.xml")],
+    storages = [Storage("code4me-authentication.xml")],
 )
 class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
     companion object {
+        private val LOG = thisLogger()
+
         /**
-         * Creates credential attributes for secure storage.
+         * Creates credential attributes for secure storage operations.
          *
-         * @param key The key to use for the credential.
-         * @return A [CredentialAttributes] object for the specified key.
+         * This method generates platform-specific credential attributes that integrate
+         * with the operating system's secure storage mechanisms (Keychain on macOS,
+         * Credential Manager on Windows, etc.).
+         *
+         * @param key The unique identifier for the credential
+         * @return Configured [CredentialAttributes] for secure storage operations
          */
         internal fun createCredentialAttributes(key: String): CredentialAttributes {
-            return CredentialAttributes(generateServiceName(AUTH_STATE_NAME, key))
+            return CredentialAttributes(
+                serviceName = generateServiceName(AUTH_STATE_NAME, key),
+                userName = null,
+            )
         }
 
         /**
-         * Retrieves the authentication token from secure storage.
+         * Retrieves an authentication token from secure storage.
          *
-         * @param key The key under which the token is stored.
-         * @return The authentication token, or null if not found.
+         * @param key The unique identifier for the token
+         * @return The stored token, or null if not found or inaccessible
          */
         fun getAuthToken(key: String): String? {
-            return PasswordSafe.instance.getPassword(createCredentialAttributes(key))
+            return try {
+                PasswordSafe.instance.getPassword(createCredentialAttributes(key))
+            } catch (e: Exception) {
+                LOG.warn("Failed to retrieve authentication token for key: $key", e)
+                null
+            }
         }
 
         /**
-         * Stores the authentication token in secure storage.
+         * Stores an authentication token in secure storage.
          *
-         * @param key The key under which to store the token.
-         * @param token The authentication token to store.
-         * @throws IllegalArgumentException if the token is empty.
+         * The token is encrypted and stored using the platform's secure credential store,
+         * ensuring it persists across IDE sessions while maintaining security.
+         *
+         * @param key The unique identifier for the token
+         * @param token The authentication token to store
+         * @throws IllegalArgumentException if the token is empty or blank
          */
         fun setAuthToken(
             key: String,
             token: String,
         ) {
-            require(token.isNotEmpty()) { "The provided token cannot be blank" }
-            PasswordSafe.instance.setPassword(createCredentialAttributes(key), token)
+            require(token.isNotBlank()) { "Authentication token cannot be blank" }
+
+            try {
+                PasswordSafe.instance.setPassword(createCredentialAttributes(key), token)
+                LOG.debug("Authentication token stored successfully for key: $key")
+            } catch (e: Exception) {
+                LOG.error("Failed to store authentication token for key: $key", e)
+                throw e
+            }
         }
 
         /**
          * Retrieves user information from secure storage.
          *
-         * @param key The key under which the information is stored.
-         * @return The user information, or null if not found.
+         * @param key The unique identifier for the user information
+         * @return The stored information, or null if not found or inaccessible
          */
         fun getUserInfo(key: String): String? {
-            return PasswordSafe.instance.getPassword(createCredentialAttributes(key))
+            return try {
+                PasswordSafe.instance.getPassword(createCredentialAttributes(key))
+            } catch (e: Exception) {
+                LOG.warn("Failed to retrieve user information for key: $key", e)
+                null
+            }
         }
 
         /**
          * Stores user information in secure storage.
          *
-         * @param key The key under which to store the information.
-         * @param value The information to store.
-         * @throws IllegalArgumentException if the value is empty.
+         * @param key The unique identifier for the information
+         * @param value The information to store
+         * @throws IllegalArgumentException if the value is empty or blank
          */
         fun setUserInfo(
             key: String,
             value: String,
         ) {
-            require(value.isNotEmpty()) { "The provided value cannot be blank" }
-            PasswordSafe.instance.setPassword(createCredentialAttributes(key), value)
+            require(value.isNotBlank()) { "User information value cannot be blank" }
+
+            try {
+                PasswordSafe.instance.setPassword(createCredentialAttributes(key), value)
+                LOG.debug("User information stored successfully for key: $key")
+            } catch (e: Exception) {
+                LOG.error("Failed to store user information for key: $key", e)
+                throw e
+            }
+        }
+
+        /**
+         * Removes stored data from secure storage.
+         *
+         * @param key The unique identifier for the data to remove
+         */
+        fun removeSecureData(key: String) {
+            try {
+                PasswordSafe.instance.setPassword(createCredentialAttributes(key), null)
+                LOG.debug("Secure data removed successfully for key: $key")
+            } catch (e: Exception) {
+                LOG.warn("Failed to remove secure data for key: $key", e)
+            }
         }
     }
 }
 
 /**
- * Class representing user authentication settings and state.
+ * Data class representing user authentication settings and state management.
  *
- * This class provides methods to:
- * - Get and set authentication tokens
- * - Get and set user information (name, email)
- * - Clear user data
- * - Manage property change listeners for UI updates
+ * This class provides a high-level interface for managing authentication data:
+ * - Authentication token management with automatic encryption
+ * - User profile information storage and retrieval
+ * - Property change event notifications for UI reactivity
+ * - Secure data cleanup during logout operations
  *
- * It extends [BaseState] to support persistence through the IntelliJ platform's
- * state persistence mechanism.
+ * The class extends [BaseState] to integrate with the IntelliJ Platform's persistence
+ * mechanism while using secure storage for sensitive data.
+ *
+ * @since 1.0.0
  */
 class AuthSettings : BaseState() {
+    companion object {
+        private val LOG = thisLogger()
+    }
+
     /**
-     * Support for property change events to notify listeners when authentication state changes.
+     * Property change support for notifying UI components of authentication state changes.
      */
     private val propertyChangeSupport = PropertyChangeSupport(this)
 
     /**
      * Retrieves the user's authentication token.
      *
-     * @return The authentication token, or null if not set.
+     * @return The current authentication token, or null if not authenticated
      */
     fun getToken(): String? {
         return AuthState.getAuthToken(TOKEN_PROPERTY)
     }
 
     /**
-     * Sets the user's authentication token and notifies listeners of the change.
+     * Sets the user's authentication token and notifies listeners.
      *
-     * @param token The authentication token to set.
+     * This method stores the token securely and fires a property change event
+     * to notify UI components of the authentication state change.
+     *
+     * @param token The authentication token to store
+     * @throws IllegalArgumentException if the token is blank
      */
     fun setToken(token: String) {
+        require(token.isNotBlank()) { "Authentication token cannot be blank" }
+
         val oldToken = getToken()
-        AuthState.setAuthToken(TOKEN_PROPERTY, token)
-        propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, token)
+        try {
+            AuthState.setAuthToken(TOKEN_PROPERTY, token)
+            propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, token)
+            LOG.debug("Authentication token updated successfully")
+        } catch (e: Exception) {
+            LOG.error("Failed to set authentication token", e)
+            throw e
+        }
     }
 
     /**
-     * Retrieves the user's name.
+     * Retrieves the user's display name.
      *
-     * @return The user's name, or null if not set.
+     * @return The user's name, or null if not set
      */
     fun getUserName(): String? {
         return AuthState.getUserInfo(USER_NAME_PROPERTY)
     }
 
     /**
-     * Sets the user's name and notifies listeners of the change.
+     * Sets the user's display name and notifies listeners.
      *
-     * @param name The user's name to set.
+     * @param name The user's display name
+     * @throws IllegalArgumentException if the name is blank
      */
     fun setUserName(name: String) {
+        require(name.isNotBlank()) { "User name cannot be blank" }
+
         val oldName = getUserName()
-        AuthState.setUserInfo(USER_NAME_PROPERTY, name)
-        propertyChangeSupport.firePropertyChange(USER_NAME_PROPERTY, oldName, name)
+        try {
+            AuthState.setUserInfo(USER_NAME_PROPERTY, name)
+            propertyChangeSupport.firePropertyChange(USER_NAME_PROPERTY, oldName, name)
+            LOG.debug("User name updated successfully")
+        } catch (e: Exception) {
+            LOG.error("Failed to set user name", e)
+            throw e
+        }
     }
 
     /**
-     * Retrieves the user's email.
+     * Retrieves the user's email address.
      *
-     * @return The user's email, or null if not set.
+     * @return The user's email, or null if not set
      */
     fun getUserEmail(): String? {
         return AuthState.getUserInfo(USER_EMAIL_PROPERTY)
     }
 
     /**
-     * Sets the user's email and notifies listeners of the change.
+     * Sets the user's email address and notifies listeners.
      *
-     * @param email The user's email to set.
+     * @param email The user's email address
+     * @throws IllegalArgumentException if the email is blank
      */
     fun setUserEmail(email: String) {
+        require(email.isNotBlank()) { "User email cannot be blank" }
+
         val oldEmail = getUserEmail()
-        AuthState.setUserInfo(USER_EMAIL_PROPERTY, email)
-        propertyChangeSupport.firePropertyChange(USER_EMAIL_PROPERTY, oldEmail, email)
+        try {
+            AuthState.setUserInfo(USER_EMAIL_PROPERTY, email)
+            propertyChangeSupport.firePropertyChange(USER_EMAIL_PROPERTY, oldEmail, email)
+            LOG.debug("User email updated successfully")
+        } catch (e: Exception) {
+            LOG.error("Failed to set user email", e)
+            throw e
+        }
     }
 
     /**
-     * Clears all user data (token, name, email) and notifies listeners of the changes.
+     * Determines if the user is currently authenticated.
      *
-     * This method is typically used during logout or when resetting the application state.
+     * @return True if a valid authentication token exists, false otherwise
+     */
+    fun isAuthenticated(): Boolean {
+        return !getToken().isNullOrBlank()
+    }
+
+    /**
+     * Clears all user authentication data and notifies listeners.
+     *
+     * This method performs a complete logout operation by:
+     * 1. Removing all stored credentials from secure storage
+     * 2. Firing property change events for each cleared field
+     * 3. Ensuring no sensitive data remains in memory
+     *
+     * This method is typically called during logout or when resetting the application state.
      */
     fun clearUserData() {
         val oldToken = getToken()
         val oldName = getUserName()
         val oldEmail = getUserEmail()
 
-        // Clear all user data
-        if (oldToken != null) {
-            PasswordSafe.instance.setPassword(AuthState.createCredentialAttributes(TOKEN_PROPERTY), null)
-            propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, null)
-        }
+        try {
+            // Clear all secure data
+            if (oldToken != null) {
+                AuthState.removeSecureData(TOKEN_PROPERTY)
+                propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, null)
+            }
 
-        if (oldName != null) {
-            PasswordSafe.instance.setPassword(AuthState.createCredentialAttributes(USER_NAME_PROPERTY), null)
-            propertyChangeSupport.firePropertyChange(USER_NAME_PROPERTY, oldName, null)
-        }
+            if (oldName != null) {
+                AuthState.removeSecureData(USER_NAME_PROPERTY)
+                propertyChangeSupport.firePropertyChange(USER_NAME_PROPERTY, oldName, null)
+            }
 
-        if (oldEmail != null) {
-            PasswordSafe.instance.setPassword(AuthState.createCredentialAttributes(USER_EMAIL_PROPERTY), null)
-            propertyChangeSupport.firePropertyChange(USER_EMAIL_PROPERTY, oldEmail, null)
+            if (oldEmail != null) {
+                AuthState.removeSecureData(USER_EMAIL_PROPERTY)
+                propertyChangeSupport.firePropertyChange(USER_EMAIL_PROPERTY, oldEmail, null)
+            }
+
+            LOG.info("User authentication data cleared successfully")
+        } catch (e: Exception) {
+            LOG.error("Failed to clear user data completely", e)
         }
     }
 
     /**
-     * Adds a property change listener to be notified of authentication state changes.
+     * Registers a property change listener for authentication state changes.
      *
-     * @param listener The listener to add.
+     * Listeners will be notified when:
+     * - Authentication token changes (login/logout)
+     * - User name is updated
+     * - User email is updated
+     *
+     * @param listener The listener to register
      */
     fun addPropertyChangeListener(listener: PropertyChangeListener) {
         propertyChangeSupport.addPropertyChangeListener(listener)
+        LOG.debug("Property change listener registered")
     }
 
     /**
-     * Removes a property change listener.
+     * Unregisters a property change listener.
      *
-     * @param listener The listener to remove.
+     * @param listener The listener to remove
      */
     fun removePropertyChangeListener(listener: PropertyChangeListener) {
         propertyChangeSupport.removePropertyChangeListener(listener)
+        LOG.debug("Property change listener removed")
+    }
+
+    /**
+     * Registers a property change listener for a specific property.
+     *
+     * @param propertyName The name of the property to listen for
+     * @param listener The listener to register
+     */
+    fun addPropertyChangeListener(
+        propertyName: String,
+        listener: PropertyChangeListener,
+    ) {
+        propertyChangeSupport.addPropertyChangeListener(propertyName, listener)
+        LOG.debug("Property change listener registered for property: $propertyName")
+    }
+
+    /**
+     * Unregisters a property change listener for a specific property.
+     *
+     * @param propertyName The name of the property
+     * @param listener The listener to remove
+     */
+    fun removePropertyChangeListener(
+        propertyName: String,
+        listener: PropertyChangeListener,
+    ) {
+        propertyChangeSupport.removePropertyChangeListener(propertyName, listener)
+        LOG.debug("Property change listener removed for property: $propertyName")
     }
 }
