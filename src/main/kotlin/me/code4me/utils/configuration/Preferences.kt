@@ -54,4 +54,5 @@ enum class PreferenceClass(val type: String) {
     TELEMETRY("telemetry"),
     CONTEXT("context"),
     AUTH("auth"),
+    SYSTEM("system"),
 }

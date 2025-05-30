@@ -3,11 +3,13 @@ package me.code4me.services.modules.manager
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import me.code4me.services.config.getConfig
+import me.code4me.services.config.models.ModuleConfig
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
@@ -16,209 +18,267 @@ import me.code4me.utils.configuration.PreferenceType
 import me.code4me.utils.record.Record
 import java.util.concurrent.CopyOnWriteArrayList
 
+/**
+ * Retrieves the ModuleManager service instance for the given project.
+ *
+ * @param project The IntelliJ project instance
+ * @return The ModuleManager service for the project
+ */
 fun getModuleManager(project: Project): ModuleManager {
     return project.service<ModuleManager>()
 }
 
+/**
+ * Central orchestrator for all plugin modules within the Code4Me system.
+ *
+ * The ModuleManager is responsible for:
+ * - Managing the lifecycle of all plugin modules (initialization, enabling/disabling)
+ * - Coordinating data collection across all active modules
+ * - Maintaining module state and dependencies
+ * - Integrating with the plugin's preference system
+ * - Providing concurrent data collection capabilities
+ *
+ * This service operates at the project level, ensuring each IntelliJ project
+ * has its own isolated module management context.
+ *
+ * @param project The IntelliJ project this manager is associated with
+ * @since 1.0.0
+ */
 @Service(Service.Level.PROJECT)
 class ModuleManager(private val project: Project) : PluginModule {
-    // Module management
+
+    companion object {
+        private val LOG = thisLogger()
+    }
+
+    // Core module storage and state management
     private val modules: MutableList<PluginModule> = mutableListOf()
     private val enabledModuleIds: MutableSet<String> = mutableSetOf()
     private val initializedModules: MutableSet<String> = mutableSetOf()
     private val moduleInstances: MutableMap<String, Any> = mutableMapOf()
 
     init {
-        // Initialize enabled modules from preferences
+        // Load previously enabled modules from persistent state
         val enabledModules = PrefState.getEnabledModules()
         enabledModuleIds.addAll(enabledModules)
+        LOG.info("ModuleManager initialized with ${enabledModules.size} enabled modules")
     }
 
-    // Initialize modules and aggregators
+    override val moduleName: String = "ModuleManager"
+
+    /**
+     * Initializes all enabled modules and their dependencies.
+     *
+     * This method iterates through all currently enabled modules and ensures
+     * they are properly initialized. Modules that fail initialization are
+     * automatically disabled to prevent system instability.
+     */
     override fun initializeModules() {
-        // Initialize all enabled modules
-        getEnabledModules().forEach { module ->
-            initializeModule(module)
+        val enabledModules = getEnabledModules()
+        var successfulInitializations = 0
+
+        enabledModules.forEach { module ->
+            if (initializeModule(module)) {
+                successfulInitializations++
+            }
         }
 
-        println("All modules initialized successfully.")
+        LOG.info("Module initialization completed: $successfulInitializations/${enabledModules.size} modules initialized successfully")
     }
 
     /**
-     * Store modules in the module manager
+     * Stores and registers a collection of plugin modules.
      *
-     * @param modulesToStore List of modules to store
+     * This method performs a complete refresh of the module registry:
+     * 1. Clears existing modules
+     * 2. Stores new modules and registers them with the preference system
+     * 3. Auto-enables modules that are configured as enabled by default
+     * 4. Recursively processes all submodules
+     *
+     * @param modulesToStore List of modules to register and store
      */
     fun storeModules(modulesToStore: List<PluginModule>) {
-        // Clear existing modules
         modules.clear()
-
-        // Store the modules
         modules.addAll(modulesToStore)
 
-        // Get the configuration service to check default enabled state
         val configService = getConfig()
         val availableModuleConfigs = configService.getAvailableModules()
 
-        // Register modules with PrefState
         modules.forEach { module ->
             val newlyAddedModuleIds = registerModuleRecursively(module)
-
-            // Find the module config to check if it should be enabled by default
-            val moduleConfig =
-                availableModuleConfigs.find {
-                    it.className == module.javaClass.name || it.id == module.getPreferenceId()
-                }
-
-            // Enable newly added modules that should be enabled by default
-            newlyAddedModuleIds.forEach { moduleId ->
-                val moduleConfigForId =
-                    availableModuleConfigs.find {
-                        it.id == moduleId || it.submodules.any { sub -> sub.id == moduleId }
-                    }
-                if (moduleConfigForId?.enabled == true && !enabledModuleIds.contains(moduleId)) {
-                    enableModule(moduleId)
-                }
-            }
+            processDefaultEnabledModules(newlyAddedModuleIds, availableModuleConfigs)
         }
+
+        LOG.info("Stored ${modulesToStore.size} modules with their submodules")
     }
 
     /**
-     * Recursively registers a module and all its submodules with PrefState
+     * Recursively registers a module and all its submodules with the preference system.
      *
-     * @param module The module to register
+     * This method ensures complete module tree registration, handling nested
+     * aggregators and their submodules. It also applies default enabled states
+     * from configuration.
+     *
+     * @param module The root module to register
+     * @return List of newly registered module IDs
      */
     private fun registerModuleRecursively(module: PluginModule): List<String> {
         val newModuleIds = mutableListOf<String>()
 
-        // Register the module itself and add to list if newly registered
+        // Register the module itself
         if (PrefState.registerModule(module)) {
             newModuleIds.add(module.getPreferenceId())
         }
 
-        // Get all submodules and register them recursively
+        // Process submodules
         try {
             val submodules = module.getSubmodules()
-
-            // Get the configuration service to check default enabled state
-            val configService = me.code4me.services.config.getConfig()
+            val configService = getConfig()
             val availableModuleConfigs = configService.getAvailableModules()
 
             submodules.forEach { submodule ->
                 newModuleIds.addAll(registerModuleRecursively(submodule))
-
-                // Find the submodule config to check if it should be enabled by default
-                val submoduleConfig =
-                    availableModuleConfigs.find {
-                        it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId()
-                    }
-
-                // Also check if this submodule is in any module's submodules list in the config
-                val isSubmoduleInConfig =
-                    availableModuleConfigs.any { moduleConfig ->
-                        moduleConfig.submodules.any {
-                            it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId()
-                        }
-                    }
-
-                // If submodule is found in config, check its enabled status
-                val isEnabledInConfig =
-                    if (isSubmoduleInConfig) {
-                        availableModuleConfigs.flatMap { it.submodules }
-                            .find { it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId() }
-                            ?.enabled ?: false
-                    } else {
-                        submoduleConfig?.enabled ?: false
-                    }
-
-                // Enable submodules that are enabled by default in config or already in enabledModuleIds
-                if (isEnabledInConfig || submodule.getPreferenceId() in enabledModuleIds) {
-                    enableModule(submodule.getPreferenceId())
-                }
+                processSubmoduleEnabledState(submodule, availableModuleConfigs)
             }
         } catch (e: Exception) {
-            // Ignore exceptions if getSubmodules fails or is not implemented
-            println("Warning: Failed to get submodules for ${module.moduleName}: ${e.message}")
+            LOG.warn("Failed to process submodules for ${module.moduleName}: ${e.message}")
         }
 
         return newModuleIds
     }
 
     /**
-     * Initialize a specific module and its dependencies.
+     * Processes the enabled state of a submodule based on configuration.
+     */
+    private fun processSubmoduleEnabledState(
+        submodule: PluginModule,
+        availableModuleConfigs: List<ModuleConfig>
+    ) {
+        val isEnabledInConfig = isSubmoduleEnabledInConfig(submodule, availableModuleConfigs)
+        val isAlreadyEnabled = submodule.getPreferenceId() in enabledModuleIds
+
+        if (isEnabledInConfig || isAlreadyEnabled) {
+            enableModule(submodule.getPreferenceId())
+        }
+    }
+
+    /**
+     * Determines if a submodule is enabled in the configuration.
+     */
+    private fun isSubmoduleEnabledInConfig(
+        submodule: PluginModule,
+        availableModuleConfigs: List<ModuleConfig>
+    ): Boolean {
+        // Check direct configuration
+        val directConfig = availableModuleConfigs.find {
+            it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId()
+        }
+
+        // Check if submodule is in any module's submodules list
+        val submoduleConfig = availableModuleConfigs.flatMap { it.submodules }
+            .find { it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId() }
+
+        return submoduleConfig?.enabled ?: directConfig?.enabled ?: false
+    }
+
+    /**
+     * Enables newly added modules that are configured as enabled by default.
+     */
+    private fun processDefaultEnabledModules(
+        newlyAddedModuleIds: List<String>,
+        availableModuleConfigs: List<ModuleConfig>
+    ) {
+        newlyAddedModuleIds.forEach { moduleId ->
+            val shouldEnable = availableModuleConfigs.any { config ->
+                (config.id == moduleId && config.enabled) ||
+                        config.submodules.any { sub -> sub.id == moduleId && sub.enabled }
+            }
+
+            if (shouldEnable && !enabledModuleIds.contains(moduleId)) {
+                enableModule(moduleId)
+            }
+        }
+    }
+
+    /**
+     * Initializes a specific module and its dependencies.
      *
-     * @param module The module to initialize.
-     * @return True if initialization was successful, false otherwise.
+     * @param module The module to initialize
+     * @return True if initialization succeeded, false otherwise
      */
     private fun initializeModule(module: PluginModule): Boolean {
-        // Skip if already initialized
         if (initializedModules.contains(module.getModuleId())) {
             return true
         }
 
-        // Check dependencies
         if (!module.checkDependencies()) {
+            LOG.warn("Module ${module.moduleName} failed dependency check")
             return false
         }
 
-        try {
-            // Get or create the module service instance
+        return try {
             getOrCreateModuleService(module)
-
-            // Initialize the module
             module.initializeModules()
             initializedModules.add(module.getModuleId())
-            return true
+            LOG.debug("Successfully initialized module: ${module.moduleName}")
+            true
         } catch (e: Exception) {
-            // If initialization fails, disable the module
+            LOG.error("Failed to initialize module: ${module.moduleName}", e)
             disableModule(module.getPreferenceId())
-            return false
+            false
         }
     }
 
     /**
-     * Gets or creates a module service instance.
+     * Gets or creates a service instance for the specified module.
      *
-     * @param module The module to get or create a service for.
-     * @return The module service instance.
+     * @param module The module to get or create a service for
+     * @return The module service instance, or null if creation failed
      */
     private fun getOrCreateModuleService(module: PluginModule): PluginModule? {
         val moduleId = module.getModuleId()
 
-        // If the module instance already exists, return it
-        if (moduleInstances.containsKey(moduleId)) {
-            return moduleInstances[moduleId] as? PluginModule
+        moduleInstances[moduleId]?.let { existing ->
+            return existing as? PluginModule
         }
 
-        // Store the module instance
         moduleInstances[moduleId] = module
-
         return module
     }
 
-    override val moduleName: String
-        get() = "ModuleManager"
-
     /**
-     * Collect data from all registered modules and aggregators.
-     * @return List of records containing the collected data.
+     * Collects data from all registered modules concurrently.
+     *
+     * This method orchestrates parallel data collection across all stored modules,
+     * regardless of their enabled state. For enabled-only collection, use the
+     * enabled modules list explicitly.
+     *
+     * @param request The inline completion request context
+     * @return Aggregated list of records from all modules
      */
-    override fun collectData(request: InlineCompletionRequest): List<Record> =
-        runBlocking {
-            val aggregatedData = CopyOnWriteArrayList<Record>()
-            coroutineScope {
-                val deferredResults =
-                    modules.map { module ->
-                        async {
-                            module.collectData(request)
-                        }
+    override fun collectData(request: InlineCompletionRequest): List<Record> = runBlocking {
+        val aggregatedData = CopyOnWriteArrayList<Record>()
+
+        coroutineScope {
+            val deferredResults = modules.map { module ->
+                async {
+                    try {
+                        module.collectData(request)
+                    } catch (e: Exception) {
+                        LOG.warn("Data collection failed for module: ${module.moduleName}", e)
+                        emptyList<Record>()
                     }
-                deferredResults.forEach { deferred ->
-                    aggregatedData.addAll(deferred.await())
                 }
             }
-            aggregatedData
+
+            deferredResults.forEach { deferred ->
+                aggregatedData.addAll(deferred.await())
+            }
         }
+
+        LOG.debug("Collected ${aggregatedData.size} records from ${modules.size} modules")
+        aggregatedData
+    }
 
     override fun getPreferenceList(): List<Preference> {
         return listOf(
@@ -227,101 +287,112 @@ class ModuleManager(private val project: Project) : PluginModule {
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Use AI Completion",
-                description = "Use AI-powered code completion",
+                description = "Enable AI-powered code completion suggestions"
             ),
             Preference(
                 key = "maxSuggestions",
                 type = PreferenceType.STRING,
                 defaultValue = "5",
                 displayName = "Max Suggestions",
-                description = "Maximum number of suggestions to show",
+                description = "Maximum number of completion suggestions to display"
             ),
             Preference(
                 key = "minConfidence",
                 type = PreferenceType.DOUBLE,
                 defaultValue = "0.85",
                 displayName = "Minimum Confidence",
-                description = "Minimum confidence threshold for suggestions (0.0 to 1.0)",
+                description = "Minimum confidence threshold for displaying suggestions (0.0 to 1.0)"
             ),
             Preference(
                 key = "requestTimeout",
                 type = PreferenceType.INT,
                 defaultValue = "5000",
                 displayName = "Request Timeout",
-                description = "Maximum time in milliseconds to wait for completions",
-            ),
+                description = "Maximum time in milliseconds to wait for completion responses"
+            )
         )
     }
 
     override fun getPreferenceClass(): PreferenceClass {
-        TODO("Not yet implemented")
+        return PreferenceClass.SYSTEM
     }
 
-    override fun toString(): String {
-        return moduleName
-    }
+    // Public API for module management
 
     /**
-     * Get all available modules
+     * Returns all available modules regardless of enabled state.
      */
-    fun getAvailableModules(): List<PluginModule> {
-        return modules.toList()
-    }
+    fun getAvailableModules(): List<PluginModule> = modules.toList()
 
     /**
-     * Get enabled module IDs
+     * Returns the set of currently enabled module IDs.
      */
-    fun getEnabledModuleIds(): Set<String> {
-        return enabledModuleIds.toSet()
-    }
+    fun getEnabledModuleIds(): Set<String> = enabledModuleIds.toSet()
 
     /**
-     * Get enabled modules
+     * Returns only the modules that are currently enabled.
      */
     fun getEnabledModules(): List<PluginModule> {
         return modules.filter { enabledModuleIds.contains(it.getPreferenceId()) }
     }
 
     /**
-     * Enable a module
+     * Enables a module by its ID and initializes it if not already done.
+     *
+     * @param moduleId The preference ID of the module to enable
      */
     fun enableModule(moduleId: String) {
         enabledModuleIds.add(moduleId)
         PrefState.enableModule(moduleId)
 
-        // Initialize the module if it's not already initialized
-        val module = getModule(moduleId)
-        if (module != null && !initializedModules.contains(module.getModuleId())) {
-            initializeModule(module)
+        getModule(moduleId)?.let { module ->
+            if (!initializedModules.contains(module.getModuleId())) {
+                initializeModule(module)
+            }
         }
+
+        LOG.debug("Enabled module: $moduleId")
     }
 
     /**
-     * Disable a module
+     * Disables a module by its ID and cleans up its resources.
+     *
+     * @param moduleId The preference ID of the module to disable
      */
     fun disableModule(moduleId: String) {
         enabledModuleIds.remove(moduleId)
         PrefState.disableModule(moduleId)
 
-        // Dispose the module if it's initialized
-        val moduleInstance = moduleInstances[moduleId]
-        if (moduleInstance is PluginModule) {
-            initializedModules.remove(moduleId)
-            moduleInstances.remove(moduleId)
+        // Clean up module instance and initialization state
+        moduleInstances[moduleId]?.let { instance ->
+            if (instance is PluginModule) {
+                initializedModules.remove(instance.getModuleId())
+                moduleInstances.remove(moduleId)
+            }
         }
+
+        LOG.debug("Disabled module: $moduleId")
     }
 
     /**
-     * Check if a module is enabled
+     * Checks if a module is currently enabled.
+     *
+     * @param moduleId The preference ID of the module to check
+     * @return True if the module is enabled, false otherwise
      */
     fun isModuleEnabled(moduleId: String): Boolean {
         return enabledModuleIds.contains(moduleId)
     }
 
     /**
-     * Get a module by ID
+     * Retrieves a module by its preference ID.
+     *
+     * @param moduleId The preference ID of the module to find
+     * @return The module instance, or null if not found
      */
     fun getModule(moduleId: String): PluginModule? {
         return modules.find { it.getPreferenceId() == moduleId }
     }
+
+    override fun toString(): String = moduleName
 }
