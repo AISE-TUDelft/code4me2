@@ -220,10 +220,6 @@ class ModuleManager(private val project: Project) : PluginModule {
             aggregatedData
         }
 
-    override fun getStatus(): String {
-        TODO("Not yet implemented")
-    }
-
     override fun getPreferenceList(): List<Preference> {
         return listOf(
             Preference(
@@ -310,7 +306,6 @@ class ModuleManager(private val project: Project) : PluginModule {
         // Dispose the module if it's initialized
         val moduleInstance = moduleInstances[moduleId]
         if (moduleInstance is PluginModule) {
-            moduleInstance.dispose()
             initializedModules.remove(moduleId)
             moduleInstances.remove(moduleId)
         }
