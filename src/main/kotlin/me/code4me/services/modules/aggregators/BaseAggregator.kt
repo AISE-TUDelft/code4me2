@@ -33,7 +33,6 @@ import java.util.concurrent.CopyOnWriteArrayList
  * @see BaseTelemetryAggregator
  */
 abstract class BaseAggregator : PluginModule {
-
     companion object {
         private val LOG = thisLogger()
     }
@@ -80,9 +79,9 @@ abstract class BaseAggregator : PluginModule {
                 registerModule(module)
             }
 
-            LOG.info("Initialized aggregator '${moduleName}' with ${modules.size} submodules")
+            LOG.info("Initialized aggregator '$moduleName' with ${modules.size} submodules")
         } catch (e: Exception) {
-            LOG.error("Failed to initialize aggregator '${moduleName}'", e)
+            LOG.error("Failed to initialize aggregator '$moduleName'", e)
             throw IllegalStateException("Aggregator initialization failed", e)
         }
     }
@@ -120,11 +119,12 @@ abstract class BaseAggregator : PluginModule {
         val configService = getConfig()
         val availableModules = configService.getAvailableModules()
 
-        val aggregatorConfig = availableModules.find { it.id == configModuleId }
-            ?: run {
-                LOG.warn("No configuration found for aggregator: $configModuleId")
-                return emptyList()
-            }
+        val aggregatorConfig =
+            availableModules.find { it.id == configModuleId }
+                ?: run {
+                    LOG.warn("No configuration found for aggregator: $configModuleId")
+                    return emptyList()
+                }
 
         if (aggregatorConfig.submodules.isEmpty()) {
             LOG.info("No submodules configured for aggregator: $configModuleId")
@@ -175,42 +175,44 @@ abstract class BaseAggregator : PluginModule {
      * @return List of [Record] objects collected from all submodules
      * @throws Exception If any submodule fails during data collection
      */
-    override fun collectData(request: InlineCompletionRequest): List<Record> = runBlocking {
-        val aggregatedData = CopyOnWriteArrayList<Record>()
+    override fun collectData(request: InlineCompletionRequest): List<Record> =
+        runBlocking {
+            val aggregatedData = CopyOnWriteArrayList<Record>()
 
-        try {
-            coroutineScope {
-                val submodules = getSubmodules()
+            try {
+                coroutineScope {
+                    val submodules = getSubmodules()
 
-                if (submodules.isEmpty()) {
-                    LOG.debug("No submodules available for data collection in: $moduleName")
-                    return@coroutineScope
-                }
+                    if (submodules.isEmpty()) {
+                        LOG.debug("No submodules available for data collection in: $moduleName")
+                        return@coroutineScope
+                    }
 
-                val deferredResults = submodules.map { module ->
-                    async {
-                        try {
-                            module.collectData(request)
-                        } catch (e: Exception) {
-                            LOG.warn("Data collection failed for module: ${module.moduleName}", e)
-                            emptyList<Record>()
+                    val deferredResults =
+                        submodules.map { module ->
+                            async {
+                                try {
+                                    module.collectData(request)
+                                } catch (e: Exception) {
+                                    LOG.warn("Data collection failed for module: ${module.moduleName}", e)
+                                    emptyList<Record>()
+                                }
+                            }
                         }
+
+                    deferredResults.forEach { deferred ->
+                        aggregatedData.addAll(deferred.await())
                     }
                 }
 
-                deferredResults.forEach { deferred ->
-                    aggregatedData.addAll(deferred.await())
-                }
+                LOG.debug("Collected ${aggregatedData.size} records from ${getSubmodules().size} submodules")
+            } catch (e: Exception) {
+                LOG.error("Failed to collect data from submodules", e)
+                throw e
             }
 
-            LOG.debug("Collected ${aggregatedData.size} records from ${getSubmodules().size} submodules")
-        } catch (e: Exception) {
-            LOG.error("Failed to collect data from submodules", e)
-            throw e
+            aggregatedData
         }
-
-        aggregatedData
-    }
 
     /**
      * Returns the preference list for this aggregator.

@@ -46,7 +46,6 @@ fun getModuleManager(project: Project): ModuleManager {
  */
 @Service(Service.Level.PROJECT)
 class ModuleManager(private val project: Project) : PluginModule {
-
     companion object {
         private val LOG = thisLogger()
     }
@@ -152,7 +151,7 @@ class ModuleManager(private val project: Project) : PluginModule {
      */
     private fun processSubmoduleEnabledState(
         submodule: PluginModule,
-        availableModuleConfigs: List<ModuleConfig>
+        availableModuleConfigs: List<ModuleConfig>,
     ) {
         val isEnabledInConfig = isSubmoduleEnabledInConfig(submodule, availableModuleConfigs)
         val isAlreadyEnabled = submodule.getPreferenceId() in enabledModuleIds
@@ -167,16 +166,18 @@ class ModuleManager(private val project: Project) : PluginModule {
      */
     private fun isSubmoduleEnabledInConfig(
         submodule: PluginModule,
-        availableModuleConfigs: List<ModuleConfig>
+        availableModuleConfigs: List<ModuleConfig>,
     ): Boolean {
         // Check direct configuration
-        val directConfig = availableModuleConfigs.find {
-            it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId()
-        }
+        val directConfig =
+            availableModuleConfigs.find {
+                it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId()
+            }
 
         // Check if submodule is in any module's submodules list
-        val submoduleConfig = availableModuleConfigs.flatMap { it.submodules }
-            .find { it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId() }
+        val submoduleConfig =
+            availableModuleConfigs.flatMap { it.submodules }
+                .find { it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId() }
 
         return submoduleConfig?.enabled ?: directConfig?.enabled ?: false
     }
@@ -186,13 +187,14 @@ class ModuleManager(private val project: Project) : PluginModule {
      */
     private fun processDefaultEnabledModules(
         newlyAddedModuleIds: List<String>,
-        availableModuleConfigs: List<ModuleConfig>
+        availableModuleConfigs: List<ModuleConfig>,
     ) {
         newlyAddedModuleIds.forEach { moduleId ->
-            val shouldEnable = availableModuleConfigs.any { config ->
-                (config.id == moduleId && config.enabled) ||
+            val shouldEnable =
+                availableModuleConfigs.any { config ->
+                    (config.id == moduleId && config.enabled) ||
                         config.submodules.any { sub -> sub.id == moduleId && sub.enabled }
-            }
+                }
 
             if (shouldEnable && !enabledModuleIds.contains(moduleId)) {
                 enableModule(moduleId)
@@ -256,29 +258,31 @@ class ModuleManager(private val project: Project) : PluginModule {
      * @param request The inline completion request context
      * @return Aggregated list of records from all modules
      */
-    override fun collectData(request: InlineCompletionRequest): List<Record> = runBlocking {
-        val aggregatedData = CopyOnWriteArrayList<Record>()
+    override fun collectData(request: InlineCompletionRequest): List<Record> =
+        runBlocking {
+            val aggregatedData = CopyOnWriteArrayList<Record>()
 
-        coroutineScope {
-            val deferredResults = modules.map { module ->
-                async {
-                    try {
-                        module.collectData(request)
-                    } catch (e: Exception) {
-                        LOG.warn("Data collection failed for module: ${module.moduleName}", e)
-                        emptyList<Record>()
+            coroutineScope {
+                val deferredResults =
+                    modules.map { module ->
+                        async {
+                            try {
+                                module.collectData(request)
+                            } catch (e: Exception) {
+                                LOG.warn("Data collection failed for module: ${module.moduleName}", e)
+                                emptyList<Record>()
+                            }
+                        }
                     }
+
+                deferredResults.forEach { deferred ->
+                    aggregatedData.addAll(deferred.await())
                 }
             }
 
-            deferredResults.forEach { deferred ->
-                aggregatedData.addAll(deferred.await())
-            }
+            LOG.debug("Collected ${aggregatedData.size} records from ${modules.size} modules")
+            aggregatedData
         }
-
-        LOG.debug("Collected ${aggregatedData.size} records from ${modules.size} modules")
-        aggregatedData
-    }
 
     override fun getPreferenceList(): List<Preference> {
         return listOf(
@@ -287,29 +291,29 @@ class ModuleManager(private val project: Project) : PluginModule {
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Use AI Completion",
-                description = "Enable AI-powered code completion suggestions"
+                description = "Enable AI-powered code completion suggestions",
             ),
             Preference(
                 key = "maxSuggestions",
                 type = PreferenceType.STRING,
                 defaultValue = "5",
                 displayName = "Max Suggestions",
-                description = "Maximum number of completion suggestions to display"
+                description = "Maximum number of completion suggestions to display",
             ),
             Preference(
                 key = "minConfidence",
                 type = PreferenceType.DOUBLE,
                 defaultValue = "0.85",
                 displayName = "Minimum Confidence",
-                description = "Minimum confidence threshold for displaying suggestions (0.0 to 1.0)"
+                description = "Minimum confidence threshold for displaying suggestions (0.0 to 1.0)",
             ),
             Preference(
                 key = "requestTimeout",
                 type = PreferenceType.INT,
                 defaultValue = "5000",
                 displayName = "Request Timeout",
-                description = "Maximum time in milliseconds to wait for completion responses"
-            )
+                description = "Maximum time in milliseconds to wait for completion responses",
+            ),
         )
     }
 

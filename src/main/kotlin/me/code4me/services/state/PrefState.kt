@@ -49,10 +49,9 @@ fun getPrefState(): PrefSettings {
 @Service
 @State(
     name = PREF_STATE_NAME,
-    storages = [Storage("code4me-preferences.xml")]
+    storages = [Storage("code4me-preferences.xml")],
 )
 class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -168,9 +167,10 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
                 val preferences = module.getPreferenceList()
 
                 // Check if this is a new module
-                val isNewModule = state.availableModules.none { existingModule ->
-                    existingModule?.getPreferenceId() == moduleId
-                }
+                val isNewModule =
+                    state.availableModules.none { existingModule ->
+                        existingModule?.getPreferenceId() == moduleId
+                    }
 
                 // Update module list
                 if (isNewModule) {
@@ -178,9 +178,10 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
                     LOG.debug("New module registered: $moduleId")
                 } else {
                     // Update existing module to ensure latest information
-                    state.availableModules = state.availableModules.map { existingModule ->
-                        if (existingModule?.getPreferenceId() == moduleId) module else existingModule
-                    }
+                    state.availableModules =
+                        state.availableModules.map { existingModule ->
+                            if (existingModule?.getPreferenceId() == moduleId) module else existingModule
+                        }
                     LOG.debug("Module updated: $moduleId")
                 }
 
@@ -204,7 +205,6 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
 
                 LOG.debug("Module registration completed for: $moduleId (${preferences.size} preferences)")
                 isNewModule
-
             } catch (e: Exception) {
                 LOG.error("Failed to register module: ${module.getPreferenceId()}", e)
                 false
@@ -217,13 +217,14 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
         private fun cleanupObsoletePreferences(
             moduleId: String,
             currentPreferences: List<Preference>,
-            state: PrefSettings
+            state: PrefSettings,
         ) {
             val moduleKeyPrefix = "$moduleId."
             val currentPrefKeys = currentPreferences.map { "$moduleKeyPrefix${it.key}" }.toSet()
 
-            val keysToRemove = state.modulePreferences.keys
-                .filter { it.startsWith(moduleKeyPrefix) && it !in currentPrefKeys }
+            val keysToRemove =
+                state.modulePreferences.keys
+                    .filter { it.startsWith(moduleKeyPrefix) && it !in currentPrefKeys }
 
             if (keysToRemove.isNotEmpty()) {
                 keysToRemove.forEach { key ->
@@ -241,7 +242,10 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
          * @param key The preference key
          * @return The preference value, or null if not found
          */
-        fun getPreferenceValue(moduleId: String, key: String): String? {
+        fun getPreferenceValue(
+            moduleId: String,
+            key: String,
+        ): String? {
             require(moduleId.isNotBlank()) { "Module ID cannot be blank" }
             require(key.isNotBlank()) { "Preference key cannot be blank" }
 
@@ -261,7 +265,11 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
          * @param key The preference key
          * @param value The value to set
          */
-        fun setPreferenceValue(moduleId: String, key: String, value: String) {
+        fun setPreferenceValue(
+            moduleId: String,
+            key: String,
+            value: String,
+        ) {
             require(moduleId.isNotBlank()) { "Module ID cannot be blank" }
             require(key.isNotBlank()) { "Preference key cannot be blank" }
             require(value.isNotBlank()) { "Preference value cannot be blank" }
@@ -311,7 +319,6 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
  * @since 1.0.0
  */
 class PrefSettings : BaseState() {
-
     // ================= APPLICATION SETTINGS =================
 
     /**

@@ -29,7 +29,6 @@ import javax.swing.SwingUtilities
  * @since 1.0.0
  */
 class Code4MeConfigurableComponent {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -64,12 +63,13 @@ class Code4MeConfigurableComponent {
     /**
      * Listener that responds to authentication token changes by rebuilding the UI.
      */
-    private val tokenChangeListener = PropertyChangeListener { event ->
-        if (event.propertyName == TOKEN_PROPERTY) {
-            LOG.debug("Authentication token changed, refreshing UI")
-            SwingUtilities.invokeLater { rebuildUI() }
+    private val tokenChangeListener =
+        PropertyChangeListener { event ->
+            if (event.propertyName == TOKEN_PROPERTY) {
+                LOG.debug("Authentication token changed, refreshing UI")
+                SwingUtilities.invokeLater { rebuildUI() }
+            }
         }
-    }
 
     /**
      * Main container panel that holds all UI components.
@@ -99,10 +99,11 @@ class Code4MeConfigurableComponent {
         fieldStates.clear()
 
         // Create main container with fixed dimensions
-        val newMainPanel = JPanel(BorderLayout()).apply {
-            minimumSize = java.awt.Dimension(MIN_WIDTH, MIN_HEIGHT)
-            preferredSize = java.awt.Dimension(PREFERRED_WIDTH, PREFERRED_HEIGHT)
-        }
+        val newMainPanel =
+            JPanel(BorderLayout()).apply {
+                minimumSize = java.awt.Dimension(MIN_WIDTH, MIN_HEIGHT)
+                preferredSize = java.awt.Dimension(PREFERRED_WIDTH, PREFERRED_HEIGHT)
+            }
 
         try {
             // Show appropriate section based on authentication state
@@ -116,12 +117,12 @@ class Code4MeConfigurableComponent {
 
             // Add separator and fill remaining space
             builder.addSeparator()
-            val contentPanel = builder
-                .addComponentFillVertically(JPanel(), 0)
-                .panel
+            val contentPanel =
+                builder
+                    .addComponentFillVertically(JPanel(), 0)
+                    .panel
 
             newMainPanel.add(contentPanel, BorderLayout.CENTER)
-
         } catch (e: Exception) {
             LOG.error("Failed to build UI", e)
             // Return a minimal error panel instead of crashing
@@ -151,7 +152,6 @@ class Code4MeConfigurableComponent {
             mainPanel.repaint()
 
             LOG.debug("UI successfully rebuilt")
-
         } catch (e: Exception) {
             LOG.error("Failed to rebuild UI", e)
         }
@@ -180,14 +180,15 @@ class Code4MeConfigurableComponent {
         }
 
         // Check if any field has been modified
-        return needsRefresh || fieldStates.any { field ->
-            try {
-                field.getStateValue() != field.getFieldValue()
-            } catch (e: Exception) {
-                LOG.warn("Failed to check modification state for field", e)
-                false
+        return needsRefresh ||
+            fieldStates.any { field ->
+                try {
+                    field.getStateValue() != field.getFieldValue()
+                } catch (e: Exception) {
+                    LOG.warn("Failed to check modification state for field", e)
+                    false
+                }
             }
-        }
     }
 
     /**

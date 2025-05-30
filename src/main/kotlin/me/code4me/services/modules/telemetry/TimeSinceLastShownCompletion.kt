@@ -54,7 +54,6 @@ import me.code4me.utils.record.Record
  * @see Record.Type.TELEMETRY
  */
 class TimeSinceLastShownCompletion : PluginModule {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -130,7 +129,7 @@ class TimeSinceLastShownCompletion : PluginModule {
             // Check if this module is enabled in the global configuration
             val prefState = me.code4me.services.state.getPrefState()
             if (!prefState.enabledModules.contains(getPreferenceId())) {
-                LOG.debug("Module ${moduleName} is disabled, skipping data collection")
+                LOG.debug("Module $moduleName is disabled, skipping data collection")
                 return emptyList()
             }
 
@@ -154,7 +153,6 @@ class TimeSinceLastShownCompletion : PluginModule {
 
             LOG.trace("Collected time since last completion: ${timeSinceLastShownCompletion}ms")
             return listOf(record)
-
         } catch (e: Exception) {
             LOG.error("Failed to collect time-since-last-completion telemetry", e)
             return emptyList()
@@ -182,7 +180,7 @@ class TimeSinceLastShownCompletion : PluginModule {
      * - **Graceful Degradation**: Works even with initialization failures
      */
     override fun initializeModules() {
-        LOG.debug("Initialized ${moduleName}")
+        LOG.debug("Initialized $moduleName")
         // No initialization needed for this module
         // Timing state is managed automatically through the lastCollectDataTime variable
     }

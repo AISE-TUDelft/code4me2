@@ -3,7 +3,6 @@ package me.code4me.services.modules.context
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.diagnostic.thisLogger
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
@@ -49,7 +48,6 @@ import me.code4me.utils.services.state.getIntPreference
  * @see MultiFileContextRetrievalModule
  */
 class FileContextRetrievalModule : PluginModule {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -105,7 +103,7 @@ class FileContextRetrievalModule : PluginModule {
         try {
             val prefState = me.code4me.services.state.getPrefState()
             if (!prefState.enabledModules.contains(getPreferenceId())) {
-                LOG.debug("Module ${moduleName} is disabled, skipping data collection")
+                LOG.debug("Module $moduleName is disabled, skipping data collection")
                 return emptyList()
             }
 
@@ -159,7 +157,6 @@ class FileContextRetrievalModule : PluginModule {
             val record = Record(type = Record.Type.CONTEXT, expanded = expanded)
             LOG.debug("Successfully collected ${expanded.size} context elements")
             return listOf(record)
-
         } catch (e: Exception) {
             LOG.error("Failed to collect file context data", e)
             return emptyList()
@@ -173,7 +170,7 @@ class FileContextRetrievalModule : PluginModule {
      * directly on the editor context provided in completion requests.
      */
     override fun initializeModules() {
-        LOG.debug("Initialized ${moduleName}")
+        LOG.debug("Initialized $moduleName")
     }
 
     /**
@@ -195,51 +192,55 @@ class FileContextRetrievalModule : PluginModule {
      *
      * @return List of [Preference] objects defining module configuration options
      */
-    override fun getPreferenceList(): List<Preference> = listOf(
-        Preference(
-            key = PREF_PREFIX_LENGTH,
-            type = PreferenceType.INT,
-            defaultValue = DEFAULT_PREFIX_LENGTH.toString(),
-            displayName = "Prefix Length",
-            description = "Number of characters to include before the cursor position. " +
-                    "Larger values provide more context but may impact performance."
-        ),
-        Preference(
-            key = PREF_SUFFIX_LENGTH,
-            type = PreferenceType.INT,
-            defaultValue = DEFAULT_SUFFIX_LENGTH.toString(),
-            displayName = "Suffix Length",
-            description = "Number of characters to include after the cursor position. " +
-                    "Larger values provide more context but may impact performance."
-        ),
-        Preference(
-            key = PREF_INCLUDE_CONTENTS,
-            type = PreferenceType.BOOLEAN,
-            defaultValue = "true",
-            displayName = "Include File Contents",
-            description = "Include the complete file content in context data. " +
-                    "Disable for large files to improve performance."
-        ),
-        Preference(
-            key = PREF_INCLUDE_PREFIX,
-            type = PreferenceType.BOOLEAN,
-            defaultValue = "true",
-            displayName = "Include Prefix",
-            description = "Include the text before the cursor position, up to the configured prefix length."
-        ),
-        Preference(
-            key = PREF_INCLUDE_SUFFIX,
-            type = PreferenceType.BOOLEAN,
-            defaultValue = "true",
-            displayName = "Include Suffix",
-            description = "Include the text after the cursor position, up to the configured suffix length."
-        ),
-        Preference(
-            key = PREF_INCLUDE_FILENAME,
-            type = PreferenceType.BOOLEAN,
-            defaultValue = "true",
-            displayName = "Include File Name",
-            description = "Include the name of the current file in context data."
+    override fun getPreferenceList(): List<Preference> =
+        listOf(
+            Preference(
+                key = PREF_PREFIX_LENGTH,
+                type = PreferenceType.INT,
+                defaultValue = DEFAULT_PREFIX_LENGTH.toString(),
+                displayName = "Prefix Length",
+                description =
+                    "Number of characters to include before the cursor position. " +
+                        "Larger values provide more context but may impact performance.",
+            ),
+            Preference(
+                key = PREF_SUFFIX_LENGTH,
+                type = PreferenceType.INT,
+                defaultValue = DEFAULT_SUFFIX_LENGTH.toString(),
+                displayName = "Suffix Length",
+                description =
+                    "Number of characters to include after the cursor position. " +
+                        "Larger values provide more context but may impact performance.",
+            ),
+            Preference(
+                key = PREF_INCLUDE_CONTENTS,
+                type = PreferenceType.BOOLEAN,
+                defaultValue = "true",
+                displayName = "Include File Contents",
+                description =
+                    "Include the complete file content in context data. " +
+                        "Disable for large files to improve performance.",
+            ),
+            Preference(
+                key = PREF_INCLUDE_PREFIX,
+                type = PreferenceType.BOOLEAN,
+                defaultValue = "true",
+                displayName = "Include Prefix",
+                description = "Include the text before the cursor position, up to the configured prefix length.",
+            ),
+            Preference(
+                key = PREF_INCLUDE_SUFFIX,
+                type = PreferenceType.BOOLEAN,
+                defaultValue = "true",
+                displayName = "Include Suffix",
+                description = "Include the text after the cursor position, up to the configured suffix length.",
+            ),
+            Preference(
+                key = PREF_INCLUDE_FILENAME,
+                type = PreferenceType.BOOLEAN,
+                defaultValue = "true",
+                displayName = "Include File Name",
+                description = "Include the name of the current file in context data.",
+            ),
         )
-    )
 }

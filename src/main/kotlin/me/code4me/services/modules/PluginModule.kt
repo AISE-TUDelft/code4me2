@@ -43,7 +43,6 @@ import me.code4me.utils.record.Record
  * @see BaseAggregator
  */
 interface PluginModule : PreferenceCapable {
-
     companion object {
         /**
          * Thread-safe storage for module submodule relationships.
@@ -96,7 +95,6 @@ interface PluginModule : PreferenceCapable {
      */
     fun collectData(request: InlineCompletionRequest): List<Record>
 
-
     /**
      * Called after inline completion elements have been inserted into the editor.
      *
@@ -116,10 +114,10 @@ interface PluginModule : PreferenceCapable {
      */
     fun afterInsertion(
         environment: InlineCompletionInsertEnvironment,
-        elements: List<InlineCompletionElement>) {
+        elements: List<InlineCompletionElement>,
+    ) {
         // Default implementation does nothing, can be overridden by specific modules
     }
-
 
     /**
      * Initializes this module and sets up any required submodules or dependencies.
@@ -151,8 +149,7 @@ interface PluginModule : PreferenceCapable {
      *
      * @return Immutable list of submodules, or empty list if none are managed
      */
-    fun getSubmodules(): List<PluginModule> =
-        moduleSubmodules.getOrDefault(getModuleId(), mutableListOf())
+    fun getSubmodules(): List<PluginModule> = moduleSubmodules.getOrDefault(getModuleId(), mutableListOf())
 
     /**
      * Registers a submodule with this module and defines the dependency relationship.

@@ -63,7 +63,6 @@ import me.code4me.utils.services.state.getBooleanPreference
  * @see InlineCompletionRequest
  */
 class EditorContextRetrievalModule : PluginModule {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -152,7 +151,7 @@ class EditorContextRetrievalModule : PluginModule {
         try {
             val prefState = getPrefState()
             if (!prefState.enabledModules.contains(getPreferenceId())) {
-                LOG.debug("Module ${moduleName} is disabled, skipping data collection")
+                LOG.debug("Module $moduleName is disabled, skipping data collection")
                 return emptyList()
             }
 
@@ -179,7 +178,7 @@ class EditorContextRetrievalModule : PluginModule {
             // Collect programming language information
             // TODO: uncomment when the preference storage properly works
             //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.language")?.toBoolean() == true*/true) {
-            if(getBooleanPreference(moduleId, PREF_INCLUDE_LANGUAGE, true)) {
+            if (getBooleanPreference(moduleId, PREF_INCLUDE_LANGUAGE, true)) {
                 val languageKey = Record.Companion.key<String>(KEY_CONTEXT_LANGUAGE)
                 expanded[languageKey] = psiFile.language.displayName
                 LOG.trace("Collected language: ${psiFile.language.displayName}")
@@ -191,7 +190,6 @@ class EditorContextRetrievalModule : PluginModule {
                 LOG.trace("Collected file path: ${virtualFile.path}")
             }
 
-
             if (getBooleanPreference(moduleId, PREF_INCLUDE_CARET_OFFSET, true)) {
                 val caretOffsetKey = Record.Companion.key<Int>(KEY_CONTEXT_CARET_OFFSET)
                 expanded[caretOffsetKey] = caretModel.offset
@@ -201,8 +199,8 @@ class EditorContextRetrievalModule : PluginModule {
             if (getBooleanPreference(moduleId, PREF_INCLUDE_CARET_OFFSET, true)) {
                 val relativeDocumentPositionKey = Record.Companion.key<Float>(KEY_RELATIVE_DOCUMENT_POSITION)
                 expanded[relativeDocumentPositionKey] = (
-                        caretModel.offset.toFloat() / document.text.length.toFloat()
-                        )
+                    caretModel.offset.toFloat() / document.text.length.toFloat()
+                )
                 LOG.trace("Collected relative position: ${caretModel.offset.toFloat() / document.text.length.toFloat()}")
             }
 
@@ -234,7 +232,6 @@ class EditorContextRetrievalModule : PluginModule {
             val record = Record(type = Record.Type.TELEMETRY, expanded = expanded)
             LOG.debug("Successfully collected ${expanded.size} context elements")
             return listOf(record)
-
         } catch (e: Exception) {
             LOG.error("Failed to collect editor context telemetry", e)
             return emptyList()
@@ -255,7 +252,7 @@ class EditorContextRetrievalModule : PluginModule {
      * - **Zero Configuration**: No setup required for basic operation
      */
     override fun initializeModules() {
-        LOG.debug("Initialized ${moduleName}")
+        LOG.debug("Initialized $moduleName")
         // No special initialization required for this context collection module
         // All necessary information is available from the completion request
     }
@@ -314,48 +311,54 @@ class EditorContextRetrievalModule : PluginModule {
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Include Language",
-                description = "Include the programming language of the current file in context data. " +
-                        "This helps analyze completion patterns across different programming languages."
+                description =
+                    "Include the programming language of the current file in context data. " +
+                        "This helps analyze completion patterns across different programming languages.",
             ),
             Preference(
                 key = PREF_INCLUDE_FILEPATH,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Include File Path",
-                description = "Include the full file path in context data. " +
-                        "Note: File paths may contain sensitive information about your project structure."
+                description =
+                    "Include the full file path in context data. " +
+                        "Note: File paths may contain sensitive information about your project structure.",
             ),
             Preference(
                 key = PREF_INCLUDE_CARET_OFFSET,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Include Caret Offset",
-                description = "Include the caret's offset from the beginning of the document. " +
-                        "This provides precise positioning information for completion analysis."
+                description =
+                    "Include the caret's offset from the beginning of the document. " +
+                        "This provides precise positioning information for completion analysis.",
             ),
             Preference(
                 key = PREF_INCLUDE_CARET_POSITION,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Include Caret Line and Column",
-                description = "Include the line and column number of the caret position. " +
-                        "This helps understand where in files users typically request completions."
+                description =
+                    "Include the line and column number of the caret position. " +
+                        "This helps understand where in files users typically request completions.",
             ),
             Preference(
                 key = PREF_INCLUDE_SELECTION_TEXT,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Include Selected Text",
-                description = "Include currently selected text, if any, in context data. " +
-                        "Note: Selected text may contain sensitive code content."
+                description =
+                    "Include currently selected text, if any, in context data. " +
+                        "Note: Selected text may contain sensitive code content.",
             ),
             Preference(
                 key = PREF_INCLUDE_LENGTH,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
                 displayName = "Include File Length",
-                description = "Include the total length of the file in characters. " +
-                        "This helps analyze completion patterns in files of different sizes."
+                description =
+                    "Include the total length of the file in characters. " +
+                        "This helps analyze completion patterns in files of different sizes.",
             ),
         )
 }

@@ -14,8 +14,6 @@ import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.components.settings.fields.CredentialField
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
@@ -51,7 +49,6 @@ import javax.swing.SwingUtilities
  * @since 1.0.0
  */
 class AuthenticationSection : SettingsSection {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -67,8 +64,9 @@ class AuthenticationSection : SettingsSection {
     private enum class AuthMode {
         /** User login with existing credentials */
         LOGIN,
+
         /** New user registration */
-        SIGNUP
+        SIGNUP,
     }
 
     /**
@@ -77,8 +75,9 @@ class AuthenticationSection : SettingsSection {
     private enum class AuthMethod {
         /** Email and password authentication */
         CREDENTIALS,
+
         /** Google OAuth authentication (future) */
-        GOOGLE
+        GOOGLE,
     }
 
     /**
@@ -91,88 +90,113 @@ class AuthenticationSection : SettingsSection {
     /**
      * Email input field with state management.
      */
-    private val emailField = JBTextField().apply {
-        columns = FIELD_COLUMNS
-        toolTipText = "Enter your email address"
-    }
+    private val emailField =
+        JBTextField().apply {
+            columns = FIELD_COLUMNS
+            toolTipText = "Enter your email address"
+        }
 
-    private val emailFieldSVF = object : TextField(emailField) {
-        override fun getStateValue(): String? = emailField.text.takeIf { it.isNotBlank() }
-        override fun setStateValue(value: String) { emailField.text = value }
-    }
+    private val emailFieldSVF =
+        object : TextField(emailField) {
+            override fun getStateValue(): String? = emailField.text.takeIf { it.isNotBlank() }
+
+            override fun setStateValue(value: String) {
+                emailField.text = value
+            }
+        }
 
     /**
      * Password input field with state management.
      */
-    private val passwordField = JBPasswordField().apply {
-        columns = FIELD_COLUMNS
-        toolTipText = "Enter your password"
-    }
+    private val passwordField =
+        JBPasswordField().apply {
+            columns = FIELD_COLUMNS
+            toolTipText = "Enter your password"
+        }
 
-    private val passwordFieldSVF = object : CredentialField(passwordField) {
-        override fun getStateValue(): String? = String(passwordField.password).takeIf { it.isNotBlank() }
-        override fun setStateValue(value: String) { passwordField.text = value }
-    }
+    private val passwordFieldSVF =
+        object : CredentialField(passwordField) {
+            override fun getStateValue(): String? = String(passwordField.password).takeIf { it.isNotBlank() }
+
+            override fun setStateValue(value: String) {
+                passwordField.text = value
+            }
+        }
 
     /**
      * Full name input field (signup only) with state management.
      */
-    private val fullNameField = JBTextField().apply {
-        columns = FIELD_COLUMNS
-        toolTipText = "Enter your full name"
-    }
+    private val fullNameField =
+        JBTextField().apply {
+            columns = FIELD_COLUMNS
+            toolTipText = "Enter your full name"
+        }
 
-    private val fullNameFieldSVF = object : TextField(fullNameField) {
-        override fun getStateValue(): String? = fullNameField.text.takeIf { it.isNotBlank() }
-        override fun setStateValue(value: String) { fullNameField.text = value }
-    }
+    private val fullNameFieldSVF =
+        object : TextField(fullNameField) {
+            override fun getStateValue(): String? = fullNameField.text.takeIf { it.isNotBlank() }
+
+            override fun setStateValue(value: String) {
+                fullNameField.text = value
+            }
+        }
 
     /**
      * Password confirmation field (signup only) with state management.
      */
-    private val confirmPasswordField = JBPasswordField().apply {
-        columns = FIELD_COLUMNS
-        toolTipText = "Confirm your password"
-    }
+    private val confirmPasswordField =
+        JBPasswordField().apply {
+            columns = FIELD_COLUMNS
+            toolTipText = "Confirm your password"
+        }
 
-    private val confirmPasswordFieldSVF = object : CredentialField(confirmPasswordField) {
-        override fun getStateValue(): String? = String(confirmPasswordField.password).takeIf { it.isNotBlank() }
-        override fun setStateValue(value: String) { confirmPasswordField.text = value }
-    }
+    private val confirmPasswordFieldSVF =
+        object : CredentialField(confirmPasswordField) {
+            override fun getStateValue(): String? = String(confirmPasswordField.password).takeIf { it.isNotBlank() }
+
+            override fun setStateValue(value: String) {
+                confirmPasswordField.text = value
+            }
+        }
 
     /**
      * Mode toggle button for switching between login and signup.
      */
-    private val authModeToggle = JBCheckBox("Switch to Sign Up Mode").apply {
-        toolTipText = "Toggle between login and signup modes"
-    }
-
-    private val authModeToggleSVF = object : ToggleButtonField(authModeToggle) {
-        override fun getStateValue(): Boolean = authModeToggle.isSelected
-        override fun setStateValue(value: Boolean) {
-            authModeToggle.isSelected = value
-            updateToggleText()
-            requiresUIRefresh.set(true)
-            updateFormVisibility()
+    private val authModeToggle =
+        JBCheckBox("Switch to Sign Up Mode").apply {
+            toolTipText = "Toggle between login and signup modes"
         }
-    }
+
+    private val authModeToggleSVF =
+        object : ToggleButtonField(authModeToggle) {
+            override fun getStateValue(): Boolean = authModeToggle.isSelected
+
+            override fun setStateValue(value: Boolean) {
+                authModeToggle.isSelected = value
+                updateToggleText()
+                requiresUIRefresh.set(true)
+                updateFormVisibility()
+            }
+        }
 
     /**
      * Authentication action button (Login/Sign Up).
      */
-    private val authButton = JButton("Login").apply {
-        toolTipText = "Click to authenticate"
-        addActionListener { performAuthentication() }
-    }
+    private val authButton =
+        JButton("Login").apply {
+            toolTipText = "Click to authenticate"
+            addActionListener { performAuthentication() }
+        }
 
     /**
      * Google OAuth authentication button (future feature).
      */
-    private val googleAuthButton = JButton("Login with Google").apply {
-        toolTipText = "Authenticate using your Google account"
-        addActionListener { initiateGoogleAuth() }
-        isEnabled = false // TODO: Enable when Google OAuth is implemented
-    }
+    private val googleAuthButton =
+        JButton("Login with Google").apply {
+            toolTipText = "Authenticate using your Google account"
+            addActionListener { initiateGoogleAuth() }
+            isEnabled = false // TODO: Enable when Google OAuth is implemented
+        }
 
     // ================= SERVICES =================
 
@@ -184,15 +208,17 @@ class AuthenticationSection : SettingsSection {
     private val fullNameLabel = JLabel("Full name:")
     private val confirmPasswordLabel = JLabel("Confirm password:")
 
-    private val credentialsTitleLabel = JBLabel("Credential-based Authentication").apply {
-        font = font.deriveFont(font.style or java.awt.Font.BOLD)
-        border = JBUI.Borders.empty(0, 0, 5, 0)
-    }
+    private val credentialsTitleLabel =
+        JBLabel("Credential-based Authentication").apply {
+            font = font.deriveFont(font.style or java.awt.Font.BOLD)
+            border = JBUI.Borders.empty(0, 0, 5, 0)
+        }
 
-    private val googleTitleLabel = JBLabel("Google-based Authentication").apply {
-        font = font.deriveFont(font.style or java.awt.Font.BOLD)
-        border = JBUI.Borders.empty(0, 0, 5, 0)
-    }
+    private val googleTitleLabel =
+        JBLabel("Google-based Authentication").apply {
+            font = font.deriveFont(font.style or java.awt.Font.BOLD)
+            border = JBUI.Borders.empty(0, 0, 5, 0)
+        }
 
     init {
         updateFormVisibility()
@@ -204,11 +230,12 @@ class AuthenticationSection : SettingsSection {
      */
     private fun updateToggleText() {
         val isSignupMode = authModeToggle.isSelected
-        authModeToggle.text = if (isSignupMode) {
-            "Already have an account? Switch to Login Mode"
-        } else {
-            "Don't have an account? Switch to Sign Up Mode"
-        }
+        authModeToggle.text =
+            if (isSignupMode) {
+                "Already have an account? Switch to Login Mode"
+            } else {
+                "Don't have an account? Switch to Sign Up Mode"
+            }
 
         authButton.text = if (isSignupMode) "Sign Up" else "Login"
         googleAuthButton.text = if (isSignupMode) "Sign Up with Google" else "Login with Google"
@@ -233,21 +260,24 @@ class AuthenticationSection : SettingsSection {
 
     override fun applyTo(
         builder: FormBuilder,
-        stateValueFields: MutableList<StateValueField<*>>
+        stateValueFields: MutableList<StateValueField<*>>,
     ) {
         // Register state value fields
-        stateValueFields.addAll(listOf(
-            emailFieldSVF,
-            passwordFieldSVF,
-            fullNameFieldSVF,
-            confirmPasswordFieldSVF,
-            authModeToggleSVF
-        ))
+        stateValueFields.addAll(
+            listOf(
+                emailFieldSVF,
+                passwordFieldSVF,
+                fullNameFieldSVF,
+                confirmPasswordFieldSVF,
+                authModeToggleSVF,
+            ),
+        )
 
         // Create main authentication panel
-        val mainPanel = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(FORM_PADDING)
-        }
+        val mainPanel =
+            JPanel(BorderLayout()).apply {
+                border = JBUI.Borders.empty(FORM_PADDING)
+            }
 
         // Credentials section
         val credentialsPanel = createCredentialsPanel()
@@ -256,10 +286,11 @@ class AuthenticationSection : SettingsSection {
         val googlePanel = createGooglePanel()
 
         // Combine sections
-        val sectionsPanel = JPanel(BorderLayout()).apply {
-            add(credentialsPanel, BorderLayout.NORTH)
-            add(googlePanel, BorderLayout.SOUTH)
-        }
+        val sectionsPanel =
+            JPanel(BorderLayout()).apply {
+                add(credentialsPanel, BorderLayout.NORTH)
+                add(googlePanel, BorderLayout.SOUTH)
+            }
 
         mainPanel.add(sectionsPanel, BorderLayout.NORTH)
         builder.addComponent(mainPanel)
@@ -276,41 +307,49 @@ class AuthenticationSection : SettingsSection {
 
             add(credentialsTitleLabel, BorderLayout.NORTH)
 
-            val formPanel = JPanel(GridBagLayout()).apply {
-                border = JBUI.Borders.empty(5, 0, 0, 0)
-            }
+            val formPanel =
+                JPanel(GridBagLayout()).apply {
+                    border = JBUI.Borders.empty(5, 0, 0, 0)
+                }
 
-            val gbc = GridBagConstraints().apply {
-                insets = Insets(5, 5, 5, 5)
-                anchor = GridBagConstraints.WEST
-            }
+            val gbc =
+                GridBagConstraints().apply {
+                    insets = Insets(5, 5, 5, 5)
+                    anchor = GridBagConstraints.WEST
+                }
 
             // Email field
-            gbc.gridx = 0; gbc.gridy = 0
+            gbc.gridx = 0
+            gbc.gridy = 0
             formPanel.add(JLabel("Email:"), gbc)
             gbc.gridx = 1
             formPanel.add(emailField, gbc)
 
             // Password field
-            gbc.gridx = 0; gbc.gridy = 1
+            gbc.gridx = 0
+            gbc.gridy = 1
             formPanel.add(JLabel("Password:"), gbc)
             gbc.gridx = 1
             formPanel.add(passwordField, gbc)
 
             // Full name field (signup only)
-            gbc.gridx = 0; gbc.gridy = 2
+            gbc.gridx = 0
+            gbc.gridy = 2
             formPanel.add(fullNameLabel, gbc)
             gbc.gridx = 1
             formPanel.add(fullNameField, gbc)
 
             // Confirm password field (signup only)
-            gbc.gridx = 0; gbc.gridy = 3
+            gbc.gridx = 0
+            gbc.gridy = 3
             formPanel.add(confirmPasswordLabel, gbc)
             gbc.gridx = 1
             formPanel.add(confirmPasswordField, gbc)
 
             // Mode toggle
-            gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2
+            gbc.gridx = 0
+            gbc.gridy = 4
+            gbc.gridwidth = 2
             formPanel.add(authModeToggle, gbc)
 
             // Auth button
@@ -326,16 +365,18 @@ class AuthenticationSection : SettingsSection {
      */
     private fun createGooglePanel(): JPanel {
         return JPanel(BorderLayout()).apply {
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(""),
-                JBUI.Borders.empty(5)
-            )
+            border =
+                BorderFactory.createCompoundBorder(
+                    BorderFactory.createTitledBorder(""),
+                    JBUI.Borders.empty(5),
+                )
 
             add(googleTitleLabel, BorderLayout.NORTH)
 
-            val buttonPanel = JPanel().apply {
-                add(googleAuthButton)
-            }
+            val buttonPanel =
+                JPanel().apply {
+                    add(googleAuthButton)
+                }
 
             add(buttonPanel, BorderLayout.CENTER)
         }
@@ -442,12 +483,13 @@ class AuthenticationSection : SettingsSection {
         val isSignupMode = authModeToggle.isSelected
 
         try {
-            val token = if (isSignupMode) {
-                val fullName = fullNameField.text.trim()
-                performSignupAsync(fullName, email, password)
-            } else {
-                performLoginAsync(email, password)
-            }
+            val token =
+                if (isSignupMode) {
+                    val fullName = fullNameField.text.trim()
+                    performSignupAsync(fullName, email, password)
+                } else {
+                    performLoginAsync(email, password)
+                }
 
             if (token != null) {
                 // Store authentication data
@@ -460,16 +502,15 @@ class AuthenticationSection : SettingsSection {
 
                 showSuccessOnEDT("Authentication successful!")
                 clearAllFieldsOnEDT()
-
             } else {
-                val errorMessage = if (isSignupMode) {
-                    "Sign up failed. Please check your information and try again."
-                } else {
-                    "Login failed. Please check your credentials and try again."
-                }
+                val errorMessage =
+                    if (isSignupMode) {
+                        "Sign up failed. Please check your information and try again."
+                    } else {
+                        "Login failed. Please check your credentials and try again."
+                    }
                 showErrorOnEDT(errorMessage)
             }
-
         } catch (e: Exception) {
             LOG.error("Authentication request failed", e)
             showErrorOnEDT("Authentication failed: ${e.message}")
@@ -479,7 +520,10 @@ class AuthenticationSection : SettingsSection {
     /**
      * Performs user login with email and password.
      */
-    private suspend fun performLoginAsync(email: String, password: String): String? {
+    private suspend fun performLoginAsync(
+        email: String,
+        password: String,
+    ): String? {
         return try {
             val response = appService.authenticateUser(email, password)
             response.message
@@ -492,13 +536,16 @@ class AuthenticationSection : SettingsSection {
     /**
      * Performs user signup with full name, email, and password.
      */
-    private suspend fun performSignupAsync(fullName: String, email: String, password: String): String? {
+    private suspend fun performSignupAsync(
+        fullName: String,
+        email: String,
+        password: String,
+    ): String? {
         return try {
             // TODO: Implement signup API call when available
             // For now, returning null to indicate not implemented
             LOG.info("Signup attempted for email: $email (not yet implemented)")
             null
-
         } catch (e: Exception) {
             LOG.warn("Signup request failed for email: $email", e)
             null
@@ -572,7 +619,10 @@ class AuthenticationSection : SettingsSection {
      * Handles Google login for existing users.
      * TODO: Implement when Google OAuth is available.
      */
-    fun handleGoogleLogin(email: String, token: String) {
+    fun handleGoogleLogin(
+        email: String,
+        token: String,
+    ) {
         LOG.info("Google login requested for email: $email (not yet implemented)")
         showError("Google authentication is not yet implemented")
     }
@@ -581,7 +631,10 @@ class AuthenticationSection : SettingsSection {
      * Handles Google signup for new users.
      * TODO: Implement when Google OAuth is available.
      */
-    fun handleGoogleSignup(email: String, token: String) {
+    fun handleGoogleSignup(
+        email: String,
+        token: String,
+    ) {
         LOG.info("Google signup requested for email: $email (not yet implemented)")
         showError("Google authentication is not yet implemented")
     }
@@ -592,7 +645,6 @@ class AuthenticationSection : SettingsSection {
  * TODO: Complete implementation when Google OAuth is available.
  */
 private class PasswordCreationDialog(private val email: String) : DialogWrapper(true) {
-
     private val nameField = JBTextField()
     private val passwordField = JBPasswordField()
     private val confirmPasswordField = JBPasswordField()
@@ -604,27 +656,32 @@ private class PasswordCreationDialog(private val email: String) : DialogWrapper(
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(GridBagLayout())
-        val gbc = GridBagConstraints().apply {
-            insets = Insets(5, 5, 5, 5)
-            anchor = GridBagConstraints.WEST
-        }
+        val gbc =
+            GridBagConstraints().apply {
+                insets = Insets(5, 5, 5, 5)
+                anchor = GridBagConstraints.WEST
+            }
 
-        gbc.gridx = 0; gbc.gridy = 0
+        gbc.gridx = 0
+        gbc.gridy = 0
         panel.add(JLabel("Email:"), gbc)
         gbc.gridx = 1
         panel.add(JLabel(email), gbc)
 
-        gbc.gridx = 0; gbc.gridy = 1
+        gbc.gridx = 0
+        gbc.gridy = 1
         panel.add(JLabel("Full Name:"), gbc)
         gbc.gridx = 1
         panel.add(nameField, gbc)
 
-        gbc.gridx = 0; gbc.gridy = 2
+        gbc.gridx = 0
+        gbc.gridy = 2
         panel.add(JLabel("Password:"), gbc)
         gbc.gridx = 1
         panel.add(passwordField, gbc)
 
-        gbc.gridx = 0; gbc.gridy = 3
+        gbc.gridx = 0
+        gbc.gridy = 3
         panel.add(JLabel("Confirm Password:"), gbc)
         gbc.gridx = 1
         panel.add(confirmPasswordField, gbc)
@@ -644,5 +701,6 @@ private class PasswordCreationDialog(private val email: String) : DialogWrapper(
     }
 
     fun getPassword(): String = String(passwordField.password)
+
     fun getName(): String = nameField.text.trim()
 }

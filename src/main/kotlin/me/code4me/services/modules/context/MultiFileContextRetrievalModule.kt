@@ -51,7 +51,6 @@ import me.code4me.utils.services.state.getBooleanPreference
  * @see PsiElement
  */
 class MultiFileContextRetrievalModule : PluginModule {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -113,7 +112,7 @@ class MultiFileContextRetrievalModule : PluginModule {
         try {
             val prefState = getPrefState()
             if (!prefState.enabledModules.contains(getPreferenceId())) {
-                LOG.debug("Module ${moduleName} is disabled, skipping data collection")
+                LOG.debug("Module $moduleName is disabled, skipping data collection")
                 return emptyList()
             }
 
@@ -141,28 +140,31 @@ class MultiFileContextRetrievalModule : PluginModule {
                     val fileText = document.text
 
                     // Extract PSI element at cursor position if available
-                    val topElement = if (includePsi && psiFile != null) {
-                        PsiTreeUtil.getParentOfType(
-                            psiFile.findElementAt(caretOffset),
-                            PsiElement::class.java,
-                        )
-                    } else null
+                    val topElement =
+                        if (includePsi && psiFile != null) {
+                            PsiTreeUtil.getParentOfType(
+                                psiFile.findElementAt(caretOffset),
+                                PsiElement::class.java,
+                            )
+                        } else {
+                            null
+                        }
 
                     // Build context object based on preferences
-                    val fileContext = FileContext(
-                        location = if (includeLocation) file.path else "",
-                        psiElement = if (includePsi) topElement?.text ?: "" else "",
-                        contents = if (includeContent) fileText else ""
-                    )
+                    val fileContext =
+                        FileContext(
+                            location = if (includeLocation) file.path else "",
+                            psiElement = if (includePsi) topElement?.text ?: "" else "",
+                            contents = if (includeContent) fileText else "",
+                        )
 
                     // Create standardized key for this file context
                     val sanitizedFileName = sanitizeFileName(file.name)
-                    val key = Record.key<FileContext>("${KEY_PREFIX_MULTI_FILE}.${sanitizedFileName}")
+                    val key = Record.key<FileContext>("${KEY_PREFIX_MULTI_FILE}.$sanitizedFileName")
                     expanded[key] = fileContext
                     processedFiles++
 
                     LOG.trace("Collected context for file: ${file.name}")
-
                 } catch (e: Exception) {
                     LOG.warn("Failed to collect context for file: ${file.name}", e)
                     // Continue processing other files even if one fails
@@ -175,7 +177,6 @@ class MultiFileContextRetrievalModule : PluginModule {
             } else {
                 emptyList()
             }
-
         } catch (e: Exception) {
             LOG.error("Failed to collect multi-file context data", e)
             return emptyList()
@@ -189,7 +190,7 @@ class MultiFileContextRetrievalModule : PluginModule {
      * on the editor factory and PSI services provided by IntelliJ.
      */
     override fun initializeModules() {
-        LOG.debug("Initialized ${moduleName}")
+        LOG.debug("Initialized $moduleName")
     }
 
     /**
@@ -208,29 +209,32 @@ class MultiFileContextRetrievalModule : PluginModule {
      *
      * @return List of [Preference] objects defining module configuration options
      */
-    override fun getPreferenceList(): List<Preference> = listOf(
-        Preference(
-            key = PREF_INCLUDE_CONTENTS,
-            type = PreferenceType.BOOLEAN,
-            defaultValue = "true",
-            displayName = "Include File Contents",
-            description = "Include the complete contents of open files. " +
-                    "Disable for better performance with large files."
-        ),
-        Preference(
-            key = PREF_INCLUDE_LOCATION,
-            type = PreferenceType.BOOLEAN,
-            defaultValue = "true",
-            displayName = "Include File Location",
-            description = "Include the file system path for each open file."
-        ),
-        Preference(
-            key = PREF_INCLUDE_PSI,
-            type = PreferenceType.BOOLEAN,
-            defaultValue = "true",
-            displayName = "Include PSI Element",
-            description = "Include the PSI (Program Structure Interface) element near " +
-                    "the cursor position for structural code understanding."
+    override fun getPreferenceList(): List<Preference> =
+        listOf(
+            Preference(
+                key = PREF_INCLUDE_CONTENTS,
+                type = PreferenceType.BOOLEAN,
+                defaultValue = "true",
+                displayName = "Include File Contents",
+                description =
+                    "Include the complete contents of open files. " +
+                        "Disable for better performance with large files.",
+            ),
+            Preference(
+                key = PREF_INCLUDE_LOCATION,
+                type = PreferenceType.BOOLEAN,
+                defaultValue = "true",
+                displayName = "Include File Location",
+                description = "Include the file system path for each open file.",
+            ),
+            Preference(
+                key = PREF_INCLUDE_PSI,
+                type = PreferenceType.BOOLEAN,
+                defaultValue = "true",
+                displayName = "Include PSI Element",
+                description =
+                    "Include the PSI (Program Structure Interface) element near " +
+                        "the cursor position for structural code understanding.",
+            ),
         )
-    )
 }

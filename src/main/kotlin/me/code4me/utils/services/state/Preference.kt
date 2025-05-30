@@ -10,7 +10,11 @@ import me.code4me.services.state.PrefState
  * @param defaultValue The default value if preference is not set
  * @return The boolean preference value
  */
-fun getBooleanPreference(moduleId: String, key: String, defaultValue: Boolean): Boolean {
+fun getBooleanPreference(
+    moduleId: String,
+    key: String,
+    defaultValue: Boolean,
+): Boolean {
     return PrefState.getPreferenceValue(moduleId, key)?.toBoolean() ?: defaultValue
 }
 
@@ -22,6 +26,10 @@ fun getBooleanPreference(moduleId: String, key: String, defaultValue: Boolean): 
  * @param defaultValue The default value if preference is not set or invalid
  * @return The integer preference value
  */
-fun getIntPreference(moduleId: String, key: String, defaultValue: Int): Int {
+fun getIntPreference(
+    moduleId: String,
+    key: String,
+    defaultValue: Int,
+): Int {
     return PrefState.getPreferenceValue(moduleId, key)?.toIntOrNull() ?: defaultValue
 }

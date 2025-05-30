@@ -38,7 +38,6 @@ import java.io.IOException
  */
 @Service
 class AppService {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -112,12 +111,13 @@ class AppService {
         require(email.isNotBlank()) { "Email cannot be blank" }
         require(password.isNotBlank()) { "Password cannot be blank" }
 
-        val userToAuthenticate = UserToAuthenticate(
-            email = email,
-            password = password,
-            provider = Provider.google, // Default provider for password auth
-            token = "", // Empty for password-based authentication
-        )
+        val userToAuthenticate =
+            UserToAuthenticate(
+                email = email,
+                password = password,
+                provider = Provider.google,
+                token = "",
+            )
 
         return try {
             val response = authApi.authenticateUserApiUserAuthenticatePost(userToAuthenticate)
@@ -155,12 +155,13 @@ class AppService {
         require(email.isNotBlank()) { "Email cannot be blank" }
         require(token.isNotBlank()) { "OAuth token cannot be blank" }
 
-        val userToAuthenticate = UserToAuthenticate(
-            email = email,
-            password = "", // Empty for OAuth authentication
-            provider = provider,
-            token = token,
-        )
+        val userToAuthenticate =
+            UserToAuthenticate(
+                email = email,
+                password = "",
+                provider = provider,
+                token = token,
+            )
 
         return try {
             val response = authApi.authenticateUserApiUserAuthenticatePost(userToAuthenticate)
@@ -202,13 +203,14 @@ class AppService {
         require(email.isNotBlank()) { "Email cannot be blank" }
         require(name.isNotBlank()) { "Name cannot be blank" }
 
-        val userToCreate = UserToCreate(
-            email = email,
-            name = name,
-            password = password,
-            token = token,
-            provider = provider,
-        )
+        val userToCreate =
+            UserToCreate(
+                email = email,
+                name = name,
+                password = password,
+                token = token,
+                provider = provider,
+            )
 
         return try {
             val response = createUserApi.createUserApiUserCreatePost(userToCreate)
@@ -289,11 +291,12 @@ class AppService {
     fun getInlineCompletion(aggregatedCollectedData: Map<Record.Type, Map<String, Any>>): CompletionResponseData? {
         require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
 
-        val requestCompletion = RequestCompletion(
-            modelIds = listOf(DEFAULT_MODEL_ID),
-            context = aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap(),
-            telemetry = aggregatedCollectedData[Record.Type.TELEMETRY] ?: emptyMap(),
-        )
+        val requestCompletion =
+            RequestCompletion(
+                modelIds = listOf(DEFAULT_MODEL_ID),
+                context = aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap(),
+                telemetry = aggregatedCollectedData[Record.Type.TELEMETRY] ?: emptyMap(),
+            )
 
         return try {
             val response = completionApi.requestCompletionApiCompletionRequestPost(requestCompletion)

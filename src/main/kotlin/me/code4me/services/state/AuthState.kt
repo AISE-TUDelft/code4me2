@@ -54,10 +54,9 @@ fun getAuthState(): AuthSettings {
 @Service
 @State(
     name = AUTH_STATE_NAME,
-    storages = [Storage("code4me-authentication.xml")]
+    storages = [Storage("code4me-authentication.xml")],
 )
 class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -74,7 +73,7 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
         internal fun createCredentialAttributes(key: String): CredentialAttributes {
             return CredentialAttributes(
                 serviceName = generateServiceName(AUTH_STATE_NAME, key),
-                userName = null // We don't need a username for our use case
+                userName = null,
             )
         }
 
@@ -103,7 +102,10 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
          * @param token The authentication token to store
          * @throws IllegalArgumentException if the token is empty or blank
          */
-        fun setAuthToken(key: String, token: String) {
+        fun setAuthToken(
+            key: String,
+            token: String,
+        ) {
             require(token.isNotBlank()) { "Authentication token cannot be blank" }
 
             try {
@@ -137,7 +139,10 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
          * @param value The information to store
          * @throws IllegalArgumentException if the value is empty or blank
          */
-        fun setUserInfo(key: String, value: String) {
+        fun setUserInfo(
+            key: String,
+            value: String,
+        ) {
             require(value.isNotBlank()) { "User information value cannot be blank" }
 
             try {
@@ -180,7 +185,6 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
  * @since 1.0.0
  */
 class AuthSettings : BaseState() {
-
     companion object {
         private val LOG = thisLogger()
     }
@@ -322,7 +326,6 @@ class AuthSettings : BaseState() {
             }
 
             LOG.info("User authentication data cleared successfully")
-
         } catch (e: Exception) {
             LOG.error("Failed to clear user data completely", e)
         }
@@ -359,7 +362,10 @@ class AuthSettings : BaseState() {
      * @param propertyName The name of the property to listen for
      * @param listener The listener to register
      */
-    fun addPropertyChangeListener(propertyName: String, listener: PropertyChangeListener) {
+    fun addPropertyChangeListener(
+        propertyName: String,
+        listener: PropertyChangeListener,
+    ) {
         propertyChangeSupport.addPropertyChangeListener(propertyName, listener)
         LOG.debug("Property change listener registered for property: $propertyName")
     }
@@ -370,7 +376,10 @@ class AuthSettings : BaseState() {
      * @param propertyName The name of the property
      * @param listener The listener to remove
      */
-    fun removePropertyChangeListener(propertyName: String, listener: PropertyChangeListener) {
+    fun removePropertyChangeListener(
+        propertyName: String,
+        listener: PropertyChangeListener,
+    ) {
         propertyChangeSupport.removePropertyChangeListener(propertyName, listener)
         LOG.debug("Property change listener removed for property: $propertyName")
     }

@@ -52,7 +52,6 @@ import com.intellij.openapi.startup.ProjectActivity
  * @see TypingSpeedService
  */
 class TypingTelemetryStartup : ProjectActivity {
-
     companion object {
         private val LOG = thisLogger()
     }
@@ -120,7 +119,6 @@ class TypingTelemetryStartup : ProjectActivity {
             TypedAction.getInstance().setupRawHandler(typingSpeedHandler)
 
             LOG.info("Successfully installed TypingSpeedHandler for project: ${project.name}")
-
         } catch (e: Exception) {
             // Log the error but don't let telemetry initialization failure prevent project startup
             // The project should still function normally even if typing speed telemetry is unavailable

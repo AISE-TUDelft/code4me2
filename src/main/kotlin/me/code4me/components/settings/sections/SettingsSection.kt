@@ -20,7 +20,6 @@ import me.code4me.components.settings.fields.StateValueField
  * @since 1.0.0
  */
 interface SettingsSection {
-
     /**
      * Applies this section's UI components to the provided form builder.
      *
@@ -38,6 +37,6 @@ interface SettingsSection {
      */
     fun applyTo(
         builder: FormBuilder,
-        stateValueFields: MutableList<StateValueField<*>>
+        stateValueFields: MutableList<StateValueField<*>>,
     )
 }

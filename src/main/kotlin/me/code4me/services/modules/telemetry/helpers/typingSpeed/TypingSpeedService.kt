@@ -40,7 +40,6 @@ import com.intellij.openapi.project.Project
  */
 @Service(Service.Level.PROJECT)
 class TypingSpeedService(private val project: Project) {
-
     companion object {
         private val LOG = thisLogger()
 

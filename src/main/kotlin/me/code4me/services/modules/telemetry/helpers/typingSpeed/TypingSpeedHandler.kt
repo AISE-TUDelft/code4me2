@@ -54,7 +54,6 @@ class TypingSpeedHandler(
     private val originalHandler: TypedActionHandler?,
     private val project: Project,
 ) : TypedActionHandler {
-
     companion object {
         private val LOG = thisLogger()
     }

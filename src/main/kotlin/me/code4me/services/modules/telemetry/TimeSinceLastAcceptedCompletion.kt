@@ -59,7 +59,6 @@ import me.code4me.utils.record.Record
  * @see Record.Type.TELEMETRY
  */
 class TimeSinceLastAcceptedCompletion : PluginModule {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -115,11 +114,11 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
             // Check if this module is enabled in the global configuration
             val prefState = me.code4me.services.state.getPrefState()
             if (!prefState.enabledModules.contains(getPreferenceId())) {
-                LOG.debug("Module ${moduleName} is disabled, skipping data collection")
+                LOG.debug("Module $moduleName is disabled, skipping data collection")
                 return emptyList()
             }
 
-            LOG.debug("Module ${moduleName} is enabled but implementation is pending")
+            LOG.debug("Module $moduleName is enabled but implementation is pending")
             // TODO: Implement actual data collection logic
             // This should include:
             // 1. Tracking completion acceptance events
@@ -129,7 +128,6 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
             // 5. Handling edge cases (first acceptance, long intervals, etc.)
 
             return emptyList()
-
         } catch (e: Exception) {
             LOG.error("Failed to collect time-since-acceptance telemetry", e)
             return emptyList()
@@ -157,7 +155,7 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
      * - Provide fallback behavior for edge cases
      */
     override fun initializeModules() {
-        LOG.debug("Initialized ${moduleName} (implementation pending)")
+        LOG.debug("Initialized $moduleName (implementation pending)")
         // No initialization needed for this module at current implementation stage
         // TODO: Add initialization logic when data collection is implemented
         // This may include:

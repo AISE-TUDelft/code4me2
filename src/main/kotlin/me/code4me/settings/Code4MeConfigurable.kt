@@ -22,7 +22,6 @@ import javax.swing.JComponent
  * @see Code4MeConfigurableComponent
  */
 class Code4MeConfigurable : Configurable {
-
     /**
      * The main UI component that handles all settings interactions.
      * Lazily initialized when [createComponent] is called.

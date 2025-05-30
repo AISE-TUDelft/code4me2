@@ -27,7 +27,6 @@ import me.code4me.utils.configuration.Preference
  * @see me.code4me.utils.record.Record.Type.CONTEXT
  */
 class BaseContextAggregator : BaseAggregator() {
-
     /**
      * The display name for this aggregator module.
      * Used in logging, configuration, and debugging contexts.

@@ -56,7 +56,6 @@ import me.code4me.utils.record.Record
  * @see TypingSpeedHandler
  */
 class TypingSpeed : PluginModule {
-
     companion object {
         private val LOG = thisLogger()
 
@@ -109,7 +108,7 @@ class TypingSpeed : PluginModule {
             // Check if this module is enabled in the global configuration
             val prefState = me.code4me.services.state.getPrefState()
             if (!prefState.enabledModules.contains(getPreferenceId())) {
-                LOG.debug("Module ${moduleName} is disabled, skipping data collection")
+                LOG.debug("Module $moduleName is disabled, skipping data collection")
                 return emptyList()
             }
 
@@ -120,9 +119,10 @@ class TypingSpeed : PluginModule {
             val trackingService: TypingSpeedService = project.service()
 
             // Get window size preference with fallback to default value
-            val windowSize = PrefState
-                .getPreferenceValue(getPreferenceId(), PREF_WINDOW_SIZE)
-                ?.toInt() ?: DEFAULT_WINDOW_SIZE
+            val windowSize =
+                PrefState
+                    .getPreferenceValue(getPreferenceId(), PREF_WINDOW_SIZE)
+                    ?.toInt() ?: DEFAULT_WINDOW_SIZE
 
             // Calculate current typing speed and convert to integer
             val cps = trackingService.getTypingSpeed(windowSize).toInt()
@@ -133,7 +133,6 @@ class TypingSpeed : PluginModule {
 
             LOG.trace("Collected typing speed: $cps CPS (window: ${windowSize}s)")
             return listOf(record)
-
         } catch (e: Exception) {
             LOG.error("Failed to collect typing speed telemetry", e)
             return emptyList()
@@ -153,7 +152,7 @@ class TypingSpeed : PluginModule {
      * system and service framework.
      */
     override fun initializeModules() {
-        LOG.debug("Initialized ${moduleName}")
+        LOG.debug("Initialized $moduleName")
     }
 
     /**
@@ -187,10 +186,11 @@ class TypingSpeed : PluginModule {
                 type = PreferenceType.INT,
                 defaultValue = DEFAULT_WINDOW_SIZE.toString(),
                 displayName = "Time Window Size (seconds)",
-                description = "This determines the time window before the request that is taken into account " +
+                description =
+                    "This determines the time window before the request that is taken into account " +
                         "for calculating average typing speed. Smaller values are more responsive to changes " +
-                        "but may be less stable, while larger values provide more stable measurements."
-            )
+                        "but may be less stable, while larger values provide more stable measurements.",
+            ),
         )
     }
 }
