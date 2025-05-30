@@ -5,31 +5,95 @@ import com.intellij.openapi.util.NlsContexts
 import me.code4me.components.settings.Code4MeConfigurableComponent
 import javax.swing.JComponent
 
+/**
+ * Main configuration entry point for the Code4Me plugin settings.
+ *
+ * This class implements the IntelliJ Platform's [Configurable] interface to integrate
+ * with the IDE's settings system. It provides the UI components and handles the
+ * settings lifecycle including loading, validation, and persistence.
+ *
+ * The configurable manages:
+ * - Authentication settings (login/signup)
+ * - Module configuration and preferences
+ * - Application-wide settings
+ * - User profile management
+ *
+ * @since 1.0.0
+ * @see Code4MeConfigurableComponent
+ */
 class Code4MeConfigurable : Configurable {
+
+    /**
+     * The main UI component that handles all settings interactions.
+     * Lazily initialized when [createComponent] is called.
+     */
     private var code4MeConfigurableComponent: Code4MeConfigurableComponent? = null
 
-    override fun getDisplayName(): @NlsContexts.ConfigurableName String? {
+    /**
+     * Returns the display name shown in the IntelliJ settings tree.
+     *
+     * @return The localized display name for this configurable
+     */
+    override fun getDisplayName(): @NlsContexts.ConfigurableName String {
         return "Code4Me V2 Settings"
     }
 
+    /**
+     * Creates and returns the main UI component for the settings panel.
+     *
+     * This method is called by the IntelliJ platform when the settings panel
+     * needs to be displayed. The component is created lazily and cached for
+     * the lifetime of the settings dialog.
+     *
+     * @return The root JComponent containing all settings UI elements
+     */
     override fun createComponent(): JComponent? {
         code4MeConfigurableComponent = Code4MeConfigurableComponent()
         return code4MeConfigurableComponent?.getPanel()
     }
 
+    /**
+     * Checks if any settings have been modified since the last save or reset.
+     *
+     * This method is called frequently by the platform to determine whether
+     * the "Apply" button should be enabled. It also handles UI refresh
+     * requirements when authentication state changes.
+     *
+     * @return True if settings have been modified, false otherwise
+     */
     override fun isModified(): Boolean {
         return code4MeConfigurableComponent?.isModified() ?: false
     }
 
+    /**
+     * Applies all pending changes to the persistent state.
+     *
+     * This method is called when the user clicks "Apply" or "OK" in the
+     * settings dialog. All field values are persisted to their respective
+     * state services.
+     */
     override fun apply() {
         code4MeConfigurableComponent?.save()
     }
 
+    /**
+     * Resets all fields to their last saved values.
+     *
+     * This method is called when the user clicks "Reset" or "Cancel" in the
+     * settings dialog. All UI fields are reverted to their stored values.
+     */
     override fun reset() {
         code4MeConfigurableComponent?.reset()
     }
 
+    /**
+     * Cleans up UI resources when the settings dialog is closed.
+     *
+     * This method ensures proper cleanup of listeners and prevents memory leaks
+     * by disposing of the component and setting the reference to null.
+     */
     override fun disposeUIResources() {
+        code4MeConfigurableComponent?.dispose()
         code4MeConfigurableComponent = null
     }
 }
