@@ -39,8 +39,12 @@ data class RequestCompletion (
     val context: kotlin.collections.Map<kotlin.String, kotlin.Any>,
 
     /* Telemetry data for completion */
-    @Json(name = "telemetry")
-    val telemetry: kotlin.collections.Map<kotlin.String, kotlin.Any>
+    @Json(name = "behavioraltelemetry")
+    val behavioraltelemetry: kotlin.collections.Map<kotlin.String, kotlin.Any>,
+
+    /* Telemetry data for completion */
+    @Json(name = "contextualtelemetry")
+    val contextualtelemetry: kotlin.collections.Map<kotlin.String, kotlin.Any>
 
 ) {
 

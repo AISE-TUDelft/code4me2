@@ -1,4 +1,4 @@
-package me.code4me.services.modules.telemetry
+package me.code4me.services.modules.telemetry.contextual
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.diagnostic.thisLogger
@@ -58,9 +58,9 @@ import me.code4me.utils.services.state.getBooleanPreference
  * - `document_char_length`: Total document character count
  *
  * @since 1.0.0
- * @see PluginModule
- * @see Record.Type.TELEMETRY
- * @see InlineCompletionRequest
+ * @see me.code4me.services.modules.PluginModule
+ * @see me.code4me.utils.record.Record.Type.TELEMETRY
+ * @see com.intellij.codeInsight.inline.completion.InlineCompletionRequest
  */
 class EditorContextRetrievalModule : PluginModule {
     companion object {
@@ -137,15 +137,15 @@ class EditorContextRetrievalModule : PluginModule {
      *
      * @param request The inline completion request containing current editor context.
      *                Provides access to editor, document, PSI file, and other context.
-     * @return List containing a single [Record] with comprehensive editor context data,
+     * @return List containing a single [me.code4me.utils.record.Record] with comprehensive editor context data,
      *         or empty list if the module is disabled. The record includes all
      *         enabled context elements based on user preferences.
      * @throws Exception If critical context information is unavailable, but exceptions
      *                   are caught and logged to prevent completion system disruption.
      *
-     * @see InlineCompletionRequest
-     * @see Record.Type.TELEMETRY
-     * @see FileDocumentManager
+     * @see com.intellij.codeInsight.inline.completion.InlineCompletionRequest
+     * @see me.code4me.utils.record.Record.Type.CONTEXTUALTELEMETRY
+     * @see com.intellij.openapi.fileEditor.FileDocumentManager
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
         try {
@@ -213,7 +213,7 @@ class EditorContextRetrievalModule : PluginModule {
             }
 
             if (getBooleanPreference(moduleId, PREF_INCLUDE_LENGTH, true)) {
-                val fileLengthKey = Record.key<Int>(KEY_DOCUMENT_CHAR_LENGTH)
+                val fileLengthKey = Record.Companion.key<Int>(KEY_DOCUMENT_CHAR_LENGTH)
                 expanded[fileLengthKey] = document.text.length
                 LOG.trace("Collected document length: ${document.text.length} characters")
             }
@@ -229,7 +229,7 @@ class EditorContextRetrievalModule : PluginModule {
                 LOG.trace("Collected selected text: ${selectedText.length} characters")
             }
 
-            val record = Record(type = Record.Type.TELEMETRY, expanded = expanded)
+            val record = Record(type = Record.Type.CONTEXTUALTELEMETRY, expanded = expanded)
             LOG.debug("Successfully collected ${expanded.size} context elements")
             return listOf(record)
         } catch (e: Exception) {
@@ -260,10 +260,10 @@ class EditorContextRetrievalModule : PluginModule {
     /**
      * Returns the preference class for this telemetry module.
      *
-     * @return [PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
+     * @return [me.code4me.utils.configuration.PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
      */
     override fun getPreferenceClass(): PreferenceClass {
-        return PreferenceClass.TELEMETRY
+        return PreferenceClass.CONTEXTUALTELEMETRY
     }
 
     /**
@@ -300,7 +300,7 @@ class EditorContextRetrievalModule : PluginModule {
      * - **Efficient Implementation**: Optimized data extraction algorithms
      * - **Non-blocking**: Never delays completion request processing
      *
-     * @return List of [Preference] objects defining all configurable context collection options.
+     * @return List of [me.code4me.utils.configuration.Preference] objects defining all configurable context collection options.
      *         Each preference includes type information, default values, and user-friendly
      *         descriptions for informed configuration decisions.
      */

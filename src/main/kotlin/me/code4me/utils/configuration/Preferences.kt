@@ -51,7 +51,8 @@ enum class PreferenceType(val type: String) {
 
 enum class PreferenceClass(val type: String) {
     MODULE("module"),
-    TELEMETRY("telemetry"),
+    BEHAVIORALTELEMETRY("behavioralTelemetry"),
+    CONTEXTUALTELEMETRY("contextualTelemetry"),
     CONTEXT("context"),
     AUTH("auth"),
     SYSTEM("system"),

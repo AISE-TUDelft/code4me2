@@ -1,4 +1,4 @@
-package me.code4me.services.modules.telemetry.helpers.typingSpeed
+package me.code4me.services.modules.telemetry.behavioral.helpers.typingSpeed
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.thisLogger
@@ -36,7 +36,7 @@ import com.intellij.openapi.project.Project
  *
  * @since 1.0.0
  * @see TypingSpeedHandler
- * @see me.code4me.services.modules.telemetry.TypingSpeed
+ * @see me.code4me.services.modules.telemetry.behavioral.TypingSpeed
  */
 @Service(Service.Level.PROJECT)
 class TypingSpeedService(private val project: Project) {
@@ -129,7 +129,7 @@ class TypingSpeedService(private val project: Project) {
         typedTimestamps.removeIf { it < startOfTimeRange }
 
         val recentCharCount = typedTimestamps.size
-        val speed = recentCharCount / windowSize.toDouble()
+        val speed = recentCharCount.toDouble() / windowSize.toDouble()
 
         LOG.trace("Calculated typing speed: $speed CPS (window: ${windowSize}s, chars: $recentCharCount)")
 

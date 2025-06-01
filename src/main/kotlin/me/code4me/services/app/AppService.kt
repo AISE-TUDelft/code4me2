@@ -295,7 +295,8 @@ class AppService {
             RequestCompletion(
                 modelIds = listOf(DEFAULT_MODEL_ID),
                 context = aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap(),
-                telemetry = aggregatedCollectedData[Record.Type.TELEMETRY] ?: emptyMap(),
+                behavioraltelemetry = aggregatedCollectedData[Record.Type.BEHAVIORALTELEMETRY] ?: emptyMap(),
+                contextualtelemetry = aggregatedCollectedData[Record.Type.CONTEXTUALTELEMETRY] ?: emptyMap(),
             )
 
         return try {

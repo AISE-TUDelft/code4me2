@@ -53,6 +53,13 @@ class ConfigService {
     private val moduleCategories: MutableMap<String, ModuleCategoryConfig> = mutableMapOf()
 
     /**
+     * Cache of instantiated module instances.
+     * Keys are class names and values are the instantiated module objects.
+     * Used to prevent re-instantiation of modules when they're requested multiple times.
+     */
+    private val moduleInstanceCache: MutableMap<String, PluginModule> = mutableMapOf()
+
+    /**
      * Server configuration parsed from the 'server' section.
      * Contains host, port, context path, and timeout settings.
      */
@@ -363,7 +370,7 @@ class ConfigService {
     }
 
     /**
-     * Instantiates a single module using reflection.
+     * Instantiates a single module using reflection or returns a cached instance if available.
      * Handles class loading and instantiation with appropriate error handling.
      *
      * @param moduleConfig The module configuration containing class name and metadata
@@ -371,9 +378,17 @@ class ConfigService {
      */
     private fun instantiateModule(moduleConfig: ModuleConfig): PluginModule? =
         try {
+            // Check if we already have an instance of this module in the cache
+            moduleInstanceCache[moduleConfig.className]?.let { return it }
+
             val moduleClass = Class.forName(moduleConfig.className)
             // Use default constructor and cast to PluginModule
-            moduleClass.getDeclaredConstructor().newInstance() as? PluginModule
+            val instance = moduleClass.getDeclaredConstructor().newInstance() as? PluginModule
+
+            // Cache the instance for future use
+            instance?.let { moduleInstanceCache[moduleConfig.className] = it }
+
+            instance
         } catch (e: Exception) {
             // Silently ignore instantiation failures - could be enhanced with logging
             null

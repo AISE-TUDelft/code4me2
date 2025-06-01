@@ -12,7 +12,8 @@ data class Record(
      */
     enum class Type {
         CONTEXT,
-        TELEMETRY,
+        BEHAVIORALTELEMETRY,
+        CONTEXTUALTELEMETRY,
     }
 
     /**

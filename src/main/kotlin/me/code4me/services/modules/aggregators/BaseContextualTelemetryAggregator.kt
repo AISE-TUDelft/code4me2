@@ -32,15 +32,15 @@ import me.code4me.utils.configuration.Preference
  *
  * @since 1.0.0
  * @see BaseAggregator
- * @see me.code4me.utils.record.Record.Type.TELEMETRY
+ * @see me.code4me.utils.record.Record.Type.CONTEXTUALTELEMETRY
  */
-class BaseTelemetryAggregator : BaseAggregator() {
+class BaseContextualTelemetryAggregator : BaseAggregator() {
     /**
      * The display name for this aggregator module.
      * Used in logging, configuration, and debugging contexts.
      */
     override val moduleName: String
-        get() = "BaseTelemetryAggregator"
+        get() = "BaseContextualTelemetryAggregator"
 
     /**
      * Configuration module identifier used to locate this aggregator's
@@ -54,7 +54,7 @@ class BaseTelemetryAggregator : BaseAggregator() {
      * - Telemetry transmission preferences
      * - Module-specific collection parameters
      */
-    override val configModuleId: String = "TelemetryAggregator"
+    override val configModuleId: String = "ContextualTelemetryAggregator"
 
     /**
      * Returns the list of configuration preferences for this telemetry aggregator.

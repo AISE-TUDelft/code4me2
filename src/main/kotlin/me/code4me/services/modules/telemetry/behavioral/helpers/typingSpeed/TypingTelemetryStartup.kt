@@ -1,5 +1,4 @@
-
-package me.code4me.services.modules.telemetry.helpers.typingSpeed
+package me.code4me.services.modules.telemetry.behavioral.helpers.typingSpeed
 
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.actionSystem.TypedAction
@@ -51,6 +50,12 @@ import com.intellij.openapi.startup.ProjectActivity
  * @see TypingSpeedHandler
  * @see TypingSpeedService
  */
+
+/**
+ * @deprecated This startup activity has been replaced by initialization in the TypingSpeed module.
+ * The functionality is now triggered when the TypingSpeed module is initialized rather than at project startup.
+ */
+@Deprecated("Replaced by initialization in TypingSpeed.initializeModules()")
 class TypingTelemetryStartup : ProjectActivity {
     companion object {
         private val LOG = thisLogger()
