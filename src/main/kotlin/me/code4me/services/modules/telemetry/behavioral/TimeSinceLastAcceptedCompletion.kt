@@ -106,7 +106,7 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
      *         with time-since-acceptance telemetry data, or empty list if
      *         module is disabled or no previous acceptance data exists.
      *
-     * @see me.code4me.utils.record.Record.Type.BEHAVIORALTELEMETRY
+     * @see me.code4me.utils.record.Record.Type.BEHAVIORAL_TELEMETRY
      * @see PluginModule.collectData
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
@@ -170,7 +170,7 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
      * @return [me.code4me.utils.configuration.PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
      */
     override fun getPreferenceClass(): PreferenceClass {
-        return PreferenceClass.BEHAVIORALTELEMETRY
+        return PreferenceClass.BEHAVIORAL_TELEMETRY
     }
 
     /**

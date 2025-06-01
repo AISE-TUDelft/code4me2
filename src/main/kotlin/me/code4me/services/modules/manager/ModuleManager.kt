@@ -3,6 +3,7 @@ package me.code4me.services.modules.manager
 import com.intellij.codeInsight.inline.completion.InlineCompletionInsertEnvironment
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.codeInsight.inline.completion.elements.InlineCompletionElement
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
@@ -261,7 +262,7 @@ class ModuleManager(private val project: Project) : PluginModule {
      * @return Aggregated list of records from all modules
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
-        return com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction<List<Record>> {
+        return ApplicationManager.getApplication().runReadAction<List<Record>> {
             runBlocking {
                 val aggregatedData = CopyOnWriteArrayList<Record>()
 

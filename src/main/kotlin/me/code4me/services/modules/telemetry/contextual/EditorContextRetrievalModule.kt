@@ -144,7 +144,7 @@ class EditorContextRetrievalModule : PluginModule {
      *                   are caught and logged to prevent completion system disruption.
      *
      * @see com.intellij.codeInsight.inline.completion.InlineCompletionRequest
-     * @see me.code4me.utils.record.Record.Type.CONTEXTUALTELEMETRY
+     * @see me.code4me.utils.record.Record.Type.CONTEXTUAL_TELEMETRY
      * @see com.intellij.openapi.fileEditor.FileDocumentManager
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
@@ -229,7 +229,7 @@ class EditorContextRetrievalModule : PluginModule {
                 LOG.trace("Collected selected text: ${selectedText.length} characters")
             }
 
-            val record = Record(type = Record.Type.CONTEXTUALTELEMETRY, expanded = expanded)
+            val record = Record(type = Record.Type.CONTEXTUAL_TELEMETRY, expanded = expanded)
             LOG.debug("Successfully collected ${expanded.size} context elements")
             return listOf(record)
         } catch (e: Exception) {
@@ -263,7 +263,7 @@ class EditorContextRetrievalModule : PluginModule {
      * @return [me.code4me.utils.configuration.PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
      */
     override fun getPreferenceClass(): PreferenceClass {
-        return PreferenceClass.CONTEXTUALTELEMETRY
+        return PreferenceClass.CONTEXTUAL_TELEMETRY
     }
 
     /**

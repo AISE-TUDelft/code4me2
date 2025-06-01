@@ -32,7 +32,7 @@ import me.code4me.utils.configuration.Preference
  *
  * @since 1.0.0
  * @see BaseAggregator
- * @see me.code4me.utils.record.Record.Type.CONTEXTUALTELEMETRY
+ * @see me.code4me.utils.record.Record.Type.CONTEXTUAL_TELEMETRY
  */
 class BaseContextualTelemetryAggregator : BaseAggregator() {
     /**

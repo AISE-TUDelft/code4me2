@@ -119,7 +119,7 @@ class TypingSpeed : PluginModule {
             val editor = request.editor
             val project = editor.project ?: return emptyList() // Project might be nullable
 
-            val record = Record(Record.Type.BEHAVIORALTELEMETRY)
+            val record = Record(Record.Type.BEHAVIORAL_TELEMETRY)
             val trackingService: TypingSpeedService = project.service()
 
             // Get window size preference with fallback to default value
@@ -189,10 +189,10 @@ class TypingSpeed : PluginModule {
     /**
      * Returns the preference class for this telemetry module.
      *
-         * @return [me.code4me.utils.configuration.PreferenceClass.BEHAVIORALTELEMETRY] indicating this is a telemetry collection module
+     * @return [me.code4me.utils.configuration.PreferenceClass.BEHAVIORAL_TELEMETRY] indicating this is a telemetry collection module
      */
     override fun getPreferenceClass(): PreferenceClass {
-        return PreferenceClass.BEHAVIORALTELEMETRY
+        return PreferenceClass.BEHAVIORAL_TELEMETRY
     }
 
     /**

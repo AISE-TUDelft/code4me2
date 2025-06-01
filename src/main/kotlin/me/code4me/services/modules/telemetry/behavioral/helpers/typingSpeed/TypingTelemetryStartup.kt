@@ -49,9 +49,7 @@ import com.intellij.openapi.startup.ProjectActivity
  * @see ProjectActivity
  * @see TypingSpeedHandler
  * @see TypingSpeedService
- */
-
-/**
+ *
  * @deprecated This startup activity has been replaced by initialization in the TypingSpeed module.
  * The functionality is now triggered when the TypingSpeed module is initialized rather than at project startup.
  */

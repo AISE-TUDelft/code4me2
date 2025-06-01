@@ -52,7 +52,7 @@ import me.code4me.utils.record.Record
  * @since 1.0.0
  * @see me.code4me.services.modules.PluginModule
  * @see TimeSinceLastAcceptedCompletion
- * @see me.code4me.utils.record.Record.Type.BEHAVIORALTELEMETRY
+ * @see me.code4me.utils.record.Record.Type.BEHAVIORAL_TELEMETRY
  */
 class TimeSinceLastShownCompletion : PluginModule {
     companion object {
@@ -99,7 +99,7 @@ class TimeSinceLastShownCompletion : PluginModule {
      *
      * ## Data Structure
      * Creates a telemetry record with:
-     * - **Record Type**: [me.code4me.utils.record.Record.Type.BEHAVIORALTELEMETRY] for proper categorization
+     * - **Record Type**: [me.code4me.utils.record.Record.Type.BEHAVIORAL_TELEMETRY] for proper categorization
      * - **Time Value**: Long integer representing milliseconds elapsed
      * - **Key Format**: Uses standardized underscore-separated naming
      *
@@ -122,7 +122,7 @@ class TimeSinceLastShownCompletion : PluginModule {
      *         millisecond interval since the previous completion request.
      *
      * @see System.currentTimeMillis
-     * @see me.code4me.utils.record.Record.Type.BEHAVIORALTELEMETRY
+     * @see me.code4me.utils.record.Record.Type.BEHAVIORAL_TELEMETRY
      * @see me.code4me.utils.record.Record.Companion.key
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
@@ -139,7 +139,7 @@ class TimeSinceLastShownCompletion : PluginModule {
             lastCollectDataTime = System.currentTimeMillis()
 
             // Create telemetry record for timing data
-            val record = Record(Record.Type.BEHAVIORALTELEMETRY)
+            val record = Record(Record.Type.BEHAVIORAL_TELEMETRY)
             val timeSinceLastShownCompletionKey = Record.Companion.key<Long>(KEY_TIME_SINCE_LAST_COMPLETION)
 
             // Calculate time difference (0 for first request)
@@ -192,7 +192,7 @@ class TimeSinceLastShownCompletion : PluginModule {
      * @return [me.code4me.utils.configuration.PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
      */
     override fun getPreferenceClass(): PreferenceClass {
-        return PreferenceClass.BEHAVIORALTELEMETRY
+        return PreferenceClass.BEHAVIORAL_TELEMETRY
     }
 
     /**

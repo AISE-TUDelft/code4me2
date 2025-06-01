@@ -32,7 +32,7 @@ import me.code4me.utils.configuration.Preference
  *
  * @since 1.0.0
  * @see BaseAggregator
- * @see me.code4me.utils.record.Record.Type.BEHAVIORALTELEMETRY
+ * @see me.code4me.utils.record.Record.Type.BEHAVIORAL_TELEMETRY
  */
 class BaseBehavioralTelemetryAggregator : BaseAggregator() {
     /**

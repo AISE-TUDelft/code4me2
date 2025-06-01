@@ -54,8 +54,8 @@ class PreferencesTest {
     fun testPreferenceClass() {
         // Test all enum values
         assertEquals("module", PreferenceClass.MODULE.type)
-        assertEquals("behavioraltelemetry", PreferenceClass.BEHAVIORALTELEMETRY.type)
-        assertEquals("contextualtelemetry", PreferenceClass.CONTEXTUALTELEMETRY.type)
+        assertEquals("behavioraltelemetry", PreferenceClass.BEHAVIORAL_TELEMETRY.type)
+        assertEquals("contextualtelemetry", PreferenceClass.CONTEXTUAL_TELEMETRY.type)
         assertEquals("context", PreferenceClass.CONTEXT.type)
         assertEquals("auth", PreferenceClass.AUTH.type)
     }
