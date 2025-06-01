@@ -281,12 +281,13 @@ class AppService {
      * about the current code being edited and telemetry data about the user's coding patterns.
      *
      * @param aggregatedCollectedData A map containing context and telemetry data organized by record type.
-     *        Expected to contain entries for [Record.Type.CONTEXT] and [Record.Type.TELEMETRY]
+     *        Expected to contain entries for [Record.Type.CONTEXT], [Record.Type.BEHAVIORALTELEMETRY] and [Record.Type.CONTEXTUALTELEMETRY]
      * @return [CompletionResponseData] containing the generated completions, or null if the request fails
      * @throws IllegalArgumentException If the aggregated data is malformed
      *
      * @see Record.Type.CONTEXT
-     * @see Record.Type.TELEMETRY
+     * @see Record.Type.BEHAVIORALTELEMETRY
+     * @see Record.type.CONTEXTUALTELEMETRY
      */
     fun getInlineCompletion(aggregatedCollectedData: Map<Record.Type, Map<String, Any>>): CompletionResponseData? {
         require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }

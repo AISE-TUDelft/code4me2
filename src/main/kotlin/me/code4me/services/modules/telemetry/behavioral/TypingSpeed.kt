@@ -147,26 +147,12 @@ class TypingSpeed : PluginModule {
      * Initializes the typing speed telemetry module.
      *
      * This module relies on the [TypingSpeedService] which is initialized
-     * automatically by the IntelliJ platform as a project-level service,
-     * and the [me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingSpeedHandler] which is registered during project startup
-     * via [TypingTelemetryStartup].
-     *
-     * No additional initialization is required at the module level as the
-     * typing tracking infrastructure is set up through the project activity
-     * system and service framework.
+     * in this method whenever this module is initialized
+     * and the [me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingSpeedHandler] which is registered here
+     * to handle character input events across all open projects.
      */
     override fun initializeModules() {
         LOG.debug("Initialized $moduleName")
-        println("Initialized $moduleName")
-        println("Initialized $moduleName")
-        println("Initialized $moduleName")
-        println("Initialized $moduleName")
-        println("Initialized $moduleName")
-        println("Initialized $moduleName")
-        println("Initialized $moduleName")
-        println("Initialized $moduleName")
-        println("Initialized $moduleName")
-        println("Initialized $moduleName")
         try {
             LOG.debug("Initializing $moduleName module")
 
@@ -203,7 +189,7 @@ class TypingSpeed : PluginModule {
     /**
      * Returns the preference class for this telemetry module.
      *
-     * @return [me.code4me.utils.configuration.PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
+         * @return [me.code4me.utils.configuration.PreferenceClass.BEHAVIORALTELEMETRY] indicating this is a telemetry collection module
      */
     override fun getPreferenceClass(): PreferenceClass {
         return PreferenceClass.BEHAVIORALTELEMETRY

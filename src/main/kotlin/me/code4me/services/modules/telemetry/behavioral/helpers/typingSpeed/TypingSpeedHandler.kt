@@ -22,7 +22,7 @@ import com.intellij.openapi.project.Project
  * 4. **Integrates** seamlessly with existing typing workflows
  *
  * ## Integration Points
- * - **Installation**: Registered during project startup via [TypingTelemetryStartup]
+ * - **Installation**: Registered during plugin startup via [TypingSpeed]
  * - **Data Collection**: Feeds timing data to [TypingSpeedService]
  * - **Transparency**: Preserves all original typing behavior and functionality
  * - **Performance**: Minimal overhead added to typing operations
@@ -48,7 +48,6 @@ import com.intellij.openapi.project.Project
  * @since 1.0.0
  * @see TypedActionHandler
  * @see TypingSpeedService
- * @see TypingTelemetryStartup
  */
 class TypingSpeedHandler(
     private val originalHandler: TypedActionHandler?,

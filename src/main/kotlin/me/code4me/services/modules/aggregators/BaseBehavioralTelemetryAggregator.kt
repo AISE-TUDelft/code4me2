@@ -46,7 +46,7 @@ class BaseBehavioralTelemetryAggregator : BaseAggregator() {
      * Configuration module identifier used to locate this aggregator's
      * settings and submodule configurations in the plugin configuration file.
      *
-     * This ID corresponds to the "TelemetryAggregator" section in the
+     * This ID corresponds to the "BehavioralTelemetryAggregator" section in the
      * plugin configuration, which defines:
      * - Enabled telemetry collection modules
      * - Privacy and consent settings

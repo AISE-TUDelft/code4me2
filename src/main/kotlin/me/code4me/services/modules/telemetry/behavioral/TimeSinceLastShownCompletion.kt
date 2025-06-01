@@ -52,7 +52,7 @@ import me.code4me.utils.record.Record
  * @since 1.0.0
  * @see me.code4me.services.modules.PluginModule
  * @see TimeSinceLastAcceptedCompletion
- * @see me.code4me.utils.record.Record.Type.TELEMETRY
+ * @see me.code4me.utils.record.Record.Type.BEHAVIORALTELEMETRY
  */
 class TimeSinceLastShownCompletion : PluginModule {
     companion object {
@@ -122,7 +122,7 @@ class TimeSinceLastShownCompletion : PluginModule {
      *         millisecond interval since the previous completion request.
      *
      * @see System.currentTimeMillis
-     * @see me.code4me.utils.record.Record.Type.TELEMETRY
+     * @see me.code4me.utils.record.Record.Type.BEHAVIORALTELEMETRY
      * @see me.code4me.utils.record.Record.Companion.key
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {

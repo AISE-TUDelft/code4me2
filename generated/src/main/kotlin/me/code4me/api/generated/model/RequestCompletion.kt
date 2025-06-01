@@ -24,7 +24,8 @@ import com.squareup.moshi.JsonClass
  *
  * @param modelIds Models to use for completion
  * @param context Context data for completion
- * @param telemetry Telemetry data for completion
+ * @param behavioraltelemetry Behavioral telemetry data for completion
+ * @param contextualtelemetry Contextual telemetry data for completion
  */
 
 
