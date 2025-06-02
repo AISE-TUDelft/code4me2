@@ -17,7 +17,7 @@ class ChatDisplayPanel : JBPanel<ChatDisplayPanel>(BorderLayout()) {
         }
 
     init {
-        border = EmptyBorder(0, 0, 0, 0)
+        border = EmptyBorder(0, 5, 0, 2)
         background = Color(43, 43, 43)
 
         val scrollPane =

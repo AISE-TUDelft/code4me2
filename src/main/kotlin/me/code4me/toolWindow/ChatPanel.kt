@@ -34,6 +34,8 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     private val ioManager = ChatIOManager()
     private val sessionManager = ChatSessionManager()
+
+//    private val configManager = ConfigManager() //TODO USE CONFIG MANAGER FOR RETRIEVING MODELS
     private val selectedFiles = mutableSetOf<VirtualFile>()
     private var welcomeShown = true
     private var useWeb = false
@@ -53,76 +55,83 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         setupPanelLayout()
         subscribeToFileChanges()
         initializeChatHistory()
+        loadModelsFromConfig()
     }
 
     private fun setupPanelLayout() {
         border = JBUI.Borders.empty(0)
 
-        fileComboBox =
-            ComboBox<VirtualFile>().apply {
-                renderer =
-                    object : ColoredListCellRenderer<VirtualFile>() {
-                        override fun customizeCellRenderer(
-                            list: JList<out VirtualFile>,
-                            value: VirtualFile?,
-                            index: Int,
-                            selected: Boolean,
-                            hasFocus: Boolean,
-                        ) {
-                            if (value == null) {
-                                append("Select a file...", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                            } else {
-                                append(value.name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                            }
-                        }
-                    }
-
-                addItemListener { event ->
-                    if (event.stateChange == ItemEvent.SELECTED) {
-                        val selectedFile = event.item as? VirtualFile
-                        if (selectedFile != null && !selectedFiles.contains(selectedFile)) {
-                            addSelectedFile(selectedFile)
-                        }
-                        selectedIndex = 0
-                    }
-                }
-            }
-
-        inputPanel =
-            InputPanel(
-                onSend = ::sendMessage,
-                onWebToggle = { enabled -> useWeb = enabled },
-                fileComboBox = fileComboBox,
-                onFileClose = { file -> removeSelectedFile(file) },
-                onFileSelected = { file -> addSelectedFile(file) },
-            )
-
+        fileComboBox = createFileComboBox()
+        inputPanel = createInputPanel()
         chatDisplayPanel = ChatDisplayPanel()
-        topBarPanel =
-            TopBarPanel(
-                sessionManager,
-                onSessionSwitched = ::refreshChatDisplay,
-                onNewChatCreated = ::resetToWelcome,
-                onHistoryClicked = { viewManager.showHistoryPanel() },
-            )
+        topBarPanel = createTopBarPanel()
+        historyPanel = createHistoryPanel()
 
-        historyPanel =
-            HistoryPanel(sessionManager) {
-                topBarPanel.updateTitle()
-                refreshChatDisplay()
-                viewManager.showChatPanel()
-            }
-
-        val mainChatArea =
-            JBPanel<JBPanel<*>>(BorderLayout()).apply {
-                add(topBarPanel, BorderLayout.NORTH)
-                add(chatDisplayPanel, BorderLayout.CENTER)
-                add(inputPanel, BorderLayout.SOUTH)
-            }
-
+        val mainChatArea = createMainChatArea()
         viewManager.setViews(mainChatArea, historyPanel)
         add(viewManager.getContainer(), BorderLayout.CENTER)
     }
+
+    private fun createFileComboBox() =
+        ComboBox<VirtualFile>().apply {
+            renderer =
+                object : ColoredListCellRenderer<VirtualFile>() {
+                    override fun customizeCellRenderer(
+                        list: JList<out VirtualFile>,
+                        value: VirtualFile?,
+                        index: Int,
+                        selected: Boolean,
+                        hasFocus: Boolean,
+                    ) {
+                        if (value == null) {
+                            append("Select a file...", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                        } else {
+                            append(value.name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                        }
+                    }
+                }
+
+            addItemListener { event ->
+                if (event.stateChange == ItemEvent.SELECTED) {
+                    val selectedFile = event.item as? VirtualFile
+                    if (selectedFile != null && !selectedFiles.contains(selectedFile)) {
+                        addSelectedFile(selectedFile)
+                    }
+                    selectedIndex = 0
+                }
+            }
+        }
+
+    private fun createInputPanel() =
+        InputPanel(
+            onSend = ::sendMessage,
+            onWebToggle = { enabled -> useWeb = enabled },
+            fileComboBox = fileComboBox,
+            onFileClose = ::removeSelectedFile,
+            onFileSelected = ::addSelectedFile,
+        )
+
+    private fun createTopBarPanel() =
+        TopBarPanel(
+            sessionManager,
+            onSessionSwitched = ::refreshChatDisplay,
+            onNewChatCreated = ::resetToWelcome,
+            onHistoryClicked = { viewManager.showHistoryPanel() },
+        )
+
+    private fun createHistoryPanel() =
+        HistoryPanel(sessionManager) {
+            topBarPanel.updateTitle()
+            refreshChatDisplay()
+            viewManager.showChatPanel()
+        }
+
+    private fun createMainChatArea() =
+        JBPanel<JBPanel<*>>(BorderLayout()).apply {
+            add(topBarPanel, BorderLayout.NORTH)
+            add(chatDisplayPanel, BorderLayout.CENTER)
+            add(inputPanel, BorderLayout.SOUTH)
+        }
 
     private fun subscribeToFileChanges() {
         project = ProjectManager.getInstance().openProjects.firstOrNull() ?: return
@@ -177,6 +186,16 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     private fun resetToWelcome() {
         welcomeShown = true
+        clearSelectedFiles()
+    }
+
+    private fun clearSelectedFiles() {
+        selectedFiles.clear()
+        updateFileDropdown()
+        // Clear all file tabs from the input panel
+        selectedFiles.toList().forEach { file ->
+            inputPanel.removeFileTab(file)
+        }
     }
 
     private fun initializeChatHistory() {
@@ -188,7 +207,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     private fun sendMessage() {
-        val message = inputPanel.inputField.text.trim()
+        val message = inputPanel.inputText.trim() // Fixed: using inputText instead of inputField.text
         if (message.isEmpty()) return
 
         if (welcomeShown) {
@@ -196,12 +215,17 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             sessionManager.currentSession.messages.removeIf { (sender, _) -> sender.isEmpty() }
             refreshChatDisplay()
         }
+
         appendMessage(USER_NAME, message)
         inputPanel.clearInput()
 
+        processAIResponse(message)
+    }
+
+    private fun processAIResponse(userMessage: String) {
         val aiResponse =
             ioManager.getAIResponse(
-                message,
+                userMessage,
                 useWeb,
                 selectedFiles.mapNotNull { it.path },
             )
@@ -219,5 +243,40 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private fun refreshChatDisplay() {
         chatDisplayPanel.updateContent(sessionManager.currentSession.messages, messageRenderer)
         historyPanel.refresh()
+    }
+
+    // Public API for external access
+    fun updateModelList(models: Array<String>) {
+        inputPanel.updateModelComboBox(models)
+    }
+
+    fun clearChat() {
+        selectedFiles.clear()
+        initializeChatHistory()
+        resetToWelcome()
+    }
+
+    private fun loadModelsFromConfig() {
+        try {
+//            val models = configManager.getModels()
+            val models = arrayOf("GPT-4", "Claude-3", "Gemini-Pro", "BEST MODEL EVER") //TODO use configmanager.getChatModels()
+            updateModelList(models)
+
+            val defaultModel = ("GPT-4") // TODO use configmanager.getChatDefaultModel()
+            if (defaultModel != null && models.contains(defaultModel)) {
+                // TODO: Set the default model in the combo box
+            }
+        } catch (e: Exception) {
+            println("Error loading models from config: ${e.message}")
+            updateModelList(getDefaultModels())
+        }
+    }
+
+    private fun getDefaultModels(): Array<String> {
+        return arrayOf("GPT-4", "Claude-3", "Gemini-Pro")
+    }
+
+    fun reloadModels() {
+        loadModelsFromConfig()
     }
 }
