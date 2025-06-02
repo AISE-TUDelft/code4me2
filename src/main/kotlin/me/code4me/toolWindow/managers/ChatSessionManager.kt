@@ -1,15 +1,13 @@
 package me.code4me.toolWindow.managers
 
+import java.util.Date
 import java.util.UUID
 
-/**
- * Data class representing a chat session with unique ID, title and messages.
- */
 data class ChatSession(
     val id: String = UUID.randomUUID().toString(),
-    val title: String = "New Chat",
+    var title: String = "New Chat",
     val messages: MutableList<Pair<String, String>> = mutableListOf(),
-    // sender, messanger
+    var lastUpdated: Date = Date(),
 )
 
 class ChatSessionManager {
@@ -34,4 +32,12 @@ class ChatSessionManager {
     }
 
     fun getAllSessions(): List<ChatSession> = chatSessions.toList()
+
+    fun addMessageToCurrentSession(
+        sender: String,
+        message: String,
+    ) {
+        currentSession.messages.add(sender to message)
+        currentSession.lastUpdated = Date()
+    }
 }
