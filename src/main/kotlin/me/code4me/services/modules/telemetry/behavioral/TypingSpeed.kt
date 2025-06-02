@@ -1,11 +1,15 @@
-package me.code4me.services.modules.telemetry
+package me.code4me.services.modules.telemetry.behavioral
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.editor.actionSystem.TypedAction
+import com.intellij.openapi.project.ProjectManager
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingSpeedService
+import me.code4me.services.modules.telemetry.behavioral.helpers.typingSpeed.TypingSpeedHandler
+import me.code4me.services.modules.telemetry.behavioral.helpers.typingSpeed.TypingSpeedService
 import me.code4me.services.state.PrefState
+import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
@@ -22,7 +26,7 @@ import me.code4me.utils.record.Record
  * - Provide insights into developer productivity and coding rhythm
  * - Adapt UI responsiveness to user typing characteristics
  *
- * The module leverages the [TypingSpeedService] to maintain accurate typing
+ * The module leverages the [me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingSpeedService] to maintain accurate typing
  * metrics across the IDE session and provides real-time speed calculations
  * for completion timing optimization.
  *
@@ -51,9 +55,9 @@ import me.code4me.utils.record.Record
  * - Adaptive completion behavior based on typing patterns
  *
  * @since 1.0.0
- * @see PluginModule
- * @see TypingSpeedService
- * @see TypingSpeedHandler
+ * @see me.code4me.services.modules.PluginModule
+ * @see me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingSpeedService
+ * @see me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingSpeedHandler
  */
 class TypingSpeed : PluginModule {
     companion object {
@@ -78,7 +82,7 @@ class TypingSpeed : PluginModule {
      * Collects typing speed telemetry data based on recent user input patterns.
      *
      * This method calculates typing speed in characters per second (CPS) using the
-     * [TypingSpeedService] and packages it into telemetry records. The measurement
+     * [me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingSpeedService] and packages it into telemetry records. The measurement
      * uses a configurable time window to balance accuracy with responsiveness.
      *
      * ## Data Collection Process
@@ -100,13 +104,13 @@ class TypingSpeed : PluginModule {
      * - Logs errors for debugging without crashing
      *
      * @param request The inline completion request containing editor and project context
-     * @return List containing a single [Record] with typing speed telemetry,
+     * @return List containing a single [me.code4me.utils.record.Record] with typing speed telemetry,
      *         or empty list if insufficient data, module disabled, or errors occur
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
         try {
             // Check if this module is enabled in the global configuration
-            val prefState = me.code4me.services.state.getPrefState()
+            val prefState = getPrefState()
             if (!prefState.enabledModules.contains(getPreferenceId())) {
                 LOG.debug("Module $moduleName is disabled, skipping data collection")
                 return emptyList()
@@ -115,12 +119,12 @@ class TypingSpeed : PluginModule {
             val editor = request.editor
             val project = editor.project ?: return emptyList() // Project might be nullable
 
-            val record = Record(Record.Type.TELEMETRY)
+            val record = Record(Record.Type.BEHAVIORAL_TELEMETRY)
             val trackingService: TypingSpeedService = project.service()
 
             // Get window size preference with fallback to default value
             val windowSize =
-                PrefState
+                PrefState.Companion
                     .getPreferenceValue(getPreferenceId(), PREF_WINDOW_SIZE)
                     ?.toInt() ?: DEFAULT_WINDOW_SIZE
 
@@ -128,7 +132,7 @@ class TypingSpeed : PluginModule {
             val cps = trackingService.getTypingSpeed(windowSize).toInt()
 
             // Create properly typed record key and store the value
-            val cpsKey = Record.key<Int>(KEY_TYPING_SPEED)
+            val cpsKey = Record.Companion.key<Int>(KEY_TYPING_SPEED)
             record.put(cpsKey, cps)
 
             LOG.trace("Collected typing speed: $cps CPS (window: ${windowSize}s)")
@@ -143,25 +147,52 @@ class TypingSpeed : PluginModule {
      * Initializes the typing speed telemetry module.
      *
      * This module relies on the [TypingSpeedService] which is initialized
-     * automatically by the IntelliJ platform as a project-level service,
-     * and the [TypingSpeedHandler] which is registered during project startup
-     * via [TypingTelemetryStartup].
-     *
-     * No additional initialization is required at the module level as the
-     * typing tracking infrastructure is set up through the project activity
-     * system and service framework.
+     * in this method whenever this module is initialized
+     * and the [me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingSpeedHandler] which is registered here
+     * to handle character input events across all open projects.
      */
     override fun initializeModules() {
         LOG.debug("Initialized $moduleName")
+        try {
+            LOG.debug("Initializing $moduleName module")
+
+            // Get all currently open projects
+            val openProjects = ProjectManager.getInstance().openProjects
+
+            for (project in openProjects) {
+                LOG.debug("Setting up typing speed tracking for project: ${project.name}")
+
+                // Capture the current typed action handler to preserve existing functionality
+                val originalHandler = TypedAction.getInstance().rawHandler
+                LOG.trace("Captured original typed action handler: ${originalHandler?.javaClass?.simpleName ?: "null"}")
+
+                // Create our custom handler that wraps the original handler
+                val typingSpeedHandler = TypingSpeedHandler(originalHandler, project)
+
+                // Install our custom handler as the global typed action handler
+                TypedAction.getInstance().setupRawHandler(typingSpeedHandler)
+                println("Installed TypingSpeedHandler: ${typingSpeedHandler.javaClass.name}")
+                println("Current raw handler after install: ${TypedAction.getInstance().rawHandler.javaClass.name}")
+
+                LOG.info("Successfully installed TypingSpeedHandler for project: ${project.name}")
+            }
+
+            if (openProjects.isEmpty()) {
+                LOG.info("No open projects found. TypingSpeedHandler will be installed when projects are opened.")
+            }
+        } catch (e: Exception) {
+            // Log the error but don't let telemetry initialization failure prevent module initialization
+            LOG.error("Failed to initialize typing telemetry", e)
+        }
     }
 
     /**
      * Returns the preference class for this telemetry module.
      *
-     * @return [PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
+     * @return [me.code4me.utils.configuration.PreferenceClass.BEHAVIORAL_TELEMETRY] indicating this is a telemetry collection module
      */
     override fun getPreferenceClass(): PreferenceClass {
-        return PreferenceClass.TELEMETRY
+        return PreferenceClass.BEHAVIORAL_TELEMETRY
     }
 
     /**
@@ -177,7 +208,7 @@ class TypingSpeed : PluginModule {
      * ## Available Preferences
      * - **Window Size**: Time window in seconds for calculating average typing speed
      *
-     * @return List containing a single [Preference] for the measurement window configuration
+     * @return List containing a single [me.code4me.utils.configuration.Preference] for the measurement window configuration
      */
     override fun getPreferenceList(): List<Preference> {
         return listOf(
@@ -192,5 +223,12 @@ class TypingSpeed : PluginModule {
                         "but may be less stable, while larger values provide more stable measurements.",
             ),
         )
+    }
+
+    /**
+     * IMPORTNAT: this should be removed when the logic for calling initializeModules is fixed.
+     */
+    init {
+        initializeModules()
     }
 }

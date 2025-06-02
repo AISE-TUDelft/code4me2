@@ -1,6 +1,9 @@
 package me.code4me.services.modules.manager
 
+import com.intellij.codeInsight.inline.completion.InlineCompletionInsertEnvironment
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
+import com.intellij.codeInsight.inline.completion.elements.InlineCompletionElement
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
@@ -258,31 +261,58 @@ class ModuleManager(private val project: Project) : PluginModule {
      * @param request The inline completion request context
      * @return Aggregated list of records from all modules
      */
-    override fun collectData(request: InlineCompletionRequest): List<Record> =
-        runBlocking {
-            val aggregatedData = CopyOnWriteArrayList<Record>()
+    override fun collectData(request: InlineCompletionRequest): List<Record> {
+        return ApplicationManager.getApplication().runReadAction<List<Record>> {
+            runBlocking {
+                val aggregatedData = CopyOnWriteArrayList<Record>()
 
-            coroutineScope {
-                val deferredResults =
-                    modules.map { module ->
-                        async {
-                            try {
-                                module.collectData(request)
-                            } catch (e: Exception) {
-                                LOG.warn("Data collection failed for module: ${module.moduleName}", e)
-                                emptyList<Record>()
+                coroutineScope {
+                    val deferredResults =
+                        modules.map { module ->
+                            async {
+                                try {
+                                    module.collectData(request)
+                                } catch (e: Exception) {
+                                    LOG.warn("Data collection failed for module: ${module.moduleName}", e)
+                                    emptyList<Record>()
+                                }
                             }
                         }
+
+                    deferredResults.forEach { deferred ->
+                        aggregatedData.addAll(deferred.await())
                     }
-
-                deferredResults.forEach { deferred ->
-                    aggregatedData.addAll(deferred.await())
                 }
-            }
 
-            LOG.debug("Collected ${aggregatedData.size} records from ${modules.size} modules")
-            aggregatedData
+                LOG.debug("Collected ${aggregatedData.size} records from ${modules.size} modules")
+                aggregatedData
+            }
         }
+    }
+
+    /**
+     * Collects data from all enabled modules concurrently.
+     *
+     * This method orchestrates parallel data collection across all enabled modules.
+     * It is optimized for performance and ensures that only active modules contribute
+     * to the data collection process.
+     *
+     * @param request The inline completion request context
+     * @return Aggregated list of records from enabled modules
+     */
+    override fun afterInsertion(
+        environment: InlineCompletionInsertEnvironment,
+        elements: List<InlineCompletionElement>,
+    ) {
+        // Call the afterInsertion method on all modules
+        modules.forEach { module ->
+            try {
+                module.afterInsertion(environment, elements)
+            } catch (e: Exception) {
+                LOG.warn("After insertion failed for module: ${module.moduleName}", e)
+            }
+        }
+    }
 
     override fun getPreferenceList(): List<Preference> {
         return listOf(
@@ -337,7 +367,7 @@ class ModuleManager(private val project: Project) : PluginModule {
      * Returns only the modules that are currently enabled.
      */
     fun getEnabledModules(): List<PluginModule> {
-        return modules.filter { enabledModuleIds.contains(it.getPreferenceId()) }
+        return modules.filter { enabledModuleIds.contains(it.getModuleId()) }
     }
 
     /**

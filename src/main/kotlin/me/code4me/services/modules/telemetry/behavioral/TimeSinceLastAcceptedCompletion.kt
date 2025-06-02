@@ -1,9 +1,9 @@
-
-package me.code4me.services.modules.telemetry
+package me.code4me.services.modules.telemetry.behavioral
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.diagnostic.thisLogger
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.record.Record
@@ -54,9 +54,9 @@ import me.code4me.utils.record.Record
  * - Asynchronous data processing where possible
  *
  * @since 1.0.0
- * @see PluginModule
+ * @see me.code4me.services.modules.PluginModule
  * @see TimeSinceLastShownCompletion
- * @see Record.Type.TELEMETRY
+ * @see me.code4me.utils.record.Record.Type.TELEMETRY
  */
 class TimeSinceLastAcceptedCompletion : PluginModule {
     companion object {
@@ -106,13 +106,13 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
      *         with time-since-acceptance telemetry data, or empty list if
      *         module is disabled or no previous acceptance data exists.
      *
-     * @see Record.Type.TELEMETRY
+     * @see me.code4me.utils.record.Record.Type.BEHAVIORAL_TELEMETRY
      * @see PluginModule.collectData
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
         try {
             // Check if this module is enabled in the global configuration
-            val prefState = me.code4me.services.state.getPrefState()
+            val prefState = getPrefState()
             if (!prefState.enabledModules.contains(getPreferenceId())) {
                 LOG.debug("Module $moduleName is disabled, skipping data collection")
                 return emptyList()
@@ -167,10 +167,10 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
     /**
      * Returns the preference class for this telemetry module.
      *
-     * @return [PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
+     * @return [me.code4me.utils.configuration.PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
      */
     override fun getPreferenceClass(): PreferenceClass {
-        return PreferenceClass.TELEMETRY
+        return PreferenceClass.BEHAVIORAL_TELEMETRY
     }
 
     /**

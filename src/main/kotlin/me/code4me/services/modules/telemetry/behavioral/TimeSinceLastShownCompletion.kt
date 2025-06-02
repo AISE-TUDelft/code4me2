@@ -1,8 +1,9 @@
-package me.code4me.services.modules.telemetry
+package me.code4me.services.modules.telemetry.behavioral
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.diagnostic.thisLogger
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.record.Record
@@ -49,9 +50,9 @@ import me.code4me.utils.record.Record
  * - **Pattern Data**: Cumulative timing patterns for analysis
  *
  * @since 1.0.0
- * @see PluginModule
+ * @see me.code4me.services.modules.PluginModule
  * @see TimeSinceLastAcceptedCompletion
- * @see Record.Type.TELEMETRY
+ * @see me.code4me.utils.record.Record.Type.BEHAVIORAL_TELEMETRY
  */
 class TimeSinceLastShownCompletion : PluginModule {
     companion object {
@@ -98,7 +99,7 @@ class TimeSinceLastShownCompletion : PluginModule {
      *
      * ## Data Structure
      * Creates a telemetry record with:
-     * - **Record Type**: [Record.Type.TELEMETRY] for proper categorization
+     * - **Record Type**: [me.code4me.utils.record.Record.Type.BEHAVIORAL_TELEMETRY] for proper categorization
      * - **Time Value**: Long integer representing milliseconds elapsed
      * - **Key Format**: Uses standardized underscore-separated naming
      *
@@ -116,18 +117,18 @@ class TimeSinceLastShownCompletion : PluginModule {
      *
      * @param request The inline completion request containing current context.
      *                Used for module enablement checking and context validation.
-     * @return List containing a single [Record] with time-since-last-completion data,
+     * @return List containing a single [me.code4me.utils.record.Record] with time-since-last-completion data,
      *         or empty list if the module is disabled. The record contains the
      *         millisecond interval since the previous completion request.
      *
      * @see System.currentTimeMillis
-     * @see Record.Type.TELEMETRY
-     * @see Record.key
+     * @see me.code4me.utils.record.Record.Type.BEHAVIORAL_TELEMETRY
+     * @see me.code4me.utils.record.Record.Companion.key
      */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
         try {
             // Check if this module is enabled in the global configuration
-            val prefState = me.code4me.services.state.getPrefState()
+            val prefState = getPrefState()
             if (!prefState.enabledModules.contains(getPreferenceId())) {
                 LOG.debug("Module $moduleName is disabled, skipping data collection")
                 return emptyList()
@@ -138,8 +139,8 @@ class TimeSinceLastShownCompletion : PluginModule {
             lastCollectDataTime = System.currentTimeMillis()
 
             // Create telemetry record for timing data
-            val record = Record(Record.Type.TELEMETRY)
-            val timeSinceLastShownCompletionKey = Record.key<Long>(KEY_TIME_SINCE_LAST_COMPLETION)
+            val record = Record(Record.Type.BEHAVIORAL_TELEMETRY)
+            val timeSinceLastShownCompletionKey = Record.Companion.key<Long>(KEY_TIME_SINCE_LAST_COMPLETION)
 
             // Calculate time difference (0 for first request)
             var timeSinceLastShownCompletion = 0L
@@ -188,10 +189,10 @@ class TimeSinceLastShownCompletion : PluginModule {
     /**
      * Returns the preference class for this telemetry module.
      *
-     * @return [PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
+     * @return [me.code4me.utils.configuration.PreferenceClass.TELEMETRY] indicating this is a telemetry collection module
      */
     override fun getPreferenceClass(): PreferenceClass {
-        return PreferenceClass.TELEMETRY
+        return PreferenceClass.BEHAVIORAL_TELEMETRY
     }
 
     /**

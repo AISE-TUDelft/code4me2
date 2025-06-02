@@ -30,7 +30,8 @@ import java.util.concurrent.CopyOnWriteArrayList
  * @since 1.0.0
  * @see PluginModule
  * @see BaseContextAggregator
- * @see BaseTelemetryAggregator
+ * @see BaseBehavioralTelemetryAggregator
+ * @see BaseContextualTelemetryAggregator
  */
 abstract class BaseAggregator : PluginModule {
     companion object {

@@ -32,21 +32,21 @@ import me.code4me.utils.configuration.Preference
  *
  * @since 1.0.0
  * @see BaseAggregator
- * @see me.code4me.utils.record.Record.Type.TELEMETRY
+ * @see me.code4me.utils.record.Record.Type.BEHAVIORAL_TELEMETRY
  */
-class BaseTelemetryAggregator : BaseAggregator() {
+class BaseBehavioralTelemetryAggregator : BaseAggregator() {
     /**
      * The display name for this aggregator module.
      * Used in logging, configuration, and debugging contexts.
      */
     override val moduleName: String
-        get() = "BaseTelemetryAggregator"
+        get() = "BaseBehavioralTelemetryAggregator"
 
     /**
      * Configuration module identifier used to locate this aggregator's
      * settings and submodule configurations in the plugin configuration file.
      *
-     * This ID corresponds to the "TelemetryAggregator" section in the
+     * This ID corresponds to the "BehavioralTelemetryAggregator" section in the
      * plugin configuration, which defines:
      * - Enabled telemetry collection modules
      * - Privacy and consent settings
@@ -54,7 +54,7 @@ class BaseTelemetryAggregator : BaseAggregator() {
      * - Telemetry transmission preferences
      * - Module-specific collection parameters
      */
-    override val configModuleId: String = "TelemetryAggregator"
+    override val configModuleId: String = "BehavioralTelemetryAggregator"
 
     /**
      * Returns the list of configuration preferences for this telemetry aggregator.

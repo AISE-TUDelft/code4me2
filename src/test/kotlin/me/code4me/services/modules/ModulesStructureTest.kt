@@ -16,8 +16,12 @@ class ModulesStructureTest {
 
         // Verify that the expected modules are loaded from the config
         assertTrue(
-            "TelemetryAggregator should be in available modules",
-            availableModules.any { it.id == "TelemetryAggregator" },
+            "BehavioralTelemetryAggregator should be in available modules",
+            availableModules.any { it.id == "BehavioralTelemetryAggregator" },
+        )
+        assertTrue(
+            "ContextualTelemetryAggregator should be in available modules",
+            availableModules.any { it.id == "ContextualTelemetryAggregator" },
         )
         assertTrue(
             "contextAggregator should be in available modules",
@@ -25,25 +29,37 @@ class ModulesStructureTest {
         )
 
         // Verify that the modules have the expected submodules
-        val telemetryAggregator = availableModules.find { it.id == "TelemetryAggregator" }
-        assertNotNull("TelemetryAggregator should not be null", telemetryAggregator)
+        val behavioralTelemetryAggregator = availableModules.find { it.id == "BehavioralTelemetryAggregator" }
+        assertNotNull("BehavioralTelemetryAggregator should not be null", behavioralTelemetryAggregator)
         assertTrue(
-            "TelemetryAggregator should have submodules",
-            telemetryAggregator!!.submodules.isNotEmpty(),
+            "BehavioralTelemetryAggregator should have submodules",
+            behavioralTelemetryAggregator!!.submodules.isNotEmpty(),
         )
 
         // Verify specific submodules
         assertTrue(
             "TelemetryAggregator should have TypingSpeed submodule",
-            telemetryAggregator.submodules.any { it.id == "TypingSpeed" },
+            behavioralTelemetryAggregator.submodules.any { it.id == "TypingSpeed" },
         )
         assertTrue(
             "TelemetryAggregator should have TimeSinceLastShownCompletion submodule",
-            telemetryAggregator.submodules.any { it.id == "TimeSinceLastShownCompletion" },
+            behavioralTelemetryAggregator.submodules.any { it.id == "TimeSinceLastShownCompletion" },
         )
         assertTrue(
+            "TelemetryAggregator should have TimeSinceLastAcceptedCompletion submodule",
+            behavioralTelemetryAggregator.submodules.any { it.id == "TimeSinceLastShownCompletion" },
+        )
+
+        val contextualTelemetryAggregator = availableModules.find { it.id == "ContextualTelemetryAggregator" }
+        assertNotNull("ContextualTelemetryAggregator should not be null", contextualTelemetryAggregator)
+        assertTrue(
+            "ContextualTelemetryAggregator should have submodules",
+            contextualTelemetryAggregator!!.submodules.isNotEmpty(),
+        )
+
+        assertTrue(
             "TelemetryAggregator should have EditorContextRetrievalModule submodule",
-            telemetryAggregator.submodules.any { it.id == "EditorContextRetrievalModule" },
+            contextualTelemetryAggregator.submodules.any { it.id == "EditorContextRetrievalModule" },
         )
 
         // Verify context aggregator
