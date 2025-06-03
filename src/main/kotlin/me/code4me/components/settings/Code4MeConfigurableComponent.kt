@@ -108,8 +108,14 @@ class Code4MeConfigurableComponent {
         try {
             // Show appropriate section based on authentication state
             if (authService.getToken().isNullOrBlank()) {
-                LOG.debug("User not authenticated, showing authentication section")
-                authSettingsSection.applyTo(builder, fieldStates)
+                // TODO: change this back to show authSettingsSection when user logged in,
+                //      changed for testing and development
+//                LOG.debug("User not authenticated, showing authentication section")
+//                authSettingsSection.applyTo(builder, fieldStates)
+                authService.setToken("Test Token")
+                authService.setUserName("Test User")
+                authService.setUserEmail("<TEST EMAIL>")
+                configurationSection.applyTo(builder, fieldStates)
             } else {
                 LOG.debug("User authenticated, showing configuration section")
                 configurationSection.applyTo(builder, fieldStates)
