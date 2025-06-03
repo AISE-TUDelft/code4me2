@@ -13,6 +13,8 @@ import com.intellij.util.xmlb.annotations.Tag
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.utils.configuration.Preference
+import java.beans.PropertyChangeListener
+import java.beans.PropertyChangeSupport
 
 /**
  * Constant defining the name of the preference state component.
@@ -276,7 +278,15 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
 
             try {
                 val fullKey = "$moduleId.$key"
-                getPrefState().moduleValues[fullKey] = value
+                val state = getPrefState()
+                val oldValue = state.moduleValues[fullKey]
+
+                // Use direct property assignment instead of creating a new map
+                state.moduleValues[fullKey] = value
+
+                // Fire property change event
+                state.propertyChangeSupport.firePropertyChange(fullKey, oldValue, value)
+
                 LOG.debug("Set preference: $fullKey = $value")
             } catch (e: Exception) {
                 LOG.error("Failed to set preference value: $moduleId.$key", e)
@@ -391,4 +401,16 @@ class PrefSettings : BaseState() {
     @Tag("moduleValues")
     @MapAnnotation(surroundWithTag = true, surroundKeyWithTag = true, surroundValueWithTag = true)
     var moduleValues: MutableMap<String, String> = mutableMapOf()
+
+    // ================= PROPERTY CHANGE SUPPORT =================
+    val propertyChangeSupport = PropertyChangeSupport(this)
+
+    // Add methods to register/unregister listeners
+    fun addPropertyChangeListener(listener: PropertyChangeListener) {
+        propertyChangeSupport.addPropertyChangeListener(listener)
+    }
+
+    fun removePropertyChangeListener(listener: PropertyChangeListener) {
+        propertyChangeSupport.removePropertyChangeListener(listener)
+    }
 }

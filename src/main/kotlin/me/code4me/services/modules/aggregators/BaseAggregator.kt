@@ -219,7 +219,7 @@ abstract class BaseAggregator : PluginModule {
 
     override fun afterInsertion(
         environment: InlineCompletionInsertEnvironment,
-        elements: List<InlineCompletionElement>
+        elements: List<InlineCompletionElement>,
     ) {
         // The implementation for the aggregators inherently is very similar to the collectData method,
         // so we can reuse that logic here.

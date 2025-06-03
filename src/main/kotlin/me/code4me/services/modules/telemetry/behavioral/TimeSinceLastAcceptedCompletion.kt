@@ -159,7 +159,7 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
 
     override fun afterInsertion(
         environment: InlineCompletionInsertEnvironment,
-        elements: List<InlineCompletionElement>
+        elements: List<InlineCompletionElement>,
     ) {
         // update the last accepted completion timestamp
         lastAfterInsertionTime = System.currentTimeMillis()
