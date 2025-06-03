@@ -1,5 +1,8 @@
 package me.code4me.utils.configuration
 
+import com.intellij.util.xmlb.annotations.Attribute
+import com.intellij.util.xmlb.annotations.Tag
+
 interface PreferenceCapable {
     /**
      * Returns the list of preferences for this component.
@@ -30,13 +33,27 @@ interface PreferenceCapable {
  * @param displayName The name to display in the UI
  * @param description A description of the preference
  */
+@Tag("preference")
 data class Preference(
-    val key: String,
-    val type: PreferenceType,
-    val defaultValue: String,
-    val displayName: String,
-    val description: String = "",
-)
+    @Attribute("key")
+    var key: String = "",
+
+    @Attribute("type")
+    var type: PreferenceType = PreferenceType.STRING,
+
+    @Attribute("defaultValue")
+    var defaultValue: String = "",
+
+    @Attribute("displayName")
+    var displayName: String = "",
+
+    @Attribute("description")
+    var description: String = "",
+) {
+    // Parameterless constructor required for XML serialization
+    constructor() : this("", PreferenceType.STRING, "", "", "")
+}
+
 
 enum class PreferenceType(val type: String) {
     BOOLEAN("boolean"),

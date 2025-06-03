@@ -15,7 +15,6 @@ class PrefSettingsTest {
         // Test default values
         assertFalse(prefSettings.storeCompletions)
         assertFalse(prefSettings.storeContext)
-        assertTrue(prefSettings.availableModules.isEmpty())
         assertTrue(prefSettings.enabledModules.isEmpty())
         assertTrue(prefSettings.modulePreferences.isEmpty())
         assertTrue(prefSettings.moduleValues.isEmpty())

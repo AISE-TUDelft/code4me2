@@ -1,3 +1,4 @@
+
 package me.code4me.services.state
 
 import com.intellij.openapi.components.BaseState
@@ -36,7 +37,7 @@ fun getPrefState(): PrefSettings {
  *
  * This service provides centralized management for:
  * - Application-wide preferences (completion storage, context storage)
- * - Module availability and enablement tracking
+ * - Module enablement tracking
  * - Module-specific preference definitions and values
  * - Preference lifecycle management and validation
  *
@@ -154,10 +155,12 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
          * Registers a module and its preferences with the preference system.
          *
          * This method performs a complete registration process:
-         * 1. Adds or updates the module in the available modules list
-         * 2. Registers all module preferences with their metadata
-         * 3. Initializes preference values with defaults if not already set
-         * 4. Removes obsolete preferences that are no longer defined
+         * 1. Registers all module preferences with their metadata
+         * 2. Initializes preference values with defaults if not already set
+         * 3. Removes obsolete preferences that are no longer defined
+         *
+         * Note: Module availability information is now retrieved dynamically
+         * from the ModuleManager instead of being stored in state.
          *
          * @param module The [PluginModule] to register
          * @return True if this is a new module registration, false if updating existing
@@ -168,27 +171,17 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
                 val moduleId = module.getPreferenceId()
                 val preferences = module.getPreferenceList()
 
-                // Check if this is a new module
-                val isNewModule =
-                    state.availableModules.none { existingModule ->
-                        existingModule?.getPreferenceId() == moduleId
-                    }
+                // Check if this is a new module by looking at existing preferences
+                val moduleKeyPrefix = "$moduleId."
+                val isNewModule = state.modulePreferences.keys.none { it.startsWith(moduleKeyPrefix) }
 
-                // Update module list
                 if (isNewModule) {
-                    state.availableModules = state.availableModules + module
                     LOG.debug("New module registered: $moduleId")
                 } else {
-                    // Update existing module to ensure latest information
-                    state.availableModules =
-                        state.availableModules.map { existingModule ->
-                            if (existingModule?.getPreferenceId() == moduleId) module else existingModule
-                        }
                     LOG.debug("Module updated: $moduleId")
                 }
 
                 // Register or update preferences
-                val moduleKeyPrefix = "$moduleId."
                 preferences.forEach { preference ->
                     val fullKey = moduleKeyPrefix + preference.key
 
@@ -320,11 +313,15 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
  *
  * This class stores all persistent preference data including:
  * - Application-wide settings
- * - Module availability and enablement state
+ * - Module enablement state
  * - Module preference definitions and current values
  *
  * The class extends [BaseState] to integrate with IntelliJ Platform's
  * persistence mechanism, ensuring all changes are automatically saved.
+ *
+ * Note: Module availability information is now retrieved dynamically
+ * from the ModuleManager instead of being stored in persistent state
+ * to avoid serialization issues with complex module objects.
  *
  * @since 1.0.0
  */
@@ -356,15 +353,6 @@ class PrefSettings : BaseState() {
     var storeContext by property(false)
 
     // ================= MODULE MANAGEMENT =================
-
-    /**
-     * List of all modules that have been registered with the preference system.
-     *
-     * This list includes both active and inactive modules, allowing the system
-     * to maintain preference definitions even for temporarily disabled modules.
-     */
-    @Tag("availableModules")
-    var availableModules: List<PluginModule> = emptyList()
 
     /**
      * Set of module IDs that are currently enabled.
