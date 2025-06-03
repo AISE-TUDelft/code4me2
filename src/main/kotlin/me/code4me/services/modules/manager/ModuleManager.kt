@@ -109,6 +109,9 @@ class ModuleManager(private val project: Project) : PluginModule {
         modules.forEach { module ->
             val newlyAddedModuleIds = registerModuleRecursively(module)
             processDefaultEnabledModules(newlyAddedModuleIds, availableModuleConfigs)
+
+            // Process the enabled state of top-level modules
+            processModuleEnabledState(module, availableModuleConfigs)
         }
 
         LOG.info("Stored ${modulesToStore.size} modules with their submodules")
@@ -183,6 +186,37 @@ class ModuleManager(private val project: Project) : PluginModule {
                 .find { it.className == submodule.javaClass.name || it.id == submodule.getPreferenceId() }
 
         return submoduleConfig?.enabled ?: directConfig?.enabled ?: false
+    }
+
+    /**
+     * Determines if a module is enabled in the configuration.
+     */
+    private fun isModuleEnabledInConfig(
+        module: PluginModule,
+        availableModuleConfigs: List<ModuleConfig>,
+    ): Boolean {
+        // Check direct configuration
+        val directConfig =
+            availableModuleConfigs.find {
+                it.className == module.javaClass.name || it.id == module.getPreferenceId()
+            }
+
+        return directConfig?.enabled ?: false
+    }
+
+    /**
+     * Processes the enabled state of a module based on configuration.
+     */
+    private fun processModuleEnabledState(
+        module: PluginModule,
+        availableModuleConfigs: List<ModuleConfig>,
+    ) {
+        val isEnabledInConfig = isModuleEnabledInConfig(module, availableModuleConfigs)
+        val isAlreadyEnabled = module.getPreferenceId() in enabledModuleIds
+
+        if (isEnabledInConfig || isAlreadyEnabled) {
+            enableModule(module.getPreferenceId())
+        }
     }
 
     /**
