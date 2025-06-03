@@ -778,33 +778,63 @@ class ConfigurationSection : SettingsSection {
                 isVisible = false
             }
 
+        // Filter input to allow only valid float characters
+        val document = textField.document as PlainDocument
+        document.documentFilter =
+            object : DocumentFilter() {
+                override fun insertString(
+                    fb: FilterBypass,
+                    offset: Int,
+                    string: String?,
+                    attr: AttributeSet?,
+                ) {
+                    if (string == null) return
+                    val newText = StringBuilder(textField.text).insert(offset, string).toString()
+                    if (newText.matches(Regex("-?\\d*(\\.\\d*)?"))) {
+                        super.insertString(fb, offset, string, attr)
+                    }
+                }
+
+                override fun replace(
+                    fb: FilterBypass,
+                    offset: Int,
+                    length: Int,
+                    text: String?,
+                    attrs: AttributeSet?,
+                ) {
+                    if (text == null) return
+                    val oldText = textField.text
+                    val newText = oldText.substring(0, offset) + text + oldText.substring(offset + length)
+                    if (newText.matches(Regex("-?\\d*(\\.\\d*)?"))) {
+                        super.replace(fb, offset, length, text, attrs)
+                    }
+                }
+            }
+
         // Create and register the state value field
         val stateField = ModuleFloatPreferenceField(moduleId, preference, textField)
         val fullKey = "$moduleId.${preference.key}"
         modulePreferenceFields[fullKey] = stateField
 
-        // Add document listener with validation
-        textField.document.addDocumentListener(
-            object : DocumentListener {
-                override fun insertUpdate(e: DocumentEvent?) = validateAndUpdate()
-
-                override fun removeUpdate(e: DocumentEvent?) = validateAndUpdate()
-
-                override fun changedUpdate(e: DocumentEvent?) = validateAndUpdate()
-
-                private fun validateAndUpdate() {
+        // Show error only on focus lost, not while typing
+        textField.addFocusListener(
+            object : java.awt.event.FocusAdapter() {
+                override fun focusLost(e: java.awt.event.FocusEvent?) {
                     val text = textField.text
-                    if (text.isEmpty() || text.toFloatOrNull() != null) {
-                        warningLabel.isVisible = false
-                        if (text.isNotEmpty()) {
-                            text.toFloatOrNull()?.let { value ->
-                                stateField.setStateValue(value)
-                            }
-                        }
-                    } else {
+                    if (text.isEmpty() || text == "-" || text == ".") {
+                        warningLabel.text = "Please enter a value"
+                        warningLabel.isVisible = true
+                    } else if (text.toFloatOrNull() == null) {
                         warningLabel.text = "Please enter a valid number"
                         warningLabel.isVisible = true
+                    } else {
+                        warningLabel.isVisible = false
+                        stateField.setStateValue(text.toFloat())
                     }
+                }
+
+                override fun focusGained(e: java.awt.event.FocusEvent?) {
+                    warningLabel.isVisible = false
                 }
             },
         )
