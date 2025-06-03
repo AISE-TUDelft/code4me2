@@ -2,6 +2,7 @@ package me.code4me.components.settings.sections
 
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.ui.Messages
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -9,10 +10,12 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UIUtil
 import groovy.lang.Tuple2
+import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
+import me.code4me.components.settings.fields.ModuleFloatPreferenceField
+import me.code4me.components.settings.fields.ModuleIntegerPreferenceField
+import me.code4me.components.settings.fields.ModuleStringPreferenceField
 import me.code4me.components.settings.fields.StateValueField
-import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
@@ -21,13 +24,6 @@ import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceType
-import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
-import me.code4me.components.settings.fields.ModuleStringPreferenceField
-import me.code4me.components.settings.fields.ModuleIntegerPreferenceField
-import me.code4me.components.settings.fields.ModuleFloatPreferenceField
-import javax.swing.event.DocumentEvent
-import javax.swing.event.DocumentListener
-import com.intellij.ui.JBColor
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
@@ -44,8 +40,8 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSeparator
 import javax.swing.JTree
-import javax.swing.event.TreeSelectionEvent
-import javax.swing.event.TreeSelectionListener
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 import javax.swing.text.AttributeSet
 import javax.swing.text.DocumentFilter
 import javax.swing.text.PlainDocument
@@ -588,7 +584,6 @@ class ConfigurationSection : SettingsSection {
         }
     }
 
-
     /**
      * Creates a boolean preference field (checkbox).
      */
@@ -596,12 +591,13 @@ class ConfigurationSection : SettingsSection {
         moduleId: String,
         preference: Preference,
     ): JComponent {
-        val checkbox = JBCheckBox(preference.displayName).apply {
-            toolTipText = preference.description
-            // Initialize with current value
-            val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
-            isSelected = currentValue?.toBoolean() ?: preference.defaultValue.toBoolean()
-        }
+        val checkbox =
+            JBCheckBox(preference.displayName).apply {
+                toolTipText = preference.description
+                // Initialize with current value
+                val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
+                isSelected = currentValue?.toBoolean() ?: preference.defaultValue.toBoolean()
+            }
 
         // Create and register the state value field
         val stateField = ModuleBooleanPreferenceField(moduleId, preference, checkbox)
@@ -616,7 +612,6 @@ class ConfigurationSection : SettingsSection {
         return checkbox
     }
 
-
     /**
      * Creates a string preference field.
      */
@@ -624,12 +619,13 @@ class ConfigurationSection : SettingsSection {
         moduleId: String,
         preference: Preference,
     ): JComponent {
-        val textField = JBTextField().apply {
-            toolTipText = preference.description
-            // Initialize with current value
-            val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
-            text = currentValue ?: preference.defaultValue
-        }
+        val textField =
+            JBTextField().apply {
+                toolTipText = preference.description
+                // Initialize with current value
+                val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
+                text = currentValue ?: preference.defaultValue
+            }
 
         // Create and register the state value field
         val stateField = ModuleStringPreferenceField(moduleId, preference, textField)
@@ -637,88 +633,129 @@ class ConfigurationSection : SettingsSection {
         modulePreferenceFields[fullKey] = stateField
 
         // Add document listener to update state when text changes
-        textField.document.addDocumentListener(object : DocumentListener {
-            override fun insertUpdate(e: DocumentEvent?) = updateValue()
-            override fun removeUpdate(e: DocumentEvent?) = updateValue()
-            override fun changedUpdate(e: DocumentEvent?) = updateValue()
+        textField.document.addDocumentListener(
+            object : DocumentListener {
+                override fun insertUpdate(e: DocumentEvent?) = updateValue()
 
-            private fun updateValue() {
-                stateField.setStateValue(textField.text)
+                override fun removeUpdate(e: DocumentEvent?) = updateValue()
+
+                override fun changedUpdate(e: DocumentEvent?) = updateValue()
+
+                private fun updateValue() {
+                    stateField.setStateValue(textField.text)
+                }
+            },
+        )
+
+        val panel =
+            JPanel(BorderLayout()).apply {
+                add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
+                add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
+                add(textField, BorderLayout.EAST)
             }
-        })
-
-        val panel = JPanel(BorderLayout()).apply {
-            add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
-            add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
-            add(textField, BorderLayout.EAST)
-        }
 
         return panel
     }
 
-
     /**
-     * Creates an integer preference field with validation.
+     * Creates an integer preference field with input filtering and user-friendly validation.
      */
     private fun createIntegerField(
         moduleId: String,
         preference: Preference,
     ): JComponent {
-        val textField = JBTextField().apply {
-            toolTipText = preference.description
-            // Initialize with current value
-            val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
-            text = currentValue ?: preference.defaultValue
-        }
+        val textField =
+            JBTextField().apply {
+                toolTipText = preference.description
+                // Initialize with current value
+                val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
+                text = currentValue ?: preference.defaultValue
+            }
 
-        val warningLabel = JBLabel().apply {
-            foreground = JBColor.RED
-            isVisible = false
-        }
+        val warningLabel =
+            JBLabel().apply {
+                foreground = JBColor.RED
+                isVisible = false
+            }
+
+        // Filter input to allow only digits and a leading negative sign
+        val document = textField.document as PlainDocument
+        document.documentFilter =
+            object : DocumentFilter() {
+                override fun insertString(
+                    fb: FilterBypass,
+                    offset: Int,
+                    string: String?,
+                    attr: AttributeSet?,
+                ) {
+                    if (string == null) return
+                    val newText = StringBuilder(textField.text).insert(offset, string).toString()
+                    if (newText.matches(Regex("-?\\d*"))) {
+                        super.insertString(fb, offset, string, attr)
+                    }
+                }
+
+                override fun replace(
+                    fb: FilterBypass,
+                    offset: Int,
+                    length: Int,
+                    text: String?,
+                    attrs: AttributeSet?,
+                ) {
+                    if (text == null) return
+                    val oldText = textField.text
+                    val newText = oldText.substring(0, offset) + text + oldText.substring(offset + length)
+                    if (newText.matches(Regex("-?\\d*"))) {
+                        super.replace(fb, offset, length, text, attrs)
+                    }
+                }
+            }
 
         // Create and register the state value field
         val stateField = ModuleIntegerPreferenceField(moduleId, preference, textField)
         val fullKey = "$moduleId.${preference.key}"
         modulePreferenceFields[fullKey] = stateField
 
-        // Add document listener with validation
-        textField.document.addDocumentListener(object : DocumentListener {
-            override fun insertUpdate(e: DocumentEvent?) = validateAndUpdate()
-            override fun removeUpdate(e: DocumentEvent?) = validateAndUpdate()
-            override fun changedUpdate(e: DocumentEvent?) = validateAndUpdate()
-
-            private fun validateAndUpdate() {
-                val text = textField.text
-                if (text.isEmpty() || text.toIntOrNull() != null) {
-                    warningLabel.isVisible = false
-                    if (text.isNotEmpty()) {
-                        text.toIntOrNull()?.let { value ->
-                            stateField.setStateValue(value)
-                        }
+        // Show error only on focus lost, not while typing
+        textField.addFocusListener(
+            object : java.awt.event.FocusAdapter() {
+                override fun focusLost(e: java.awt.event.FocusEvent?) {
+                    val text = textField.text
+                    if (text.isEmpty() || text == "-") {
+                        warningLabel.text = "Please enter a value"
+                        warningLabel.isVisible = true
+                    } else if (text.toIntOrNull() == null) {
+                        warningLabel.text = "Please enter a valid integer"
+                        warningLabel.isVisible = true
+                    } else {
+                        warningLabel.isVisible = false
+                        stateField.setStateValue(text.toInt())
                     }
-                } else {
-                    warningLabel.text = "Please enter a valid integer"
-                    warningLabel.isVisible = true
                 }
+
+                override fun focusGained(e: java.awt.event.FocusEvent?) {
+                    warningLabel.isVisible = false
+                }
+            },
+        )
+
+        val panel =
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+
+                val inputPanel =
+                    JPanel(BorderLayout()).apply {
+                        add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
+                        add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
+                        add(textField, BorderLayout.EAST)
+                    }
+
+                add(inputPanel)
+                add(warningLabel)
             }
-        })
-
-        val panel = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-
-            val inputPanel = JPanel(BorderLayout()).apply {
-                add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
-                add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
-                add(textField, BorderLayout.EAST)
-            }
-
-            add(inputPanel)
-            add(warningLabel)
-        }
 
         return panel
     }
-
 
     /**
      * Creates a floating-point preference field with validation.
@@ -727,17 +764,19 @@ class ConfigurationSection : SettingsSection {
         moduleId: String,
         preference: Preference,
     ): JComponent {
-        val textField = JBTextField().apply {
-            toolTipText = preference.description
-            // Initialize with current value
-            val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
-            text = currentValue ?: preference.defaultValue
-        }
+        val textField =
+            JBTextField().apply {
+                toolTipText = preference.description
+                // Initialize with current value
+                val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
+                text = currentValue ?: preference.defaultValue
+            }
 
-        val warningLabel = JBLabel().apply {
-            foreground = JBColor.RED
-            isVisible = false
-        }
+        val warningLabel =
+            JBLabel().apply {
+                foreground = JBColor.RED
+                isVisible = false
+            }
 
         // Create and register the state value field
         val stateField = ModuleFloatPreferenceField(moduleId, preference, textField)
@@ -745,43 +784,48 @@ class ConfigurationSection : SettingsSection {
         modulePreferenceFields[fullKey] = stateField
 
         // Add document listener with validation
-        textField.document.addDocumentListener(object : DocumentListener {
-            override fun insertUpdate(e: DocumentEvent?) = validateAndUpdate()
-            override fun removeUpdate(e: DocumentEvent?) = validateAndUpdate()
-            override fun changedUpdate(e: DocumentEvent?) = validateAndUpdate()
+        textField.document.addDocumentListener(
+            object : DocumentListener {
+                override fun insertUpdate(e: DocumentEvent?) = validateAndUpdate()
 
-            private fun validateAndUpdate() {
-                val text = textField.text
-                if (text.isEmpty() || text.toFloatOrNull() != null) {
-                    warningLabel.isVisible = false
-                    if (text.isNotEmpty()) {
-                        text.toFloatOrNull()?.let { value ->
-                            stateField.setStateValue(value)
+                override fun removeUpdate(e: DocumentEvent?) = validateAndUpdate()
+
+                override fun changedUpdate(e: DocumentEvent?) = validateAndUpdate()
+
+                private fun validateAndUpdate() {
+                    val text = textField.text
+                    if (text.isEmpty() || text.toFloatOrNull() != null) {
+                        warningLabel.isVisible = false
+                        if (text.isNotEmpty()) {
+                            text.toFloatOrNull()?.let { value ->
+                                stateField.setStateValue(value)
+                            }
                         }
+                    } else {
+                        warningLabel.text = "Please enter a valid number"
+                        warningLabel.isVisible = true
                     }
-                } else {
-                    warningLabel.text = "Please enter a valid number"
-                    warningLabel.isVisible = true
                 }
+            },
+        )
+
+        val panel =
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+
+                val inputPanel =
+                    JPanel(BorderLayout()).apply {
+                        add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
+                        add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
+                        add(textField, BorderLayout.EAST)
+                    }
+
+                add(inputPanel)
+                add(warningLabel)
             }
-        })
-
-        val panel = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-
-            val inputPanel = JPanel(BorderLayout()).apply {
-                add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
-                add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
-                add(textField, BorderLayout.EAST)
-            }
-
-            add(inputPanel)
-            add(warningLabel)
-        }
 
         return panel
     }
-
 
     /**
      * Sets up numeric input validation for integer fields.

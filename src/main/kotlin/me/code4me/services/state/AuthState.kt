@@ -212,7 +212,7 @@ class AuthSettings : BaseState() {
     private var cachedToken: String? = null
 
     init {
-        GlobalScope.launch (Dispatchers.IO) {
+        GlobalScope.launch(Dispatchers.IO) {
             // Initialize the cache in a background thread
             initializeCache()
         }

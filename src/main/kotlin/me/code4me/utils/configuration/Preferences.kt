@@ -37,23 +37,18 @@ interface PreferenceCapable {
 data class Preference(
     @Attribute("key")
     var key: String = "",
-
     @Attribute("type")
     var type: PreferenceType = PreferenceType.STRING,
-
     @Attribute("defaultValue")
     var defaultValue: String = "",
-
     @Attribute("displayName")
     var displayName: String = "",
-
     @Attribute("description")
     var description: String = "",
 ) {
     // Parameterless constructor required for XML serialization
     constructor() : this("", PreferenceType.STRING, "", "", "")
 }
-
 
 enum class PreferenceType(val type: String) {
     BOOLEAN("boolean"),

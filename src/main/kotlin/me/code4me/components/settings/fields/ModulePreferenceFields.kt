@@ -13,9 +13,8 @@ import javax.swing.JComponent
 class ModuleBooleanPreferenceField(
     private val moduleId: String,
     private val preference: Preference,
-    private val checkbox: JBCheckBox
+    private val checkbox: JBCheckBox,
 ) : StateValueField<Boolean> {
-
     private val fieldInfo: MutableList<FieldInfo> = mutableListOf()
 
     override fun getComponent(): JComponent = checkbox
@@ -45,9 +44,8 @@ class ModuleBooleanPreferenceField(
 class ModuleStringPreferenceField(
     private val moduleId: String,
     private val preference: Preference,
-    private val textField: JBTextField
+    private val textField: JBTextField,
 ) : StateValueField<String> {
-
     private val fieldInfo: MutableList<FieldInfo> = mutableListOf()
 
     override fun getComponent(): JComponent = textField
@@ -76,9 +74,8 @@ class ModuleStringPreferenceField(
 class ModuleIntegerPreferenceField(
     private val moduleId: String,
     private val preference: Preference,
-    private val textField: JBTextField
+    private val textField: JBTextField,
 ) : StateValueField<Int> {
-
     private val fieldInfo: MutableList<FieldInfo> = mutableListOf()
 
     override fun getComponent(): JComponent = textField
@@ -110,9 +107,8 @@ class ModuleIntegerPreferenceField(
 class ModuleFloatPreferenceField(
     private val moduleId: String,
     private val preference: Preference,
-    private val textField: JBTextField
+    private val textField: JBTextField,
 ) : StateValueField<Float> {
-
     private val fieldInfo: MutableList<FieldInfo> = mutableListOf()
 
     override fun getComponent(): JComponent = textField
