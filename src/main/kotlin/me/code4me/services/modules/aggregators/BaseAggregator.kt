@@ -1,7 +1,9 @@
 
 package me.code4me.services.modules.aggregators
 
+import com.intellij.codeInsight.inline.completion.InlineCompletionInsertEnvironment
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
+import com.intellij.codeInsight.inline.completion.elements.InlineCompletionElement
 import com.intellij.openapi.diagnostic.thisLogger
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -214,6 +216,29 @@ abstract class BaseAggregator : PluginModule {
 
             aggregatedData
         }
+
+    override fun afterInsertion(
+        environment: InlineCompletionInsertEnvironment,
+        elements: List<InlineCompletionElement>
+    ) {
+        // The implementation for the aggregators inherently is very similar to the collectData method,
+        // so we can reuse that logic here.
+        runBlocking {
+            try {
+                val submodules = getSubmodules()
+
+                coroutineScope {
+                    submodules.forEach { module ->
+                        async {
+                            module.afterInsertion(environment, elements)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                LOG.error("Failed to run after insertion: ", e)
+            }
+        }
+    }
 
     /**
      * Returns the preference list for this aggregator.

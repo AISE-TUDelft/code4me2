@@ -224,11 +224,4 @@ class TypingSpeed : PluginModule {
             ),
         )
     }
-
-    /**
-     * IMPORTNAT: this should be removed when the logic for calling initializeModules is fixed.
-     */
-    init {
-        initializeModules()
-    }
 }
