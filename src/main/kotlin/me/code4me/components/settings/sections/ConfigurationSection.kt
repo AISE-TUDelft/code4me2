@@ -2,6 +2,7 @@ package me.code4me.components.settings.sections
 
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.ui.Messages
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -9,10 +10,12 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UIUtil
 import groovy.lang.Tuple2
+import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
+import me.code4me.components.settings.fields.ModuleFloatPreferenceField
+import me.code4me.components.settings.fields.ModuleIntegerPreferenceField
+import me.code4me.components.settings.fields.ModuleStringPreferenceField
 import me.code4me.components.settings.fields.StateValueField
-import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
@@ -23,6 +26,7 @@ import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceType
 import java.awt.BorderLayout
 import java.awt.Component
+import java.awt.Dimension
 import java.awt.Font
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
@@ -36,8 +40,8 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSeparator
 import javax.swing.JTree
-import javax.swing.event.TreeSelectionEvent
-import javax.swing.event.TreeSelectionListener
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 import javax.swing.text.AttributeSet
 import javax.swing.text.DocumentFilter
 import javax.swing.text.PlainDocument
@@ -123,7 +127,7 @@ class ConfigurationSection : SettingsSection {
     private val userInfoTitleLabel =
         JBLabel("User Information").apply {
             font = font.deriveFont(font.style or Font.BOLD)
-            border = JBUI.Borders.empty(0, 0, 5, 0)
+            border = JBUI.Borders.emptyBottom(5)
         }
 
     /**
@@ -141,7 +145,7 @@ class ConfigurationSection : SettingsSection {
     private val moduleTitleLabel =
         JBLabel("Module Management").apply {
             font = font.deriveFont(font.style or Font.BOLD)
-            border = JBUI.Borders.empty(0, 0, 5, 0)
+            border = JBUI.Borders.emptyBottom(5)
         }
 
     // ================= MODULE MANAGEMENT =================
@@ -204,7 +208,7 @@ class ConfigurationSection : SettingsSection {
     private val modulePreferencesPanel =
         JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(0, 0, 8, 0)
+            border = JBUI.Borders.emptyBottom(8)
         }
 
     /**
@@ -238,13 +242,7 @@ class ConfigurationSection : SettingsSection {
         updateModuleTree()
 
         // Add selection listener for dynamic preference panel updates
-        moduleTree.addTreeSelectionListener(
-            object : TreeSelectionListener {
-                override fun valueChanged(e: TreeSelectionEvent) {
-                    updateModulePreferencesPanel()
-                }
-            },
-        )
+        moduleTree.addTreeSelectionListener { updateModulePreferencesPanel() }
 
         // Expand all nodes for better visibility
         expandAllTreeNodes()
@@ -297,7 +295,7 @@ class ConfigurationSection : SettingsSection {
                 addSubmodulesRecursively(submodule, submoduleNode)
                 parentNode.add(submoduleNode)
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             LOG.debug("Module ${module.getPreferenceId()} has no submodules or failed to retrieve them")
         }
     }
@@ -383,7 +381,7 @@ class ConfigurationSection : SettingsSection {
         addModulePreferences(module)
 
         // Add spacing at the end
-        modulePreferencesPanel.add(Box.createRigidArea(java.awt.Dimension(0, 8)))
+        modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
     }
 
     /**
@@ -575,9 +573,14 @@ class ConfigurationSection : SettingsSection {
         return when (preference.type) {
             PreferenceType.BOOLEAN -> createBooleanField(moduleId, preference)
             PreferenceType.STRING -> createStringField(moduleId, preference)
-            PreferenceType.INT, PreferenceType.LONG -> createIntegerField(moduleId, preference)
-            PreferenceType.DOUBLE, PreferenceType.FLOAT -> createFloatField(moduleId, preference)
-            else -> JLabel("Unsupported preference type: ${preference.type}")
+            PreferenceType.INT -> createIntegerField(moduleId, preference)
+            PreferenceType.FLOAT -> createFloatField(moduleId, preference)
+            PreferenceType.LONG -> createIntegerField(moduleId, preference) // Treat as integer for now
+            PreferenceType.DOUBLE -> createFloatField(moduleId, preference) // Treat as float for now
+            else -> {
+                LOG.warn("Unsupported preference type: ${preference.type}")
+                JBLabel("Unsupported type: ${preference.type}")
+            }
         }
     }
 
@@ -588,23 +591,25 @@ class ConfigurationSection : SettingsSection {
         moduleId: String,
         preference: Preference,
     ): JComponent {
-        val checkBox =
-            JBCheckBox().apply {
-                isSelected = PrefState.getPreferenceValue(moduleId, preference.key) == "true"
+        val checkbox =
+            JBCheckBox(preference.displayName).apply {
+                toolTipText = preference.description
+                // Initialize with current value
+                val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
+                isSelected = currentValue?.toBoolean() ?: preference.defaultValue.toBoolean()
             }
 
-        val svf =
-            object : ToggleButtonField(checkBox) {
-                override fun getStateValue(): Boolean = checkBox.isSelected
+        // Create and register the state value field
+        val stateField = ModuleBooleanPreferenceField(moduleId, preference, checkbox)
+        val fullKey = "$moduleId.${preference.key}"
+        modulePreferenceFields[fullKey] = stateField
 
-                override fun setStateValue(value: Boolean) {
-                    checkBox.isSelected = value
-                    PrefState.setPreferenceValue(moduleId, preference.key, value.toString())
-                }
-            }
+        // Add change listener to update state immediately
+        checkbox.addActionListener {
+            stateField.setStateValue(checkbox.isSelected)
+        }
 
-        modulePreferenceFields["$moduleId.${preference.key}"] = svf
-        return checkBox
+        return checkbox
     }
 
     /**
@@ -615,63 +620,140 @@ class ConfigurationSection : SettingsSection {
         preference: Preference,
     ): JComponent {
         val textField =
-            JBTextField(
-                PrefState.getPreferenceValue(moduleId, preference.key) ?: preference.defaultValue,
-            )
-
-        val svf =
-            object : TextField(textField) {
-                override fun getStateValue(): String? = textField.text.takeIf { it.isNotBlank() }
-
-                override fun setStateValue(value: String) {
-                    textField.text = value
-                    PrefState.setPreferenceValue(moduleId, preference.key, value)
-                }
+            JBTextField().apply {
+                toolTipText = preference.description
+                // Initialize with current value
+                val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
+                text = currentValue ?: preference.defaultValue
             }
 
-        modulePreferenceFields["$moduleId.${preference.key}"] = svf
-        return textField
+        // Create and register the state value field
+        val stateField = ModuleStringPreferenceField(moduleId, preference, textField)
+        val fullKey = "$moduleId.${preference.key}"
+        modulePreferenceFields[fullKey] = stateField
+
+        // Add document listener to update state when text changes
+        textField.document.addDocumentListener(
+            object : DocumentListener {
+                override fun insertUpdate(e: DocumentEvent?) = updateValue()
+
+                override fun removeUpdate(e: DocumentEvent?) = updateValue()
+
+                override fun changedUpdate(e: DocumentEvent?) = updateValue()
+
+                private fun updateValue() {
+                    stateField.setStateValue(textField.text)
+                }
+            },
+        )
+
+        val panel =
+            JPanel(BorderLayout()).apply {
+                add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
+                add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
+                add(textField, BorderLayout.EAST)
+            }
+
+        return panel
     }
 
     /**
-     * Creates an integer preference field with validation.
+     * Creates an integer preference field with input filtering and user-friendly validation.
      */
     private fun createIntegerField(
         moduleId: String,
         preference: Preference,
     ): JComponent {
         val textField =
-            JBTextField(
-                PrefState.getPreferenceValue(moduleId, preference.key) ?: preference.defaultValue,
-            )
+            JBTextField().apply {
+                toolTipText = preference.description
+                // Initialize with current value
+                val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
+                text = currentValue ?: preference.defaultValue
+            }
 
         val warningLabel =
             JBLabel().apply {
-                foreground = UIUtil.getErrorForeground()
+                foreground = JBColor.RED
                 isVisible = false
             }
 
-        setupNumericValidation(textField, warningLabel, preference.type)
+        // Filter input to allow only digits and a leading negative sign
+        val document = textField.document as PlainDocument
+        document.documentFilter =
+            object : DocumentFilter() {
+                override fun insertString(
+                    fb: FilterBypass,
+                    offset: Int,
+                    string: String?,
+                    attr: AttributeSet?,
+                ) {
+                    if (string == null) return
+                    val newText = StringBuilder(textField.text).insert(offset, string).toString()
+                    if (newText.matches(Regex("-?\\d*"))) {
+                        super.insertString(fb, offset, string, attr)
+                    }
+                }
 
-        val panel =
-            JPanel(BorderLayout(5, 0)).apply {
-                add(textField, BorderLayout.CENTER)
-                add(warningLabel, BorderLayout.EAST)
-            }
-
-        val svf =
-            object : TextField(textField) {
-                override fun getStateValue(): String? = textField.text.takeIf { it.isNotBlank() }
-
-                override fun setStateValue(value: String) {
-                    textField.text = value
-                    if (value.isNotEmpty()) {
-                        PrefState.setPreferenceValue(moduleId, preference.key, value)
+                override fun replace(
+                    fb: FilterBypass,
+                    offset: Int,
+                    length: Int,
+                    text: String?,
+                    attrs: AttributeSet?,
+                ) {
+                    if (text == null) return
+                    val oldText = textField.text
+                    val newText = oldText.substring(0, offset) + text + oldText.substring(offset + length)
+                    if (newText.matches(Regex("-?\\d*"))) {
+                        super.replace(fb, offset, length, text, attrs)
                     }
                 }
             }
 
-        modulePreferenceFields["$moduleId.${preference.key}"] = svf
+        // Create and register the state value field
+        val stateField = ModuleIntegerPreferenceField(moduleId, preference, textField)
+        val fullKey = "$moduleId.${preference.key}"
+        modulePreferenceFields[fullKey] = stateField
+
+        // Show error only on focus lost, not while typing
+        textField.addFocusListener(
+            object : java.awt.event.FocusAdapter() {
+                override fun focusLost(e: java.awt.event.FocusEvent?) {
+                    val text = textField.text
+                    if (text.isEmpty() || text == "-") {
+                        warningLabel.text = "Please enter a value"
+                        warningLabel.isVisible = true
+                    } else if (text.toIntOrNull() == null) {
+                        warningLabel.text = "Please enter a valid integer"
+                        warningLabel.isVisible = true
+                    } else {
+                        warningLabel.isVisible = false
+                        stateField.setStateValue(text.toInt())
+                    }
+                }
+
+                override fun focusGained(e: java.awt.event.FocusEvent?) {
+                    warningLabel.isVisible = false
+                }
+            },
+        )
+
+        val panel =
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+
+                val inputPanel =
+                    JPanel(BorderLayout()).apply {
+                        add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
+                        add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
+                        add(textField, BorderLayout.EAST)
+                    }
+
+                add(inputPanel)
+                add(warningLabel)
+            }
+
         return panel
     }
 
@@ -683,37 +765,95 @@ class ConfigurationSection : SettingsSection {
         preference: Preference,
     ): JComponent {
         val textField =
-            JBTextField(
-                PrefState.getPreferenceValue(moduleId, preference.key) ?: preference.defaultValue,
-            )
+            JBTextField().apply {
+                toolTipText = preference.description
+                // Initialize with current value
+                val currentValue = PrefState.getPreferenceValue(moduleId, preference.key)
+                text = currentValue ?: preference.defaultValue
+            }
 
         val warningLabel =
             JBLabel().apply {
-                foreground = UIUtil.getErrorForeground()
+                foreground = JBColor.RED
                 isVisible = false
             }
 
-        setupDecimalValidation(textField, warningLabel, preference.type)
+        // Filter input to allow only valid float characters
+        val document = textField.document as PlainDocument
+        document.documentFilter =
+            object : DocumentFilter() {
+                override fun insertString(
+                    fb: FilterBypass,
+                    offset: Int,
+                    string: String?,
+                    attr: AttributeSet?,
+                ) {
+                    if (string == null) return
+                    val newText = StringBuilder(textField.text).insert(offset, string).toString()
+                    if (newText.matches(Regex("-?\\d*(\\.\\d*)?"))) {
+                        super.insertString(fb, offset, string, attr)
+                    }
+                }
 
-        val panel =
-            JPanel(BorderLayout(5, 0)).apply {
-                add(textField, BorderLayout.CENTER)
-                add(warningLabel, BorderLayout.EAST)
-            }
-
-        val svf =
-            object : TextField(textField) {
-                override fun getStateValue(): String? = textField.text.takeIf { it.isNotBlank() }
-
-                override fun setStateValue(value: String) {
-                    textField.text = value
-                    if (value.isNotEmpty()) {
-                        PrefState.setPreferenceValue(moduleId, preference.key, value)
+                override fun replace(
+                    fb: FilterBypass,
+                    offset: Int,
+                    length: Int,
+                    text: String?,
+                    attrs: AttributeSet?,
+                ) {
+                    if (text == null) return
+                    val oldText = textField.text
+                    val newText = oldText.substring(0, offset) + text + oldText.substring(offset + length)
+                    if (newText.matches(Regex("-?\\d*(\\.\\d*)?"))) {
+                        super.replace(fb, offset, length, text, attrs)
                     }
                 }
             }
 
-        modulePreferenceFields["$moduleId.${preference.key}"] = svf
+        // Create and register the state value field
+        val stateField = ModuleFloatPreferenceField(moduleId, preference, textField)
+        val fullKey = "$moduleId.${preference.key}"
+        modulePreferenceFields[fullKey] = stateField
+
+        // Show error only on focus lost, not while typing
+        textField.addFocusListener(
+            object : java.awt.event.FocusAdapter() {
+                override fun focusLost(e: java.awt.event.FocusEvent?) {
+                    val text = textField.text
+                    if (text.isEmpty() || text == "-" || text == ".") {
+                        warningLabel.text = "Please enter a value"
+                        warningLabel.isVisible = true
+                    } else if (text.toFloatOrNull() == null) {
+                        warningLabel.text = "Please enter a valid number"
+                        warningLabel.isVisible = true
+                    } else {
+                        warningLabel.isVisible = false
+                        stateField.setStateValue(text.toFloat())
+                    }
+                }
+
+                override fun focusGained(e: java.awt.event.FocusEvent?) {
+                    warningLabel.isVisible = false
+                }
+            },
+        )
+
+        val panel =
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+
+                val inputPanel =
+                    JPanel(BorderLayout()).apply {
+                        add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
+                        add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
+                        add(textField, BorderLayout.EAST)
+                    }
+
+                add(inputPanel)
+                add(warningLabel)
+            }
+
         return panel
     }
 
@@ -848,7 +988,7 @@ class ConfigurationSection : SettingsSection {
                 else -> return
             }
             warningLabel.isVisible = false
-        } catch (ex: NumberFormatException) {
+        } catch (_: NumberFormatException) {
             val typeName = if (type == PreferenceType.INT) "integer" else "long"
             warningLabel.text = "Invalid $typeName value"
             warningLabel.isVisible = true
@@ -876,7 +1016,7 @@ class ConfigurationSection : SettingsSection {
                 else -> return
             }
             warningLabel.isVisible = false
-        } catch (ex: NumberFormatException) {
+        } catch (_: NumberFormatException) {
             val typeName = if (type == PreferenceType.DOUBLE) "decimal" else "float"
             warningLabel.text = "Invalid $typeName value"
             warningLabel.isVisible = true
@@ -916,7 +1056,7 @@ class ConfigurationSection : SettingsSection {
         // Create content panel
         val contentPanel =
             JPanel(BorderLayout()).apply {
-                border = JBUI.Borders.empty(0)
+                border = JBUI.Borders.empty()
             }
 
         // Add user information section
@@ -936,7 +1076,7 @@ class ConfigurationSection : SettingsSection {
      */
     private fun createUserInfoPanel(): JPanel {
         return JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(0, 0, SECTION_SPACING, 0)
+            border = JBUI.Borders.emptyBottom(SECTION_SPACING)
 
             val titleAndInfo =
                 JPanel(BorderLayout()).apply {
@@ -961,7 +1101,7 @@ class ConfigurationSection : SettingsSection {
      */
     private fun createConfigurationPanel(): JPanel {
         return JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(SECTION_SPACING, 0, 0, 0)
+            border = JBUI.Borders.emptyTop(SECTION_SPACING)
 
             // Application preferences
             val appPrefsPanel = createApplicationPreferencesPanel()
@@ -981,7 +1121,7 @@ class ConfigurationSection : SettingsSection {
             val configTitle =
                 JBLabel("Application Preferences").apply {
                     font = font.deriveFont(font.style or Font.BOLD)
-                    border = JBUI.Borders.empty(0, 0, 5, 0)
+                    border = JBUI.Borders.emptyBottom(5)
                 }
 
             val optionsPanel =
@@ -1000,13 +1140,13 @@ class ConfigurationSection : SettingsSection {
      */
     private fun createModuleManagementPanel(): JPanel {
         return JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(SECTION_SPACING, 0, 0, 0)
+            border = JBUI.Borders.emptyTop(SECTION_SPACING)
 
             add(moduleTitleLabel, BorderLayout.NORTH)
 
             val moduleContent =
                 JPanel(GridBagLayout()).apply {
-                    border = JBUI.Borders.empty(5, 0, 0, 0)
+                    border = JBUI.Borders.emptyTop(5)
 
                     val gbc =
                         GridBagConstraints().apply {
@@ -1020,8 +1160,8 @@ class ConfigurationSection : SettingsSection {
                     // Module tree with scroll pane
                     val treeScrollPane =
                         JBScrollPane(moduleTree).apply {
-                            preferredSize = java.awt.Dimension(MODULE_TREE_WIDTH, MODULE_TREE_HEIGHT)
-                            minimumSize = java.awt.Dimension(MIN_MODULE_TREE_WIDTH, MIN_MODULE_TREE_HEIGHT)
+                            preferredSize = Dimension(MODULE_TREE_WIDTH, MODULE_TREE_HEIGHT)
+                            minimumSize = Dimension(MIN_MODULE_TREE_WIDTH, MIN_MODULE_TREE_HEIGHT)
                             border = BorderFactory.createEtchedBorder()
                         }
                     add(treeScrollPane, gbc)
@@ -1034,9 +1174,9 @@ class ConfigurationSection : SettingsSection {
 
                     val preferencesScrollPane =
                         JBScrollPane(modulePreferencesPanel).apply {
-                            border = JBUI.Borders.empty(0, 10, 0, 0)
-                            preferredSize = java.awt.Dimension(PREFERENCES_PANEL_WIDTH, MODULE_TREE_HEIGHT)
-                            minimumSize = java.awt.Dimension(MIN_PREFERENCES_PANEL_WIDTH, MIN_MODULE_TREE_HEIGHT)
+                            border = JBUI.Borders.emptyLeft(10)
+                            preferredSize = Dimension(PREFERENCES_PANEL_WIDTH, MODULE_TREE_HEIGHT)
+                            minimumSize = Dimension(MIN_PREFERENCES_PANEL_WIDTH, MIN_MODULE_TREE_HEIGHT)
                             horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
                             verticalScrollBarPolicy = JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
                         }

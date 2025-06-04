@@ -1,6 +1,8 @@
 package me.code4me.services.modules.telemetry.behavioral
 
+import com.intellij.codeInsight.inline.completion.InlineCompletionInsertEnvironment
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
+import com.intellij.codeInsight.inline.completion.elements.InlineCompletionElement
 import com.intellij.openapi.diagnostic.thisLogger
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.state.getPrefState
@@ -64,6 +66,8 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
 
         // Record key names that will be used when implementation is complete
         private const val KEY_TIME_SINCE_LAST_ACCEPTED = "time_since_last_accepted_completion"
+
+        // TODO : This could later be extended to include additional metrics
         private const val KEY_ACCEPTANCE_COUNT = "completion_acceptance_count"
         private const val KEY_ACCEPTANCE_FREQUENCY = "completion_acceptance_frequency"
     }
@@ -72,6 +76,16 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
      * The display name for this telemetry module.
      */
     override val moduleName: String = "TimeSinceLastAcceptedCompletion"
+
+    /**
+     * Timestamp of the last call to the afterInsertion method in milliseconds since epoch.
+     * Used to calculate time intervals between successive completion acceptances.
+     *
+     * **Initial State**: `null` for the first request in a session
+     * **Update Pattern**: Set to current timestamp after each afterInsertion
+     * **Reset Behavior**: Persists for the lifetime of the module instance
+     */
+    private var lastAfterInsertionTime: Long? = null
 
     /**
      * Collects the time since the last accepted completion.
@@ -118,20 +132,38 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
                 return emptyList()
             }
 
-            LOG.debug("Module $moduleName is enabled but implementation is pending")
-            // TODO: Implement actual data collection logic
-            // This should include:
-            // 1. Tracking completion acceptance events
-            // 2. Storing timestamps of accepted completions
-            // 3. Calculating time differences between acceptances
-            // 4. Creating Record with timing data
-            // 5. Handling edge cases (first acceptance, long intervals, etc.)
+            // Capture timing information for interval calculation
+            val previousTime = lastAfterInsertionTime
 
-            return emptyList()
+            // Create telemetry record for timing data
+            val record = Record(Record.Type.BEHAVIORAL_TELEMETRY)
+            val timeSinceLastShownCompletionKey = Record.key<Long>(KEY_TIME_SINCE_LAST_ACCEPTED)
+
+            // Calculate time difference (0 for first request)
+            var timeSinceLastShownCompletion = 0L
+            if (previousTime != null) {
+                // Calculate the time difference in milliseconds
+                timeSinceLastShownCompletion = System.currentTimeMillis() - previousTime
+            }
+
+            // Store the timing data in the record
+            record.put(timeSinceLastShownCompletionKey, timeSinceLastShownCompletion)
+
+            LOG.trace("Collected time since last completion: ${timeSinceLastShownCompletion}ms")
+            return listOf(record)
         } catch (e: Exception) {
             LOG.error("Failed to collect time-since-acceptance telemetry", e)
             return emptyList()
         }
+    }
+
+    override fun afterInsertion(
+        environment: InlineCompletionInsertEnvironment,
+        elements: List<InlineCompletionElement>,
+    ) {
+        // update the last accepted completion timestamp
+        lastAfterInsertionTime = System.currentTimeMillis()
+        LOG.trace("Updated last accepted completion timestamp to $lastAfterInsertionTime")
     }
 
     /**
@@ -156,12 +188,8 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
      */
     override fun initializeModules() {
         LOG.debug("Initialized $moduleName (implementation pending)")
-        // No initialization needed for this module at current implementation stage
-        // TODO: Add initialization logic when data collection is implemented
-        // This may include:
-        // - Setting up event listeners for completion acceptance
-        // - Loading persisted acceptance timestamps
-        // - Initializing timing measurement infrastructure
+        // No initialization needed for this module
+        // Timing state is managed automatically through the lastAfterInsertionTime
     }
 
     /**

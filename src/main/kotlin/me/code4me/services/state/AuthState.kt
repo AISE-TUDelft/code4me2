@@ -10,6 +10,11 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import me.code4me.services.state.AuthState.Companion.getAuthToken
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
 
@@ -184,6 +189,8 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
  *
  * @since 1.0.0
  */
+
+@OptIn(DelicateCoroutinesApi::class)
 class AuthSettings : BaseState() {
     companion object {
         private val LOG = thisLogger()
@@ -194,13 +201,43 @@ class AuthSettings : BaseState() {
      */
     private val propertyChangeSupport = PropertyChangeSupport(this)
 
+    // Cache for user information to avoid repeated secure storage access
+    @Volatile
+    private var cachedUserName: String? = null
+
+    @Volatile
+    private var cachedUserEmail: String? = null
+
+    @Volatile
+    private var cachedToken: String? = null
+
+    init {
+        GlobalScope.launch(Dispatchers.IO) {
+            // Initialize the cache in a background thread
+            initializeCache()
+        }
+    }
+
+    /**
+     * Initializes the cache by loading user information from secure storage.
+     * This should be called once during service initialization.
+     */
+    private fun initializeCache() {
+        synchronized(this) {
+            cachedUserName = AuthState.getUserInfo(USER_NAME_PROPERTY)
+            cachedUserEmail = AuthState.getUserInfo(USER_EMAIL_PROPERTY)
+            cachedToken = AuthState.getAuthToken(TOKEN_PROPERTY)
+            LOG.debug("User information cache initialized")
+        }
+    }
+
     /**
      * Retrieves the user's authentication token.
      *
      * @return The current authentication token, or null if not authenticated
      */
     fun getToken(): String? {
-        return AuthState.getAuthToken(TOKEN_PROPERTY)
+        return cachedToken
     }
 
     /**
@@ -219,6 +256,7 @@ class AuthSettings : BaseState() {
         try {
             AuthState.setAuthToken(TOKEN_PROPERTY, token)
             propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, token)
+            cachedToken = token
             LOG.debug("Authentication token updated successfully")
         } catch (e: Exception) {
             LOG.error("Failed to set authentication token", e)
@@ -227,16 +265,16 @@ class AuthSettings : BaseState() {
     }
 
     /**
-     * Retrieves the user's display name.
+     * Retrieves the user's display name from cache.
      *
      * @return The user's name, or null if not set
      */
     fun getUserName(): String? {
-        return AuthState.getUserInfo(USER_NAME_PROPERTY)
+        return cachedUserName
     }
 
     /**
-     * Sets the user's display name and notifies listeners.
+     * Sets the user's display name and updates cache.
      *
      * @param name The user's display name
      * @throws IllegalArgumentException if the name is blank
@@ -244,9 +282,10 @@ class AuthSettings : BaseState() {
     fun setUserName(name: String) {
         require(name.isNotBlank()) { "User name cannot be blank" }
 
-        val oldName = getUserName()
+        val oldName = cachedUserName
         try {
             AuthState.setUserInfo(USER_NAME_PROPERTY, name)
+            cachedUserName = name
             propertyChangeSupport.firePropertyChange(USER_NAME_PROPERTY, oldName, name)
             LOG.debug("User name updated successfully")
         } catch (e: Exception) {
@@ -256,16 +295,16 @@ class AuthSettings : BaseState() {
     }
 
     /**
-     * Retrieves the user's email address.
+     * Retrieves the user's email address from cache.
      *
      * @return The user's email, or null if not set
      */
     fun getUserEmail(): String? {
-        return AuthState.getUserInfo(USER_EMAIL_PROPERTY)
+        return cachedUserEmail
     }
 
     /**
-     * Sets the user's email address and notifies listeners.
+     * Sets the user's email address and updates cache.
      *
      * @param email The user's email address
      * @throws IllegalArgumentException if the email is blank
@@ -273,9 +312,10 @@ class AuthSettings : BaseState() {
     fun setUserEmail(email: String) {
         require(email.isNotBlank()) { "User email cannot be blank" }
 
-        val oldEmail = getUserEmail()
+        val oldEmail = cachedUserEmail
         try {
             AuthState.setUserInfo(USER_EMAIL_PROPERTY, email)
+            cachedUserEmail = email
             propertyChangeSupport.firePropertyChange(USER_EMAIL_PROPERTY, oldEmail, email)
             LOG.debug("User email updated successfully")
         } catch (e: Exception) {
@@ -294,19 +334,12 @@ class AuthSettings : BaseState() {
     }
 
     /**
-     * Clears all user authentication data and notifies listeners.
-     *
-     * This method performs a complete logout operation by:
-     * 1. Removing all stored credentials from secure storage
-     * 2. Firing property change events for each cleared field
-     * 3. Ensuring no sensitive data remains in memory
-     *
-     * This method is typically called during logout or when resetting the application state.
+     * Clears all user authentication data, cache, and notifies listeners.
      */
     fun clearUserData() {
-        val oldToken = getToken()
-        val oldName = getUserName()
-        val oldEmail = getUserEmail()
+        val oldToken = cachedToken
+        val oldName = cachedUserName
+        val oldEmail = cachedUserEmail
 
         try {
             // Clear all secure data
@@ -317,11 +350,13 @@ class AuthSettings : BaseState() {
 
             if (oldName != null) {
                 AuthState.removeSecureData(USER_NAME_PROPERTY)
+                cachedUserName = null
                 propertyChangeSupport.firePropertyChange(USER_NAME_PROPERTY, oldName, null)
             }
 
             if (oldEmail != null) {
                 AuthState.removeSecureData(USER_EMAIL_PROPERTY)
+                cachedUserEmail = null
                 propertyChangeSupport.firePropertyChange(USER_EMAIL_PROPERTY, oldEmail, null)
             }
 

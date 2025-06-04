@@ -1,7 +1,7 @@
 # GitLab CI/CD Pipeline Configuration
 
 # Define the Docker image to use for all jobs
-image: gradle:8.13-jdk17
+image: gradle:8.13-jdk21
 
 # Define stages for the pipeline
 stages:
