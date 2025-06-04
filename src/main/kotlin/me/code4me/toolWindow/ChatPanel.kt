@@ -35,7 +35,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private val ioManager = ChatIOManager()
     private val sessionManager = ChatSessionManager()
 
-//    private val configManager = ConfigManager() //TODO USE CONFIG MANAGER FOR RETRIEVING MODELS
+    //    private val configManager = ConfigManager() //TODO USE CONFIG MANAGER FOR RETRIEVING MODELS
     private val selectedFiles = mutableSetOf<VirtualFile>()
     private var welcomeShown = true
     private var useWeb = false
@@ -62,7 +62,10 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         border = JBUI.Borders.empty(0)
 
         fileComboBox = createFileComboBox()
-        inputPanel = createInputPanel()
+        project = ProjectManager.getInstance().openProjects.firstOrNull()
+        if (project == null) return
+
+        inputPanel = createInputPanel(project!!)
         chatDisplayPanel = ChatDisplayPanel()
         topBarPanel = createTopBarPanel()
         historyPanel = createHistoryPanel()
@@ -102,11 +105,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             }
         }
 
-    private fun createInputPanel() =
+    private fun createInputPanel(project: Project) =
         InputPanel(
+            project = project,
             onSend = ::sendMessage,
             onWebToggle = { enabled -> useWeb = enabled },
-            fileComboBox = fileComboBox,
             onFileClose = ::removeSelectedFile,
             onFileSelected = ::addSelectedFile,
         )
@@ -259,7 +262,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private fun loadModelsFromConfig() {
         try {
 //            val models = configManager.getModels()
-            val models = arrayOf("GPT-4", "Claude-3", "Gemini-Pro", "BEST MODEL EVER") //TODO use configmanager.getChatModels()
+            val models = arrayOf("GPT-4", "Claude-3", "Gemini-Pro", "BEST MODEL EVER") // TODO use configmanager.getChatModels()
             updateModelList(models)
 
             val defaultModel = ("GPT-4") // TODO use configmanager.getChatDefaultModel()

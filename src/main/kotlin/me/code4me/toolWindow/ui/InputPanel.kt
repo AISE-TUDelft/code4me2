@@ -1,10 +1,11 @@
 package me.code4me.toolWindow.chatPanelUI
 
-import com.intellij.openapi.ui.ComboBox
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
+import me.code4me.toolWindow.componenets.FileTabsComponent
 import java.awt.BorderLayout
 import javax.swing.BorderFactory
 
@@ -12,9 +13,9 @@ import javax.swing.BorderFactory
  * Main input panel that orchestrates text input, file management, and controls
  */
 class InputPanel(
+    private val project: Project,
     private val onSend: () -> Unit,
     private val onWebToggle: (Boolean) -> Unit,
-    private val fileComboBox: ComboBox<VirtualFile>,
     private val onFileClose: (VirtualFile) -> Unit,
     private val onFileSelected: (VirtualFile) -> Unit,
 ) : JBPanel<InputPanel>(BorderLayout()) {
@@ -27,7 +28,7 @@ class InputPanel(
             onSend = onSend,
         )
 
-    private val fileSelectionDialog = FileSelectionDialog(fileComboBox, onFileSelected)
+    private val fileSelectionDialog = FileSelectionDialog(project, onFileSelected)
 
     init {
         setupLayout()

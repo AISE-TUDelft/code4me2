@@ -5,6 +5,7 @@ import com.intellij.ui.JBColor
 import me.code4me.toolWindow.chatPanelUI.ControlsComponent
 import java.awt.Color
 import java.awt.Dimension
+import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Insets
@@ -170,6 +171,44 @@ class IconToggleButton(
         addItemListener { e ->
             updateIcon()
             repaint()
+        }
+    }
+
+    /**
+     * Reusable "X" close button with hover effects
+     */
+    class CloseIconButton(
+        tooltip: String = "Close",
+        onClick: () -> Unit,
+    ) : JButton("×") {
+        init {
+            isFocusPainted = false
+            isContentAreaFilled = false
+            isBorderPainted = false
+            isOpaque = false
+            isFocusable = false
+            margin = Insets(0, 0, 0, 0)
+            preferredSize = Dimension(16, 16)
+            toolTipText = tooltip
+            font = font.deriveFont(Font.BOLD, 12f)
+            foreground = JBColor(Color(120, 130, 140), Color(180, 185, 190))
+
+            addActionListener { onClick() }
+            setupHoverEffect()
+        }
+
+        private fun setupHoverEffect() {
+            addMouseListener(
+                object : java.awt.event.MouseAdapter() {
+                    override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+                        foreground = JBColor(Color(200, 50, 50), Color(255, 100, 100))
+                    }
+
+                    override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                        foreground = JBColor(Color(120, 130, 140), Color(180, 185, 190))
+                    }
+                },
+            )
         }
     }
 }

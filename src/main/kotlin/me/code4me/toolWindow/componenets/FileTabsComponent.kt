@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.chatPanelUI
+package me.code4me.toolWindow.componenets
 
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBColor
@@ -180,10 +180,13 @@ private class FileTab(
         val fileName = file.name
         val fontMetrics = getFontMetrics(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f))
         val textWidth = fontMetrics.stringWidth(fileName)
-        val closeButtonWidth = 16
-        val padding = 32 // Border padding + component spacing
 
-        return textWidth + closeButtonWidth + padding
+        val iconWidth = file.fileType.icon?.iconWidth ?: 0
+        val iconTextGap = 4 // space between icon and text
+        val closeButtonWidth = 16
+        val padding = 32 // side padding + layout spacing
+
+        return textWidth + iconWidth + iconTextGap + closeButtonWidth + padding
     }
 
     override fun paintComponent(g: Graphics) {
@@ -211,38 +214,11 @@ private class FileTab(
     }
 
     private fun createFileNameLabel() =
-        JLabel(file.name).apply {
+        JLabel(file.name, file.fileType.icon, JLabel.LEFT).apply {
             foreground = JBColor(Color(50, 60, 70), Color(220, 225, 230))
             font = UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f)
             border = JBUI.Borders.empty(0, 2, 0, 2)
         }
 
-    private fun createCloseButton() =
-        JButton("×").apply {
-            isFocusPainted = false
-            isContentAreaFilled = false
-            isBorderPainted = false
-            border = JBUI.Borders.empty()
-            foreground = JBColor(Color(120, 130, 140), Color(180, 185, 190))
-            font = font.deriveFont(Font.BOLD, 12f)
-            margin = Insets(0, 0, 0, 0)
-            preferredSize = Dimension(16, 16)
-
-            setupHoverEffect()
-            addActionListener { onClose(file) }
-        }
-
-    private fun JButton.setupHoverEffect() {
-        addMouseListener(
-            object : java.awt.event.MouseAdapter() {
-                override fun mouseEntered(e: java.awt.event.MouseEvent?) {
-                    foreground = JBColor(Color(200, 50, 50), Color(255, 100, 100))
-                }
-
-                override fun mouseExited(e: java.awt.event.MouseEvent?) {
-                    foreground = JBColor(Color(120, 130, 140), Color(180, 185, 190))
-                }
-            },
-        )
-    }
+    private fun createCloseButton() = IconToggleButton.CloseIconButton(onClick = { onClose(file) })
 }
