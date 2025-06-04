@@ -1,8 +1,7 @@
-package me.code4me.toolWindow.componenets
+package me.code4me.toolWindow.ui.componenets
 
 import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.JBColor
-import me.code4me.toolWindow.chatPanelUI.ControlsComponent
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Font
@@ -10,6 +9,8 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Insets
 import java.awt.RenderingHints
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.Icon
 import javax.swing.JButton
 import javax.swing.JToggleButton
@@ -40,13 +41,13 @@ class IconButton(
 
     private fun setupHoverEffect() {
         addMouseListener(
-            object : java.awt.event.MouseAdapter() {
-                override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+            object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent?) {
                     isHovered = true
                     repaint()
                 }
 
-                override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                override fun mouseExited(e: MouseEvent?) {
                     isHovered = false
                     repaint()
                 }
@@ -96,20 +97,20 @@ class CleanIconButton(
         addActionListener { action() }
 
         addMouseListener(
-            object : java.awt.event.MouseAdapter() {
-                override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+            object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent?) {
                     icon = hoverIcon
                 }
 
-                override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                override fun mouseExited(e: MouseEvent?) {
                     icon = defaultIcon
                 }
 
-                override fun mousePressed(e: java.awt.event.MouseEvent?) {
+                override fun mousePressed(e: MouseEvent?) {
                     icon = clickIcon
                 }
 
-                override fun mouseReleased(e: java.awt.event.MouseEvent?) {
+                override fun mouseReleased(e: MouseEvent?) {
                     icon = if (contains(e!!.point)) hoverIcon else defaultIcon
                 }
             },
@@ -157,12 +158,12 @@ class IconToggleButton(
 
     private fun setupEffects() {
         addMouseListener(
-            object : java.awt.event.MouseAdapter() {
-                override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+            object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent?) {
                     // overriding with empty so it doesn't add unwanted hover effects
                 }
 
-                override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                override fun mouseExited(e: MouseEvent?) {
                     // overriding with empty so it doesn't add unwanted hover effects
                 }
             },
@@ -199,12 +200,12 @@ class IconToggleButton(
 
         private fun setupHoverEffect() {
             addMouseListener(
-                object : java.awt.event.MouseAdapter() {
-                    override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+                object : MouseAdapter() {
+                    override fun mouseEntered(e: MouseEvent?) {
                         foreground = JBColor(Color(200, 50, 50), Color(255, 100, 100))
                     }
 
-                    override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                    override fun mouseExited(e: MouseEvent?) {
                         foreground = JBColor(Color(120, 130, 140), Color(180, 185, 190))
                     }
                 },

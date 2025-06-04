@@ -19,7 +19,12 @@
                                 order="first"/>
 
 
-        <toolWindow factoryClass="me.code4me.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
+        <toolWindow
+                factoryClass="me.code4me.toolWindow.MyToolWindowFactory"
+                id="Code4Me V2"
+                anchor="right"
+                icon="/icons/send.svg"
+        />
         <postStartupActivity implementation="me.code4me.startup.PluginStartupActivity" />
         <postStartupActivity implementation="me.code4me.services.modules.telemetry.helpers.typingSpeed.TypingTelemetryStartup"/>
 

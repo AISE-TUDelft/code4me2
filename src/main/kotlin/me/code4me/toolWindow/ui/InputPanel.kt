@@ -5,12 +5,25 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
-import me.code4me.toolWindow.componenets.FileTabsComponent
+import me.code4me.toolWindow.ui.componenets.ControlsComponent
+import me.code4me.toolWindow.ui.componenets.FileSelectionDialog
+import me.code4me.toolWindow.ui.componenets.FileTabsComponent
 import java.awt.BorderLayout
 import javax.swing.BorderFactory
 
 /**
- * Main input panel that orchestrates text input, file management, and controls
+ * Main input panel that orchestrates:
+ * - Text input
+ * - File attachment tabs
+ * - Control buttons (send, web toggle, model selector)
+ *
+ * Acts as the bridge between user actions and logic handled by the surrounding tool window.
+ *
+ * @param project Current IntelliJ project instance.
+ * @param onSend Callback triggered when the send button or Enter key is pressed.
+ * @param onWebToggle Callback triggered when the web toggle is enabled/disabled.
+ * @param onFileClose Callback triggered when a file tab's close button is clicked.
+ * @param onFileSelected Callback triggered when a file is selected from the file dialog.
  */
 class InputPanel(
     private val project: Project,
@@ -47,6 +60,14 @@ class InputPanel(
         isOpaque = true
     }
 
+    /**
+     * Assembles the core vertical structure containing:
+     * - Text input at the top
+     * - File tab list in the middle
+     * - Control buttons at the bottom
+     *
+     * @return A styled and bordered panel with vertical layout.
+     */
     private fun createMainContainer() =
         JBPanel<JBPanel<*>>(BorderLayout()).apply {
             border =
@@ -61,7 +82,12 @@ class InputPanel(
             add(controlsComponent, BorderLayout.SOUTH)
         }
 
+    /**
+     * Opens the file selection popup dialog anchored to the "Add File" button.
+     * Filters out files that are already added as tabs.
+     */
     private fun showFileSelectionDialog() {
+        fileSelectionDialog.excludedFiles = fileTabsComponent.getAllOpenFiles()
         fileSelectionDialog.show(controlsComponent.getAddFileButton())
     }
 
@@ -73,6 +99,8 @@ class InputPanel(
     fun removeFileTab(file: VirtualFile) = fileTabsComponent.removeTab(file)
 
     fun updateModelComboBox(models: Array<String>) = controlsComponent.updateModels(models)
+
+    fun getSelectedModel(): String? = controlsComponent.getSelectedModel()
 
     val inputText: String get() = textInputComponent.text
 }

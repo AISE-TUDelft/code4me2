@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.componenets
+package me.code4me.toolWindow.ui.componenets
 
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBColor
@@ -27,11 +27,16 @@ class FileTabsComponent(
 
     private fun setupStyling() {
         background = JBColor.background()
-        border = JBUI.Borders.empty(0, 0, 4, 0)
+        border = JBUI.Borders.emptyBottom(4)
         // Start with no preferred size - will be calculated dynamically
         preferredSize = Dimension(0, MIN_HEIGHT)
     }
 
+    /**
+     * Adds a new file tab to the component if it's not already present.
+     *
+     * @param file The VirtualFile to add as a tab.
+     */
     fun addTab(file: VirtualFile) {
         if (fileTabs.containsKey(file)) return
 
@@ -42,6 +47,11 @@ class FileTabsComponent(
         updateHeight()
     }
 
+    /**
+     * Removes the tab corresponding to the given file.
+     *
+     * @param file The VirtualFile whose tab should be removed.
+     */
     fun removeTab(file: VirtualFile) {
         fileTabs[file]?.let { tab ->
             remove(tab)
@@ -50,16 +60,20 @@ class FileTabsComponent(
         }
     }
 
-    fun hasTab(file: VirtualFile): Boolean = fileTabs.containsKey(file)
-
-    fun getTabCount(): Int = fileTabs.size
-
+    /**
+     * Removes all tabs and resets the component. Not currently used, but we could use it when user switches to differnet editor or different chat.
+     */
     fun clearAllTabs() {
         removeAll()
         fileTabs.clear()
         updateHeight()
     }
 
+    /**
+     * Calculates and applies a new preferred height for the tab container based on tab wrapping.
+     *
+     * Called after adding or removing tabs.
+     */
     private fun updateHeight() {
         SwingUtilities.invokeLater {
             val newHeight = calculateRequiredHeight()
@@ -68,6 +82,11 @@ class FileTabsComponent(
         }
     }
 
+    /**
+     * Determines how many rows of tabs are needed and computes total vertical height.
+     *
+     * @return The required height for the current tab layout.
+     */
     private fun calculateRequiredHeight(): Int {
         if (fileTabs.isEmpty()) {
             return MIN_HEIGHT
@@ -79,12 +98,16 @@ class FileTabsComponent(
         val availableWidth = calculateAvailableWidth()
         if (availableWidth <= 0) return TAB_HEIGHT + VERTICAL_PADDING
 
-        // Calculate how many rows we need based on tab widths and available space
         val rowCount = calculateRowCount(availableWidth)
 
         return (rowCount * TAB_HEIGHT) + VERTICAL_PADDING
     }
 
+    /**
+     * Estimates the available horizontal space for laying out tabs.
+     *
+     * @return The usable width in pixels.
+     */
     private fun calculateAvailableWidth(): Int {
         val containerWidth = parent?.width ?: 0
         val insets = insets
@@ -95,6 +118,12 @@ class FileTabsComponent(
         }
     }
 
+    /**
+     * Computes how many rows of tabs are needed based on the container width and tab sizes.
+     *
+     * @param availableWidth The width available for laying out tabs.
+     * @return The number of rows required.
+     */
     private fun calculateRowCount(availableWidth: Int): Int {
         if (fileTabs.isEmpty()) return 0
 
@@ -119,6 +148,11 @@ class FileTabsComponent(
         return maxOf(1, rowCount)
     }
 
+    /**
+     * Applies a new height to the tab component if it's different from the current height.
+     *
+     * @param newHeight The target height in pixels.
+     */
     private fun updateDimensions(newHeight: Int) {
         val currentHeight = preferredSize.height
         if (currentHeight != newHeight) {
@@ -128,6 +162,11 @@ class FileTabsComponent(
         }
     }
 
+    /**
+     * Invalidates and revalidates the component hierarchy to force layout update.
+     *
+     * Called after tabs are added or removed to adjust layout.
+     */
     private fun refreshLayout() {
         // Refresh the parent container to accommodate height changes
         val parentContainer = parent?.parent
@@ -156,6 +195,8 @@ class FileTabsComponent(
             SwingUtilities.invokeLater { updateHeight() }
         }
     }
+
+    fun getAllOpenFiles(): Set<VirtualFile> = fileTabs.keys.toSet()
 }
 
 /**
@@ -189,6 +230,9 @@ private class FileTab(
         return textWidth + iconWidth + iconTextGap + closeButtonWidth + padding
     }
 
+    /**
+     * Custom rendering to draw rounded tab background and border.
+     */
     override fun paintComponent(g: Graphics) {
         val g2 = g as Graphics2D
         val width = width
@@ -217,7 +261,7 @@ private class FileTab(
         JLabel(file.name, file.fileType.icon, JLabel.LEFT).apply {
             foreground = JBColor(Color(50, 60, 70), Color(220, 225, 230))
             font = UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f)
-            border = JBUI.Borders.empty(0, 2, 0, 2)
+            border = JBUI.Borders.empty(0, 2)
         }
 
     private fun createCloseButton() = IconToggleButton.CloseIconButton(onClick = { onClose(file) })

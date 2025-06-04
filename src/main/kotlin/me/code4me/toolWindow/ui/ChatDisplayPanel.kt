@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.chatPanelUI
+package me.code4me.toolWindow.ui
 
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
@@ -9,6 +9,11 @@ import javax.swing.JTextPane
 import javax.swing.ScrollPaneConstants
 import javax.swing.border.EmptyBorder
 
+/**
+ * Panel responsible for rendering the chat conversation display.
+ *
+ * Displays both user and assistant messages in a vertical scrollable layout.
+ */
 class ChatDisplayPanel : JBPanel<ChatDisplayPanel>(BorderLayout()) {
     private val chatArea =
         JTextPane().apply {

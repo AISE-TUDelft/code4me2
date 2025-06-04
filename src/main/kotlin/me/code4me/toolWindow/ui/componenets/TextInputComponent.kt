@@ -2,10 +2,12 @@ package me.code4me.toolWindow.chatPanelUI
 
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FontMetrics
+import java.awt.event.ActionEvent
 import javax.swing.*
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
@@ -49,7 +51,7 @@ class TextInputComponent(
         }
 
     private fun createScrollPane() =
-        JScrollPane(textArea).apply {
+        JBScrollPane(textArea).apply {
             border = null
             isOpaque = false
             viewport.isOpaque = false
@@ -74,7 +76,7 @@ class TextInputComponent(
         actionMap.put(
             "send",
             object : AbstractAction() {
-                override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+                override fun actionPerformed(e: ActionEvent?) {
                     onSend()
                 }
             },
@@ -83,7 +85,7 @@ class TextInputComponent(
         actionMap.put(
             "insert-newline",
             object : AbstractAction() {
-                override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+                override fun actionPerformed(e: ActionEvent?) {
                     textArea.append("\n")
                 }
             },

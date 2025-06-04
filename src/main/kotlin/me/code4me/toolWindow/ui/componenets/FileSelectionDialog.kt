@@ -1,15 +1,16 @@
-package me.code4me.toolWindow.chatPanelUI
+package me.code4me.toolWindow.ui.componenets
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.psi.search.FilenameIndex
-import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.ui.JBColor
+import com.intellij.ui.components.JBList
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.*
 import java.awt.*
@@ -21,6 +22,9 @@ import javax.swing.event.DocumentListener
 import kotlin.math.max
 import kotlin.math.min
 
+/**
+ * * Dialog for selecting files from the project, with search functionality and dynamic sizing.
+ */
 class FileSelectionDialog(
     private val project: Project,
     private val onFileSelected: (VirtualFile) -> Unit,
@@ -46,7 +50,13 @@ class FileSelectionDialog(
     private lateinit var contentPanel: JPanel
     private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var anchorComponent: JComponent? = null
+    var excludedFiles: Set<VirtualFile> = emptySet()
 
+    /**
+     * Displays the file selection popup anchored to a given UI component.
+     *
+     * @param anchorComponent The UI component to align the popup with.
+     */
     fun show(anchorComponent: JComponent) {
         this.anchorComponent = anchorComponent
         currentPopup = createFileSelectionPopup()
@@ -59,11 +69,18 @@ class FileSelectionDialog(
         }
     }
 
+    /**
+     * Builds and returns the main file selection popup UI with search and list.
+     *
+     * @return A configured JBPopup ready to be shown.
+     */
     private fun createFileSelectionPopup(): JBPopup {
         val openFiles = FileEditorManager.getInstance(project).openFiles
         listModel =
             DefaultListModel<VirtualFile>().apply {
-                openFiles.forEach { addElement(it) }
+                openFiles
+                    .filterNot { excludedFiles.contains(it) } // ✅ correct filtering
+                    .forEach { addElement(it) }
             }
 
         fileList = createFileList()
@@ -79,21 +96,13 @@ class FileSelectionDialog(
             .createPopup()
     }
 
-    private fun createContent(): JComponent {
-        val openFiles = FileEditorManager.getInstance(project).openFiles
-        listModel =
-            DefaultListModel<VirtualFile>().apply {
-                openFiles.forEach { addElement(it) }
-            }
-
-        fileList = createFileList()
-        val searchField = createSearchField()
-
-        return createContentPanel(searchField, fileList)
-    }
-
+    /**
+     * Creates the file list UI component showing VirtualFiles as selectable items.
+     *
+     * @return A JList of VirtualFiles with custom rendering and click behavior.
+     */
     private fun createFileList(): JList<VirtualFile> =
-        JList(listModel).apply {
+        JBList(listModel).apply {
             selectionMode = ListSelectionModel.SINGLE_SELECTION
             isOpaque = false
             background = JBColor.PanelBackground
@@ -118,16 +127,20 @@ class FileSelectionDialog(
             )
         }
 
+    /**
+     * Builds the search field that filters the file list in real time.
+     *
+     * @return A configured JTextField with listeners.
+     */
     private fun createSearchField(): JTextField =
         JTextField().apply {
             font = font.deriveFont(Font.PLAIN, 13f)
-            margin = Insets(2, 6, 2, 6)
             background = JBColor.PanelBackground
             foreground = JBColor.foreground()
             border =
                 BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(JBColor.border(), 1, true),
-                    JBUI.Borders.empty(4, 8),
+                    JBUI.Borders.empty(),
                 )
 
             fun filter(query: String) {
@@ -145,28 +158,25 @@ class FileSelectionDialog(
 
                 coroutineScope.launch(Dispatchers.IO) {
                     try {
-                        val matchingNames =
-                            ApplicationManager.getApplication().runReadAction<List<String>> {
-                                FilenameIndex.getAllFilenames(project).filter {
-                                    it.contains(trimmedQuery, ignoreCase = true)
+                        val matchingFiles =
+                            ApplicationManager.getApplication().runReadAction<List<VirtualFile>> {
+                                val projectFileIndex = ProjectRootManager.getInstance(project).fileIndex
+                                val allFiles = mutableListOf<VirtualFile>()
+
+                                // Collect all project files
+                                projectFileIndex.iterateContent { file ->
+                                    if (!file.isDirectory && file.name.contains(trimmedQuery, ignoreCase = true)) {
+                                        allFiles.add(file)
+                                    }
+                                    true // Continue iteration
                                 }
+
+                                allFiles
                             }
-
-                        val files = mutableSetOf<VirtualFile>()
-                        val scope = GlobalSearchScope.projectScope(project)
-
-                        for (name in matchingNames) {
-                            val matches =
-                                ApplicationManager.getApplication().runReadAction<List<VirtualFile>> {
-                                    FilenameIndex.getVirtualFilesByName(project, name, scope)
-                                        .filter { it.name.contains(trimmedQuery, ignoreCase = true) }
-                                }
-                            files += matches
-                        }
 
                         SwingUtilities.invokeLater {
                             listModel.clear()
-                            files.forEach { listModel.addElement(it) }
+                            matchingFiles.forEach { listModel.addElement(it) }
                             emptyStateLabel.text = if (listModel.isEmpty) "No files found" else ""
                             emptyStateLabel.isVisible = listModel.isEmpty
                             updatePopupSize()
@@ -196,6 +206,13 @@ class FileSelectionDialog(
             }
         }
 
+    /**
+     * Combines the search field, file list, and labels into a single content panel.
+     *
+     * @param searchField The search input.
+     * @param fileList The list of files to display.
+     * @return The fully assembled content JPanel for the popup.
+     */
     private fun createContentPanel(
         searchField: JTextField,
         fileList: JList<VirtualFile>,
@@ -204,7 +221,7 @@ class FileSelectionDialog(
         searchField.preferredSize = Dimension(initialWidth - 16, SEARCH_FIELD_HEIGHT)
 
         listScrollPane =
-            JScrollPane(fileList).apply {
+            JBScrollPane(fileList).apply {
                 isOpaque = false
                 viewport.isOpaque = false
                 border = BorderFactory.createEmptyBorder()
@@ -252,6 +269,11 @@ class FileSelectionDialog(
         }
     }
 
+    /**
+     * Calculates optimal popup width based on file name lengths. todo improve
+     *
+     * @return The desired width within predefined bounds.
+     */
     private fun calculateDynamicWidth(): Int {
         val fontMetrics = fileList.getFontMetrics(fileList.font)
         var maxTextWidth = 0
@@ -264,13 +286,18 @@ class FileSelectionDialog(
         return min(max(calculatedWidth, MIN_WIDTH), MAX_WIDTH)
     }
 
+    /**
+     * Dynamically updates the popup dimensions based on content and layout. todo improve
+     *
+     * Called when filtering results or resizing.
+     */
     private fun updatePopupSize() {
         SwingUtilities.invokeLater {
             val isEmpty = listModel.isEmpty
             emptyStateLabel.isVisible = isEmpty
 
             val dynamicWidth = calculateDynamicWidth()
-            val emptyListHeight = 32
+            val emptyListHeight = 1
 
             val listHeight =
                 if (isEmpty) {
@@ -313,6 +340,12 @@ class FileSelectionDialog(
         }
     }
 
+    /**
+     * Positions and shows the popup near the given anchor component.
+     *
+     * @param popup The JBPopup to show.
+     * @param anchorComponent The UI anchor.
+     */
     private fun showPopup(
         popup: JBPopup,
         anchorComponent: JComponent,
@@ -324,6 +357,10 @@ class FileSelectionDialog(
         popup.showInScreenCoordinates(anchorComponent, Point(x, y))
     }
 
+    /**
+     * Custom list cell renderer for VirtualFiles.
+     * Shows file icon and name, styled with padding and selection color.
+     */
     private inner class FileListCellRenderer : DefaultListCellRenderer() {
         override fun getListCellRendererComponent(
             list: JList<*>?,
@@ -338,7 +375,7 @@ class FileSelectionDialog(
             foreground = JBColor.foreground()
             icon = file?.fileType?.icon ?: AllIcons.FileTypes.Text
             background = if (isSelected) JBColor(Color(0, 120, 215, 40), Color(0, 120, 215, 60)) else Color(0, 0, 0, 0)
-            border = JBUI.Borders.empty(6, 12, 6, 12)
+            border = JBUI.Borders.empty(6, 12)
             isOpaque = isSelected
             preferredSize = Dimension(preferredSize.width, ROW_HEIGHT)
             return comp

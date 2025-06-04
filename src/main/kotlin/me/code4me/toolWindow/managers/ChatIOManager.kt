@@ -22,7 +22,8 @@ class ChatIOManager {
         query: String,
         useWeb: Boolean,
         selectedFiles: List<String>,
+        selectedModel: String?,
     ): String {
-        return "Query: $query | Web: $useWeb | Files: ${selectedFiles.joinToString()}"
+        return "Query: $query | Web: $useWeb | Files: ${selectedFiles.joinToString()} | Model: $selectedModel"
     }
 }

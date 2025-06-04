@@ -1,13 +1,10 @@
-package me.code4me.toolWindow.chatPanelUI
+package me.code4me.toolWindow.ui.componenets
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
-import me.code4me.toolWindow.componenets.CleanIconButton
-import me.code4me.toolWindow.componenets.IconButton
-import me.code4me.toolWindow.componenets.IconToggleButton
 import java.awt.*
 import javax.swing.*
 
@@ -29,6 +26,10 @@ class ControlsComponent(
         setupStyling()
     }
 
+    /**
+     * Constructs the layout of the component by arranging control buttons
+     * on the left and the send button on the right.
+     */
     private fun setupLayout() {
         val leftPanel =
             JPanel().apply {
@@ -54,6 +55,9 @@ class ControlsComponent(
         add(rightPanel, BorderLayout.EAST)
     }
 
+    /**
+     * Applies basic styling: background color and padding borders.
+     */
     private fun setupStyling() {
         background = JBColor.background()
         border =
@@ -93,4 +97,6 @@ class ControlsComponent(
     fun getAddFileButton(): JButton = addFileButton
 
     fun updateModels(models: Array<String>) = modelComboBox.updateModels(models)
+
+    fun getSelectedModel(): String? = modelComboBox.getSelectedModel()
 }

@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.chatPanelUI
+package me.code4me.toolWindow.ui.componenets
 
 import com.intellij.openapi.ui.ComboBox
 import java.awt.*
@@ -10,7 +10,9 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Self-sizing combo box for model selection
+ * A combo box UI component for selecting AI models.
+ *
+ * Displays a dropdown list of available model names
  */
 class ModelComboBox : ComboBox<String>() {
     companion object {
@@ -42,7 +44,7 @@ class ModelComboBox : ComboBox<String>() {
         isOpaque = false
         background = Color(0, 0, 0, 0)
         border = null
-        renderer = TransparentRenderer()
+        setRenderer(TransparentRenderer())
     }
 
     private fun setupAutoResize() {
@@ -85,6 +87,13 @@ class ModelComboBox : ComboBox<String>() {
         return max(MIN_WIDTH, min(totalWidth, MAX_WIDTH))
     }
 
+    /**
+     * Replaces the current list of models in the dropdown with a new set.
+     *
+     * Clears existing entries and repopulates the combo box.
+     *
+     * @param models The array of model names to display.
+     */
     fun updateModels(models: Array<String>) {
         val currentSelection = selectedItem?.toString()
 
@@ -108,10 +117,6 @@ class ModelComboBox : ComboBox<String>() {
 
     fun getSelectedModel(): String? {
         return selectedItem?.toString()?.takeIf { it != "Loading models..." && it != "No models available" }
-    }
-
-    fun hasValidSelection(): Boolean {
-        return getSelectedModel() != null
     }
 
     private class TransparentRenderer : DefaultListCellRenderer() {
