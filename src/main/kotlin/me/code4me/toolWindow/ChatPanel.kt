@@ -1,20 +1,17 @@
 package me.code4me.toolWindow
 
-import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.fileEditor.FileEditorManagerEvent
-import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
-import me.code4me.toolWindow.chatPanelUI.InputPanel
 import me.code4me.toolWindow.chatPanelUI.TopBarPanel
 import me.code4me.toolWindow.managers.ChatIOManager
 import me.code4me.toolWindow.managers.ChatSessionManager
 import me.code4me.toolWindow.managers.ChatViewManager
 import me.code4me.toolWindow.ui.ChatDisplayPanel
 import me.code4me.toolWindow.ui.HistoryPanel
+import me.code4me.toolWindow.ui.InputPanel
 import me.code4me.toolWindow.utils.ChatMessageRenderer
 import java.awt.BorderLayout
 
@@ -62,7 +59,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
      * Initializes subpanels and registers them with the view manager.
      */
     private fun setupPanelLayout() {
-        border = JBUI.Borders.empty(0)
+        border = JBUI.Borders.empty()
 
         project = ProjectManager.getInstance().openProjects.firstOrNull()
         if (project == null) return
@@ -132,41 +129,6 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             add(chatDisplayPanel, BorderLayout.CENTER)
             add(inputPanel, BorderLayout.SOUTH)
         }
-
-    /**
-     * Subscribes to file editor events such as file opened, closed,
-     * and selection changed to keep track of files relevant to the chat.
-     */
-    private fun subscribeToFileChanges() {
-        project = ProjectManager.getInstance().openProjects.firstOrNull() ?: return
-        val connection = project!!.messageBus.connect()
-
-        connection.subscribe(
-            FileEditorManagerListener.FILE_EDITOR_MANAGER,
-            object : FileEditorManagerListener {
-                override fun selectionChanged(event: FileEditorManagerEvent) {
-                    // Removed updateFileDropdown call safely
-                }
-
-                override fun fileOpened(
-                    source: FileEditorManager,
-                    file: VirtualFile,
-                ) {
-                    // Removed updateFileDropdown call safely
-                }
-
-                override fun fileClosed(
-                    source: FileEditorManager,
-                    file: VirtualFile,
-                ) {
-                    if (selectedFiles.contains(file)) {
-                        removeSelectedFile(file)
-                    }
-                    // Removed updateFileDropdown call safely
-                }
-            },
-        )
-    }
 
     private fun addSelectedFile(file: VirtualFile) {
         if (selectedFiles.add(file)) {

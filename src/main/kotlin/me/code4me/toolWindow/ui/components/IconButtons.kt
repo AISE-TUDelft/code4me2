@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.ui.componenets
+package me.code4me.toolWindow.ui.components
 
 import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.JBColor
@@ -75,7 +75,7 @@ class IconButton(
 class CleanIconButton(
     private val defaultIcon: Icon,
     private val hoverIcon: Icon,
-    private val clickIcon: Icon, // NEW
+    private val clickIcon: Icon,
     tooltip: String,
     action: () -> Unit,
 ) : JButton(defaultIcon) {

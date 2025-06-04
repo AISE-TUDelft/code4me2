@@ -3,13 +3,22 @@ package me.code4me.toolWindow.utils
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import me.code4me.toolWindow.managers.ChatSession
-import java.awt.*
+import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Component
+import java.awt.Cursor
+import java.awt.Dimension
+import java.awt.Font
 import java.text.SimpleDateFormat
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
-import java.util.*
-import javax.swing.*
+import java.util.Date
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.JSeparator
 import javax.swing.border.EmptyBorder
 
 class HistoryRenderer(

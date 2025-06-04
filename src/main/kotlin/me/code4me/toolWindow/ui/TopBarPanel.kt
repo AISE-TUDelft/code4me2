@@ -4,9 +4,19 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
 import me.code4me.toolWindow.managers.ChatSessionManager
-import java.awt.*
-import java.awt.event.*
-import javax.swing.*
+import java.awt.Cursor
+import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.Font
+import java.awt.Insets
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
+import javax.swing.JButton
+import javax.swing.JLabel
+import javax.swing.JOptionPane
+import javax.swing.JTextField
 
 /**
  * Represents the top bar in the chat UI, showing the session title and controls

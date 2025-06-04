@@ -1,7 +1,11 @@
-package me.code4me.toolWindow.ui.componenets
+package me.code4me.toolWindow.ui.components
 
 import com.intellij.openapi.ui.ComboBox
-import java.awt.*
+import java.awt.Canvas
+import java.awt.Color
+import java.awt.Component
+import java.awt.Dimension
+import java.awt.Font
 import javax.swing.DefaultListCellRenderer
 import javax.swing.JList
 import javax.swing.SwingUtilities

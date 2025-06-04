@@ -1,12 +1,16 @@
-package me.code4me.toolWindow.ui.componenets
+package me.code4me.toolWindow.ui.components
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
-import java.awt.*
-import javax.swing.*
+import java.awt.BorderLayout
+import javax.swing.BorderFactory
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JButton
+import javax.swing.JPanel
 
 /**
  * Component containing the bottom control buttons and model selector
@@ -88,7 +92,7 @@ class ControlsComponent(
         return CleanIconButton(
             defaultIcon = sendIcon,
             hoverIcon = hoverIcon,
-            clickIcon = clickIcon, // Pass it in
+            clickIcon = clickIcon,
             tooltip = "Send (Enter)",
             action = onSend,
         )

@@ -8,7 +8,12 @@ import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FontMetrics
 import java.awt.event.ActionEvent
-import javax.swing.*
+import javax.swing.AbstractAction
+import javax.swing.JScrollPane
+import javax.swing.JTextArea
+import javax.swing.KeyStroke
+import javax.swing.SwingUtilities
+import javax.swing.UIManager
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import kotlin.math.ceil
@@ -167,8 +172,8 @@ class TextInputComponent(
         SwingUtilities.invokeLater {
             try {
                 val caretPos = textArea.caretPosition
-                val rect = textArea.modelToView(caretPos)
-                rect?.let { textArea.scrollRectToVisible(it) }
+                val rect = textArea.modelToView2D(caretPos)
+                rect?.let { textArea.scrollRectToVisible(it.bounds) }
             } catch (e: Exception) {
                 textArea.caretPosition = textArea.text.length
             }

@@ -12,7 +12,11 @@ import java.awt.Color
 import java.awt.Font
 import java.time.LocalDateTime
 import java.time.ZoneId
-import javax.swing.*
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JLabel
+import javax.swing.JScrollPane
+import javax.swing.SwingConstants
 import javax.swing.border.EmptyBorder
 
 /**
