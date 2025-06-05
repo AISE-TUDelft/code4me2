@@ -1,23 +1,28 @@
 package me.code4me.toolWindow.ui
 
+import com.intellij.icons.AllIcons
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import me.code4me.toolWindow.managers.ChatSession
 import me.code4me.toolWindow.managers.ChatSessionManager
+import me.code4me.toolWindow.ui.components.IconButton
 import me.code4me.toolWindow.utils.HistoryRenderer
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Cursor
+import java.awt.FlowLayout
 import java.awt.Font
 import java.time.LocalDateTime
 import java.time.ZoneId
 import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.JButton
 import javax.swing.JLabel
+import javax.swing.JOptionPane
 import javax.swing.JScrollPane
 import javax.swing.SwingConstants
-import javax.swing.border.EmptyBorder
 
 /**
  * Represents the panel that displays the history of chat sessions.
@@ -32,23 +37,90 @@ class HistoryPanel(
     private val scrollPane: JBScrollPane
     private val contentPanel: JBPanel<*>
     private val renderer =
-        HistoryRenderer { session ->
-            sessionManager.switchToSession(session)
-            onSessionSelected()
-        }
+        HistoryRenderer(
+            onClick = { session ->
+                sessionManager.switchToSession(session)
+                onSessionSelected()
+            },
+            onDelete = { session ->
+                sessionManager.deleteSession(session)
+                refresh()
+            },
+        )
 
     init {
         border = JBUI.Borders.empty(12)
         isOpaque = false
 
-        add(
-            JLabel("Chat History").apply {
-                font = Font("SansSerif", Font.BOLD, 18)
-                foreground = JBColor(Color.BLACK, Color.WHITE)
-                border = EmptyBorder(0, 0, 16, 0)
-            },
-            BorderLayout.NORTH,
-        )
+        val headerPanel =
+            JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                isOpaque = false
+                border = JBUI.Borders.emptyBottom(16)
+
+                add(
+                    JLabel("Chat History").apply {
+                        font = Font("SansSerif", Font.BOLD, 18)
+                        foreground = JBColor(Color.BLACK, Color.WHITE)
+                    },
+                    BorderLayout.WEST,
+                )
+
+                val buttonPanel =
+                    JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 0)).apply {
+                        isOpaque = false
+
+                        add(
+                            JButton("Delete All").apply {
+                                isContentAreaFilled = false
+                                isBorderPainted = false
+                                foreground = JBColor.RED
+                                font = Font("SansSerif", Font.PLAIN, 12)
+                                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                                toolTipText = "Delete all chat sessions"
+
+                                addActionListener {
+                                    val visibleSessions =
+                                        sessionManager.getAllSessions().filterNot {
+                                            it.title == "New Chat" && it.messages.size <= 1
+                                            // New chat is always in sessions but shouldn't be shown in history when it's empty.
+                                            // so this basically takes care of just that.
+                                        }
+
+                                    if (visibleSessions.isNotEmpty()) {
+                                        val confirm =
+                                            JOptionPane.showConfirmDialog(
+                                                this,
+                                                "Are you sure you want to delete all chat sessions?",
+                                                "Confirm Deletion",
+                                                JOptionPane.YES_NO_OPTION,
+                                                JOptionPane.WARNING_MESSAGE,
+                                            )
+                                        if (confirm == JOptionPane.YES_OPTION) {
+                                            sessionManager.getAllSessions().forEach { sessionManager.deleteSession(it) }
+                                            refresh()
+                                        }
+                                    }
+                                }
+                            },
+                        )
+
+                        add(
+                            IconButton(AllIcons.General.Add, "New Chat") {
+                                val existingNewChat = sessionManager.getAllSessions().find { it.title == "New Chat" }
+                                if (existingNewChat != null) {
+                                    sessionManager.switchToSession(existingNewChat)
+                                } else {
+                                    sessionManager.createNewSession("New Chat")
+                                }
+                                onSessionSelected()
+                            },
+                        )
+                    }
+
+                add(buttonPanel, BorderLayout.EAST)
+            }
+
+        add(headerPanel, BorderLayout.NORTH)
 
         contentPanel =
             JBPanel<JBPanel<*>>().apply {
@@ -74,14 +146,17 @@ class HistoryPanel(
      */
     fun refresh() {
         contentPanel.removeAll()
-        val sessions = sessionManager.getAllSessions()
-
+        // this is to exclude new chat unless there's been something said in it (which shouldn't happen since the name should change as soon as server responds. TODO potentially change
+        val sessions =
+            sessionManager.getAllSessions().filterNot {
+                it.title == "New Chat" && it.messages.size <= 1
+            }
         if (sessions.isEmpty()) {
             contentPanel.add(
                 JLabel("No chat sessions yet").apply {
                     font = Font("SansSerif", Font.ITALIC, 14)
                     foreground = JBColor(Color.GRAY, Color.LIGHT_GRAY)
-                    border = EmptyBorder(20, 16, 20, 16)
+                    border = JBUI.Borders.empty(20, 16)
                     horizontalAlignment = SwingConstants.CENTER
                 },
             )

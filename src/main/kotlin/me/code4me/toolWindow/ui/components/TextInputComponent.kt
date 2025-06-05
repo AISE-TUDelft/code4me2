@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.chatPanelUI
+package me.code4me.toolWindow.ui.components
 
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel

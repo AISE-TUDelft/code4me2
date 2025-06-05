@@ -1,6 +1,7 @@
 package me.code4me.toolWindow.ui.components
 
 import com.intellij.openapi.ui.ComboBox
+import com.intellij.ui.JBColor
 import java.awt.Canvas
 import java.awt.Color
 import java.awt.Component
@@ -46,7 +47,7 @@ class ModelComboBox : ComboBox<String>() {
 
     private fun setupStyling() {
         isOpaque = false
-        background = Color(0, 0, 0, 0)
+        background = JBColor(Color(0, 0, 0, 0), Color(0, 0, 0, 0))
         border = null
         setRenderer(TransparentRenderer())
     }
@@ -132,7 +133,7 @@ class ModelComboBox : ComboBox<String>() {
             cellHasFocus: Boolean,
         ): Component {
             return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus).apply {
-                background = Color(0, 0, 0, 0)
+                background = JBColor(Color(0, 0, 0, 0), Color(0, 0, 0, 0))
                 setOpaque(false)
             }
         }

@@ -58,7 +58,7 @@ class FileSelectionDialog(
         private const val ICON_WIDTH = 16
         private const val ICON_GAP = 8
         private const val PADDING = 24
-        private const val SEARCH_FIELD_HEIGHT = 28
+        private const val SEARCH_FIELD_HEIGHT = 15
         private const val VERTICAL_PADDING = 8
         private const val LABEL_HEIGHT = 25
     }
@@ -100,14 +100,13 @@ class FileSelectionDialog(
         listModel =
             DefaultListModel<VirtualFile>().apply {
                 openFiles
-                    .filterNot { excludedFiles.contains(it) } // ✅ correct filtering
+                    .filterNot { excludedFiles.contains(it) } // correct filtering
                     .forEach { addElement(it) }
             }
 
         fileList = createFileList()
         val searchField = createSearchField()
         val content = createContentPanel(searchField, fileList)
-
         return JBPopupFactory.getInstance()
             .createComponentPopupBuilder(content, searchField)
             .setFocusable(true)
@@ -239,7 +238,10 @@ class FileSelectionDialog(
         fileList: JList<VirtualFile>,
     ): JPanel {
         val initialWidth = calculateDynamicWidth()
+
         searchField.preferredSize = Dimension(initialWidth - 16, SEARCH_FIELD_HEIGHT)
+
+        val initialListHeight = ROW_HEIGHT * min(listModel.size(), MAX_VISIBLE_ROWS)
 
         listScrollPane =
             JBScrollPane(fileList).apply {
@@ -248,6 +250,8 @@ class FileSelectionDialog(
                 border = BorderFactory.createEmptyBorder()
                 verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
                 horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+                preferredSize = Dimension(initialWidth - 16, initialListHeight)
+                maximumSize = preferredSize
             }
 
         emptyStateLabel =
@@ -264,6 +268,7 @@ class FileSelectionDialog(
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
                 isOpaque = false
                 border = JBUI.Borders.empty(VERTICAL_PADDING, VERTICAL_PADDING, 4, VERTICAL_PADDING)
+
                 add(searchField)
                 add(Box.createVerticalStrut(VERTICAL_PADDING))
                 add(emptyStateLabel)
@@ -271,11 +276,16 @@ class FileSelectionDialog(
                     JLabel("Files").apply {
                         foreground = JBColor.GRAY
                         font = font.deriveFont(Font.BOLD, 11f)
-                        border = JBUI.Borders.empty(6, 12, 4, 12)
+                        border = JBUI.Borders.empty(6, 0, 4, 0)
+                        alignmentX = Component.CENTER_ALIGNMENT
                     },
                 )
                 add(Box.createVerticalStrut(2))
                 add(listScrollPane)
+
+                val totalHeight = VERTICAL_PADDING * 3 + SEARCH_FIELD_HEIGHT + LABEL_HEIGHT + initialListHeight + 8
+                preferredSize = Dimension(initialWidth, totalHeight)
+                maximumSize = preferredSize
             }
 
         return JPanel(BorderLayout()).apply {
@@ -286,7 +296,10 @@ class FileSelectionDialog(
                     BorderFactory.createEmptyBorder(),
                 )
             add(contentPanel, BorderLayout.CENTER)
-            preferredSize = Dimension(initialWidth, contentPanel.preferredSize.height + 16)
+
+            val outerHeight = contentPanel.preferredSize.height + 16
+            preferredSize = Dimension(initialWidth, outerHeight)
+            maximumSize = preferredSize
         }
     }
 
@@ -395,7 +408,15 @@ class FileSelectionDialog(
             font = font.deriveFont(Font.PLAIN, 13f)
             foreground = JBColor.foreground()
             icon = file?.fileType?.icon ?: AllIcons.FileTypes.Text
-            background = if (isSelected) JBColor(Color(0, 120, 215, 40), Color(0, 120, 215, 60)) else Color(0, 0, 0, 0)
+            background =
+                if (isSelected) {
+                    JBColor(
+                        Color(0, 120, 215, 40),
+                        Color(0, 120, 215, 60),
+                    )
+                } else {
+                    JBColor(Color(0, 0, 0, 0), Color(0, 0, 0, 0))
+                }
             border = JBUI.Borders.empty(6, 12)
             isOpaque = isSelected
             preferredSize = Dimension(preferredSize.width, ROW_HEIGHT)

@@ -1,13 +1,14 @@
 package me.code4me.toolWindow.ui.components
 
 import com.intellij.openapi.util.IconLoader
+import com.intellij.ui.Gray
 import com.intellij.ui.JBColor
+import com.intellij.util.ui.JBUI
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
-import java.awt.Insets
 import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -33,7 +34,7 @@ class IconButton(
         isContentAreaFilled = false
         isFocusPainted = false
         isOpaque = false
-        margin = Insets(2, 2, 2, 2)
+        margin = JBUI.insets(2)
 
         addActionListener { action() }
         setupHoverEffect()
@@ -60,7 +61,7 @@ class IconButton(
 
         if (isHovered) {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = JBColor(Color(240, 240, 240), Color(60, 60, 60))
+            g2.color = JBColor(Gray._240, Gray._60)
             g2.fillOval(0, 0, width, height)
         }
 
@@ -92,7 +93,7 @@ class CleanIconButton(
         isOpaque = false
         background = null
         border = null
-        margin = Insets(0, 0, 0, 0)
+        margin = JBUI.emptyInsets()
 
         addActionListener { action() }
 
@@ -139,7 +140,7 @@ class IconToggleButton(
         isContentAreaFilled = false
         isFocusPainted = false
         isFocusable = false
-        margin = Insets(0, 0, 0, 0)
+        margin = JBUI.emptyInsets()
 
         background = null
         border = null
@@ -188,7 +189,7 @@ class IconToggleButton(
             isBorderPainted = false
             isOpaque = false
             isFocusable = false
-            margin = Insets(0, 0, 0, 0)
+            margin = JBUI.emptyInsets()
             preferredSize = Dimension(16, 16)
             toolTipText = tooltip
             font = font.deriveFont(Font.BOLD, 12f)

@@ -1,21 +1,21 @@
-package me.code4me.toolWindow.chatPanelUI
+package me.code4me.toolWindow.ui
 
+import com.intellij.icons.AllIcons
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
 import me.code4me.toolWindow.managers.ChatSessionManager
+import me.code4me.toolWindow.ui.components.IconButton
+import java.awt.BorderLayout
 import java.awt.Cursor
-import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
-import java.awt.Insets
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.JButton
+import javax.swing.Icon
 import javax.swing.JLabel
-import javax.swing.JOptionPane
 import javax.swing.JTextField
 
 /**
@@ -28,14 +28,13 @@ import javax.swing.JTextField
  * @param onHistoryClicked Callback invoked when the history button is clicked.
  * @param onTitleRenamed Callback invoked after the session title is renamed.
  */
-
 class TopBarPanel(
     private val sessionManager: ChatSessionManager,
     private val onSessionSwitched: () -> Unit,
     private val onNewChatCreated: () -> Unit,
     private val onHistoryClicked: () -> Unit,
     private val onTitleRenamed: () -> Unit = {},
-) : JBPanel<TopBarPanel>(FlowLayout(FlowLayout.LEFT)) {
+) : JBPanel<TopBarPanel>(BorderLayout()) {
     private val sessionTitleLabel =
         JLabel().apply {
             font = Font("SansSerif", Font.BOLD, 16)
@@ -47,16 +46,27 @@ class TopBarPanel(
     private val sessionTitleField = JTextField()
     private var isEditingTitle = false
 
-    private val standardButtonHeight = 28
-    private val standardButtonWidth = 110
+    private var rightPanel: JBPanel<*>
 
     init {
         background = JBColor.PanelBackground
         border = JBUI.Borders.empty(5)
 
-        add(sessionTitleLabel)
-        add(createNewChatButton())
-        add(createHistoryButton())
+        val leftPanel =
+            JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 5, 0)).apply {
+                isOpaque = false
+                add(createHistoryButton())
+                add(createNewChatButton())
+            }
+
+        rightPanel =
+            JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 5, 0)).apply {
+                isOpaque = false
+                add(sessionTitleLabel)
+            }
+
+        add(leftPanel, BorderLayout.EAST)
+        add(rightPanel, BorderLayout.WEST)
 
         updateTitle()
         setupEditBehavior()
@@ -99,12 +109,12 @@ class TopBarPanel(
     private fun enterEditMode() {
         isEditingTitle = true
         sessionTitleField.text = sessionTitleLabel.text
-        remove(sessionTitleLabel)
-        add(sessionTitleField, 0)
+        rightPanel.remove(sessionTitleLabel)
+        rightPanel.add(sessionTitleField)
         sessionTitleField.requestFocus()
         sessionTitleField.selectAll()
-        revalidate()
-        repaint()
+        rightPanel.revalidate()
+        rightPanel.repaint()
     }
 
     /**
@@ -122,36 +132,34 @@ class TopBarPanel(
         }
 
         isEditingTitle = false
-        remove(sessionTitleField)
-        add(sessionTitleLabel, 0)
+        rightPanel.remove(sessionTitleField)
+        rightPanel.add(sessionTitleLabel)
         updateTitle()
-        revalidate()
-        repaint()
+        rightPanel.revalidate()
+        rightPanel.repaint()
     }
 
     /**
      * Builds and returns the "New Chat" button.
-     * When clicked, prompts the user for a title, creates a new session, and updates the UI.
+     * When clicked, switches to or creates a session titled "New Chat".
      *
      * @return A JButton configured for creating a new chat.
      */
-    private fun createNewChatButton(): JButton {
-        return JButton("＋ New Chat").apply {
-            preferredSize = Dimension(standardButtonWidth, standardButtonHeight)
-            margin = Insets(0, 8, 0, 8)
-            addActionListener {
-                val title =
-                    JOptionPane.showInputDialog(
-                        this@TopBarPanel,
-                        "Enter a name for the new chat:",
-                        "New Chat",
-                        JOptionPane.PLAIN_MESSAGE,
-                    )
-                sessionManager.createNewSession(title)
-                onNewChatCreated()
-                updateTitle()
-                onSessionSwitched()
+    private fun createNewChatButton(): IconButton {
+        val newChatIcon: Icon = AllIcons.General.Add
+        return IconButton(newChatIcon, "New Chat") {
+            val newChatTitle = "New Chat"
+            val existingSession = sessionManager.getAllSessions().find { it.title == newChatTitle }
+
+            if (existingSession != null) {
+                sessionManager.switchToSession(existingSession)
+            } else {
+                sessionManager.createNewSession(newChatTitle)
             }
+
+            onNewChatCreated()
+            updateTitle()
+            onSessionSwitched()
         }
     }
 
@@ -161,13 +169,10 @@ class TopBarPanel(
      *
      * @return A JButton configured to show history.
      */
-    private fun createHistoryButton(): JButton {
-        return JButton("🕘 History").apply {
-            preferredSize = Dimension(standardButtonWidth, standardButtonHeight)
-            margin = Insets(0, 8, 0, 8)
-            addActionListener {
-                onHistoryClicked()
-            }
+    private fun createHistoryButton(): IconButton {
+        val historyIcon: Icon = AllIcons.General.History
+        return IconButton(historyIcon, "View History") {
+            onHistoryClicked()
         }
     }
 

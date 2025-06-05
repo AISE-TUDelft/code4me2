@@ -5,13 +5,13 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
-import me.code4me.toolWindow.chatPanelUI.TopBarPanel
 import me.code4me.toolWindow.managers.ChatIOManager
 import me.code4me.toolWindow.managers.ChatSessionManager
 import me.code4me.toolWindow.managers.ChatViewManager
 import me.code4me.toolWindow.ui.ChatDisplayPanel
 import me.code4me.toolWindow.ui.HistoryPanel
 import me.code4me.toolWindow.ui.InputPanel
+import me.code4me.toolWindow.ui.TopBarPanel
 import me.code4me.toolWindow.utils.ChatMessageRenderer
 import java.awt.BorderLayout
 

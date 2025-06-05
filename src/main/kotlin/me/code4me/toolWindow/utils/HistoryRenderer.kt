@@ -1,7 +1,10 @@
 package me.code4me.toolWindow.utils
 
+import com.intellij.openapi.util.IconLoader
+import com.intellij.ui.Gray
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
+import com.intellij.util.ui.JBUI
 import me.code4me.toolWindow.managers.ChatSession
 import java.awt.BorderLayout
 import java.awt.Color
@@ -16,13 +19,14 @@ import java.time.temporal.ChronoUnit
 import java.util.Date
 import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JSeparator
-import javax.swing.border.EmptyBorder
 
 class HistoryRenderer(
     private val onClick: (ChatSession) -> Unit,
+    private val onDelete: ((ChatSession) -> Unit)? = null,
 ) {
     fun createTimeSection(
         title: String,
@@ -34,7 +38,7 @@ class HistoryRenderer(
             JBPanel<JBPanel<*>>().apply {
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
                 isOpaque = false
-                border = EmptyBorder(12, 0, 8, 0)
+                border = JBUI.Borders.empty(12, 0, 8, 0)
                 maximumSize = Dimension(Int.MAX_VALUE, 32)
             }
 
@@ -69,7 +73,7 @@ class HistoryRenderer(
         val panel =
             JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 isOpaque = false
-                border = EmptyBorder(8, 16, 8, 16)
+                border = JBUI.Borders.empty(8, 16)
                 preferredSize = Dimension(Int.MAX_VALUE, itemHeight)
                 maximumSize = Dimension(Int.MAX_VALUE, itemHeight)
                 minimumSize = Dimension(Int.MAX_VALUE, itemHeight)
@@ -101,12 +105,37 @@ class HistoryRenderer(
             },
         )
 
-        panel.add(content, BorderLayout.CENTER)
+        val deleteButton =
+            JButton(IconLoader.getIcon("/icons/trashcan.svg", HistoryRenderer::class.java)).apply {
+                isContentAreaFilled = false
+                border = null
+                toolTipText = "Delete session"
+                isFocusable = false
+                addActionListener {
+                    onDelete?.invoke(session)
+                }
+            }
 
+        val rightSide =
+            JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                isOpaque = false
+                add(deleteButton, BorderLayout.EAST)
+            }
+
+        val centerWithDelete =
+            JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                isOpaque = false
+                add(content, BorderLayout.CENTER)
+                add(rightSide, BorderLayout.EAST)
+            }
+
+        panel.add(centerWithDelete, BorderLayout.CENTER)
+
+        // Preserve hover effect
         panel.addMouseListener(
             object : java.awt.event.MouseAdapter() {
                 override fun mouseEntered(e: java.awt.event.MouseEvent) {
-                    panel.background = JBColor(Color(230, 230, 230), Color(75, 75, 75))
+                    panel.background = JBColor(Gray._230, Gray._75)
                     panel.isOpaque = true
                     panel.repaint()
                 }
@@ -117,7 +146,9 @@ class HistoryRenderer(
                 }
 
                 override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                    onClick(session)
+                    if (!deleteButton.bounds.contains(e.point)) {
+                        onClick(session)
+                    }
                 }
             },
         )

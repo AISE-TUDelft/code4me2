@@ -1,13 +1,13 @@
 package me.code4me.toolWindow.ui
 
+import com.intellij.ui.Gray
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.util.ui.JBUI
 import me.code4me.toolWindow.utils.ChatMessageRenderer
 import java.awt.BorderLayout
-import java.awt.Color
 import javax.swing.JTextPane
 import javax.swing.ScrollPaneConstants
-import javax.swing.border.EmptyBorder
 
 /**
  * Panel responsible for rendering the chat conversation display.
@@ -22,8 +22,8 @@ class ChatDisplayPanel : JBPanel<ChatDisplayPanel>(BorderLayout()) {
         }
 
     init {
-        border = EmptyBorder(0, 5, 0, 2)
-        background = Color(43, 43, 43)
+        border = JBUI.Borders.empty(0, 5, 0, 2)
+        background = Gray._43
 
         val scrollPane =
             JBScrollPane(chatArea).apply {

@@ -5,10 +5,10 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
-import me.code4me.toolWindow.chatPanelUI.TextInputComponent
 import me.code4me.toolWindow.ui.components.ControlsComponent
 import me.code4me.toolWindow.ui.components.FileSelectionDialog
 import me.code4me.toolWindow.ui.components.FileTabsComponent
+import me.code4me.toolWindow.ui.components.TextInputComponent
 import java.awt.BorderLayout
 import javax.swing.BorderFactory
 

@@ -40,4 +40,11 @@ class ChatSessionManager {
         currentSession.messages.add(sender to message)
         currentSession.lastUpdated = Date()
     }
+
+    fun deleteSession(session: ChatSession) {
+        chatSessions.remove(session)
+        if (currentSession == session) {
+            currentSession = chatSessions.firstOrNull() ?: createNewSession("New Chat")
+        }
+    }
 }
