@@ -26,6 +26,8 @@ import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestCompletion
 import me.code4me.api.generated.model.ResponseCompletionResponseData
 import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner
+import me.code4me.api.generated.model.UpdateUser
+import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
@@ -503,6 +505,39 @@ class AppService {
     private fun clearLocalSession() {
         CookieAwareApiClient.clearCookies()
         getAuthState().clearUserData()
+    }
+
+    /**
+     * Updates the current user's name.
+     *
+     * This method updates the user's display name in the Code4Me system. Upon successful update,
+     * the local user information is also updated to reflect the change.
+     *
+     * @param newName The new display name for the user
+     * @return [UpdateUserPutResponse] containing the update result and any relevant messages
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the update fails due to client-side issues (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the new name is blank
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun updateUserName(newName: String): UpdateUserPutResponse {
+        require(newName.isNotBlank()) { "New name cannot be blank" }
+
+        val updateUser = UpdateUser(name = newName)
+
+        return try {
+            val response = updateUserApi.updateUserApiUserUpdatePut(updateUser)
+
+            // Update local user information
+            getAuthState().setUserName(newName)
+
+            LOG.info("User name updated successfully to: $newName")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to update user name", e)
+            throw e
+        }
     }
 
     // ============ Completion Methods ============

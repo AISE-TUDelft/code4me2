@@ -1,10 +1,14 @@
 package me.code4me.components.settings.sections
 
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.treeStructure.Tree
@@ -17,6 +21,7 @@ import me.code4me.components.settings.fields.ModuleIntegerPreferenceField
 import me.code4me.components.settings.fields.ModuleStringPreferenceField
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.ToggleButtonField
+import me.code4me.services.app.AppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.state.PrefState
@@ -80,6 +85,9 @@ class ConfigurationSection : SettingsSection {
         private const val MIN_MODULE_TREE_HEIGHT = 300
         private const val MIN_PREFERENCES_PANEL_WIDTH = 300
     }
+
+    // Services
+    private val appService = service<AppService>()
 
     // ================= APPLICATION PREFERENCE FIELDS =================
 
@@ -1072,7 +1080,7 @@ class ConfigurationSection : SettingsSection {
     }
 
     /**
-     * Creates the user information display panel.
+     * Creates the user information display panel with verification status and modification options.
      */
     private fun createUserInfoPanel(): JPanel {
         return JPanel(BorderLayout()).apply {
@@ -1083,17 +1091,222 @@ class ConfigurationSection : SettingsSection {
                     add(userInfoTitleLabel, BorderLayout.NORTH)
 
                     val userInfo =
-                        JPanel(GridLayout(2, 1, 5, 5)).apply {
+                        JPanel(GridLayout(3, 1, 5, 5)).apply {
                             add(JLabel("Name: ${authState.getUserName() ?: "Unknown User"}"))
                             add(JLabel("Email: ${authState.getUserEmail() ?: "Unknown Email"}"))
+
+                            val verificationPanel = JPanel(BorderLayout())
+                            val verificationLabel = JLabel("Not verified")
+                            verificationLabel.foreground = JBColor.GRAY
+                            verificationPanel.add(verificationLabel, BorderLayout.WEST)
+
+                            val verificationButtonsPanel = JPanel()
+                            verificationButtonsPanel.layout = BoxLayout(verificationButtonsPanel, BoxLayout.X_AXIS)
+
+                            val resendButton = JButton("Resend Email")
+                            resendButton.toolTipText = "Resend verification email"
+                            resendButton.addActionListener {
+                                // Placeholder for future implementation
+                                Messages.showInfoMessage(
+                                    "This feature is not yet implemented.",
+                                    "Resend Verification Email"
+                                )
+                            }
+
+                            val recheckButton = JButton("Recheck Status")
+                            recheckButton.toolTipText = "Check if your account has been verified"
+                            recheckButton.addActionListener {
+                                // Placeholder for future implementation
+                                Messages.showInfoMessage(
+                                    "This feature is not yet implemented.",
+                                    "Verification Status Check"
+                                )
+                            }
+
+                            verificationButtonsPanel.add(resendButton)
+                            verificationButtonsPanel.add(Box.createHorizontalStrut(5))
+                            verificationButtonsPanel.add(recheckButton)
+
+                            verificationPanel.add(verificationButtonsPanel, BorderLayout.EAST)
+                            add(verificationPanel)
+
                             border = JBUI.Borders.empty(5, 0, 10, 0)
                         }
                     add(userInfo, BorderLayout.CENTER)
+
+                    // Add user modification panel
+                    val modificationPanel = createUserModificationPanel()
+                    add(modificationPanel, BorderLayout.SOUTH)
                 }
 
             add(titleAndInfo, BorderLayout.CENTER)
             add(signOutButton, BorderLayout.SOUTH)
         }
+    }
+
+    /**
+     * Creates a panel for user profile modification.
+     */
+    private fun createUserModificationPanel(): JPanel {
+        val panel = JPanel(BorderLayout())
+        panel.border = JBUI.Borders.emptyTop(10)
+
+        val modifyButton = JButton("Modify Profile")
+        modifyButton.toolTipText = "Change your profile information"
+        modifyButton.addActionListener {
+            showUserModificationDialog()
+        }
+
+        panel.add(modifyButton, BorderLayout.CENTER)
+
+        return panel
+    }
+
+    /**
+     * Shows a dialog for modifying user profile information.
+     */
+    private fun showUserModificationDialog() {
+        val dialog = UserModificationDialog(authState)
+        if (dialog.showAndGet()) {
+            // User clicked OK, handle name change
+            val newName = dialog.getNewName()
+            if (newName.isNotBlank() && newName != authState.getUserName()) {
+                try {
+                    appService.updateUserName(newName)
+                    Messages.showInfoMessage(
+                        "Your name has been updated successfully.",
+                        "Profile Updated"
+                    )
+                } catch (e: Exception) {
+                    LOG.error("Failed to update user name", e)
+                    Messages.showErrorDialog(
+                        "An error occurred while updating your name. Please try again.",
+                        "Update Error"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Dialog for modifying user profile information.
+     */
+    private inner class UserModificationDialog(private val authState: me.code4me.services.state.AuthSettings) : DialogWrapper(true) {
+        private val nameField = JBTextField(authState.getUserName() ?: "")
+        private val emailField = JBTextField(authState.getUserEmail() ?: "")
+        private val oldPasswordField = JBPasswordField()
+        private val newPasswordField = JBPasswordField()
+        private val confirmPasswordField = JBPasswordField()
+        private val deleteDataCheckbox = JBCheckBox("Also delete my data")
+
+        init {
+            title = "Modify Profile"
+            init()
+        }
+
+        override fun createCenterPanel(): JComponent {
+            val dialogPanel = JPanel()
+            dialogPanel.layout = BoxLayout(dialogPanel, BoxLayout.Y_AXIS)
+            dialogPanel.border = JBUI.Borders.empty(10)
+
+            // Name change section
+            val namePanel = JPanel(BorderLayout())
+            namePanel.border = JBUI.Borders.emptyBottom(10)
+            namePanel.add(JLabel("New Name:"), BorderLayout.WEST)
+            namePanel.add(nameField, BorderLayout.CENTER)
+            dialogPanel.add(namePanel)
+
+            // Email change section (placeholder for future implementation)
+            val emailPanel = JPanel(BorderLayout())
+            emailPanel.border = JBUI.Borders.emptyBottom(10)
+            emailPanel.add(JLabel("New Email:"), BorderLayout.WEST)
+            emailField.isEnabled = false // Disabled until API support is added
+            emailPanel.add(emailField, BorderLayout.CENTER)
+            val emailNote = JLabel("Email change not supported yet")
+            emailNote.foreground = JBColor.GRAY
+            emailPanel.add(emailNote, BorderLayout.SOUTH)
+            dialogPanel.add(emailPanel)
+
+            // Password change section (placeholder for future implementation)
+            val passwordPanel = JPanel()
+            passwordPanel.layout = BoxLayout(passwordPanel, BoxLayout.Y_AXIS)
+            passwordPanel.border = JBUI.Borders.emptyBottom(10)
+
+            val oldPasswordPanel = JPanel(BorderLayout())
+            oldPasswordPanel.add(JLabel("Current Password:"), BorderLayout.WEST)
+            oldPasswordField.isEnabled = false // Disabled until API support is added
+            oldPasswordPanel.add(oldPasswordField, BorderLayout.CENTER)
+
+            val newPasswordPanel = JPanel(BorderLayout())
+            newPasswordPanel.add(JLabel("New Password:"), BorderLayout.WEST)
+            newPasswordField.isEnabled = false // Disabled until API support is added
+            newPasswordPanel.add(newPasswordField, BorderLayout.CENTER)
+
+            val confirmPasswordPanel = JPanel(BorderLayout())
+            confirmPasswordPanel.add(JLabel("Confirm Password:"), BorderLayout.WEST)
+            confirmPasswordField.isEnabled = false // Disabled until API support is added
+            confirmPasswordPanel.add(confirmPasswordField, BorderLayout.CENTER)
+
+            passwordPanel.add(oldPasswordPanel)
+            passwordPanel.add(Box.createVerticalStrut(5))
+            passwordPanel.add(newPasswordPanel)
+            passwordPanel.add(Box.createVerticalStrut(5))
+            passwordPanel.add(confirmPasswordPanel)
+
+            val passwordNote = JLabel("Password change not supported yet")
+            passwordNote.foreground = JBColor.GRAY
+            passwordPanel.add(passwordNote)
+
+            dialogPanel.add(passwordPanel)
+
+            // Account deletion section
+            val deletePanel = JPanel(BorderLayout())
+            deletePanel.border = JBUI.Borders.emptyTop(10)
+
+            val deleteButton = JButton("Delete Account")
+            deleteButton.foreground = JBColor.RED
+
+            deleteDataCheckbox.toolTipText = "If checked, all your data will be permanently deleted"
+
+            val deleteOptionsPanel = JPanel(BorderLayout())
+            deleteOptionsPanel.add(deleteDataCheckbox, BorderLayout.WEST)
+            deleteOptionsPanel.add(deleteButton, BorderLayout.EAST)
+
+            deleteButton.addActionListener {
+                val confirmResult = Messages.showYesNoDialog(
+                    "Are you sure you want to delete your account? This action cannot be undone.",
+                    "Confirm Account Deletion",
+                    "Delete Account",
+                    "Cancel",
+                    Messages.getWarningIcon()
+                )
+
+                if (confirmResult == Messages.YES) {
+                    try {
+                        appService.deleteUser(deleteDataCheckbox.isSelected)
+
+                        Messages.showInfoMessage(
+                            "Your account has been deleted successfully.",
+                            "Account Deleted"
+                        )
+                        close(OK_EXIT_CODE)
+                    } catch (e: Exception) {
+                        LOG.error("Failed to delete user account", e)
+                        Messages.showErrorDialog(
+                            "An error occurred while deleting your account. Please try again.",
+                            "Delete Account Error"
+                        )
+                    }
+                }
+            }
+
+            deletePanel.add(deleteOptionsPanel, BorderLayout.CENTER)
+            dialogPanel.add(deletePanel)
+
+            return dialogPanel
+        }
+
+        fun getNewName(): String = nameField.text.trim()
     }
 
     /**
