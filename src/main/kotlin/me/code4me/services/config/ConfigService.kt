@@ -12,6 +12,8 @@ import me.code4me.services.config.models.ModuleConfig
 import me.code4me.services.config.models.ModuleDependency
 import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.manager.getModuleManager
+import org.jetbrains.annotations.TestOnly
 
 fun getConfig(): ConfigService {
     return service<ConfigService>()
@@ -33,14 +35,31 @@ fun getConfig(): ConfigService {
 @Service
 class ConfigService {
     /**
-     * The parsed configuration from the plugin.conf resource file.
+     * The parsed configuration from the plugin.conf file.
      * Automatically resolved to handle any includes or substitutions.
+     * 
+     * If the system property "plugin.conf.path" is set, it will load the configuration
+     * from that file path instead of the resource.
      */
-    private val config: Config =
-        ConfigFactory.parseResources(
-            this.javaClass.classLoader,
-            "plugin.conf",
-        ).resolve()
+    private val config: Config = loadConfiguration()
+
+    /**
+     * Loads the configuration from either a custom path specified by the system property
+     * "plugin.conf.path" or from the default resource.
+     * 
+     * @return The loaded configuration
+     */
+    private fun loadConfiguration(): Config {
+        val customPath = System.getProperty("plugin.conf.path")
+        return if (customPath != null) {
+            ConfigFactory.parseFile(java.io.File(customPath)).resolve()
+        } else {
+            ConfigFactory.parseResources(
+                this.javaClass.classLoader,
+                "plugin.conf",
+            ).resolve()
+        }
+    }
 
     /**
      * List of available modules parsed from the configuration.

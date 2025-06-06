@@ -46,6 +46,8 @@ dependencies {
     implementation("com.squareup.moshi:moshi-adapters:1.15.1") // Moshi adapters for additional types
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
+    testImplementation("org.mockito:mockito-core:5.2.0")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.0")
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
     intellijPlatform {
@@ -165,9 +167,6 @@ ktlint {
 }
 
 tasks {
-    test {
-        useJUnitPlatform()
-    }
 
     wrapper {
         gradleVersion = providers.gradleProperty("gradleVersion").get()
