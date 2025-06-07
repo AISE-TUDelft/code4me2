@@ -5,6 +5,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
+import kotlinx.coroutines.*
 import me.code4me.toolWindow.managers.ChatIOManager
 import me.code4me.toolWindow.managers.ChatSessionManager
 import me.code4me.toolWindow.managers.ChatViewManager
@@ -41,7 +42,6 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private lateinit var topBarPanel: TopBarPanel
     private lateinit var chatDisplayPanel: ChatDisplayPanel
     private lateinit var historyPanel: HistoryPanel
-
     private val viewManager = ChatViewManager()
 
     init {

@@ -36,6 +36,8 @@ class TextInputComponent(
     }
 
     val text: String get() = textArea.text
+    var onFocus: (() -> Unit)? = null
+    var onBlur: (() -> Unit)? = null
 
     init {
         setupLayout()
@@ -46,13 +48,35 @@ class TextInputComponent(
 
     private fun createTextArea() =
         JTextArea().apply {
+            val placeholder = "Ask Code4Me V2!"
             lineWrap = true
             wrapStyleWord = true
             font = UIManager.getFont("TextField.font")
             border = JBUI.Borders.empty(8, 12)
             isOpaque = false
             background = JBColor.background()
-            caretPosition = 0
+            foreground = JBColor.GRAY
+            text = placeholder
+
+            addFocusListener(
+                object : java.awt.event.FocusListener {
+                    override fun focusGained(e: java.awt.event.FocusEvent?) {
+                        if (text == placeholder) {
+                            text = ""
+                            foreground = JBColor.foreground()
+                        }
+                        onFocus?.invoke()
+                    }
+
+                    override fun focusLost(e: java.awt.event.FocusEvent?) {
+                        if (text.isBlank()) {
+                            text = placeholder
+                            foreground = JBColor.GRAY
+                        }
+                        onBlur?.invoke()
+                    }
+                },
+            )
         }
 
     private fun createScrollPane() =
@@ -60,7 +84,7 @@ class TextInputComponent(
             border = null
             isOpaque = false
             viewport.isOpaque = false
-            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_NEVER
+            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
             background = JBColor.background()
         }

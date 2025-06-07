@@ -10,7 +10,9 @@ import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.testFramework.LightVirtualFile
 import com.intellij.ui.Gray
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.TextTransferable
 import org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil
 import java.awt.*
@@ -159,6 +161,10 @@ class ChatBubble(
             isRightMarginShown = false
         }
 
+        // Disable the editor's internal scrollbars
+        editor.scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
+        editor.scrollPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+
         val scheme = EditorColorsManager.getInstance().globalScheme
         editor.colorsScheme = scheme
 
@@ -179,25 +185,26 @@ class ChatBubble(
         val headerPanel =
             JPanel(BorderLayout()).apply {
                 isOpaque = false
-                border = EmptyBorder(4, 8, 4, 8)
+                border = JBUI.Borders.empty(2, 6)
                 background = Gray._50
             }
 
         val languageLabel =
             JLabel(codeBlock.language.uppercase()).apply {
                 foreground = Color.LIGHT_GRAY
-                font = Font("Monospaced", Font.BOLD, 10)
+                font = Font("Monospaced", Font.BOLD, 7)
             }
         headerPanel.add(languageLabel, BorderLayout.WEST)
 
         val copyButton =
-            JButton("Copy").apply {
-                font = Font("SansSerif", Font.PLAIN, 10)
+            JButton("⧉").apply {
+                font = Font("SansSerif", Font.PLAIN, 9)
                 foreground = Color.WHITE
                 background = Gray._70
-                border = BorderFactory.createEmptyBorder(2, 8, 2, 8)
+                border = BorderFactory.createEmptyBorder(1, 6, 1, 6)
                 isFocusPainted = false
-                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                isContentAreaFilled = true
+                preferredSize = Dimension(40, 18)
             }
 
         copyButton.addMouseListener(
@@ -233,10 +240,14 @@ class ChatBubble(
 
         val scrollPane =
             JBScrollPane(editorComponent).apply {
+                verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS
+                horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
                 preferredSize = Dimension(400, minOf(preferredHeight, 200))
-                maximumSize = Dimension(Int.MAX_VALUE, minOf(preferredHeight, 200))
+                maximumSize = Dimension(Int.MAX_VALUE, minOf(preferredHeight, 600))
                 border = null
             }
+        scrollPane.viewport.background = Gray._25
+        scrollPane.border = BorderFactory.createLineBorder(JBColor.DARK_GRAY, 1)
 
         val codePanel =
             JPanel(BorderLayout()).apply {

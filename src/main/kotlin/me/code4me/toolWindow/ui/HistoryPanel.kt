@@ -39,12 +39,32 @@ class HistoryPanel(
     private val renderer =
         HistoryRenderer(
             onClick = { session ->
-                sessionManager.switchToSession(session)
-                onSessionSelected()
+                try {
+                    // Ensure we're switching to a valid session
+                    if (sessionManager.getAllSessions().contains(session)) {
+                        sessionManager.switchToSession(session)
+                        // Invoke callback after successful switch
+                        onSessionSelected()
+                    } else {
+                        // Session might have been deleted, refresh the panel
+                        refresh()
+                    }
+                } catch (e: Exception) {
+                    println("Error switching to session: ${e.message}")
+                    e.printStackTrace()
+                    // Refresh panel in case of error
+                    refresh()
+                }
             },
             onDelete = { session ->
-                sessionManager.deleteSession(session)
-                refresh()
+                try {
+                    sessionManager.deleteSession(session)
+                    refresh()
+                } catch (e: Exception) {
+                    println("Error deleting session: ${e.message}")
+                    e.printStackTrace()
+                    refresh()
+                }
             },
         )
 
@@ -79,12 +99,7 @@ class HistoryPanel(
                                 toolTipText = "Delete all chat sessions"
 
                                 addActionListener {
-                                    val visibleSessions =
-                                        sessionManager.getAllSessions().filterNot {
-                                            it.title == "New Chat" && it.messages.size <= 1
-                                            // New chat is always in sessions but shouldn't be shown in history when it's empty.
-                                            // so this basically takes care of just that.
-                                        }
+                                    val visibleSessions = getVisibleSessions()
 
                                     if (visibleSessions.isNotEmpty()) {
                                         val confirm =
@@ -96,7 +111,10 @@ class HistoryPanel(
                                                 JOptionPane.WARNING_MESSAGE,
                                             )
                                         if (confirm == JOptionPane.YES_OPTION) {
-                                            sessionManager.getAllSessions().forEach { sessionManager.deleteSession(it) }
+                                            // Delete all sessions except create a new one
+                                            val allSessions = sessionManager.getAllSessions().toList()
+                                            allSessions.forEach { sessionManager.deleteSession(it) }
+                                            // This will automatically create a new session if none exist
                                             refresh()
                                         }
                                     }
@@ -106,12 +124,8 @@ class HistoryPanel(
 
                         add(
                             IconButton(AllIcons.General.Add, "New Chat") {
-                                val existingNewChat = sessionManager.getAllSessions().find { it.title == "New Chat" }
-                                if (existingNewChat != null) {
-                                    sessionManager.switchToSession(existingNewChat)
-                                } else {
-                                    sessionManager.createNewSession("New Chat")
-                                }
+                                // Always create a new session instead of trying to reuse
+                                sessionManager.createNewSession("New Chat")
                                 onSessionSelected()
                             },
                         )
@@ -142,37 +156,50 @@ class HistoryPanel(
     }
 
     /**
+     * Gets sessions that should be visible in the history panel.
+     * Filters out empty "New Chat" sessions.
+     */
+    private fun getVisibleSessions(): List<ChatSession> {
+        return sessionManager.getAllSessions().filter { session ->
+            session.messages.size > 1 || session.title != "New Chat"
+        }
+    }
+
+    /**
      * Refreshes the history panel content by grouping (by date) and displaying chat sessions.
      */
     fun refresh() {
-        contentPanel.removeAll()
-        // this is to exclude new chat unless there's been something said in it (which shouldn't happen since the name should change as soon as server responds. TODO potentially change
-        val sessions =
-            sessionManager.getAllSessions().filterNot {
-                it.title == "New Chat" && it.messages.size <= 1
-            }
-        if (sessions.isEmpty()) {
-            contentPanel.add(
-                JLabel("No chat sessions yet").apply {
-                    font = Font("SansSerif", Font.ITALIC, 14)
-                    foreground = JBColor(Color.GRAY, Color.LIGHT_GRAY)
-                    border = JBUI.Borders.empty(20, 16)
-                    horizontalAlignment = SwingConstants.CENTER
-                },
-            )
-        } else {
-            val groupedSessions = groupSessionsByTime(sessions)
-            listOf("Today", "Yesterday", "Last Week", "Older").forEach { period ->
-                val sessionsInPeriod = groupedSessions[period] ?: emptyList()
-                if (sessionsInPeriod.isNotEmpty()) {
-                    renderer.createTimeSection(period, sessionsInPeriod).forEach(contentPanel::add)
+        try {
+            contentPanel.removeAll()
+
+            val sessions = getVisibleSessions()
+
+            if (sessions.isEmpty()) {
+                contentPanel.add(
+                    JLabel("No chat sessions yet").apply {
+                        font = Font("SansSerif", Font.ITALIC, 14)
+                        foreground = JBColor(Color.GRAY, Color.LIGHT_GRAY)
+                        border = JBUI.Borders.empty(20, 16)
+                        horizontalAlignment = SwingConstants.CENTER
+                    },
+                )
+            } else {
+                val groupedSessions = groupSessionsByTime(sessions)
+                listOf("Today", "Yesterday", "Last Week", "Older").forEach { period ->
+                    val sessionsInPeriod = groupedSessions[period] ?: emptyList()
+                    if (sessionsInPeriod.isNotEmpty()) {
+                        renderer.createTimeSection(period, sessionsInPeriod).forEach(contentPanel::add)
+                    }
                 }
             }
-        }
 
-        contentPanel.add(Box.createVerticalStrut(20))
-        contentPanel.revalidate()
-        contentPanel.repaint()
+            contentPanel.add(Box.createVerticalStrut(20))
+            contentPanel.revalidate()
+            contentPanel.repaint()
+        } catch (e: Exception) {
+            println("Error refreshing history panel: ${e.message}")
+            e.printStackTrace()
+        }
     }
 
     /**

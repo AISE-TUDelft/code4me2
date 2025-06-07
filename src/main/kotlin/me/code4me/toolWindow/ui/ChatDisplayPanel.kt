@@ -126,7 +126,6 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         }
     }
 
-
     // New method for when user explicitly sends a message
     fun scrollToBottomOnUserAction() {
         userScrolledUp = false // User action resets the scroll state
