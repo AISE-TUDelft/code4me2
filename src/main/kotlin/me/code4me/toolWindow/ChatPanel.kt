@@ -12,7 +12,6 @@ import me.code4me.toolWindow.ui.ChatDisplayPanel
 import me.code4me.toolWindow.ui.HistoryPanel
 import me.code4me.toolWindow.ui.InputPanel
 import me.code4me.toolWindow.ui.TopBarPanel
-import me.code4me.toolWindow.utils.ChatMessageRenderer
 import java.awt.BorderLayout
 
 /**
@@ -37,8 +36,6 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private var welcomeShown = true
     private var useWeb = false
     private var project: Project? = null
-
-    private val messageRenderer = ChatMessageRenderer()
 
     private lateinit var inputPanel: InputPanel
     private lateinit var topBarPanel: TopBarPanel
@@ -65,7 +62,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         if (project == null) return
 
         inputPanel = createInputPanel(project!!)
-        chatDisplayPanel = ChatDisplayPanel()
+        chatDisplayPanel = ChatDisplayPanel(project!!)
         topBarPanel = createTopBarPanel()
         historyPanel = createHistoryPanel()
 
@@ -157,9 +154,6 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     private fun initializeChatHistory() {
         sessionManager.currentSession.messages.clear()
-        sessionManager.currentSession.messages.add(
-            "" to "<div style='text-align:center; font-size: 16px; margin-top: 20px; margin-bottom: 20px;'>$WELCOME_MESSAGE</div>",
-        )
         refreshChatDisplay()
     }
 
@@ -175,6 +169,9 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         val selectedModel = inputPanel.getSelectedModel()
         appendMessage(USER_NAME, message)
         inputPanel.clearInput()
+
+        // Scroll to bottom when user sends a message (restes scrolling stae)
+        chatDisplayPanel.scrollToBottomOnUserAction()
 
         // TODO proper coroutine handling for ai response
         processAIResponse(message, selectedModel)
@@ -198,7 +195,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     private fun refreshChatDisplay() {
-        chatDisplayPanel.updateContent(sessionManager.currentSession.messages, messageRenderer)
+        chatDisplayPanel.updateContent(sessionManager.currentSession.messages)
         historyPanel.refresh()
     }
 
