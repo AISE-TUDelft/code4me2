@@ -21,7 +21,7 @@
                                 order="first"/>
 
         <toolWindow
-                factoryClass="me.code4me.toolWindow.MyToolWindowFactory"
+                factoryClass="me.code4me.chatWindow.ChatWindowFactory"
                 id="Code4Me V2"
                 anchor="right"
                 icon="/icons/pluginIcon.svg"

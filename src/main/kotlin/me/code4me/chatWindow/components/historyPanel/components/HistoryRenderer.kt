@@ -1,17 +1,19 @@
-package me.code4me.toolWindow.utils
+package me.code4me.chatWindow.components.historyPanel.components
 
 import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.Gray
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
-import me.code4me.toolWindow.managers.ChatSession
+import me.code4me.chatWindow.components.managers.ChatSession
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.text.SimpleDateFormat
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -133,19 +135,19 @@ class HistoryRenderer(
 
         // Preserve hover effect
         panel.addMouseListener(
-            object : java.awt.event.MouseAdapter() {
-                override fun mouseEntered(e: java.awt.event.MouseEvent) {
+            object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent) {
                     panel.background = JBColor(Gray._230, Gray._75)
                     panel.isOpaque = true
                     panel.repaint()
                 }
 
-                override fun mouseExited(e: java.awt.event.MouseEvent) {
+                override fun mouseExited(e: MouseEvent) {
                     panel.isOpaque = false
                     panel.repaint()
                 }
 
-                override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                override fun mouseClicked(e: MouseEvent) {
                     if (!deleteButton.bounds.contains(e.point)) {
                         onClick(session)
                     }

@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.ui.components
+package me.code4me.chatWindow.components.inputPanel.components
 
 import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.Gray
@@ -126,8 +126,8 @@ class IconToggleButton(
     tooltip: String,
     action: (Boolean) -> Unit,
 ) : JToggleButton() {
-    private val selectedIcon = IconLoader.getIcon("/icons/webService_selected.svg", ControlsComponent::class.java)
-    private val unselectedIcon = IconLoader.getIcon("/icons/webService_notSelected.svg", ControlsComponent::class.java)
+    private val selectedIcon = IconLoader.getIcon("/icons/webService_selected.svg", InputControlsComponent::class.java)
+    private val unselectedIcon = IconLoader.getIcon("/icons/webService_notSelected.svg", InputControlsComponent::class.java)
 
     init {
         icon = unselectedIcon

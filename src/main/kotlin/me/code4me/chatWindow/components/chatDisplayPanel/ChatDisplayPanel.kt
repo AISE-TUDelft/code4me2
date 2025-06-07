@@ -1,12 +1,20 @@
-package me.code4me.toolWindow.ui
+package me.code4me.chatWindow.components.chatDisplayPanel
 
 import com.intellij.openapi.project.Project
 import com.intellij.ui.Gray
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
-import java.awt.*
-import javax.swing.*
+import me.code4me.chatWindow.components.chatDisplayPanel.components.ChatBubble
+import java.awt.BorderLayout
+import java.awt.Dimension
+import java.awt.Font
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JLabel
+import javax.swing.JPanel
+import javax.swing.ScrollPaneConstants
+import javax.swing.SwingUtilities
 import javax.swing.Timer
 
 class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>(BorderLayout()) {
@@ -14,7 +22,7 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             background = Gray._43
-            alignmentX = Component.LEFT_ALIGNMENT
+            alignmentX = LEFT_ALIGNMENT
         }
 
     private val wrapperPanel =
@@ -63,7 +71,7 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
                 val isUser = sender == "You"
                 val bubble =
                     ChatBubble(sender, message, isUser, project).apply {
-                        alignmentX = Component.LEFT_ALIGNMENT
+                        alignmentX = LEFT_ALIGNMENT
                         maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
                     }
                 contentPanel.add(bubble)
@@ -93,13 +101,13 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
 
     private fun makeCenteredLabel(text: String): JPanel {
         val label = JLabel(text)
-        label.foreground = Color(220, 220, 220)
+        label.foreground = Gray._220
         label.font = Font("SansSerif", Font.ITALIC, 16)
 
         val wrapper =
             JPanel().apply {
                 layout = BoxLayout(this, BoxLayout.X_AXIS)
-                background = Gray._43
+                isOpaque = false
                 border = JBUI.Borders.empty(30, 10, 10, 10)
                 add(Box.createHorizontalGlue())
                 add(label)

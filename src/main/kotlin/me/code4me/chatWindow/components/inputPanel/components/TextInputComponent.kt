@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.ui.components
+package me.code4me.chatWindow.components.inputPanel.components
 
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
@@ -8,6 +8,8 @@ import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FontMetrics
 import java.awt.event.ActionEvent
+import java.awt.event.FocusEvent
+import java.awt.event.FocusListener
 import javax.swing.AbstractAction
 import javax.swing.JScrollPane
 import javax.swing.JTextArea
@@ -59,8 +61,8 @@ class TextInputComponent(
             text = placeholder
 
             addFocusListener(
-                object : java.awt.event.FocusListener {
-                    override fun focusGained(e: java.awt.event.FocusEvent?) {
+                object : FocusListener {
+                    override fun focusGained(e: FocusEvent?) {
                         if (text == placeholder) {
                             text = ""
                             foreground = JBColor.foreground()
@@ -68,7 +70,7 @@ class TextInputComponent(
                         onFocus?.invoke()
                     }
 
-                    override fun focusLost(e: java.awt.event.FocusEvent?) {
+                    override fun focusLost(e: FocusEvent?) {
                         if (text.isBlank()) {
                             text = placeholder
                             foreground = JBColor.GRAY

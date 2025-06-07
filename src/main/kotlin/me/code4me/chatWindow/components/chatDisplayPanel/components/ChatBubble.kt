@@ -1,13 +1,13 @@
-package me.code4me.toolWindow.ui
+package me.code4me.chatWindow.components.chatDisplayPanel.components
 
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileTypes.FileTypeManager
-import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.IconLoader
 import com.intellij.testFramework.LightVirtualFile
 import com.intellij.ui.Gray
 import com.intellij.ui.JBColor
@@ -15,15 +15,32 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.TextTransferable
 import org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil
-import java.awt.*
+import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Cursor
+import java.awt.Dimension
+import java.awt.Font
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.RenderingHints
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.util.regex.Pattern
-import javax.swing.*
-import javax.swing.border.EmptyBorder
+import javax.swing.BorderFactory
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JButton
+import javax.swing.JEditorPane
+import javax.swing.JLabel
+import javax.swing.JPanel
+import javax.swing.JWindow
+import javax.swing.ScrollPaneConstants
+import javax.swing.Timer
 
 class ChatBubble(
-    private val sender: String,
-    private val message: String,
-    private val isUser: Boolean,
+    sender: String,
+    message: String,
+    isUser: Boolean,
     private val project: Project,
 ) : JPanel() {
     private val editors = mutableListOf<Editor>()
@@ -31,21 +48,47 @@ class ChatBubble(
     init {
         layout = BorderLayout()
         isOpaque = false
-        background = Color(0, 0, 0, 0)
-        border = EmptyBorder(6, 12, 6, 12)
+        background = JBColor(Color(0, 0, 0, 0), Color(0, 0, 0, 0))
+        border = JBUI.Borders.empty(6, 12)
 
         val bubbleColor = if (isUser) Gray._40 else Gray._60
 
         val container = RoundedPanel(bubbleColor, 12)
         container.layout = BoxLayout(container, BoxLayout.Y_AXIS)
-        container.border = EmptyBorder(8, 12, 12, 12)
+        container.border = JBUI.Borders.empty(8, 12, 12, 12)
         container.alignmentX = LEFT_ALIGNMENT
 
-        val senderLabel = JLabel(sender)
-        senderLabel.foreground = Color.WHITE
-        senderLabel.font = Font("SansSerif", Font.BOLD, 12)
-        senderLabel.alignmentX = LEFT_ALIGNMENT
-        container.add(senderLabel)
+        val senderPanel =
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                isOpaque = false
+                alignmentX = LEFT_ALIGNMENT
+            }
+
+        val iconPath: String? =
+            when (sender) {
+                // TODO improve when other languages are supported
+                "You" -> "/icons/user_dark.svg"
+                "Code4Me V2" -> "/icons/pluginIcon_chatSize.svg"
+                else -> null
+            }
+        if (iconPath == null) {
+            throw IllegalArgumentException("Unknown sender: $sender")
+        }
+        val icon = IconLoader.getIcon(iconPath, ChatBubble::class.java)
+        val iconLabel = JLabel(icon)
+        iconLabel.border = JBUI.Borders.emptyRight(5)
+
+        val senderLabel =
+            JLabel(sender).apply {
+                foreground = Color.WHITE
+                font = Font("SansSerif", Font.BOLD, 12)
+            }
+
+        senderPanel.add(iconLabel)
+        senderPanel.add(senderLabel)
+
+        container.add(senderPanel)
         container.add(Box.createVerticalStrut(4))
 
         val codeBlocks = extractCodeBlocks(message)
@@ -143,7 +186,6 @@ class ChatBubble(
     ) {
         val fileType =
             FileTypeManager.getInstance().getFileTypeByExtension(codeBlock.language)
-                ?: PlainTextFileType.INSTANCE
 
         val virtualFile = LightVirtualFile("code.${codeBlock.language}", fileType, codeBlock.code)
         val document = EditorFactory.getInstance().createDocument(codeBlock.code)
@@ -185,52 +227,67 @@ class ChatBubble(
         val headerPanel =
             JPanel(BorderLayout()).apply {
                 isOpaque = false
-                border = JBUI.Borders.empty(2, 6)
-                background = Gray._50
+                background = Gray._40
+                border = BorderFactory.createEmptyBorder(4, 8, 4, 8)
             }
 
         val languageLabel =
             JLabel(codeBlock.language.uppercase()).apply {
-                foreground = Color.LIGHT_GRAY
-                font = Font("Monospaced", Font.BOLD, 7)
+                // Should stay so for now since JBColor is theme aware whcih results in text not being visible with current bubble colors. TODO make all colors theme aware
+                foreground = Color.WHITE
+                font = Font("Monospaced", Font.BOLD, 10)
             }
         headerPanel.add(languageLabel, BorderLayout.WEST)
 
         val copyButton =
             JButton("⧉").apply {
-                font = Font("SansSerif", Font.PLAIN, 9)
+                toolTipText = "Copy code"
+                font = Font("SansSerif", Font.PLAIN, 10)
                 foreground = Color.WHITE
-                background = Gray._70
-                border = BorderFactory.createEmptyBorder(1, 6, 1, 6)
                 isFocusPainted = false
-                isContentAreaFilled = true
-                preferredSize = Dimension(40, 18)
+                isContentAreaFilled = false
+                isBorderPainted = false
+                isOpaque = false
+                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                preferredSize = Dimension(28, 18)
             }
 
         copyButton.addMouseListener(
-            object : java.awt.event.MouseAdapter() {
-                override fun mouseEntered(e: java.awt.event.MouseEvent?) {
-                    copyButton.background = Gray._80
+            object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent?) {
                 }
 
-                override fun mouseExited(e: java.awt.event.MouseEvent?) {
-                    copyButton.background = Gray._70
+                override fun mouseExited(e: MouseEvent?) {
                 }
             },
         )
-
         copyButton.addActionListener {
             try {
                 CopyPasteManager.getInstance().setContents(TextTransferable(codeBlock.code as CharSequence))
-                // Temporarily change button text to show feedback
-                val originalText = copyButton.text
-                copyButton.text = "Copied!"
-                Timer(1000) {
-                    copyButton.text = originalText
-                }.apply {
-                    isRepeats = false
-                    start()
-                }
+
+                // Create the popup label
+                val popup = JWindow()
+                val label =
+                    JLabel("Copied").apply {
+                        // Should stay so for now since JBColor is theme aware whcih results in text not being visible with current bubble colors. TODO make all colors theme aware
+                        foreground = Color.WHITE
+                        background = Gray._60
+                        isOpaque = true
+                        border = BorderFactory.createEmptyBorder(4, 8, 4, 8)
+                        font = Font("SansSerif", Font.PLAIN, 12)
+                    }
+                popup.contentPane.add(label)
+                popup.pack()
+
+                // Position popup near the button
+                val location = copyButton.locationOnScreen
+                popup.setLocation(location.x, location.y - popup.height - 5)
+                popup.isVisible = true
+
+                Timer(900) {
+                    popup.isVisible = false
+                    popup.dispose()
+                }.start()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -251,7 +308,7 @@ class ChatBubble(
 
         val codePanel =
             JPanel(BorderLayout()).apply {
-                border = BorderFactory.createLineBorder(Color.GRAY, 1)
+                border = BorderFactory.createLineBorder(JBColor.GRAY, 1)
                 add(headerPanel, BorderLayout.NORTH)
                 add(scrollPane, BorderLayout.CENTER)
             }
@@ -268,6 +325,7 @@ class ChatBubble(
         return JEditorPane("text/html", html).apply {
             isOpaque = false
             isEditable = false
+            // Should stay so for now since JBColor is theme aware whcih results in text not being visible with current bubble colors. TODO make all colors theme aware
             foreground = Color.WHITE
             font = Font("SansSerif", Font.PLAIN, 14)
             border = null

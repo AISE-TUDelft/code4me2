@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.managers
+package me.code4me.chatWindow.components.managers
 
 import java.util.Date
 import java.util.UUID

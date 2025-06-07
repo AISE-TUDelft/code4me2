@@ -1,31 +1,36 @@
-package me.code4me.toolWindow.ui
+package me.code4me.chatWindow.components.inputPanel
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
-import me.code4me.toolWindow.ui.components.ControlsComponent
-import me.code4me.toolWindow.ui.components.FileSelectionDialog
-import me.code4me.toolWindow.ui.components.FileTabsComponent
-import me.code4me.toolWindow.ui.components.TextInputComponent
-import java.awt.*
+import me.code4me.chatWindow.components.inputPanel.components.FileSelectionDialog
+import me.code4me.chatWindow.components.inputPanel.components.FileTabsComponent
+import me.code4me.chatWindow.components.inputPanel.components.InputControlsComponent
+import me.code4me.chatWindow.components.inputPanel.components.TextInputComponent
+import java.awt.BasicStroke
 import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Component
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.Insets
 import javax.swing.BorderFactory
 import javax.swing.UIManager
 import javax.swing.border.AbstractBorder
 
 class InputPanel(
-    private val project: Project,
-    private val onSend: () -> Unit,
-    private val onWebToggle: (Boolean) -> Unit,
-    private val onFileClose: (VirtualFile) -> Unit,
-    private val onFileSelected: (VirtualFile) -> Unit,
+    project: Project,
+    onSend: () -> Unit,
+    onWebToggle: (Boolean) -> Unit,
+    onFileClose: (VirtualFile) -> Unit,
+    onFileSelected: (VirtualFile) -> Unit,
 ) : JBPanel<InputPanel>(BorderLayout()) {
     private val textInputComponent = TextInputComponent(onSend)
     private val fileTabsComponent = FileTabsComponent(onFileClose)
-    private val controlsComponent =
-        ControlsComponent(
+    private val inputControlsComponent =
+        InputControlsComponent(
             onWebToggle = onWebToggle,
             onFileAdd = { showFileSelectionDialog() },
             onSend = onSend,
@@ -91,12 +96,12 @@ class InputPanel(
 
             add(textInputComponent, BorderLayout.NORTH)
             add(fileTabsComponent, BorderLayout.CENTER)
-            add(controlsComponent, BorderLayout.SOUTH)
+            add(inputControlsComponent, BorderLayout.SOUTH)
         }
 
     private fun showFileSelectionDialog() {
         fileSelectionDialog.excludedFiles = fileTabsComponent.getAllOpenFiles()
-        fileSelectionDialog.show(controlsComponent.getAddFileButton())
+        fileSelectionDialog.show(inputControlsComponent.getAddFileButton())
     }
 
     // Public API
@@ -106,9 +111,9 @@ class InputPanel(
 
     fun removeFileTab(file: VirtualFile) = fileTabsComponent.removeTab(file)
 
-    fun updateModelComboBox(models: Array<String>) = controlsComponent.updateModels(models)
+    fun updateModelComboBox(models: Array<String>) = inputControlsComponent.updateModels(models)
 
-    fun getSelectedModel(): String? = controlsComponent.getSelectedModel()
+    fun getSelectedModel(): String? = inputControlsComponent.getSelectedModel()
 
     val inputText: String get() = textInputComponent.text
 }
@@ -133,7 +138,7 @@ class RoundedBorder(
         g2.dispose()
     }
 
-    override fun getBorderInsets(c: Component) = Insets(thickness, thickness, thickness, thickness)
+    override fun getBorderInsets(c: Component) = JBUI.insets(thickness, thickness, thickness, thickness)
 
     override fun getBorderInsets(
         c: Component,

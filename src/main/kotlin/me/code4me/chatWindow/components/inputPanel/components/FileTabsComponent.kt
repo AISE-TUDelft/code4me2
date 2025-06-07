@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.ui.components
+package me.code4me.chatWindow.components.inputPanel.components
 
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBColor

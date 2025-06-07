@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.ui.components
+package me.code4me.chatWindow.components.inputPanel.components
 
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.JBColor

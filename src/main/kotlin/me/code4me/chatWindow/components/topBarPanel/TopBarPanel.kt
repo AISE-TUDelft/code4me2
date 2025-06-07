@@ -1,11 +1,11 @@
-package me.code4me.toolWindow.ui
+package me.code4me.chatWindow.components.topBarPanel
 
 import com.intellij.icons.AllIcons
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
-import me.code4me.toolWindow.managers.ChatSessionManager
-import me.code4me.toolWindow.ui.components.IconButton
+import me.code4me.chatWindow.components.inputPanel.components.IconButton
+import me.code4me.chatWindow.components.managers.ChatSessionManager
 import java.awt.BorderLayout
 import java.awt.Cursor
 import java.awt.FlowLayout

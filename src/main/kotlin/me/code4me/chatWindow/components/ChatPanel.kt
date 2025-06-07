@@ -1,38 +1,31 @@
-package me.code4me.toolWindow
+package me.code4me.chatWindow.components
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
-import kotlinx.coroutines.*
-import me.code4me.toolWindow.managers.ChatIOManager
-import me.code4me.toolWindow.managers.ChatSessionManager
-import me.code4me.toolWindow.managers.ChatViewManager
-import me.code4me.toolWindow.ui.ChatDisplayPanel
-import me.code4me.toolWindow.ui.HistoryPanel
-import me.code4me.toolWindow.ui.InputPanel
-import me.code4me.toolWindow.ui.TopBarPanel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import me.code4me.chatWindow.components.chatDisplayPanel.ChatDisplayPanel
+import me.code4me.chatWindow.components.historyPanel.HistoryPanel
+import me.code4me.chatWindow.components.inputPanel.InputPanel
+import me.code4me.chatWindow.components.managers.ChatIOManager
+import me.code4me.chatWindow.components.managers.ChatSessionManager
+import me.code4me.chatWindow.components.managers.ChatViewManager
+import me.code4me.chatWindow.components.topBarPanel.TopBarPanel
 import java.awt.BorderLayout
 
-/**
- * Main container panel for the chat interface.
- *
- * Orchestrates the layout and behavior of the top bar, chat display,
- * input panel, file dropdown, and history panel. Also handles message sending,
- * session management, and interaction with the AI and file system.
- */
 class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     companion object {
-        private const val WELCOME_MESSAGE = "Welcome! Ask me anything."
         private const val USER_NAME = "You"
-        private const val AI_NAME = "Code4Me2"
+        private const val AI_NAME = "Code4Me V2"
     }
 
     private val ioManager = ChatIOManager()
     private val sessionManager = ChatSessionManager()
-
-    //    private val configManager = ConfigManager() //TODO USE CONFIG MANAGER FOR RETRIEVING MODELS. also it mgiht be better to do it in the loadModelsFromConfig method.
     private val selectedFiles = mutableSetOf<VirtualFile>()
     private var welcomeShown = true
     private var useWeb = false
@@ -43,21 +36,16 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private lateinit var chatDisplayPanel: ChatDisplayPanel
     private lateinit var historyPanel: HistoryPanel
     private val viewManager = ChatViewManager()
+    private val uiScope = CoroutineScope(Dispatchers.Default)
 
     init {
         setupPanelLayout()
-//        subscribeToFileChanges()
         initializeChatHistory()
         loadModelsFromConfig()
     }
 
-    /**
-     * Sets up the layout of the main chat components.
-     * Initializes subpanels and registers them with the view manager.
-     */
     private fun setupPanelLayout() {
         border = JBUI.Borders.empty()
-
         project = ProjectManager.getInstance().openProjects.firstOrNull()
         if (project == null) return
 
@@ -71,13 +59,6 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         add(viewManager.getContainer(), BorderLayout.CENTER)
     }
 
-    /**
-     * Creates the input panel with callbacks for sending messages,
-     * toggling web usage, and file tab management.
-     *
-     * @param project the current project instance.
-     * @return configured InputPanel instance.
-     */
     private fun createInputPanel(project: Project) =
         InputPanel(
             project = project,
@@ -87,11 +68,6 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             onFileSelected = ::addSelectedFile,
         )
 
-    /**
-     * Creates the top bar panel managing chat sessions and UI events.
-     *
-     * @return configured TopBarPanel instance.
-     */
     private fun createTopBarPanel() =
         TopBarPanel(
             sessionManager,
@@ -101,25 +77,15 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             onTitleRenamed = { historyPanel.refresh() },
         )
 
-    /**
-     * Creates the history panel that shows chat history and allows
-     * switching back to the chat panel.
-     *
-     * @return configured HistoryPanel instance.
-     */
     private fun createHistoryPanel() =
         HistoryPanel(sessionManager) {
-            topBarPanel.updateTitle()
-            refreshChatDisplay()
-            viewManager.showChatPanel()
+            ApplicationManager.getApplication().invokeLater {
+                topBarPanel.updateTitle()
+                refreshChatDisplay()
+                viewManager.showChatPanel()
+            }
         }
 
-    /**
-     * Constructs the main chat area panel by combining the top bar,
-     * chat display, and input panel in a BorderLayout.
-     *
-     * @return the main chat area panel.
-     */
     private fun createMainChatArea() =
         JBPanel<JBPanel<*>>(BorderLayout()).apply {
             add(topBarPanel, BorderLayout.NORTH)
@@ -147,9 +113,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private fun clearSelectedFiles() {
         val filesToRemove = selectedFiles.toList()
         selectedFiles.clear()
-        filesToRemove.forEach { file ->
-            inputPanel.removeFileTab(file)
-        }
+        filesToRemove.forEach { inputPanel.removeFileTab(it) }
     }
 
     private fun initializeChatHistory() {
@@ -166,14 +130,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             sessionManager.currentSession.messages.removeIf { (sender, _) -> sender.isEmpty() }
             refreshChatDisplay()
         }
+
         val selectedModel = inputPanel.getSelectedModel()
         appendMessage(USER_NAME, message)
         inputPanel.clearInput()
-
-        // Scroll to bottom when user sends a message (restes scrolling stae)
         chatDisplayPanel.scrollToBottomOnUserAction()
-
-        // TODO proper coroutine handling for ai response
         processAIResponse(message, selectedModel)
     }
 
@@ -181,8 +142,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         query: String,
         selectedModel: String?,
     ) {
-        val aiResponse =
-            ioManager.getAIResponse(query, useWeb, selectedFiles.mapNotNull { it.path }, selectedModel)
+        val aiResponse = ioManager.getAIResponse(query, useWeb, selectedFiles.map { it.path }, selectedModel)
         appendMessage(AI_NAME, aiResponse)
     }
 
@@ -195,11 +155,15 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     private fun refreshChatDisplay() {
-        chatDisplayPanel.updateContent(sessionManager.currentSession.messages)
-        historyPanel.refresh()
+        uiScope.launch {
+            val messages = sessionManager.currentSession.messages
+            ApplicationManager.getApplication().invokeLater {
+                chatDisplayPanel.updateContent(messages)
+                historyPanel.refresh()
+            }
+        }
     }
 
-    // Public API for external access
     fun updateModelList(models: Array<String>) {
         inputPanel.updateModelComboBox(models)
     }
@@ -212,14 +176,8 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     private fun loadModelsFromConfig() {
         try {
-//            val models = configManager.getModels()
-            val models = arrayOf("GPT-4", "Claude-3", "Gemini-Pro", "BEST MODEL EVER") // TODO use configmanager.getChatModels()
+            val models = arrayOf("GPT-4", "Claude-3", "Gemini-Pro", "BEST MODEL EVER")
             updateModelList(models)
-
-            val defaultModel = ("GPT-4") // TODO use configmanager.getChatDefaultModel()
-            if (defaultModel != null && models.contains(defaultModel)) {
-                // TODO: Set the default model in the combo box
-            }
         } catch (e: Exception) {
             println("Error loading models from config: ${e.message}")
             updateModelList(arrayOf("No models available"))

@@ -1,4 +1,4 @@
-package me.code4me.toolWindow.ui.components
+package me.code4me.chatWindow.components.inputPanel.components
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.util.IconLoader
@@ -15,11 +15,11 @@ import javax.swing.JPanel
 /**
  * Component containing the bottom control buttons and model selector
  */
-class ControlsComponent(
+class InputControlsComponent(
     private val onWebToggle: (Boolean) -> Unit,
     private val onFileAdd: () -> Unit,
     private val onSend: () -> Unit,
-) : JBPanel<ControlsComponent>(BorderLayout()) {
+) : JBPanel<InputControlsComponent>(BorderLayout()) {
     private val addFileButton = createAddFileButton()
     private val webToggleButton = createWebToggleButton()
     private val modelComboBox = ModelComboBox()
@@ -37,7 +37,7 @@ class ControlsComponent(
     private fun setupLayout() {
         val leftPanel =
             JPanel().apply {
-                background = this@ControlsComponent.background
+                background = this@InputControlsComponent.background
                 layout = BoxLayout(this, BoxLayout.X_AXIS)
 
                 add(addFileButton)
@@ -50,7 +50,7 @@ class ControlsComponent(
 
         val rightPanel =
             JPanel().apply {
-                background = this@ControlsComponent.background
+                background = this@InputControlsComponent.background
                 layout = BoxLayout(this, BoxLayout.X_AXIS)
                 add(sendButton)
             }
@@ -85,9 +85,9 @@ class ControlsComponent(
         )
 
     private fun createSendButton(): JButton {
-        val sendIcon = IconLoader.getIcon("/icons/send.svg", ControlsComponent::class.java)
-        val hoverIcon = IconLoader.getIcon("/icons/send_hover.svg", ControlsComponent::class.java)
-        val clickIcon = IconLoader.getIcon("/icons/send_click.svg", ControlsComponent::class.java)
+        val sendIcon = IconLoader.getIcon("/icons/send.svg", InputControlsComponent::class.java)
+        val hoverIcon = IconLoader.getIcon("/icons/send_hover.svg", InputControlsComponent::class.java)
+        val clickIcon = IconLoader.getIcon("/icons/send_click.svg", InputControlsComponent::class.java)
 
         return CleanIconButton(
             defaultIcon = sendIcon,
