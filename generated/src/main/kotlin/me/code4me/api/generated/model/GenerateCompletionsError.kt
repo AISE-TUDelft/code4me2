@@ -22,15 +22,14 @@ import com.squareup.moshi.JsonClass
 /**
  * 
  *
- * @param message Error message
+ * @param message 
  */
 
 
 data class GenerateCompletionsError (
 
-    /* Error message */
     @Json(name = "message")
-    val message: kotlin.String
+    val message: kotlin.String? = "Failed to generate completions."
 
 ) {
 

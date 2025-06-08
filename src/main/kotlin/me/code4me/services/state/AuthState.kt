@@ -345,6 +345,7 @@ class AuthSettings : BaseState() {
             // Clear all secure data
             if (oldToken != null) {
                 AuthState.removeSecureData(TOKEN_PROPERTY)
+                cachedToken = null
                 propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, null)
             }
 

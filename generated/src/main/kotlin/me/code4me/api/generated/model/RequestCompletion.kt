@@ -15,16 +15,20 @@
 
 package me.code4me.api.generated.model
 
+import me.code4me.api.generated.model.BehavioralTelemetryData
+import me.code4me.api.generated.model.ContextData
+import me.code4me.api.generated.model.ContextualTelemetryData
 
 import com.squareup.moshi.Json
+import com.squareup.moshi.JsonClass
 
 /**
  * 
  *
  * @param modelIds Models to use for completion
  * @param context Context data for completion
- * @param behavioralTelemetry Behavioral telemetry data for completion
- * @param contextualTelemetry Contextual telemetry data for completion
+ * @param contextualTelemetry Contextual telemetry data
+ * @param behavioralTelemetry Behavioral telemetry data
  */
 
 
@@ -36,15 +40,15 @@ data class RequestCompletion (
 
     /* Context data for completion */
     @Json(name = "context")
-    val context: kotlin.collections.Map<kotlin.String, kotlin.Any>,
+    val context: ContextData,
 
-    /* Telemetry data for completion */
-    @Json(name = "behavioralTelemetry")
-    val behavioralTelemetry: kotlin.collections.Map<kotlin.String, kotlin.Any>,
+    /* Contextual telemetry data */
+    @Json(name = "contextual_telemetry")
+    val contextualTelemetry: ContextualTelemetryData,
 
-    /* Telemetry data for completion */
-    @Json(name = "contextualTelemetry")
-    val contextualTelemetry: kotlin.collections.Map<kotlin.String, kotlin.Any>
+    /* Behavioral telemetry data */
+    @Json(name = "behavioral_telemetry")
+    val behavioralTelemetry: BehavioralTelemetryData
 
 ) {
 

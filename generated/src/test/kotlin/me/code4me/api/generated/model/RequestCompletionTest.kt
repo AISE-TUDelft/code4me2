@@ -19,8 +19,9 @@ import io.kotlintest.shouldBe
 import io.kotlintest.specs.ShouldSpec
 
 import me.code4me.api.generated.model.RequestCompletion
+import me.code4me.api.generated.model.BehavioralTelemetryData
 import me.code4me.api.generated.model.ContextData
-import me.code4me.api.generated.model.TelemetryData
+import me.code4me.api.generated.model.ContextualTelemetryData
 
 class RequestCompletionTest : ShouldSpec() {
     init {
@@ -39,10 +40,16 @@ class RequestCompletionTest : ShouldSpec() {
             //modelInstance.context shouldBe ("TODO")
         }
 
-        // to test the property `telemetry` - Telemetry data for completion
-        should("test telemetry") {
+        // to test the property `contextualTelemetry` - Contextual telemetry data
+        should("test contextualTelemetry") {
             // uncomment below to test the property
-            //modelInstance.telemetry shouldBe ("TODO")
+            //modelInstance.contextualTelemetry shouldBe ("TODO")
+        }
+
+        // to test the property `behavioralTelemetry` - Behavioral telemetry data
+        should("test behavioralTelemetry") {
+            // uncomment below to test the property
+            //modelInstance.behavioralTelemetry shouldBe ("TODO")
         }
 
     }

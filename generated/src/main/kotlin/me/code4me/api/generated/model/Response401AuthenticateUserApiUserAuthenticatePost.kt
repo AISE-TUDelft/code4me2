@@ -16,7 +16,7 @@
 package me.code4me.api.generated.model
 
 import me.code4me.api.generated.model.InvalidEmailOrPassword
-import me.code4me.api.generated.model.InvalidOrExpiredToken
+import me.code4me.api.generated.model.InvalidOrExpiredJWTToken
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass

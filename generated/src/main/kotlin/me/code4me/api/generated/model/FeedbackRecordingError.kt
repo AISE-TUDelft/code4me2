@@ -22,15 +22,14 @@ import com.squareup.moshi.JsonClass
 /**
  * 
  *
- * @param message Error message
+ * @param message 
  */
 
 
 data class FeedbackRecordingError (
 
-    /* Error message */
     @Json(name = "message")
-    val message: kotlin.String
+    val message: kotlin.String? = "Failed to record feedback."
 
 ) {
 

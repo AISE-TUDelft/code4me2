@@ -43,5 +43,17 @@ class CreateUserTest : ShouldSpec() {
             //modelInstance.password shouldBe ("TODO")
         }
 
+        // to test the property `configId` - Configuration ID to use
+        should("test configId") {
+            // uncomment below to test the property
+            //modelInstance.configId shouldBe ("TODO")
+        }
+
+        // to test the property `preference`
+        should("test preference") {
+            // uncomment below to test the property
+            //modelInstance.preference shouldBe ("TODO")
+        }
+
     }
 }

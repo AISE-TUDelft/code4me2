@@ -19,7 +19,7 @@ import io.kotlintest.shouldBe
 import io.kotlintest.specs.ShouldSpec
 
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
-import me.code4me.api.generated.model.UserBase
+import me.code4me.api.generated.model.ResponseUser
 
 class AuthenticateUserPostResponseTest : ShouldSpec() {
     init {
@@ -36,6 +36,12 @@ class AuthenticateUserPostResponseTest : ShouldSpec() {
         should("test user") {
             // uncomment below to test the property
             //modelInstance.user shouldBe ("TODO")
+        }
+
+        // to test the property `config` - Users config json string
+        should("test config") {
+            // uncomment below to test the property
+            //modelInstance.config shouldBe ("TODO")
         }
 
     }

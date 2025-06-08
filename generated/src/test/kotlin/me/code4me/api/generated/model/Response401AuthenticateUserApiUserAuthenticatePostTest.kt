@@ -20,7 +20,7 @@ import io.kotlintest.specs.ShouldSpec
 
 import me.code4me.api.generated.model.Response401AuthenticateUserApiUserAuthenticatePost
 import me.code4me.api.generated.model.InvalidEmailOrPassword
-import me.code4me.api.generated.model.InvalidOrExpiredToken
+import me.code4me.api.generated.model.InvalidOrExpiredJWTToken
 
 class Response401AuthenticateUserApiUserAuthenticatePostTest : ShouldSpec() {
     init {

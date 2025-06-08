@@ -13,6 +13,7 @@ import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import me.code4me.api.wrapper.CookieAwareApiClient
 import me.code4me.components.settings.fields.CredentialField
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
@@ -25,6 +26,7 @@ import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
+import java.net.CookieManager
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.BorderFactory
 import javax.swing.JButton
@@ -507,14 +509,11 @@ class AuthenticationSection : SettingsSection {
         // Clear any previous error states
         clearFieldErrors()
 
-        // Run authentication off the EDT to prevent UI blocking
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                handleCredentialsAuthAsync()
-            } catch (e: Exception) {
-                LOG.error("Authentication process failed", e)
-                showErrorOnEDT("Authentication failed due to an unexpected error")
-            }
+        try {
+            handleCredentialsAuth()
+        } catch (e: Exception) {
+            LOG.error("Authentication process failed", e)
+            showError("Authentication failed due to an unexpected error")
         }
     }
 
@@ -596,9 +595,9 @@ class AuthenticationSection : SettingsSection {
     }
 
     /**
-     * Handles credential-based authentication asynchronously.
+     * Handles credential-based authentication.
      */
-    private suspend fun handleCredentialsAuthAsync() {
+    private fun handleCredentialsAuth() {
         val email = emailField.text.trim()
         val password = String(passwordField.password)
         val isSignupMode = authModeToggle.isSelected
@@ -607,9 +606,9 @@ class AuthenticationSection : SettingsSection {
             val token =
                 if (isSignupMode) {
                     val fullName = fullNameField.text.trim()
-                    performSignupAsync(fullName, email, password)
+                    performSignup(fullName, email, password)
                 } else {
-                    performLoginAsync(email, password)
+                    performLogin(email, password)
                 }
 
             if (token != null) {
@@ -621,8 +620,8 @@ class AuthenticationSection : SettingsSection {
                     authState.state.setUserName(fullNameField.text.trim())
                 }
 
-                showSuccessOnEDT("Authentication successful!")
-                clearAllFieldsOnEDT()
+                showSuccess("Authentication successful!")
+                clearAllFields()
             } else {
                 val errorMessage =
                     if (isSignupMode) {
@@ -630,24 +629,26 @@ class AuthenticationSection : SettingsSection {
                     } else {
                         "Login failed. Please check your credentials and try again."
                     }
-                showErrorOnEDT(errorMessage)
+                showError(errorMessage)
             }
         } catch (e: Exception) {
             LOG.error("Authentication request failed", e)
-            showErrorOnEDT("Authentication failed: ${e.message}")
+            showError("Authentication failed: ${e.message}")
         }
     }
 
     /**
      * Performs user login with email and password.
      */
-    private suspend fun performLoginAsync(
+    private fun performLogin(
         email: String,
         password: String,
     ): String? {
         return try {
             val response = appService.authenticateUser(email, password)
-            response.message
+            return CookieAwareApiClient.cookieManager.cookieStore.cookies.firstOrNull {
+                it.name == "auth_token"
+            }?.value
         } catch (e: Exception) {
             LOG.warn("Login request failed for email: $email", e)
             null
@@ -657,46 +658,27 @@ class AuthenticationSection : SettingsSection {
     /**
      * Performs user signup with full name, email, and password.
      */
-    private suspend fun performSignupAsync(
+    private fun performSignup(
         fullName: String,
         email: String,
         password: String,
     ): String? {
         return try {
-            // TODO: Implement signup API call when available
-            // For now, returning null to indicate not implemented
-            LOG.info("Signup attempted for email: $email (not yet implemented)")
-            null
+            val createUser = appService.createUser(
+                email = email,
+                name = fullName,
+                password = password,
+            )
+            val authenticatedUser = appService.authenticateUser(email, password)
+            authState.state.setUserName(
+                authenticatedUser.user.name.trim()
+            )
+            return CookieAwareApiClient.cookieManager.cookieStore.cookies.firstOrNull {
+                it.name == "auth_token"
+            }?.value
         } catch (e: Exception) {
             LOG.warn("Signup request failed for email: $email", e)
             null
-        }
-    }
-
-    /**
-     * Shows an error message on the Event Dispatch Thread.
-     */
-    private fun showErrorOnEDT(message: String) {
-        SwingUtilities.invokeLater {
-            showError(message)
-        }
-    }
-
-    /**
-     * Shows a success message on the Event Dispatch Thread.
-     */
-    private fun showSuccessOnEDT(message: String) {
-        SwingUtilities.invokeLater {
-            showSuccess(message)
-        }
-    }
-
-    /**
-     * Clears all input fields on the Event Dispatch Thread.
-     */
-    private fun clearAllFieldsOnEDT() {
-        SwingUtilities.invokeLater {
-            clearAllFields()
         }
     }
 

@@ -25,10 +25,10 @@ class FeedbackCompletionTest : ShouldSpec() {
         // uncomment below to create an instance of FeedbackCompletion
         //val modelInstance = FeedbackCompletion()
 
-        // to test the property `queryId` - Query ID
-        should("test queryId") {
+        // to test the property `metaQueryId` - Meta Query ID
+        should("test metaQueryId") {
             // uncomment below to test the property
-            //modelInstance.queryId shouldBe ("TODO")
+            //modelInstance.metaQueryId shouldBe ("TODO")
         }
 
         // to test the property `modelId` - Model ID

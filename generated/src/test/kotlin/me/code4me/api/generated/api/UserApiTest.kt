@@ -19,17 +19,22 @@ import io.kotlintest.shouldBe
 import io.kotlintest.specs.ShouldSpec
 
 import me.code4me.api.generated.api.UserApi
+import me.code4me.api.generated.model.AuthenticateUserError
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
+import me.code4me.api.generated.model.ConfigNotFound
+import me.code4me.api.generated.model.CreateUserError
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteUserDeleteResponse
+import me.code4me.api.generated.model.DeleteUserError
 import me.code4me.api.generated.model.ErrorResponse
-import me.code4me.api.generated.model.HTTPValidationError
-import me.code4me.api.generated.model.InvalidOrExpiredToken
-import me.code4me.api.generated.model.InvalidSessionToken
+import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
+import me.code4me.api.generated.model.InvalidOrExpiredJWTToken
 import me.code4me.api.generated.model.Response401AuthenticateUserApiUserAuthenticatePost
 import me.code4me.api.generated.model.UpdateUser
+import me.code4me.api.generated.model.UpdateUserError
 import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserAlreadyExistsWithThisEmail
+import me.code4me.api.generated.model.UserNotFoundError
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 
@@ -57,9 +62,9 @@ class UserApiTest : ShouldSpec() {
         // to test deleteUserApiUserDeleteDelete
         should("test deleteUserApiUserDeleteDelete") {
             // uncomment below to test deleteUserApiUserDeleteDelete
-            //val deleteUserData : kotlin.Boolean = true // kotlin.Boolean | Delete users data
-            //val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
-            //val result : DeleteUserDeleteResponse = apiInstance.deleteUserApiUserDeleteDelete(deleteUserData, sessionToken)
+            //val deleteData : kotlin.Boolean = true // kotlin.Boolean | Delete user's data
+            //val authToken : kotlin.String = authToken_example // kotlin.String | 
+            //val result : DeleteUserDeleteResponse = apiInstance.deleteUserApiUserDeleteDelete(deleteData, authToken)
             //result shouldBe ("TODO")
         }
 
@@ -67,8 +72,8 @@ class UserApiTest : ShouldSpec() {
         should("test updateUserApiUserUpdatePut") {
             // uncomment below to test updateUserApiUserUpdatePut
             //val updateUser : UpdateUser =  // UpdateUser | 
-            //val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
-            //val result : UpdateUserPutResponse = apiInstance.updateUserApiUserUpdatePut(updateUser, sessionToken)
+            //val authToken : kotlin.String = authToken_example // kotlin.String | 
+            //val result : UpdateUserPutResponse = apiInstance.updateUserApiUserUpdatePut(updateUser, authToken)
             //result shouldBe ("TODO")
         }
 

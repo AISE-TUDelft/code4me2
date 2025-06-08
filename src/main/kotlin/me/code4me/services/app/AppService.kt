@@ -1,25 +1,29 @@
-
 package me.code4me.services.app
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.thisLogger
-import me.code4me.api.generated.api.AuthenticateApi
+import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.CompletionApi
-import me.code4me.api.generated.api.CreateUserApi
 import me.code4me.api.generated.api.UserApi
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
-import me.code4me.api.generated.model.CompletionResponseData
+import me.code4me.api.generated.model.CompletionPostResponseInput
+import me.code4me.api.generated.model.ContextData
+import me.code4me.api.generated.model.ContextualTelemetryData
+import me.code4me.api.generated.model.BehavioralTelemetryData
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestCompletion
+import me.code4me.api.generated.model.ResponseCompletionResponseData
+import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
 import me.code4me.services.config.getConfig
 import me.code4me.services.state.getAuthState
 import me.code4me.utils.record.Record
+import me.code4me.utils.api.mapsTo
 import java.io.IOException
 
 /**
@@ -55,9 +59,8 @@ class AppService {
     private val apiBaseUrl = "${serverConfig?.host}:${serverConfig?.port}${serverConfig?.contextPath}"
 
     // API clients using the cookie-aware client's OkHttpClient for automatic session management
-    private val authApi = AuthenticateApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val authApi = AuthenticationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val userApi = UserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-    private val createUserApi = CreateUserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
 
     init {
@@ -115,7 +118,7 @@ class AppService {
             UserToAuthenticate(
                 email = email,
                 password = password,
-                provider = Provider.google,
+                provider = Provider.no_provider,
                 token = "",
             )
 
@@ -198,7 +201,7 @@ class AppService {
         name: String,
         password: String,
         token: String = "",
-        provider: Provider = Provider.google,
+        provider: Provider = Provider.no_provider,
     ): CreateUserPostResponse {
         require(email.isNotBlank()) { "Email cannot be blank" }
         require(name.isNotBlank()) { "Name cannot be blank" }
@@ -209,11 +212,12 @@ class AppService {
                 name = name,
                 password = password,
                 token = token,
-                provider = provider,
+                configId = 1, // Assuming configId is always 1 - this means the default configuration
+                provider = provider
             )
 
         return try {
-            val response = createUserApi.createUserApiUserCreatePost(userToCreate)
+            val response = userApi.createUserApiUserCreatePost(userToCreate)
             LOG.info("User created successfully: $email")
             response
         } catch (e: Exception) {
@@ -289,15 +293,37 @@ class AppService {
      * @see Record.Type.BEHAVIORAL_TELEMETRY
      * @see Record.type.CONTEXTUAL_TELEMETRY
      */
-    fun getInlineCompletion(aggregatedCollectedData: Map<Record.Type, Map<String, Any>>): CompletionResponseData? {
+    fun getInlineCompletion(aggregatedCollectedData: Map<Record.Type, Map<String, Any>>): ResponseCompletionResponseData? {
         require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
+
+        ResponseCompletionResponseData(
+            metaQueryId = java.util.UUID.randomUUID(),
+            completions = listOf(
+                ResponseCompletionResponseDataCompletionsInner(
+                    modelId = DEFAULT_MODEL_ID,
+                    modelName = "Default Model",
+                    completion = "Generated code based on context and telemetry",
+                    generationTime = 100, // Example generation time in milliseconds
+                    confidence = java.math.BigDecimal("0.95"),
+                    message = "Completion generated successfully"
+                )
+            )
+        )
 
         val requestCompletion =
             RequestCompletion(
                 modelIds = listOf(DEFAULT_MODEL_ID),
-                context = aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap(),
-                behavioralTelemetry = aggregatedCollectedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap(),
-                contextualTelemetry = aggregatedCollectedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap(),
+                context = (aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
+                    ContextData::class.java
+                ),
+                behavioralTelemetry = (aggregatedCollectedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
+                    .mapsTo<BehavioralTelemetryData>(
+                        BehavioralTelemetryData::class.java
+                    ),
+                contextualTelemetry = (aggregatedCollectedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
+                    .mapsTo<ContextualTelemetryData>(
+                        ContextualTelemetryData::class.java
+                    )
             )
 
         return try {

@@ -19,7 +19,7 @@ import io.kotlintest.shouldBe
 import io.kotlintest.specs.ShouldSpec
 
 import me.code4me.api.generated.model.UpdateUserPutResponse
-import me.code4me.api.generated.model.UserBase
+import me.code4me.api.generated.model.ResponseUser
 
 class UpdateUserPutResponseTest : ShouldSpec() {
     init {

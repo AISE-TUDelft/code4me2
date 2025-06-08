@@ -15,7 +15,7 @@
 
 package me.code4me.api.generated.model
 
-import me.code4me.api.generated.model.FeedbackResponseData
+import me.code4me.api.generated.model.ResponseFeedbackResponseData
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
@@ -32,7 +32,7 @@ data class CompletionFeedbackPostResponse (
 
     /* Information about the recorded feedback */
     @Json(name = "data")
-    val `data`: FeedbackResponseData,
+    val `data`: ResponseFeedbackResponseData,
 
     @Json(name = "message")
     val message: kotlin.String? = "Feedback recorded successfully."

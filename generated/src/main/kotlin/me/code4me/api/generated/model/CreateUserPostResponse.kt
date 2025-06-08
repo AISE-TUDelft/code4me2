@@ -31,7 +31,7 @@ data class CreateUserPostResponse (
 
     /* Created user id */
     @Json(name = "user_id")
-    val userId: java.util.UUID,
+    val userId: kotlin.String,
 
     @Json(name = "message")
     val message: kotlin.String? = "User created successfully. Please check your email for verification."

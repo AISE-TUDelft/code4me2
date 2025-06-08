@@ -25,40 +25,28 @@ class ContextDataTest : ShouldSpec() {
         // uncomment below to create an instance of ContextData
         //val modelInstance = ContextData()
 
-        // to test the property `prefix` - Code before cursor
+        // to test the property `prefix`
         should("test prefix") {
             // uncomment below to test the property
             //modelInstance.prefix shouldBe ("TODO")
         }
 
-        // to test the property `suffix` - Code after cursor
+        // to test the property `suffix`
         should("test suffix") {
             // uncomment below to test the property
             //modelInstance.suffix shouldBe ("TODO")
         }
 
-        // to test the property `fileName` - File name
+        // to test the property `fileName`
         should("test fileName") {
             // uncomment below to test the property
             //modelInstance.fileName shouldBe ("TODO")
         }
 
-        // to test the property `languageId` - Programming language ID
-        should("test languageId") {
+        // to test the property `selectedText`
+        should("test selectedText") {
             // uncomment below to test the property
-            //modelInstance.languageId shouldBe ("TODO")
-        }
-
-        // to test the property `triggerTypeId` - Trigger type ID
-        should("test triggerTypeId") {
-            // uncomment below to test the property
-            //modelInstance.triggerTypeId shouldBe ("TODO")
-        }
-
-        // to test the property `versionId` - Plugin version ID
-        should("test versionId") {
-            // uncomment below to test the property
-            //modelInstance.versionId shouldBe ("TODO")
+            //modelInstance.selectedText shouldBe ("TODO")
         }
 
         // to test the property `contextFiles`

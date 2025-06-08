@@ -16,7 +16,7 @@ All URIs are relative to *http://localhost*
 
 Authenticate User
 
-Authenticate a user Note: There are some nuances to how this should be handled. 1. There is a possibility that the token field is JWT token for OAuth providers (this should be checked for) 1.1. Authentication should first check if the token is a JWT token 1.2. If it is a JWT token, then the validity of the token should be checked 1.3. If the token is valid, then the user should be authenticated using the token and allocated a session 1.4. The provider is always Google 2. The filed can also simply represent a password for a user. 3. The authentication should either return a JsonResponseWithStatus with content of UserAuthenticationPostResponse or a ErrorResponse
+Authenticate a user via either OAuth (JWT token) or traditional email/password.  This endpoint supports two methods of authentication: 1. OAuth Authentication:    - The input contains a JWT token from an OAuth provider (Google).    - The token&#39;s validity is verified.    - If valid, the user is fetched by email from the database.    - A session auth token is created and returned as a cookie. 2. Email/Password Authentication:    - The input contains user email and password.    - Credentials are verified against the database.    - If valid, a session auth token is created and returned as a cookie.  Args:     user_to_authenticate: Union of OAuth token or email/password credentials.     app: FastAPI dependency to access the application context.  Returns:     JsonResponseWithStatus: A JSON response containing the authenticated user info     and a session auth token cookie on success, or an error response otherwise.
 
 ### Example
 ```kotlin
@@ -62,7 +62,7 @@ No authorization required
 
 Create User
 
-Create a new user 1. The user should be created in the database if it does not exist 2. The user should be sent a verification email 3. The user should be sent a success message 4. If the user already exists, then a 409 error should be returned
+Create a new user in the system.  Args:     user_to_create (Union[Queries.CreateUser, Queries.CreateUserOauth]):         The user data to create, can be standard or OAuth-based.     app (App):         The application instance, injected by FastAPI&#39;s dependency system.  Returns:     JsonResponseWithStatus: Response with status code and content.  Steps:     1. Check if the user already exists by email.     2. If OAuth, verify the JWT token and email.     3. Create the user in the database if not exists.     4. Send verification email.     5. Return appropriate response.
 
 ### Example
 ```kotlin
@@ -104,9 +104,11 @@ No authorization required
 
 <a id="deleteUserApiUserDeleteDelete"></a>
 # **deleteUserApiUserDeleteDelete**
-> DeleteUserDeleteResponse deleteUserApiUserDeleteDelete(deleteUserData, sessionToken)
+> DeleteUserDeleteResponse deleteUserApiUserDeleteDelete(deleteData, authToken)
 
 Delete User
+
+Delete the authenticated user&#39;s account and optionally their data.  Args:     delete_data (bool): Flag indicating whether to delete associated data (default: False).     auth_token (str): Authentication token stored in browser cookies.     app (App): Application instance with access to database and session managers.  Returns:     JsonResponseWithStatus: A success message or an appropriate error response.
 
 ### Example
 ```kotlin
@@ -115,10 +117,10 @@ Delete User
 //import me.code4me.api.generated.model.*
 
 val apiInstance = UserApi()
-val deleteUserData : kotlin.Boolean = true // kotlin.Boolean | Delete users data
-val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
+val deleteData : kotlin.Boolean = true // kotlin.Boolean | Delete user's data
+val authToken : kotlin.String = authToken_example // kotlin.String | 
 try {
-    val result : DeleteUserDeleteResponse = apiInstance.deleteUserApiUserDeleteDelete(deleteUserData, sessionToken)
+    val result : DeleteUserDeleteResponse = apiInstance.deleteUserApiUserDeleteDelete(deleteData, authToken)
     println(result)
 } catch (e: ClientException) {
     println("4xx response calling UserApi#deleteUserApiUserDeleteDelete")
@@ -130,10 +132,10 @@ try {
 ```
 
 ### Parameters
-| **deleteUserData** | **kotlin.Boolean**| Delete users data | [optional] [default to false] |
+| **deleteData** | **kotlin.Boolean**| Delete user&#39;s data | [optional] [default to false] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
 
 ### Return type
 
@@ -150,9 +152,11 @@ No authorization required
 
 <a id="updateUserApiUserUpdatePut"></a>
 # **updateUserApiUserUpdatePut**
-> UpdateUserPutResponse updateUserApiUserUpdatePut(updateUser, sessionToken)
+> UpdateUserPutResponse updateUserApiUserUpdatePut(updateUser, authToken)
 
 Update User
+
+Update the currently authenticated user&#39;s data.  Args: - user_to_update: Pydantic model containing fields to update. - app: Application context, injected by FastAPI. - auth_token: Authentication token stored in browser cookies.  Returns: - JSON response with updated user information if successful. - Appropriate error response if auth token is missing or invalid.
 
 ### Example
 ```kotlin
@@ -162,9 +166,9 @@ Update User
 
 val apiInstance = UserApi()
 val updateUser : UpdateUser =  // UpdateUser | 
-val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
+val authToken : kotlin.String = authToken_example // kotlin.String | 
 try {
-    val result : UpdateUserPutResponse = apiInstance.updateUserApiUserUpdatePut(updateUser, sessionToken)
+    val result : UpdateUserPutResponse = apiInstance.updateUserApiUserUpdatePut(updateUser, authToken)
     println(result)
 } catch (e: ClientException) {
     println("4xx response calling UserApi#updateUserApiUserUpdatePut")
@@ -179,7 +183,7 @@ try {
 | **updateUser** | [**UpdateUser**](UpdateUser.md)|  | |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
 
 ### Return type
 

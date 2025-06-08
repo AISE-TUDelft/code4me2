@@ -20,9 +20,9 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import me.code4me.api.generated.model.ErrorResponse
-import me.code4me.api.generated.model.InvalidSessionToken
 import me.code4me.api.generated.model.MultiFileContextUpdateError
 import me.code4me.api.generated.model.MultiFileContextUpdatePostResponse
+import me.code4me.api.generated.model.Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost
 import me.code4me.api.generated.model.UpdateMultiFileContext
 
 import com.squareup.moshi.Json
@@ -55,6 +55,7 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
      * Update the context for a specific query ID.
      * @param updateMultiFileContext 
      * @param sessionToken  (optional, default to "session_token")
+     * @param projectToken  (optional, default to "project_token")
      * @return MultiFileContextUpdatePostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -64,8 +65,8 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun updateMultiFileContextApiCompletionMultiFileContextUpdatePost(updateMultiFileContext: UpdateMultiFileContext, sessionToken: kotlin.String? = "session_token") : MultiFileContextUpdatePostResponse {
-        val localVarResponse = updateMultiFileContextApiCompletionMultiFileContextUpdatePostWithHttpInfo(updateMultiFileContext = updateMultiFileContext, sessionToken = sessionToken)
+    fun updateMultiFileContextApiCompletionMultiFileContextUpdatePost(updateMultiFileContext: UpdateMultiFileContext, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : MultiFileContextUpdatePostResponse {
+        val localVarResponse = updateMultiFileContextApiCompletionMultiFileContextUpdatePostWithHttpInfo(updateMultiFileContext = updateMultiFileContext, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as MultiFileContextUpdatePostResponse
@@ -88,14 +89,15 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
      * Update the context for a specific query ID.
      * @param updateMultiFileContext 
      * @param sessionToken  (optional, default to "session_token")
+     * @param projectToken  (optional, default to "project_token")
      * @return ApiResponse<MultiFileContextUpdatePostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun updateMultiFileContextApiCompletionMultiFileContextUpdatePostWithHttpInfo(updateMultiFileContext: UpdateMultiFileContext, sessionToken: kotlin.String?) : ApiResponse<MultiFileContextUpdatePostResponse?> {
-        val localVariableConfig = updateMultiFileContextApiCompletionMultiFileContextUpdatePostRequestConfig(updateMultiFileContext = updateMultiFileContext, sessionToken = sessionToken)
+    fun updateMultiFileContextApiCompletionMultiFileContextUpdatePostWithHttpInfo(updateMultiFileContext: UpdateMultiFileContext, sessionToken: kotlin.String?, projectToken: kotlin.String?) : ApiResponse<MultiFileContextUpdatePostResponse?> {
+        val localVariableConfig = updateMultiFileContextApiCompletionMultiFileContextUpdatePostRequestConfig(updateMultiFileContext = updateMultiFileContext, sessionToken = sessionToken, projectToken = projectToken)
 
         return request<UpdateMultiFileContext, MultiFileContextUpdatePostResponse>(
             localVariableConfig
@@ -107,9 +109,10 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
      *
      * @param updateMultiFileContext 
      * @param sessionToken  (optional, default to "session_token")
+     * @param projectToken  (optional, default to "project_token")
      * @return RequestConfig
      */
-    fun updateMultiFileContextApiCompletionMultiFileContextUpdatePostRequestConfig(updateMultiFileContext: UpdateMultiFileContext, sessionToken: kotlin.String?) : RequestConfig<UpdateMultiFileContext> {
+    fun updateMultiFileContextApiCompletionMultiFileContextUpdatePostRequestConfig(updateMultiFileContext: UpdateMultiFileContext, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<UpdateMultiFileContext> {
         val localVariableBody = updateMultiFileContext
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()

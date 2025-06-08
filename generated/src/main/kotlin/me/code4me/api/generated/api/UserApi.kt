@@ -19,17 +19,22 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
+import me.code4me.api.generated.model.AuthenticateUserError
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
+import me.code4me.api.generated.model.ConfigNotFound
+import me.code4me.api.generated.model.CreateUserError
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteUserDeleteResponse
+import me.code4me.api.generated.model.DeleteUserError
 import me.code4me.api.generated.model.ErrorResponse
-import me.code4me.api.generated.model.HTTPValidationError
-import me.code4me.api.generated.model.InvalidOrExpiredToken
-import me.code4me.api.generated.model.InvalidSessionToken
+import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
+import me.code4me.api.generated.model.InvalidOrExpiredJWTToken
 import me.code4me.api.generated.model.Response401AuthenticateUserApiUserAuthenticatePost
 import me.code4me.api.generated.model.UpdateUser
+import me.code4me.api.generated.model.UpdateUserError
 import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserAlreadyExistsWithThisEmail
+import me.code4me.api.generated.model.UserNotFoundError
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 
@@ -60,7 +65,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * POST /api/user/authenticate/
      * Authenticate User
-     * Authenticate a user Note: There are some nuances to how this should be handled. 1. There is a possibility that the token field is JWT token for OAuth providers (this should be checked for) 1.1. Authentication should first check if the token is a JWT token 1.2. If it is a JWT token, then the validity of the token should be checked 1.3. If the token is valid, then the user should be authenticated using the token and allocated a session 1.4. The provider is always Google 2. The filed can also simply represent a password for a user. 3. The authentication should either return a JsonResponseWithStatus with content of UserAuthenticationPostResponse or a ErrorResponse
+     * Authenticate a user via either OAuth (JWT token) or traditional email/password.  This endpoint supports two methods of authentication: 1. OAuth Authentication:    - The input contains a JWT token from an OAuth provider (Google).    - The token&#39;s validity is verified.    - If valid, the user is fetched by email from the database.    - A session auth token is created and returned as a cookie. 2. Email/Password Authentication:    - The input contains user email and password.    - Credentials are verified against the database.    - If valid, a session auth token is created and returned as a cookie.  Args:     user_to_authenticate: Union of OAuth token or email/password credentials.     app: FastAPI dependency to access the application context.  Returns:     JsonResponseWithStatus: A JSON response containing the authenticated user info     and a session auth token cookie on success, or an error response otherwise.
      * @param userToAuthenticate 
      * @return AuthenticateUserPostResponse
      * @throws IllegalStateException If the request is not correctly configured
@@ -92,7 +97,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * POST /api/user/authenticate/
      * Authenticate User
-     * Authenticate a user Note: There are some nuances to how this should be handled. 1. There is a possibility that the token field is JWT token for OAuth providers (this should be checked for) 1.1. Authentication should first check if the token is a JWT token 1.2. If it is a JWT token, then the validity of the token should be checked 1.3. If the token is valid, then the user should be authenticated using the token and allocated a session 1.4. The provider is always Google 2. The filed can also simply represent a password for a user. 3. The authentication should either return a JsonResponseWithStatus with content of UserAuthenticationPostResponse or a ErrorResponse
+     * Authenticate a user via either OAuth (JWT token) or traditional email/password.  This endpoint supports two methods of authentication: 1. OAuth Authentication:    - The input contains a JWT token from an OAuth provider (Google).    - The token&#39;s validity is verified.    - If valid, the user is fetched by email from the database.    - A session auth token is created and returned as a cookie. 2. Email/Password Authentication:    - The input contains user email and password.    - Credentials are verified against the database.    - If valid, a session auth token is created and returned as a cookie.  Args:     user_to_authenticate: Union of OAuth token or email/password credentials.     app: FastAPI dependency to access the application context.  Returns:     JsonResponseWithStatus: A JSON response containing the authenticated user info     and a session auth token cookie on success, or an error response otherwise.
      * @param userToAuthenticate 
      * @return ApiResponse<AuthenticateUserPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -134,7 +139,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * POST /api/user/create/
      * Create User
-     * Create a new user 1. The user should be created in the database if it does not exist 2. The user should be sent a verification email 3. The user should be sent a success message 4. If the user already exists, then a 409 error should be returned
+     * Create a new user in the system.  Args:     user_to_create (Union[Queries.CreateUser, Queries.CreateUserOauth]):         The user data to create, can be standard or OAuth-based.     app (App):         The application instance, injected by FastAPI&#39;s dependency system.  Returns:     JsonResponseWithStatus: Response with status code and content.  Steps:     1. Check if the user already exists by email.     2. If OAuth, verify the JWT token and email.     3. Create the user in the database if not exists.     4. Send verification email.     5. Return appropriate response.
      * @param userToCreate 
      * @return CreateUserPostResponse
      * @throws IllegalStateException If the request is not correctly configured
@@ -166,7 +171,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * POST /api/user/create/
      * Create User
-     * Create a new user 1. The user should be created in the database if it does not exist 2. The user should be sent a verification email 3. The user should be sent a success message 4. If the user already exists, then a 409 error should be returned
+     * Create a new user in the system.  Args:     user_to_create (Union[Queries.CreateUser, Queries.CreateUserOauth]):         The user data to create, can be standard or OAuth-based.     app (App):         The application instance, injected by FastAPI&#39;s dependency system.  Returns:     JsonResponseWithStatus: Response with status code and content.  Steps:     1. Check if the user already exists by email.     2. If OAuth, verify the JWT token and email.     3. Create the user in the database if not exists.     4. Send verification email.     5. Return appropriate response.
      * @param userToCreate 
      * @return ApiResponse<CreateUserPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -208,9 +213,9 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * DELETE /api/user/delete/
      * Delete User
-     * 
-     * @param deleteUserData Delete users data (optional, default to false)
-     * @param sessionToken  (optional, default to "session_token")
+     * Delete the authenticated user&#39;s account and optionally their data.  Args:     delete_data (bool): Flag indicating whether to delete associated data (default: False).     auth_token (str): Authentication token stored in browser cookies.     app (App): Application instance with access to database and session managers.  Returns:     JsonResponseWithStatus: A success message or an appropriate error response.
+     * @param deleteData Delete user&#39;s data (optional, default to false)
+     * @param authToken  (optional, default to "auth_token")
      * @return DeleteUserDeleteResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -220,8 +225,8 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun deleteUserApiUserDeleteDelete(deleteUserData: kotlin.Boolean? = false, sessionToken: kotlin.String? = "session_token") : DeleteUserDeleteResponse {
-        val localVarResponse = deleteUserApiUserDeleteDeleteWithHttpInfo(deleteUserData = deleteUserData, sessionToken = sessionToken)
+    fun deleteUserApiUserDeleteDelete(deleteData: kotlin.Boolean? = false, authToken: kotlin.String? = "auth_token") : DeleteUserDeleteResponse {
+        val localVarResponse = deleteUserApiUserDeleteDeleteWithHttpInfo(deleteData = deleteData, authToken = authToken)
 
         return when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as DeleteUserDeleteResponse
@@ -241,17 +246,17 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * DELETE /api/user/delete/
      * Delete User
-     * 
-     * @param deleteUserData Delete users data (optional, default to false)
-     * @param sessionToken  (optional, default to "session_token")
+     * Delete the authenticated user&#39;s account and optionally their data.  Args:     delete_data (bool): Flag indicating whether to delete associated data (default: False).     auth_token (str): Authentication token stored in browser cookies.     app (App): Application instance with access to database and session managers.  Returns:     JsonResponseWithStatus: A success message or an appropriate error response.
+     * @param deleteData Delete user&#39;s data (optional, default to false)
+     * @param authToken  (optional, default to "auth_token")
      * @return ApiResponse<DeleteUserDeleteResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun deleteUserApiUserDeleteDeleteWithHttpInfo(deleteUserData: kotlin.Boolean?, sessionToken: kotlin.String?) : ApiResponse<DeleteUserDeleteResponse?> {
-        val localVariableConfig = deleteUserApiUserDeleteDeleteRequestConfig(deleteUserData = deleteUserData, sessionToken = sessionToken)
+    fun deleteUserApiUserDeleteDeleteWithHttpInfo(deleteData: kotlin.Boolean?, authToken: kotlin.String?) : ApiResponse<DeleteUserDeleteResponse?> {
+        val localVariableConfig = deleteUserApiUserDeleteDeleteRequestConfig(deleteData = deleteData, authToken = authToken)
 
         return request<Unit, DeleteUserDeleteResponse>(
             localVariableConfig
@@ -261,16 +266,16 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * To obtain the request config of the operation deleteUserApiUserDeleteDelete
      *
-     * @param deleteUserData Delete users data (optional, default to false)
-     * @param sessionToken  (optional, default to "session_token")
+     * @param deleteData Delete user&#39;s data (optional, default to false)
+     * @param authToken  (optional, default to "auth_token")
      * @return RequestConfig
      */
-    fun deleteUserApiUserDeleteDeleteRequestConfig(deleteUserData: kotlin.Boolean?, sessionToken: kotlin.String?) : RequestConfig<Unit> {
+    fun deleteUserApiUserDeleteDeleteRequestConfig(deleteData: kotlin.Boolean?, authToken: kotlin.String?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
-                if (deleteUserData != null) {
-                    put("delete_user_data", listOf(deleteUserData.toString()))
+                if (deleteData != null) {
+                    put("delete_data", listOf(deleteData.toString()))
                 }
             }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
@@ -289,9 +294,9 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * PUT /api/user/update/
      * Update User
-     * 
+     * Update the currently authenticated user&#39;s data.  Args: - user_to_update: Pydantic model containing fields to update. - app: Application context, injected by FastAPI. - auth_token: Authentication token stored in browser cookies.  Returns: - JSON response with updated user information if successful. - Appropriate error response if auth token is missing or invalid.
      * @param updateUser 
-     * @param sessionToken  (optional, default to "session_token")
+     * @param authToken  (optional, default to "auth_token")
      * @return UpdateUserPutResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -301,8 +306,8 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun updateUserApiUserUpdatePut(updateUser: UpdateUser, sessionToken: kotlin.String? = "session_token") : UpdateUserPutResponse {
-        val localVarResponse = updateUserApiUserUpdatePutWithHttpInfo(updateUser = updateUser, sessionToken = sessionToken)
+    fun updateUserApiUserUpdatePut(updateUser: UpdateUser, authToken: kotlin.String? = "auth_token") : UpdateUserPutResponse {
+        val localVarResponse = updateUserApiUserUpdatePutWithHttpInfo(updateUser = updateUser, authToken = authToken)
 
         return when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as UpdateUserPutResponse
@@ -322,17 +327,17 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * PUT /api/user/update/
      * Update User
-     * 
+     * Update the currently authenticated user&#39;s data.  Args: - user_to_update: Pydantic model containing fields to update. - app: Application context, injected by FastAPI. - auth_token: Authentication token stored in browser cookies.  Returns: - JSON response with updated user information if successful. - Appropriate error response if auth token is missing or invalid.
      * @param updateUser 
-     * @param sessionToken  (optional, default to "session_token")
+     * @param authToken  (optional, default to "auth_token")
      * @return ApiResponse<UpdateUserPutResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun updateUserApiUserUpdatePutWithHttpInfo(updateUser: UpdateUser, sessionToken: kotlin.String?) : ApiResponse<UpdateUserPutResponse?> {
-        val localVariableConfig = updateUserApiUserUpdatePutRequestConfig(updateUser = updateUser, sessionToken = sessionToken)
+    fun updateUserApiUserUpdatePutWithHttpInfo(updateUser: UpdateUser, authToken: kotlin.String?) : ApiResponse<UpdateUserPutResponse?> {
+        val localVariableConfig = updateUserApiUserUpdatePutRequestConfig(updateUser = updateUser, authToken = authToken)
 
         return request<UpdateUser, UpdateUserPutResponse>(
             localVariableConfig
@@ -343,10 +348,10 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * To obtain the request config of the operation updateUserApiUserUpdatePut
      *
      * @param updateUser 
-     * @param sessionToken  (optional, default to "session_token")
+     * @param authToken  (optional, default to "auth_token")
      * @return RequestConfig
      */
-    fun updateUserApiUserUpdatePutRequestConfig(updateUser: UpdateUser, sessionToken: kotlin.String?) : RequestConfig<UpdateUser> {
+    fun updateUserApiUserUpdatePutRequestConfig(updateUser: UpdateUser, authToken: kotlin.String?) : RequestConfig<UpdateUser> {
         val localVariableBody = updateUser
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()

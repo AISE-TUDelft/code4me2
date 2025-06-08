@@ -45,23 +45,15 @@ All URIs are relative to *http://localhost*
 
 | Class | Method | HTTP request | Description |
 | ------------ | ------------- | ------------- | ------------- |
-| *AuthenticateApi* | [**authenticateUserApiUserAuthenticatePost**](docs/AuthenticateApi.md#authenticateuserapiuserauthenticatepost) | **POST** /api/user/authenticate/ | Authenticate User |
 | *AuthenticationApi* | [**authenticateUserApiUserAuthenticatePost**](docs/AuthenticationApi.md#authenticateuserapiuserauthenticatepost) | **POST** /api/user/authenticate/ | Authenticate User |
 | *CompletionApi* | [**getCompletionsByQueryApiCompletionQueryIdGet**](docs/CompletionApi.md#getcompletionsbyqueryapicompletionqueryidget) | **GET** /api/completion/{query_id} | Get Completions By Query |
 | *CompletionApi* | [**requestCompletionApiCompletionRequestPost**](docs/CompletionApi.md#requestcompletionapicompletionrequestpost) | **POST** /api/completion/request/ | Request Completion |
 | *CompletionApi* | [**submitCompletionFeedbackApiCompletionFeedbackPost**](docs/CompletionApi.md#submitcompletionfeedbackapicompletionfeedbackpost) | **POST** /api/completion/feedback/ | Submit Completion Feedback |
-| *CompletionApi* | [**updateMultiFileContextApiCompletionMultiFileContextUpdatePost**](docs/CompletionApi.md#updatemultifilecontextapicompletionmultifilecontextupdatepost) | **POST** /api/completion/multi-file-context/update/ | Update Multi File Context |
-| *CompletionFeedbackApi* | [**submitCompletionFeedbackApiCompletionFeedbackPost**](docs/CompletionFeedbackApi.md#submitcompletionfeedbackapicompletionfeedbackpost) | **POST** /api/completion/feedback/ | Submit Completion Feedback |
-| *CreateApi* | [**createUserApiUserCreatePost**](docs/CreateApi.md#createuserapiusercreatepost) | **POST** /api/user/create/ | Create User |
-| *CreateUserApi* | [**createUserApiUserCreatePost**](docs/CreateUserApi.md#createuserapiusercreatepost) | **POST** /api/user/create/ | Create User |
-| *DeleteApi* | [**deleteUserApiUserDeleteDelete**](docs/DeleteApi.md#deleteuserapiuserdeletedelete) | **DELETE** /api/user/delete/ | Delete User |
-| *DeleteUserApi* | [**deleteUserApiUserDeleteDelete**](docs/DeleteUserApi.md#deleteuserapiuserdeletedelete) | **DELETE** /api/user/delete/ | Delete User |
-| *GetCompletionsApi* | [**getCompletionsByQueryApiCompletionQueryIdGet**](docs/GetCompletionsApi.md#getcompletionsbyqueryapicompletionqueryidget) | **GET** /api/completion/{query_id} | Get Completions By Query |
+| *DefaultApi* | [**pingApiPingGet**](docs/DefaultApi.md#pingapipingget) | **GET** /api/ping | Ping |
 | *MultiFileContextApi* | [**updateMultiFileContextApiCompletionMultiFileContextUpdatePost**](docs/MultiFileContextApi.md#updatemultifilecontextapicompletionmultifilecontextupdatepost) | **POST** /api/completion/multi-file-context/update/ | Update Multi File Context |
-| *RequestCompletionApi* | [**requestCompletionApiCompletionRequestPost**](docs/RequestCompletionApi.md#requestcompletionapicompletionrequestpost) | **POST** /api/completion/request/ | Request Completion |
-| *UpdateApi* | [**updateUserApiUserUpdatePut**](docs/UpdateApi.md#updateuserapiuserupdateput) | **PUT** /api/user/update/ | Update User |
-| *UpdateMultiFileContextApi* | [**updateMultiFileContextApiCompletionMultiFileContextUpdatePost**](docs/UpdateMultiFileContextApi.md#updatemultifilecontextapicompletionmultifilecontextupdatepost) | **POST** /api/completion/multi-file-context/update/ | Update Multi File Context |
-| *UpdateUserApi* | [**updateUserApiUserUpdatePut**](docs/UpdateUserApi.md#updateuserapiuserupdateput) | **PUT** /api/user/update/ | Update User |
+| *ProjectApi* | [**activateProjectApiProjectActivatePut**](docs/ProjectApi.md#activateprojectapiprojectactivateput) | **PUT** /api/project/activate/ | Activate Project |
+| *ProjectApi* | [**createProjectApiProjectCreatePost**](docs/ProjectApi.md#createprojectapiprojectcreatepost) | **POST** /api/project/create/ | Create Project |
+| *SessionApi* | [**acquireSessionApiSessionAcquireGet**](docs/SessionApi.md#acquiresessionapisessionacquireget) | **GET** /api/session/acquire/ | Acquire Session |
 | *UserApi* | [**authenticateUserApiUserAuthenticatePost**](docs/UserApi.md#authenticateuserapiuserauthenticatepost) | **POST** /api/user/authenticate/ | Authenticate User |
 | *UserApi* | [**createUserApiUserCreatePost**](docs/UserApi.md#createuserapiusercreatepost) | **POST** /api/user/create/ | Create User |
 | *UserApi* | [**deleteUserApiUserDeleteDelete**](docs/UserApi.md#deleteuserapiuserdeletedelete) | **DELETE** /api/user/delete/ | Delete User |
@@ -71,41 +63,68 @@ All URIs are relative to *http://localhost*
 <a id="documentation-for-models"></a>
 ## Documentation for Models
 
+ - [me.code4me.api.generated.model.AcquireSessionError](docs/AcquireSessionError.md)
+ - [me.code4me.api.generated.model.AcquireSessionGetResponse](docs/AcquireSessionGetResponse.md)
+ - [me.code4me.api.generated.model.ActivateProject](docs/ActivateProject.md)
+ - [me.code4me.api.generated.model.ActivateProjectError](docs/ActivateProjectError.md)
+ - [me.code4me.api.generated.model.ActivateProjectPostResponse](docs/ActivateProjectPostResponse.md)
  - [me.code4me.api.generated.model.AuthenticateUserEmailPassword](docs/AuthenticateUserEmailPassword.md)
+ - [me.code4me.api.generated.model.AuthenticateUserError](docs/AuthenticateUserError.md)
  - [me.code4me.api.generated.model.AuthenticateUserOAuth](docs/AuthenticateUserOAuth.md)
  - [me.code4me.api.generated.model.AuthenticateUserPostResponse](docs/AuthenticateUserPostResponse.md)
+ - [me.code4me.api.generated.model.BehavioralTelemetryData](docs/BehavioralTelemetryData.md)
+ - [me.code4me.api.generated.model.CompletionErrorItem](docs/CompletionErrorItem.md)
  - [me.code4me.api.generated.model.CompletionFeedbackPostResponse](docs/CompletionFeedbackPostResponse.md)
- - [me.code4me.api.generated.model.CompletionItem](docs/CompletionItem.md)
- - [me.code4me.api.generated.model.CompletionPostResponse](docs/CompletionPostResponse.md)
- - [me.code4me.api.generated.model.CompletionResponseData](docs/CompletionResponseData.md)
+ - [me.code4me.api.generated.model.CompletionPostResponseInput](docs/CompletionPostResponseInput.md)
+ - [me.code4me.api.generated.model.CompletionPostResponseOutput](docs/CompletionPostResponseOutput.md)
+ - [me.code4me.api.generated.model.ConfigNotFound](docs/ConfigNotFound.md)
  - [me.code4me.api.generated.model.ContextChangeType](docs/ContextChangeType.md)
+ - [me.code4me.api.generated.model.ContextData](docs/ContextData.md)
+ - [me.code4me.api.generated.model.ContextualTelemetryData](docs/ContextualTelemetryData.md)
+ - [me.code4me.api.generated.model.CreateProject](docs/CreateProject.md)
+ - [me.code4me.api.generated.model.CreateProjectError](docs/CreateProjectError.md)
+ - [me.code4me.api.generated.model.CreateProjectPostResponse](docs/CreateProjectPostResponse.md)
  - [me.code4me.api.generated.model.CreateUser](docs/CreateUser.md)
+ - [me.code4me.api.generated.model.CreateUserError](docs/CreateUserError.md)
  - [me.code4me.api.generated.model.CreateUserOauth](docs/CreateUserOauth.md)
  - [me.code4me.api.generated.model.CreateUserPostResponse](docs/CreateUserPostResponse.md)
  - [me.code4me.api.generated.model.DeleteUserDeleteResponse](docs/DeleteUserDeleteResponse.md)
+ - [me.code4me.api.generated.model.DeleteUserError](docs/DeleteUserError.md)
  - [me.code4me.api.generated.model.ErrorResponse](docs/ErrorResponse.md)
  - [me.code4me.api.generated.model.FeedbackCompletion](docs/FeedbackCompletion.md)
  - [me.code4me.api.generated.model.FeedbackRecordingError](docs/FeedbackRecordingError.md)
- - [me.code4me.api.generated.model.FeedbackResponseData](docs/FeedbackResponseData.md)
  - [me.code4me.api.generated.model.FileContextChangeData](docs/FileContextChangeData.md)
  - [me.code4me.api.generated.model.GenerateCompletionsError](docs/GenerateCompletionsError.md)
  - [me.code4me.api.generated.model.GenerationNotFoundError](docs/GenerationNotFoundError.md)
  - [me.code4me.api.generated.model.HTTPValidationError](docs/HTTPValidationError.md)
  - [me.code4me.api.generated.model.InvalidEmailOrPassword](docs/InvalidEmailOrPassword.md)
- - [me.code4me.api.generated.model.InvalidOrExpiredToken](docs/InvalidOrExpiredToken.md)
- - [me.code4me.api.generated.model.InvalidSessionToken](docs/InvalidSessionToken.md)
+ - [me.code4me.api.generated.model.InvalidOrExpiredAuthToken](docs/InvalidOrExpiredAuthToken.md)
+ - [me.code4me.api.generated.model.InvalidOrExpiredJWTToken](docs/InvalidOrExpiredJWTToken.md)
+ - [me.code4me.api.generated.model.InvalidOrExpiredProjectToken](docs/InvalidOrExpiredProjectToken.md)
+ - [me.code4me.api.generated.model.InvalidOrExpiredSessionToken](docs/InvalidOrExpiredSessionToken.md)
  - [me.code4me.api.generated.model.MultiFileContextUpdateError](docs/MultiFileContextUpdateError.md)
  - [me.code4me.api.generated.model.MultiFileContextUpdatePostResponse](docs/MultiFileContextUpdatePostResponse.md)
+ - [me.code4me.api.generated.model.NoAccessToGetQueryError](docs/NoAccessToGetQueryError.md)
+ - [me.code4me.api.generated.model.NoAccessToProvideFeedbackError](docs/NoAccessToProvideFeedbackError.md)
  - [me.code4me.api.generated.model.Provider](docs/Provider.md)
  - [me.code4me.api.generated.model.QueryNotFoundError](docs/QueryNotFoundError.md)
  - [me.code4me.api.generated.model.RequestCompletion](docs/RequestCompletion.md)
+ - [me.code4me.api.generated.model.Response401ActivateProjectApiProjectActivatePut](docs/Response401ActivateProjectApiProjectActivatePut.md)
  - [me.code4me.api.generated.model.Response401AuthenticateUserApiUserAuthenticatePost](docs/Response401AuthenticateUserApiUserAuthenticatePost.md)
+ - [me.code4me.api.generated.model.Response401CreateProjectApiProjectCreatePost](docs/Response401CreateProjectApiProjectCreatePost.md)
+ - [me.code4me.api.generated.model.Response401RequestCompletionApiCompletionRequestPost](docs/Response401RequestCompletionApiCompletionRequestPost.md)
+ - [me.code4me.api.generated.model.Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost](docs/Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost.md)
+ - [me.code4me.api.generated.model.ResponseCompletionItem](docs/ResponseCompletionItem.md)
+ - [me.code4me.api.generated.model.ResponseCompletionResponseData](docs/ResponseCompletionResponseData.md)
+ - [me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner](docs/ResponseCompletionResponseDataCompletionsInner.md)
+ - [me.code4me.api.generated.model.ResponseFeedbackResponseData](docs/ResponseFeedbackResponseData.md)
+ - [me.code4me.api.generated.model.ResponseUser](docs/ResponseUser.md)
  - [me.code4me.api.generated.model.RetrieveCompletionsError](docs/RetrieveCompletionsError.md)
  - [me.code4me.api.generated.model.UpdateMultiFileContext](docs/UpdateMultiFileContext.md)
  - [me.code4me.api.generated.model.UpdateUser](docs/UpdateUser.md)
+ - [me.code4me.api.generated.model.UpdateUserError](docs/UpdateUserError.md)
  - [me.code4me.api.generated.model.UpdateUserPutResponse](docs/UpdateUserPutResponse.md)
  - [me.code4me.api.generated.model.UserAlreadyExistsWithThisEmail](docs/UserAlreadyExistsWithThisEmail.md)
- - [me.code4me.api.generated.model.UserBase](docs/UserBase.md)
  - [me.code4me.api.generated.model.UserNotFoundError](docs/UserNotFoundError.md)
  - [me.code4me.api.generated.model.UserToAuthenticate](docs/UserToAuthenticate.md)
  - [me.code4me.api.generated.model.UserToCreate](docs/UserToCreate.md)

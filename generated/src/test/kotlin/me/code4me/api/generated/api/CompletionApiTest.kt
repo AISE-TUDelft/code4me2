@@ -27,14 +27,13 @@ import me.code4me.api.generated.model.FeedbackRecordingError
 import me.code4me.api.generated.model.GenerateCompletionsError
 import me.code4me.api.generated.model.GenerationNotFoundError
 import me.code4me.api.generated.model.HTTPValidationError
-import me.code4me.api.generated.model.InvalidSessionToken
-import me.code4me.api.generated.model.MultiFileContextUpdateError
-import me.code4me.api.generated.model.MultiFileContextUpdatePostResponse
+import me.code4me.api.generated.model.InvalidOrExpiredSessionToken
+import me.code4me.api.generated.model.NoAccessToGetQueryError
+import me.code4me.api.generated.model.NoAccessToProvideFeedbackError
 import me.code4me.api.generated.model.QueryNotFoundError
 import me.code4me.api.generated.model.RequestCompletion
+import me.code4me.api.generated.model.Response401RequestCompletionApiCompletionRequestPost
 import me.code4me.api.generated.model.RetrieveCompletionsError
-import me.code4me.api.generated.model.UpdateMultiFileContext
-import me.code4me.api.generated.model.UserNotFoundError
 
 class CompletionApiTest : ShouldSpec() {
     init {
@@ -55,7 +54,8 @@ class CompletionApiTest : ShouldSpec() {
             // uncomment below to test requestCompletionApiCompletionRequestPost
             //val requestCompletion : RequestCompletion =  // RequestCompletion | 
             //val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
-            //val result : CompletionPostResponseInput = apiInstance.requestCompletionApiCompletionRequestPost(requestCompletion, sessionToken)
+            //val projectToken : kotlin.String = projectToken_example // kotlin.String | 
+            //val result : CompletionPostResponseInput = apiInstance.requestCompletionApiCompletionRequestPost(requestCompletion, sessionToken, projectToken)
             //result shouldBe ("TODO")
         }
 
@@ -65,15 +65,6 @@ class CompletionApiTest : ShouldSpec() {
             //val feedbackCompletion : FeedbackCompletion =  // FeedbackCompletion | 
             //val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
             //val result : CompletionFeedbackPostResponse = apiInstance.submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken)
-            //result shouldBe ("TODO")
-        }
-
-        // to test updateMultiFileContextApiCompletionMultiFileContextUpdatePost
-        should("test updateMultiFileContextApiCompletionMultiFileContextUpdatePost") {
-            // uncomment below to test updateMultiFileContextApiCompletionMultiFileContextUpdatePost
-            //val updateMultiFileContext : UpdateMultiFileContext =  // UpdateMultiFileContext | 
-            //val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
-            //val result : MultiFileContextUpdatePostResponse = apiInstance.updateMultiFileContextApiCompletionMultiFileContextUpdatePost(updateMultiFileContext, sessionToken)
             //result shouldBe ("TODO")
         }
 

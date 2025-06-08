@@ -20,10 +20,11 @@ class CookieAwareApiClient(
     client: Call.Factory = createClientWithCookieHandler(),
 ) : ApiClient(baseUrl, client) {
     companion object {
-        private val cookieManager =
+        val cookieManager: CookieManager by lazy {
             CookieManager().apply {
                 setCookiePolicy(CookiePolicy.ACCEPT_ALL)
             }
+        }
 
         /**
          * Creates an OkHttpClient with a cookie handler interceptor.
@@ -102,6 +103,15 @@ class CookieAwareApiClient(
          */
         fun getSessionToken(): String? {
             return getCookie("session_token")
+        }
+
+        /**
+         * Gets the authentication token from cookies.
+         *
+         * @return The authentication token, or null if not found
+         */
+        fun getAuthToken(): String? {
+            return getCookie("auth_token")
         }
     }
 }
