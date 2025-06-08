@@ -26,9 +26,9 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
         PluginInlineCompletionSuggestionUpdateManager(super.suggestionUpdateManager)
 
     override suspend fun getSuggestionDebounced(request: InlineCompletionRequest): InlineCompletionSuggestion {
-        // TODO: implement this to actually collect the context send it to the server and get the response
-        // TODO: and then use that to create inline completion suggestion
         logger.info("Generating inline completion suggestion")
+        // start the timer
+        val startTime = System.currentTimeMillis()
 
         // For testing, return a simple suggestion with some text
         val document = request.editor.document
@@ -50,6 +50,8 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
         val completion =
             service<AppService>()
                 .getInlineCompletion(aggregatedCollectedData, project)
+
+        logger.info("Total Serving Time = ${System.currentTimeMillis() - startTime} ms")
 
         val mappedCompletions = completion?.completions ?: emptyList()
 

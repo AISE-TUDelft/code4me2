@@ -1,8 +1,10 @@
 package me.code4me.api.wrapper
 
+import com.intellij.codeInsight.codeVision.codeVisionEntryOnHighlighterKey
 import me.code4me.api.generated.infrastructure.ApiClient
 import me.code4me.services.app.getAppService
 import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.state.getAuthState
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -67,10 +69,12 @@ class CookieAwareApiClient(
          */
         private fun addCookiesToRequest(request: Request): Request {
             val url = request.url.toString()
-            val cookies = cookieManager.cookieStore.get(URI(url))
+                var cookies = cookieManager.cookieStore.get(URI(url))
 
-            if (cookies.isEmpty()) {
-                return request
+            // if the authToken is present but not in the cookies, add it
+            if (getAuthState().getToken() != null && getCookie("auth_token") == null) {
+                cookieManager.cookieStore.add(URI(url), HttpCookie("auth_token", getAuthState().getToken()!!))
+                cookies = cookieManager.cookieStore.get(URI(url))
             }
 
             val cookieHeader = cookies.joinToString("; ") { "${it.name}=${it.value}" }
