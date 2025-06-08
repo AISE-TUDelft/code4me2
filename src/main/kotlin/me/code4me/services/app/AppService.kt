@@ -1,12 +1,15 @@
 package me.code4me.services.app
 
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.CompletionApi
+import me.code4me.api.generated.api.SessionApi
 import me.code4me.api.generated.api.UserApi
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
+import me.code4me.api.generated.model.AcquireSessionGetResponse
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
 import me.code4me.api.generated.model.CompletionPostResponseInput
 import me.code4me.api.generated.model.ContextData
@@ -25,6 +28,10 @@ import me.code4me.services.state.getAuthState
 import me.code4me.utils.record.Record
 import me.code4me.utils.api.mapsTo
 import java.io.IOException
+
+fun getAppService(): AppService {
+    return service<AppService>()
+}
 
 /**
  * Main application service for the Code4Me plugin.
@@ -52,6 +59,9 @@ class AppService {
     private val configService = getConfig()
     private val serverConfig = configService.getServerConfig()
 
+    // The Session token
+    private var sessionToken: String? = null
+
     /**
      * The base URL for all API requests, constructed from server configuration.
      * Format: "host:port/contextPath"
@@ -62,6 +72,7 @@ class AppService {
     private val authApi = AuthenticationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val userApi = UserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
 
     init {
         LOG.info("AppService initialized with API base URL: $apiBaseUrl")
@@ -81,7 +92,7 @@ class AppService {
         val authSettings = getAuthState()
 
         // Prioritize session token from cookies over response message
-        val sessionToken = CookieAwareApiClient.getSessionToken()
+        val sessionToken = CookieAwareApiClient.getAuthToken()
         authSettings.setToken(sessionToken ?: response.message)
 
         // Store user profile information
@@ -176,6 +187,119 @@ class AppService {
             throw e
         }
     }
+
+
+    // ============ Session Methods ============
+
+    /**
+     * Stores the session response data in the application's auth state.
+     *
+     * This method extracts the session token from the response and stores it in the auth state
+     * for use throughout the application session. It also handles cookie-based session management.
+     *
+     * @param response The session response containing session token and message
+     */
+    private fun storeSessionResponse(response: AcquireSessionGetResponse) {
+        sessionToken = CookieAwareApiClient.getSessionToken()
+        if (sessionToken.isNullOrBlank()) {
+            LOG.warn("Session token is null or blank, using response message instead")
+            sessionToken = response.sessionToken
+        }
+        LOG.info("Session data stored successfully: ${response.message}")
+    }
+
+    /**
+     * Acquires or creates a session token using the provided auth token.
+     *
+     * This method requests a session from the Code4Me backend using an authentication token.
+     * If no session is currently associated with the auth token, a new session will be created
+     * and stored in the backend. The session token is automatically stored locally for
+     * subsequent API requests.
+     *
+     * @param authToken The authentication token used to acquire the session (optional, defaults to "auth_token")
+     * @return [AcquireSessionGetResponse] containing the session token and success message
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the auth token is invalid or expired (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the auth token is blank when provided
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun acquireSession(authToken: String? = "auth_token"): AcquireSessionGetResponse {
+        authToken?.let { token ->
+            require(token.isNotBlank()) { "Auth token cannot be blank" }
+        }
+
+        return try {
+            val response = sessionApi.acquireSessionApiSessionAcquireGet(authToken)
+            storeSessionResponse(response)
+            LOG.info("Session acquired successfully with auth token")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to acquire session with auth token", e)
+            throw e
+        }
+    }
+
+    /**
+     * Acquires a session using the currently stored authentication token.
+     *
+     * This is a convenience method that uses the authentication token stored in the local
+     * auth state to acquire a session. If no auth token is stored locally, it will fall back
+     * to using the default auth token.
+     *
+     * @return [AcquireSessionGetResponse] containing the session token and success message
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the stored auth token is invalid or expired (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun acquireSessionWithStoredToken(): AcquireSessionGetResponse {
+        val authSettings = getAuthState()
+        val storedToken = authSettings.getToken()
+
+        return if (storedToken?.isNotBlank() ?: false) {
+            acquireSession(storedToken)
+        } else {
+            LOG.info("No stored auth token found, using default token for session acquisition")
+            acquireSession()
+        }
+    }
+
+    /**
+     * Refreshes the current session by acquiring a new session token.
+     *
+     * This method is useful when the current session may have expired or when you want to
+     * ensure you have a fresh session token. It uses the currently stored authentication
+     * token to acquire a new session.
+     *
+     * @return [AcquireSessionGetResponse] containing the new session token and success message
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the stored auth token is invalid or expired (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun refreshSession(): AcquireSessionGetResponse {
+        LOG.info("Refreshing session token")
+        return acquireSessionWithStoredToken()
+    }
+
+    /**
+     * Checks if a valid session is currently available.
+     *
+     * This method verifies if there's a session token stored in the auth state,
+     * indicating that a session has been established.
+     *
+     * @return true if a session token is available, false otherwise
+     */
+    fun hasValidSession(): Boolean {
+        val authSettings = getAuthState()
+        val hasSession = authSettings.getToken()?.isNotBlank()
+        LOG.debug("Session validity check: $hasSession")
+        return hasSession == true
+    }
+
+
+    // ============ User Management Methods ============
 
     /**
      * Creates a new user account in the Code4Me system.

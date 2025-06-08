@@ -622,6 +622,7 @@ class AuthenticationSection : SettingsSection {
 
                 showSuccess("Authentication successful!")
                 clearAllFields()
+                appService.acquireSessionWithStoredToken()
             } else {
                 val errorMessage =
                     if (isSignupMode) {

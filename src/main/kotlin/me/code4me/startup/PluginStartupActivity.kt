@@ -3,8 +3,11 @@ package me.code4me.startup
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
+import me.code4me.api.wrapper.CookieAwareApiClient.Companion.getAuthToken
+import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.state.getAuthState
 
 /**
  * Project activity that initializes modules at startup.
@@ -31,5 +34,20 @@ class PluginStartupActivity : ProjectActivity {
         moduleManager.initializeModules()
 
         thisLogger().info("Modules initialized successfully.")
+
+        // if the auth token is set, acquire a session
+        val authToken = getAuthState().getToken()
+        if (authToken != null) {
+            thisLogger().info("Acquiring session with stored token")
+            try {
+                // Acquire session using the stored auth token
+                getAppService().acquireSessionWithStoredToken()
+                thisLogger().info("Session acquired successfully.")
+            } catch (e: Exception) {
+                thisLogger().error("Failed to acquire session with stored token", e)
+            }
+        } else {
+            thisLogger().warn("No authentication token found. Skipping session acquisition.")
+        }
     }
 }
