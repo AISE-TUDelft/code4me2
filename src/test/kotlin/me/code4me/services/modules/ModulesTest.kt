@@ -9,7 +9,6 @@ import me.code4me.services.state.PrefState
 import org.junit.jupiter.api.assertDoesNotThrow
 
 class ModulesTest : BasePlatformTestCase() {
-
     fun testTypingSpeedInitialization() {
         val typingSpeed = TypingSpeed()
         PrefState.enableModule(typingSpeed.getPreferenceId())
@@ -66,7 +65,12 @@ class ModulesTest : BasePlatformTestCase() {
         moduleManager.initializeModules()
 
         assertTrue("Aggregator should be enabled", moduleManager.isModuleEnabled(aggregator.getPreferenceId()))
-        assertTrue("Enabled modules should contain the aggregator", moduleManager.getEnabledModules().any { it.getPreferenceId() == aggregator.getPreferenceId() })
+        assertTrue(
+            "Enabled modules should contain the aggregator",
+            moduleManager.getEnabledModules().any {
+                it.getPreferenceId() == aggregator.getPreferenceId()
+            },
+        )
 
         val retrieved = moduleManager.getModule(aggregator.getPreferenceId())
         assertNotNull("Should be able to retrieve the aggregator by ID", retrieved)

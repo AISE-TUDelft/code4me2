@@ -1,10 +1,8 @@
 package me.code4me
 
 import com.intellij.testFramework.LightPlatformTestCase
-import org.junit.jupiter.api.Test
 
 class LightTest : LightPlatformTestCase() {
-
     // Add your light test cases here
     // For example, you can override setUp() or tearDown() methods if needed
     override fun setUp() {
