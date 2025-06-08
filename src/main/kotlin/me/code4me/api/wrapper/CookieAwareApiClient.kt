@@ -1,6 +1,8 @@
 package me.code4me.api.wrapper
 
 import me.code4me.api.generated.infrastructure.ApiClient
+import me.code4me.services.app.getAppService
+import me.code4me.services.project.getProjectTokenService
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -72,6 +74,17 @@ class CookieAwareApiClient(
             }
 
             val cookieHeader = cookies.joinToString("; ") { "${it.name}=${it.value}" }
+            // add the project token cookie if it exists
+            if (getAppService().currentGenerationProject.get() != null) {
+                val projectToken = getProjectTokenService(
+                    getAppService().currentGenerationProject.get()!!
+                ).getProjectToken()
+                if (projectToken != null) {
+                    return request.newBuilder()
+                        .addHeader("Cookie", "$cookieHeader; project_token=$projectToken")
+                        .build()
+                }
+            }
             return request.newBuilder()
                 .addHeader("Cookie", cookieHeader)
                 .build()

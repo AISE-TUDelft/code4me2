@@ -3,18 +3,24 @@ package me.code4me.services.app
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.project.Project
 import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.CompletionApi
+import me.code4me.api.generated.api.ProjectApi
 import me.code4me.api.generated.api.SessionApi
 import me.code4me.api.generated.api.UserApi
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.AcquireSessionGetResponse
+import me.code4me.api.generated.model.ActivateProject
+import me.code4me.api.generated.model.ActivateProjectPostResponse
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
 import me.code4me.api.generated.model.CompletionPostResponseInput
 import me.code4me.api.generated.model.ContextData
 import me.code4me.api.generated.model.ContextualTelemetryData
 import me.code4me.api.generated.model.BehavioralTelemetryData
+import me.code4me.api.generated.model.CreateProject
+import me.code4me.api.generated.model.CreateProjectPostResponse
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestCompletion
@@ -24,10 +30,12 @@ import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
 import me.code4me.services.config.getConfig
+import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.getAuthState
 import me.code4me.utils.record.Record
 import me.code4me.utils.api.mapsTo
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicReference
 
 fun getAppService(): AppService {
     return service<AppService>()
@@ -73,6 +81,10 @@ class AppService {
     private val userApi = UserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val projectApi = ProjectApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+
+
+    val currentGenerationProject = AtomicReference<Project?>(null)
 
     init {
         LOG.info("AppService initialized with API base URL: $apiBaseUrl")
@@ -298,6 +310,100 @@ class AppService {
         return hasSession == true
     }
 
+    // ============ Project Management Methods ============
+
+    /**
+     * Stores the project creation response data locally.
+     *
+     * This method extracts the project token from the response and stores it locally
+     * for use in subsequent project-related operations.
+     *
+     * @param response The project creation response containing project token and details
+     */
+    private fun storeProjectResponse(project: Project, response: CreateProjectPostResponse) {
+        getProjectTokenService(project).setProjectToken(response.projectToken)
+        LOG.info("Project data stored successfully: ${response.message}")
+    }
+
+    /**
+     * Creates a new project using the provided project details.
+     *
+     * This method creates a new project in the Code4Me backend using the current session token.
+     * The session token is validated before creating the project. Upon successful creation,
+     * the project token is automatically stored locally for subsequent operations.
+     *
+     * @param createProject The project creation details including name, description, and configuration
+     * @param authToken The authentication token (optional, defaults to "auth_token")
+     * @return [CreateProjectPostResponse] containing the project token and creation details
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the session token is invalid or project creation fails (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the createProject parameter is invalid
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun createProject(
+        createProject: CreateProject,
+        project: Project
+    ): CreateProjectPostResponse {
+        return try {
+            val response = projectApi.createProjectApiProjectCreatePost(createProject)
+            storeProjectResponse(project, response)
+            LOG.info("Project created successfully: ${createProject}")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to create project: ${createProject}", e)
+            throw e
+        }
+    }
+
+    /**
+     * Creates a new project using the currently stored authentication token.
+     *
+     * This is a convenience method that uses the authentication token stored in the local
+     * auth state to create a project. If no auth token is stored locally, it will fall back
+     * to using the default auth token.
+     *
+     * @param createProject The project creation details including name, description, and configuration
+     * @return [CreateProjectPostResponse] containing the project token and creation details
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the stored auth token is invalid or project creation fails (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the createProject parameter is invalid
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun createProjectWithStoredToken(createProject: CreateProject, project: Project): CreateProjectPostResponse? {
+        return createProject(createProject, project)
+    }
+
+    /**
+     * Activates an existing project using the provided project details.
+     *
+     * This method activates a project by validating the provided auth token and either
+     * fetching the project from the database to Redis or updating its expiration time if
+     * it already exists in Redis. Upon successful activation, any updated project information
+     * is stored locally.
+     *
+     * @param activateProject The project activation details including project identifier
+     * @param authToken The authentication token (optional, defaults to "auth_token")
+     * @return [ActivateProjectPostResponse] containing activation confirmation and project details
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the auth token is invalid or project activation fails (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the activateProject parameter is invalid
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun activateProject(
+        activateProject: ActivateProject,
+    ): ActivateProjectPostResponse {
+        return try {
+            val response = projectApi.activateProjectApiProjectActivatePut(activateProject)
+            LOG.info("Project activated successfully: ${activateProject}")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to activate project: ${activateProject}", e)
+            throw e
+        }
+    }
 
     // ============ User Management Methods ============
 
@@ -417,8 +523,13 @@ class AppService {
      * @see Record.Type.BEHAVIORAL_TELEMETRY
      * @see Record.type.CONTEXTUAL_TELEMETRY
      */
-    fun getInlineCompletion(aggregatedCollectedData: Map<Record.Type, Map<String, Any>>): ResponseCompletionResponseData? {
+    fun getInlineCompletion(
+        aggregatedCollectedData: Map<Record.Type, Map<String, Any>>,
+        project: Project): ResponseCompletionResponseData? {
         require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
+
+        // set the current project for generation
+        currentGenerationProject.set(project)
 
         ResponseCompletionResponseData(
             metaQueryId = java.util.UUID.randomUUID(),
@@ -457,6 +568,8 @@ class AppService {
         } catch (e: Exception) {
             LOG.warn("Failed to get inline completion", e)
             null
+        } finally {
+            currentGenerationProject.set(null)
         }
     }
 }

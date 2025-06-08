@@ -218,6 +218,15 @@ class EditorContextRetrievalModule : PluginModule {
                 LOG.trace("Collected document length: ${document.text.length} characters")
             }
 
+            val pluginVersion = Record.Companion.key<Int>("version_id")
+            expanded[pluginVersion] = 1
+
+            val triggerType = Record.Companion.key<Int>("trigger_type_id")
+            expanded[triggerType] = 1
+
+            val languageId = Record.Companion.key<Int>("language_id")
+            expanded[languageId] = 1
+
             // Collect selected text if preferences allow and text is selected
             if (PrefState.Companion.getPreferenceValue(
                     moduleId,

@@ -11,6 +11,8 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import me.code4me.services.app.AppService
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.project.getProjectTokenService
+import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
 import kotlin.time.Duration
@@ -30,6 +32,11 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
 
         // For testing, return a simple suggestion with some text
         val document = request.editor.document
+        val project = request.editor.project!!
+        if (!getProjectTokenService(project).hasProjectToken()) {
+            activateOrCreateProject(project, logger)
+        }
+
         val requestId = request.requestId
 
         // get the module manager given the editor
@@ -42,7 +49,7 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
 
         val completion =
             service<AppService>()
-                .getInlineCompletion(aggregatedCollectedData)
+                .getInlineCompletion(aggregatedCollectedData, project)
 
         val mappedCompletions = completion?.completions ?: emptyList()
 
