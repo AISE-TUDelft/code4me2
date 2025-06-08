@@ -19,7 +19,6 @@ import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
 import me.code4me.utils.record.Record
-import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**

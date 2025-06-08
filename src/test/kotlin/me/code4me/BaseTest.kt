@@ -2,11 +2,9 @@ package me.code4me
 
 import com.intellij.testFramework.TestDataPath
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import org.junit.jupiter.api.Test
 
 @TestDataPath("\$CONTENT_ROOT/src/test/testData")
 class BaseTest : BasePlatformTestCase() {
-
     fun testRandomFunctionality() {
         // This is a placeholder for an actual test case.
         // You can implement your test logic here.
