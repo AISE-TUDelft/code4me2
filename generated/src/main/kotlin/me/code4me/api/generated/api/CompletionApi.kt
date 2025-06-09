@@ -33,6 +33,7 @@ import me.code4me.api.generated.model.NoAccessToProvideFeedbackError
 import me.code4me.api.generated.model.QueryNotFoundError
 import me.code4me.api.generated.model.RequestCompletion
 import me.code4me.api.generated.model.Response401RequestCompletionApiCompletionRequestPost
+import me.code4me.api.generated.model.Response401SubmitCompletionFeedbackApiCompletionFeedbackPost
 import me.code4me.api.generated.model.RetrieveCompletionsError
 
 import com.squareup.moshi.Json
@@ -136,7 +137,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     }
 
     /**
-     * POST /api/completion/request/
+     * POST /api/completion/request
      * Request Completion
      * Request code completions based on provided context.
      * @param requestCompletion 
@@ -170,7 +171,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     }
 
     /**
-     * POST /api/completion/request/
+     * POST /api/completion/request
      * Request Completion
      * Request code completions based on provided context.
      * @param requestCompletion 
@@ -207,7 +208,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/completion/request/",
+            path = "/api/completion/request",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
@@ -216,11 +217,12 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     }
 
     /**
-     * POST /api/completion/feedback/
+     * POST /api/completion/feedback
      * Submit Completion Feedback
      * Submit feedback on a generated completion.
      * @param feedbackCompletion 
      * @param sessionToken  (optional, default to "session_token")
+     * @param projectToken  (optional, default to "project_token")
      * @return CompletionFeedbackPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -230,8 +232,8 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String? = "session_token") : CompletionFeedbackPostResponse {
-        val localVarResponse = submitCompletionFeedbackApiCompletionFeedbackPostWithHttpInfo(feedbackCompletion = feedbackCompletion, sessionToken = sessionToken)
+    fun submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : CompletionFeedbackPostResponse {
+        val localVarResponse = submitCompletionFeedbackApiCompletionFeedbackPostWithHttpInfo(feedbackCompletion = feedbackCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as CompletionFeedbackPostResponse
@@ -249,19 +251,20 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     }
 
     /**
-     * POST /api/completion/feedback/
+     * POST /api/completion/feedback
      * Submit Completion Feedback
      * Submit feedback on a generated completion.
      * @param feedbackCompletion 
      * @param sessionToken  (optional, default to "session_token")
+     * @param projectToken  (optional, default to "project_token")
      * @return ApiResponse<CompletionFeedbackPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun submitCompletionFeedbackApiCompletionFeedbackPostWithHttpInfo(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String?) : ApiResponse<CompletionFeedbackPostResponse?> {
-        val localVariableConfig = submitCompletionFeedbackApiCompletionFeedbackPostRequestConfig(feedbackCompletion = feedbackCompletion, sessionToken = sessionToken)
+    fun submitCompletionFeedbackApiCompletionFeedbackPostWithHttpInfo(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : ApiResponse<CompletionFeedbackPostResponse?> {
+        val localVariableConfig = submitCompletionFeedbackApiCompletionFeedbackPostRequestConfig(feedbackCompletion = feedbackCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
         return request<FeedbackCompletion, CompletionFeedbackPostResponse>(
             localVariableConfig
@@ -273,9 +276,10 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      *
      * @param feedbackCompletion 
      * @param sessionToken  (optional, default to "session_token")
+     * @param projectToken  (optional, default to "project_token")
      * @return RequestConfig
      */
-    fun submitCompletionFeedbackApiCompletionFeedbackPostRequestConfig(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String?) : RequestConfig<FeedbackCompletion> {
+    fun submitCompletionFeedbackApiCompletionFeedbackPostRequestConfig(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<FeedbackCompletion> {
         val localVariableBody = feedbackCompletion
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
@@ -284,7 +288,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/completion/feedback/",
+            path = "/api/completion/feedback",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,

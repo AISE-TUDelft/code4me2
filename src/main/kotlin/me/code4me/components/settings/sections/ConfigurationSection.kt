@@ -1,6 +1,5 @@
 package me.code4me.components.settings.sections
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.ui.DialogWrapper
@@ -50,7 +49,6 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSeparator
 import javax.swing.JTree
-import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import javax.swing.text.AttributeSet
@@ -1115,7 +1113,7 @@ class ConfigurationSection : SettingsSection {
                                 // Placeholder for future implementation
                                 Messages.showInfoMessage(
                                     "This feature is not yet implemented.",
-                                    "Resend Verification Email"
+                                    "Resend Verification Email",
                                 )
                             }
 
@@ -1125,7 +1123,7 @@ class ConfigurationSection : SettingsSection {
                                 // Placeholder for future implementation
                                 Messages.showInfoMessage(
                                     "This feature is not yet implemented.",
-                                    "Verification Status Check"
+                                    "Verification Status Check",
                                 )
                             }
 
@@ -1193,8 +1191,6 @@ class ConfigurationSection : SettingsSection {
         }
     }
 
-
-
     /**
      * Shows a dialog for modifying user profile information.
      */
@@ -1209,12 +1205,13 @@ class ConfigurationSection : SettingsSection {
 
             try {
                 // Build UpdateUser object with only non-empty fields
-                val updateUser = UpdateUser(
-                    name = if (newName.isNotBlank() && newName != authState.getUserName()) newName else null,
-                    email = if (newEmail.isNotBlank() && newEmail != authState.getUserEmail()) newEmail else null,
-                    previousPassword = oldPassword.ifBlank { null },
-                    password = newPassword.ifBlank { null }
-                )
+                val updateUser =
+                    UpdateUser(
+                        name = if (newName.isNotBlank() && newName != authState.getUserName()) newName else null,
+                        email = if (newEmail.isNotBlank() && newEmail != authState.getUserEmail()) newEmail else null,
+                        previousPassword = oldPassword.ifBlank { null },
+                        password = newPassword.ifBlank { null },
+                    )
 
                 // Check if at least one field is being updated
                 val hasUpdates = listOf(updateUser.name, updateUser.email, updateUser.password).any { it != null }
@@ -1224,7 +1221,7 @@ class ConfigurationSection : SettingsSection {
 
                     Messages.showInfoMessage(
                         "Your profile has been updated successfully.",
-                        "Profile Updated"
+                        "Profile Updated",
                     )
 
                     modulePreferencesPanel.revalidate()
@@ -1232,21 +1229,22 @@ class ConfigurationSection : SettingsSection {
                 } else {
                     Messages.showInfoMessage(
                         "No changes were made to your profile.",
-                        "No Updates"
+                        "No Updates",
                     )
                 }
             } catch (e: Exception) {
                 LOG.error("Failed to update user profile", e)
-                val errorMessage = when (e) {
-                    is ClientException -> "Invalid input or authentication failed. Please check your current password."
-                    is ServerException -> "Server error occurred. Please try again later."
-                    is IOException -> "Network error occurred. Please check your connection."
-                    else -> "An unexpected error occurred: ${e.message}"
-                }
+                val errorMessage =
+                    when (e) {
+                        is ClientException -> "Invalid input or authentication failed. Please check your current password."
+                        is ServerException -> "Server error occurred. Please try again later."
+                        is IOException -> "Network error occurred. Please check your connection."
+                        else -> "An unexpected error occurred: ${e.message}"
+                    }
 
                 Messages.showErrorDialog(
                     errorMessage,
-                    "Profile Update Error"
+                    "Profile Update Error",
                 )
             }
         }
@@ -1330,13 +1328,14 @@ class ConfigurationSection : SettingsSection {
             deleteOptionsPanel.add(deleteButton, BorderLayout.EAST)
 
             deleteButton.addActionListener {
-                val confirmResult = Messages.showYesNoDialog(
-                    "Are you sure you want to delete your account? This action cannot be undone.",
-                    "Confirm Account Deletion",
-                    "Delete Account",
-                    "Cancel",
-                    Messages.getWarningIcon()
-                )
+                val confirmResult =
+                    Messages.showYesNoDialog(
+                        "Are you sure you want to delete your account? This action cannot be undone.",
+                        "Confirm Account Deletion",
+                        "Delete Account",
+                        "Cancel",
+                        Messages.getWarningIcon(),
+                    )
 
                 if (confirmResult == Messages.YES) {
                     try {
@@ -1344,14 +1343,14 @@ class ConfigurationSection : SettingsSection {
 
                         Messages.showInfoMessage(
                             "Your account has been deleted successfully.",
-                            "Account Deleted"
+                            "Account Deleted",
                         )
                         close(OK_EXIT_CODE)
                     } catch (e: Exception) {
                         LOG.error("Failed to delete user account", e)
                         Messages.showErrorDialog(
                             "An error occurred while deleting your account. Please try again.",
-                            "Delete Account Error"
+                            "Delete Account Error",
                         )
                     }
                 }
@@ -1404,8 +1403,11 @@ class ConfigurationSection : SettingsSection {
         }
 
         fun getNewName(): String = nameField.text.trim()
+
         fun getOldPassword(): String = String(oldPasswordField.password)
+
         fun getNewPassword(): String = String(newPasswordField.password)
+
         fun getNewEmail(): String = emailField.text.trim()
     }
 

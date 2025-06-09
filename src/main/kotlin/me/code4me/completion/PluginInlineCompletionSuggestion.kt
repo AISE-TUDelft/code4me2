@@ -3,7 +3,6 @@ package me.code4me.completion
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionSuggestion
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionVariant
 import com.intellij.openapi.diagnostic.Logger
-import me.code4me.api.generated.model.ResponseCompletionItem
 import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner
 
 class PluginInlineCompletionSuggestion(

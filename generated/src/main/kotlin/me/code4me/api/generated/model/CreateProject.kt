@@ -23,8 +23,6 @@ import com.squareup.moshi.JsonClass
  * 
  *
  * @param projectName Project name
- * @param multiFileContexts 
- * @param multiFileContextChanges 
  */
 
 
@@ -32,13 +30,7 @@ data class CreateProject (
 
     /* Project name */
     @Json(name = "project_name")
-    val projectName: kotlin.String,
-
-    @Json(name = "multi_file_contexts")
-    val multiFileContexts: kotlin.String? = null,
-
-    @Json(name = "multi_file_context_changes")
-    val multiFileContextChanges: kotlin.String? = null
+    val projectName: kotlin.String
 
 ) {
 

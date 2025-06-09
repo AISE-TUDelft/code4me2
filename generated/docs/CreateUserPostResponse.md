@@ -4,7 +4,7 @@
 ## Properties
 | Name | Type | Description | Notes |
 | ------------ | ------------- | ------------- | ------------- |
-| **userId** | **kotlin.String** | Created user id |  |
+| **userId** | [**java.util.UUID**](java.util.UUID.md) | Created user id |  |
 | **message** | **kotlin.String** |  |  [optional] |
 
 

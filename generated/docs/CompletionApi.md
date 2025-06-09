@@ -5,8 +5,8 @@ All URIs are relative to *http://localhost*
 | Method | HTTP request | Description |
 | ------------- | ------------- | ------------- |
 | [**getCompletionsByQueryApiCompletionQueryIdGet**](CompletionApi.md#getCompletionsByQueryApiCompletionQueryIdGet) | **GET** /api/completion/{query_id} | Get Completions By Query |
-| [**requestCompletionApiCompletionRequestPost**](CompletionApi.md#requestCompletionApiCompletionRequestPost) | **POST** /api/completion/request/ | Request Completion |
-| [**submitCompletionFeedbackApiCompletionFeedbackPost**](CompletionApi.md#submitCompletionFeedbackApiCompletionFeedbackPost) | **POST** /api/completion/feedback/ | Submit Completion Feedback |
+| [**requestCompletionApiCompletionRequestPost**](CompletionApi.md#requestCompletionApiCompletionRequestPost) | **POST** /api/completion/request | Request Completion |
+| [**submitCompletionFeedbackApiCompletionFeedbackPost**](CompletionApi.md#submitCompletionFeedbackApiCompletionFeedbackPost) | **POST** /api/completion/feedback | Submit Completion Feedback |
 
 
 <a id="getCompletionsByQueryApiCompletionQueryIdGet"></a>
@@ -109,7 +109,7 @@ No authorization required
 
 <a id="submitCompletionFeedbackApiCompletionFeedbackPost"></a>
 # **submitCompletionFeedbackApiCompletionFeedbackPost**
-> CompletionFeedbackPostResponse submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken)
+> CompletionFeedbackPostResponse submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken, projectToken)
 
 Submit Completion Feedback
 
@@ -124,8 +124,9 @@ Submit feedback on a generated completion.
 val apiInstance = CompletionApi()
 val feedbackCompletion : FeedbackCompletion =  // FeedbackCompletion | 
 val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
+val projectToken : kotlin.String = projectToken_example // kotlin.String | 
 try {
-    val result : CompletionFeedbackPostResponse = apiInstance.submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken)
+    val result : CompletionFeedbackPostResponse = apiInstance.submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken, projectToken)
     println(result)
 } catch (e: ClientException) {
     println("4xx response calling CompletionApi#submitCompletionFeedbackApiCompletionFeedbackPost")
@@ -138,9 +139,10 @@ try {
 
 ### Parameters
 | **feedbackCompletion** | [**FeedbackCompletion**](FeedbackCompletion.md)|  | |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;project_token&quot;] |
 
 ### Return type
 

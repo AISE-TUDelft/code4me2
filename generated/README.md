@@ -47,17 +47,21 @@ All URIs are relative to *http://localhost*
 | ------------ | ------------- | ------------- | ------------- |
 | *AuthenticationApi* | [**authenticateUserApiUserAuthenticatePost**](docs/AuthenticationApi.md#authenticateuserapiuserauthenticatepost) | **POST** /api/user/authenticate/ | Authenticate User |
 | *CompletionApi* | [**getCompletionsByQueryApiCompletionQueryIdGet**](docs/CompletionApi.md#getcompletionsbyqueryapicompletionqueryidget) | **GET** /api/completion/{query_id} | Get Completions By Query |
-| *CompletionApi* | [**requestCompletionApiCompletionRequestPost**](docs/CompletionApi.md#requestcompletionapicompletionrequestpost) | **POST** /api/completion/request/ | Request Completion |
-| *CompletionApi* | [**submitCompletionFeedbackApiCompletionFeedbackPost**](docs/CompletionApi.md#submitcompletionfeedbackapicompletionfeedbackpost) | **POST** /api/completion/feedback/ | Submit Completion Feedback |
+| *CompletionApi* | [**requestCompletionApiCompletionRequestPost**](docs/CompletionApi.md#requestcompletionapicompletionrequestpost) | **POST** /api/completion/request | Request Completion |
+| *CompletionApi* | [**submitCompletionFeedbackApiCompletionFeedbackPost**](docs/CompletionApi.md#submitcompletionfeedbackapicompletionfeedbackpost) | **POST** /api/completion/feedback | Submit Completion Feedback |
 | *DefaultApi* | [**pingApiPingGet**](docs/DefaultApi.md#pingapipingget) | **GET** /api/ping | Ping |
-| *MultiFileContextApi* | [**updateMultiFileContextApiCompletionMultiFileContextUpdatePost**](docs/MultiFileContextApi.md#updatemultifilecontextapicompletionmultifilecontextupdatepost) | **POST** /api/completion/multi-file-context/update/ | Update Multi File Context |
+| *MultiFileContextApi* | [**updateMultiFileContextApiCompletionMultiFileContextUpdatePost**](docs/MultiFileContextApi.md#updatemultifilecontextapicompletionmultifilecontextupdatepost) | **POST** /api/completion/multi-file-context/update | Update Multi File Context |
 | *ProjectApi* | [**activateProjectApiProjectActivatePut**](docs/ProjectApi.md#activateprojectapiprojectactivateput) | **PUT** /api/project/activate/ | Activate Project |
 | *ProjectApi* | [**createProjectApiProjectCreatePost**](docs/ProjectApi.md#createprojectapiprojectcreatepost) | **POST** /api/project/create/ | Create Project |
 | *SessionApi* | [**acquireSessionApiSessionAcquireGet**](docs/SessionApi.md#acquiresessionapisessionacquireget) | **GET** /api/session/acquire/ | Acquire Session |
 | *UserApi* | [**authenticateUserApiUserAuthenticatePost**](docs/UserApi.md#authenticateuserapiuserauthenticatepost) | **POST** /api/user/authenticate/ | Authenticate User |
-| *UserApi* | [**createUserApiUserCreatePost**](docs/UserApi.md#createuserapiusercreatepost) | **POST** /api/user/create/ | Create User |
-| *UserApi* | [**deleteUserApiUserDeleteDelete**](docs/UserApi.md#deleteuserapiuserdeletedelete) | **DELETE** /api/user/delete/ | Delete User |
-| *UserApi* | [**updateUserApiUserUpdatePut**](docs/UserApi.md#updateuserapiuserupdateput) | **PUT** /api/user/update/ | Update User |
+| *UserApi* | [**checkVerificationApiUserVerifyCheckGet**](docs/UserApi.md#checkverificationapiuserverifycheckget) | **GET** /api/user/verify/check | Check Verification |
+| *UserApi* | [**createUserApiUserCreatePost**](docs/UserApi.md#createuserapiusercreatepost) | **POST** /api/user/create | Create User |
+| *UserApi* | [**deleteUserApiUserDeleteDelete**](docs/UserApi.md#deleteuserapiuserdeletedelete) | **DELETE** /api/user/delete | Delete User |
+| *UserApi* | [**updateUserApiUserUpdatePut**](docs/UserApi.md#updateuserapiuserupdateput) | **PUT** /api/user/update | Update User |
+| *UserApi* | [**verifyEmailApiUserVerifyGet**](docs/UserApi.md#verifyemailapiuserverifyget) | **GET** /api/user/verify/ | Verify Email |
+| *UserVerificationApi* | [**checkVerificationApiUserVerifyCheckGet**](docs/UserVerificationApi.md#checkverificationapiuserverifycheckget) | **GET** /api/user/verify/check | Check Verification |
+| *UserVerificationApi* | [**verifyEmailApiUserVerifyGet**](docs/UserVerificationApi.md#verifyemailapiuserverifyget) | **GET** /api/user/verify/ | Verify Email |
 
 
 <a id="documentation-for-models"></a>
@@ -113,6 +117,7 @@ All URIs are relative to *http://localhost*
  - [me.code4me.api.generated.model.Response401AuthenticateUserApiUserAuthenticatePost](docs/Response401AuthenticateUserApiUserAuthenticatePost.md)
  - [me.code4me.api.generated.model.Response401CreateProjectApiProjectCreatePost](docs/Response401CreateProjectApiProjectCreatePost.md)
  - [me.code4me.api.generated.model.Response401RequestCompletionApiCompletionRequestPost](docs/Response401RequestCompletionApiCompletionRequestPost.md)
+ - [me.code4me.api.generated.model.Response401SubmitCompletionFeedbackApiCompletionFeedbackPost](docs/Response401SubmitCompletionFeedbackApiCompletionFeedbackPost.md)
  - [me.code4me.api.generated.model.Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost](docs/Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost.md)
  - [me.code4me.api.generated.model.ResponseCompletionItem](docs/ResponseCompletionItem.md)
  - [me.code4me.api.generated.model.ResponseCompletionResponseData](docs/ResponseCompletionResponseData.md)

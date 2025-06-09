@@ -1,6 +1,5 @@
 package me.code4me.api.wrapper
 
-import com.intellij.codeInsight.codeVision.codeVisionEntryOnHighlighterKey
 import me.code4me.api.generated.infrastructure.ApiClient
 import me.code4me.services.app.getAppService
 import me.code4me.services.project.getProjectTokenService
@@ -69,7 +68,7 @@ class CookieAwareApiClient(
          */
         private fun addCookiesToRequest(request: Request): Request {
             val url = request.url.toString()
-                var cookies = cookieManager.cookieStore.get(URI(url))
+            var cookies = cookieManager.cookieStore.get(URI(url))
 
             // if the authToken is present but not in the cookies, add it
             if (getAuthState().getToken() != null && getCookie("auth_token") == null) {
@@ -80,9 +79,10 @@ class CookieAwareApiClient(
             val cookieHeader = cookies.joinToString("; ") { "${it.name}=${it.value}" }
             // add the project token cookie if it exists
             if (getAppService().currentGenerationProject.get() != null) {
-                val projectToken = getProjectTokenService(
-                    getAppService().currentGenerationProject.get()!!
-                ).getProjectToken()
+                val projectToken =
+                    getProjectTokenService(
+                        getAppService().currentGenerationProject.get()!!,
+                    ).getProjectToken()
                 if (projectToken != null) {
                     return request.newBuilder()
                         .addHeader("Cookie", "$cookieHeader; project_token=$projectToken")

@@ -22,8 +22,8 @@ import com.squareup.moshi.JsonClass
 /**
  * 
  *
- * @param prefix 
- * @param suffix 
+ * @param prefix Code before cursor
+ * @param suffix Code after cursor
  * @param fileName 
  * @param selectedText 
  * @param contextFiles 
@@ -32,14 +32,16 @@ import com.squareup.moshi.JsonClass
 
 data class ContextData (
 
+    /* Code before cursor */
     @Json(name = "prefix")
-    val prefix: kotlin.String? = null,
+    val prefix: kotlin.String,
 
+    /* Code after cursor */
     @Json(name = "suffix")
-    val suffix: kotlin.String? = null,
+    val suffix: kotlin.String,
 
     @Json(name = "file_name")
-    val fileName: kotlin.String? = null,
+    val fileName: kotlin.String?,
 
     @Json(name = "selected_text")
     val selectedText: kotlin.String? = null,

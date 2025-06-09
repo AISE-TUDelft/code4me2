@@ -50,7 +50,7 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
     }
 
     /**
-     * POST /api/completion/multi-file-context/update/
+     * POST /api/completion/multi-file-context/update
      * Update Multi File Context
      * Update the context for a specific query ID.
      * @param updateMultiFileContext 
@@ -84,7 +84,7 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
     }
 
     /**
-     * POST /api/completion/multi-file-context/update/
+     * POST /api/completion/multi-file-context/update
      * Update Multi File Context
      * Update the context for a specific query ID.
      * @param updateMultiFileContext 
@@ -121,7 +121,7 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/completion/multi-file-context/update/",
+            path = "/api/completion/multi-file-context/update",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,

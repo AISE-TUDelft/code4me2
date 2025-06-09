@@ -22,15 +22,15 @@ import com.squareup.moshi.JsonClass
 /**
  * 
  *
- * @param projectToken Project token to activate
+ * @param projectId Project id to activate
  */
 
 
 data class ActivateProject (
 
-    /* Project token to activate */
-    @Json(name = "project_token")
-    val projectToken: kotlin.String
+    /* Project id to activate */
+    @Json(name = "project_id")
+    val projectId: java.util.UUID
 
 ) {
 

@@ -4,7 +4,7 @@ All URIs are relative to *http://localhost*
 
 | Method | HTTP request | Description |
 | ------------- | ------------- | ------------- |
-| [**updateMultiFileContextApiCompletionMultiFileContextUpdatePost**](MultiFileContextApi.md#updateMultiFileContextApiCompletionMultiFileContextUpdatePost) | **POST** /api/completion/multi-file-context/update/ | Update Multi File Context |
+| [**updateMultiFileContextApiCompletionMultiFileContextUpdatePost**](MultiFileContextApi.md#updateMultiFileContextApiCompletionMultiFileContextUpdatePost) | **POST** /api/completion/multi-file-context/update | Update Multi File Context |
 
 
 <a id="updateMultiFileContextApiCompletionMultiFileContextUpdatePost"></a>

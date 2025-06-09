@@ -10,9 +10,6 @@ import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import me.code4me.api.wrapper.CookieAwareApiClient
 import me.code4me.components.settings.fields.CredentialField
 import me.code4me.components.settings.fields.StateValueField
@@ -26,7 +23,6 @@ import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
-import java.net.CookieManager
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.BorderFactory
 import javax.swing.JButton
@@ -34,7 +30,6 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JToggleButton
-import javax.swing.SwingUtilities
 
 /**
  * Settings section responsible for user authentication (login and signup).
@@ -665,14 +660,15 @@ class AuthenticationSection : SettingsSection {
         password: String,
     ): String? {
         return try {
-            val createUser = appService.createUser(
-                email = email,
-                name = fullName,
-                password = password,
-            )
+            val createUser =
+                appService.createUser(
+                    email = email,
+                    name = fullName,
+                    password = password,
+                )
             val authenticatedUser = appService.authenticateUser(email, password)
             authState.state.setUserName(
-                authenticatedUser.user.name.trim()
+                authenticatedUser.user.name.trim(),
             )
             return CookieAwareApiClient.cookieManager.cookieStore.cookies.firstOrNull {
                 it.name == "auth_token"

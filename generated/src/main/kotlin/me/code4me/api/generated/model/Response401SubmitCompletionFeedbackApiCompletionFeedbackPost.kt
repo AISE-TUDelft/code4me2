@@ -15,6 +15,9 @@
 
 package me.code4me.api.generated.model
 
+import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
+import me.code4me.api.generated.model.InvalidOrExpiredProjectToken
+import me.code4me.api.generated.model.InvalidOrExpiredSessionToken
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
@@ -22,19 +25,14 @@ import com.squareup.moshi.JsonClass
 /**
  * 
  *
- * @param userId Created user id
  * @param message 
  */
 
 
-data class CreateUserPostResponse (
-
-    /* Created user id */
-    @Json(name = "user_id")
-    val userId: java.util.UUID,
+data class Response401SubmitCompletionFeedbackApiCompletionFeedbackPost (
 
     @Json(name = "message")
-    val message: kotlin.String? = "User created successfully. Please check your email for verification."
+    val message: kotlin.String? = "Invalid or expired project token. Acquire a session token first."
 
 ) {
 

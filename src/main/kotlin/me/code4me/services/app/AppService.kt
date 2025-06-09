@@ -15,10 +15,9 @@ import me.code4me.api.generated.model.AcquireSessionGetResponse
 import me.code4me.api.generated.model.ActivateProject
 import me.code4me.api.generated.model.ActivateProjectPostResponse
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
-import me.code4me.api.generated.model.CompletionPostResponseInput
+import me.code4me.api.generated.model.BehavioralTelemetryData
 import me.code4me.api.generated.model.ContextData
 import me.code4me.api.generated.model.ContextualTelemetryData
-import me.code4me.api.generated.model.BehavioralTelemetryData
 import me.code4me.api.generated.model.CreateProject
 import me.code4me.api.generated.model.CreateProjectPostResponse
 import me.code4me.api.generated.model.CreateUserPostResponse
@@ -34,8 +33,8 @@ import me.code4me.api.wrapper.CookieAwareApiClient
 import me.code4me.services.config.getConfig
 import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.getAuthState
-import me.code4me.utils.record.Record
 import me.code4me.utils.api.mapsTo
+import me.code4me.utils.record.Record
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicReference
 
@@ -84,7 +83,6 @@ class AppService {
     private val completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val projectApi = ProjectApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-
 
     val currentGenerationProject = AtomicReference<Project?>(null)
 
@@ -201,7 +199,6 @@ class AppService {
             throw e
         }
     }
-
 
     // ============ Session Methods ============
 
@@ -322,7 +319,10 @@ class AppService {
      *
      * @param response The project creation response containing project token and details
      */
-    private fun storeProjectResponse(project: Project, response: CreateProjectPostResponse) {
+    private fun storeProjectResponse(
+        project: Project,
+        response: CreateProjectPostResponse,
+    ) {
         getProjectTokenService(project).setProjectToken(response.projectToken)
         LOG.info("Project data stored successfully: ${response.message}")
     }
@@ -345,15 +345,15 @@ class AppService {
     @Throws(IOException::class, ClientException::class, ServerException::class)
     fun createProject(
         createProject: CreateProject,
-        project: Project
+        project: Project,
     ): CreateProjectPostResponse {
         return try {
             val response = projectApi.createProjectApiProjectCreatePost(createProject)
             storeProjectResponse(project, response)
-            LOG.info("Project created successfully: ${createProject}")
+            LOG.info("Project created successfully: $createProject")
             response
         } catch (e: Exception) {
-            LOG.warn("Failed to create project: ${createProject}", e)
+            LOG.warn("Failed to create project: $createProject", e)
             throw e
         }
     }
@@ -373,7 +373,10 @@ class AppService {
      * @throws IllegalArgumentException If the createProject parameter is invalid
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
-    fun createProjectWithStoredToken(createProject: CreateProject, project: Project): CreateProjectPostResponse? {
+    fun createProjectWithStoredToken(
+        createProject: CreateProject,
+        project: Project,
+    ): CreateProjectPostResponse? {
         return createProject(createProject, project)
     }
 
@@ -394,15 +397,13 @@ class AppService {
      * @throws IllegalArgumentException If the activateProject parameter is invalid
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
-    fun activateProject(
-        activateProject: ActivateProject,
-    ): ActivateProjectPostResponse {
+    fun activateProject(activateProject: ActivateProject): ActivateProjectPostResponse {
         return try {
             val response = projectApi.activateProjectApiProjectActivatePut(activateProject)
-            LOG.info("Project activated successfully: ${activateProject}")
+            LOG.info("Project activated successfully: $activateProject")
             response
         } catch (e: Exception) {
-            LOG.warn("Failed to activate project: ${activateProject}", e)
+            LOG.warn("Failed to activate project: $activateProject", e)
             throw e
         }
     }
@@ -445,7 +446,7 @@ class AppService {
                 password = password,
                 token = token,
                 configId = 1, // Assuming configId is always 1 - this means the default configuration
-                provider = provider
+                provider = provider,
             )
 
         return try {
@@ -526,15 +527,16 @@ class AppService {
     @Throws(IOException::class, ClientException::class, ServerException::class)
     fun updateUser(updateUser: UpdateUser): UpdateUserPutResponse {
         // Validate that at least one field is provided for update
-        val hasValidField = listOf(
-            updateUser.name,
-            updateUser.email,
-            updateUser.password,
-            updateUser.previousPassword,
-            updateUser.preference,
-            updateUser.configId,
-            updateUser.verified
-        ).any { it != null && (it !is String || it.isNotBlank()) }
+        val hasValidField =
+            listOf(
+                updateUser.name,
+                updateUser.email,
+                updateUser.password,
+                updateUser.previousPassword,
+                updateUser.preference,
+                updateUser.configId,
+                updateUser.verified,
+            ).any { it != null && (it !is String || it.isNotBlank()) }
 
         require(hasValidField) { "At least one field must be provided for update" }
 
@@ -559,7 +561,6 @@ class AppService {
     fun isUserVerified(): Boolean {
         // TODO: check via the API on auth
         return true
-
     }
 
     // ============ Completion Methods ============
@@ -582,7 +583,8 @@ class AppService {
      */
     fun getInlineCompletion(
         aggregatedCollectedData: Map<Record.Type, Map<String, Any>>,
-        project: Project): ResponseCompletionResponseData? {
+        project: Project,
+    ): ResponseCompletionResponseData? {
         require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
 
         // set the current project for generation
@@ -590,32 +592,36 @@ class AppService {
 
         ResponseCompletionResponseData(
             metaQueryId = java.util.UUID.randomUUID(),
-            completions = listOf(
-                ResponseCompletionResponseDataCompletionsInner(
-                    modelId = DEFAULT_MODEL_ID,
-                    modelName = "Default Model",
-                    completion = "Generated code based on context and telemetry",
-                    generationTime = 100, // Example generation time in milliseconds
-                    confidence = java.math.BigDecimal("0.95"),
-                    message = "Completion generated successfully"
-                )
-            )
+            completions =
+                listOf(
+                    ResponseCompletionResponseDataCompletionsInner(
+                        modelId = DEFAULT_MODEL_ID,
+                        modelName = "Default Model",
+                        completion = "Generated code based on context and telemetry",
+                        generationTime = 100, // Example generation time in milliseconds
+                        confidence = java.math.BigDecimal("0.95"),
+                        message = "Completion generated successfully",
+                    ),
+                ),
         )
 
         val requestCompletion =
             RequestCompletion(
                 modelIds = listOf(DEFAULT_MODEL_ID),
-                context = (aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
-                    ContextData::class.java
-                ),
-                behavioralTelemetry = (aggregatedCollectedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
-                    .mapsTo<BehavioralTelemetryData>(
-                        BehavioralTelemetryData::class.java
+                context =
+                    (aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
+                        ContextData::class.java,
                     ),
-                contextualTelemetry = (aggregatedCollectedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
-                    .mapsTo<ContextualTelemetryData>(
-                        ContextualTelemetryData::class.java
-                    )
+                behavioralTelemetry =
+                    (aggregatedCollectedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
+                        .mapsTo<BehavioralTelemetryData>(
+                            BehavioralTelemetryData::class.java,
+                        ),
+                contextualTelemetry =
+                    (aggregatedCollectedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
+                        .mapsTo<ContextualTelemetryData>(
+                            ContextualTelemetryData::class.java,
+                        ),
             )
 
         return try {

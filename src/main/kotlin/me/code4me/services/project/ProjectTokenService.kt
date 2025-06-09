@@ -10,10 +10,9 @@ import com.intellij.openapi.project.Project
 @Service(Service.Level.PROJECT)
 @State(
     name = "ProjectTokenState",
-    storages = [Storage("code4me-project-token.xml")]
+    storages = [Storage("code4me-project-token.xml")],
 )
 class ProjectTokenService : SimplePersistentStateComponent<ProjectTokenState>(ProjectTokenState()) {
-
     /**
      * Sets the project identifier token
      */

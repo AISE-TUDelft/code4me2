@@ -4,7 +4,7 @@
 ## Properties
 | Name | Type | Description | Notes |
 | ------------ | ------------- | ------------- | ------------- |
-| **projectToken** | **kotlin.String** | Project token to activate |  |
+| **projectId** | [**java.util.UUID**](java.util.UUID.md) | Project id to activate |  |
 
 
 

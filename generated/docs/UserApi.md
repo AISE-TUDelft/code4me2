@@ -5,9 +5,11 @@ All URIs are relative to *http://localhost*
 | Method | HTTP request | Description |
 | ------------- | ------------- | ------------- |
 | [**authenticateUserApiUserAuthenticatePost**](UserApi.md#authenticateUserApiUserAuthenticatePost) | **POST** /api/user/authenticate/ | Authenticate User |
-| [**createUserApiUserCreatePost**](UserApi.md#createUserApiUserCreatePost) | **POST** /api/user/create/ | Create User |
-| [**deleteUserApiUserDeleteDelete**](UserApi.md#deleteUserApiUserDeleteDelete) | **DELETE** /api/user/delete/ | Delete User |
-| [**updateUserApiUserUpdatePut**](UserApi.md#updateUserApiUserUpdatePut) | **PUT** /api/user/update/ | Update User |
+| [**checkVerificationApiUserVerifyCheckGet**](UserApi.md#checkVerificationApiUserVerifyCheckGet) | **GET** /api/user/verify/check | Check Verification |
+| [**createUserApiUserCreatePost**](UserApi.md#createUserApiUserCreatePost) | **POST** /api/user/create | Create User |
+| [**deleteUserApiUserDeleteDelete**](UserApi.md#deleteUserApiUserDeleteDelete) | **DELETE** /api/user/delete | Delete User |
+| [**updateUserApiUserUpdatePut**](UserApi.md#updateUserApiUserUpdatePut) | **PUT** /api/user/update | Update User |
+| [**verifyEmailApiUserVerifyGet**](UserApi.md#verifyEmailApiUserVerifyGet) | **GET** /api/user/verify/ | Verify Email |
 
 
 <a id="authenticateUserApiUserAuthenticatePost"></a>
@@ -54,6 +56,52 @@ No authorization required
 ### HTTP request headers
 
  - **Content-Type**: application/json
+ - **Accept**: application/json
+
+<a id="checkVerificationApiUserVerifyCheckGet"></a>
+# **checkVerificationApiUserVerifyCheckGet**
+> kotlin.Any checkVerificationApiUserVerifyCheckGet(authToken)
+
+Check Verification
+
+Check if the user is verified
+
+### Example
+```kotlin
+// Import classes:
+//import me.code4me.api.generated.infrastructure.*
+//import me.code4me.api.generated.model.*
+
+val apiInstance = UserApi()
+val authToken : kotlin.String = authToken_example // kotlin.String | 
+try {
+    val result : kotlin.Any = apiInstance.checkVerificationApiUserVerifyCheckGet(authToken)
+    println(result)
+} catch (e: ClientException) {
+    println("4xx response calling UserApi#checkVerificationApiUserVerifyCheckGet")
+    e.printStackTrace()
+} catch (e: ServerException) {
+    println("5xx response calling UserApi#checkVerificationApiUserVerifyCheckGet")
+    e.printStackTrace()
+}
+```
+
+### Parameters
+| Name | Type | Description  | Notes |
+| ------------- | ------------- | ------------- | ------------- |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
+
+### Return type
+
+[**kotlin.Any**](kotlin.Any.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
  - **Accept**: application/json
 
 <a id="createUserApiUserCreatePost"></a>
@@ -196,5 +244,51 @@ No authorization required
 ### HTTP request headers
 
  - **Content-Type**: application/json
+ - **Accept**: application/json
+
+<a id="verifyEmailApiUserVerifyGet"></a>
+# **verifyEmailApiUserVerifyGet**
+> kotlin.Any verifyEmailApiUserVerifyGet(token)
+
+Verify Email
+
+Verify user email with the provided token
+
+### Example
+```kotlin
+// Import classes:
+//import me.code4me.api.generated.infrastructure.*
+//import me.code4me.api.generated.model.*
+
+val apiInstance = UserApi()
+val token : kotlin.String = token_example // kotlin.String | Verification token
+try {
+    val result : kotlin.Any = apiInstance.verifyEmailApiUserVerifyGet(token)
+    println(result)
+} catch (e: ClientException) {
+    println("4xx response calling UserApi#verifyEmailApiUserVerifyGet")
+    e.printStackTrace()
+} catch (e: ServerException) {
+    println("5xx response calling UserApi#verifyEmailApiUserVerifyGet")
+    e.printStackTrace()
+}
+```
+
+### Parameters
+| Name | Type | Description  | Notes |
+| ------------- | ------------- | ------------- | ------------- |
+| **token** | **kotlin.String**| Verification token | |
+
+### Return type
+
+[**kotlin.Any**](kotlin.Any.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
  - **Accept**: application/json
 
