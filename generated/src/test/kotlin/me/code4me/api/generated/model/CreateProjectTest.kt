@@ -31,17 +31,5 @@ class CreateProjectTest : ShouldSpec() {
             //modelInstance.projectName shouldBe ("TODO")
         }
 
-        // to test the property `multiFileContexts`
-        should("test multiFileContexts") {
-            // uncomment below to test the property
-            //modelInstance.multiFileContexts shouldBe ("TODO")
-        }
-
-        // to test the property `multiFileContextChanges`
-        should("test multiFileContextChanges") {
-            // uncomment below to test the property
-            //modelInstance.multiFileContextChanges shouldBe ("TODO")
-        }
-
     }
 }

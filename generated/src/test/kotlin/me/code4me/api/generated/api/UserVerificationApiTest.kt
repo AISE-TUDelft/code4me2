@@ -35,6 +35,14 @@ class UserVerificationApiTest : ShouldSpec() {
             //result shouldBe ("TODO")
         }
 
+        // to test resendVerificationEmailApiUserVerifyResendGet
+        should("test resendVerificationEmailApiUserVerifyResendGet") {
+            // uncomment below to test resendVerificationEmailApiUserVerifyResendGet
+            //val authToken : kotlin.String = authToken_example // kotlin.String | 
+            //val result : kotlin.Any = apiInstance.resendVerificationEmailApiUserVerifyResendGet(authToken)
+            //result shouldBe ("TODO")
+        }
+
         // to test verifyEmailApiUserVerifyGet
         should("test verifyEmailApiUserVerifyGet") {
             // uncomment below to test verifyEmailApiUserVerifyGet

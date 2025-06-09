@@ -33,6 +33,7 @@ import me.code4me.api.generated.model.NoAccessToProvideFeedbackError
 import me.code4me.api.generated.model.QueryNotFoundError
 import me.code4me.api.generated.model.RequestCompletion
 import me.code4me.api.generated.model.Response401RequestCompletionApiCompletionRequestPost
+import me.code4me.api.generated.model.Response401SubmitCompletionFeedbackApiCompletionFeedbackPost
 import me.code4me.api.generated.model.RetrieveCompletionsError
 
 class CompletionApiTest : ShouldSpec() {
@@ -64,7 +65,8 @@ class CompletionApiTest : ShouldSpec() {
             // uncomment below to test submitCompletionFeedbackApiCompletionFeedbackPost
             //val feedbackCompletion : FeedbackCompletion =  // FeedbackCompletion | 
             //val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
-            //val result : CompletionFeedbackPostResponse = apiInstance.submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken)
+            //val projectToken : kotlin.String = projectToken_example // kotlin.String | 
+            //val result : CompletionFeedbackPostResponse = apiInstance.submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken, projectToken)
             //result shouldBe ("TODO")
         }
 

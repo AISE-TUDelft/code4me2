@@ -25,13 +25,13 @@ class ContextDataTest : ShouldSpec() {
         // uncomment below to create an instance of ContextData
         //val modelInstance = ContextData()
 
-        // to test the property `prefix`
+        // to test the property `prefix` - Code before cursor
         should("test prefix") {
             // uncomment below to test the property
             //modelInstance.prefix shouldBe ("TODO")
         }
 
-        // to test the property `suffix`
+        // to test the property `suffix` - Code after cursor
         should("test suffix") {
             // uncomment below to test the property
             //modelInstance.suffix shouldBe ("TODO")

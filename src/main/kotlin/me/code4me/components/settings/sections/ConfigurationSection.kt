@@ -49,6 +49,7 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSeparator
 import javax.swing.JTree
+import javax.swing.Timer
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import javax.swing.text.AttributeSet
@@ -1098,41 +1099,65 @@ class ConfigurationSection : SettingsSection {
                         JPanel(GridLayout(3, 1, 5, 5)).apply {
                             add(JLabel("Name: ${authState.getUserName() ?: "Unknown User"}"))
                             add(JLabel("Email: ${authState.getUserEmail() ?: "Unknown Email"}"))
+                            if (authState.isVerified() == null || !(authState.isVerified()!!)) {
+                                val verificationPanel = JPanel(BorderLayout())
+                                val verificationLabel = JLabel("Not verified")
+                                verificationLabel.foreground = JBColor.GRAY
+                                verificationPanel.add(verificationLabel, BorderLayout.WEST)
 
-                            val verificationPanel = JPanel(BorderLayout())
-                            val verificationLabel = JLabel("Not verified")
-                            verificationLabel.foreground = JBColor.GRAY
-                            verificationPanel.add(verificationLabel, BorderLayout.WEST)
+                                val verificationButtonsPanel = JPanel()
+                                verificationButtonsPanel.layout = BoxLayout(verificationButtonsPanel, BoxLayout.X_AXIS)
 
-                            val verificationButtonsPanel = JPanel()
-                            verificationButtonsPanel.layout = BoxLayout(verificationButtonsPanel, BoxLayout.X_AXIS)
+                                val resendButton = JButton("Resend Email")
+                                resendButton.toolTipText = "Resend verification email"
+                                resendButton.addActionListener {
+                                    try {
+                                        appService.resendVerificationEmail()
+                                        Messages.showInfoMessage(
+                                            "Verification email has been resent. Please check your inbox.",
+                                            "Email Resent",
+                                        )
+                                        // disable the button for 5 minutes
+                                        resendButton.isEnabled = false
+                                        Timer(300000) { resendButton.isEnabled = true }.start()
+                                    } catch (e: Exception) {
+                                        LOG.error("Failed to resend verification email", e)
+                                        Messages.showErrorDialog(
+                                            "Failed to resend verification email. Please try again later.",
+                                            "Error",
+                                        )
+                                    }
+                                }
 
-                            val resendButton = JButton("Resend Email")
-                            resendButton.toolTipText = "Resend verification email"
-                            resendButton.addActionListener {
-                                // Placeholder for future implementation
-                                Messages.showInfoMessage(
-                                    "This feature is not yet implemented.",
-                                    "Resend Verification Email",
-                                )
+                                val recheckButton = JButton("Recheck Status")
+                                recheckButton.toolTipText = "Check if your account has been verified"
+                                recheckButton.addActionListener {
+                                    val verified = appService.isUserVerified()
+                                    authState.setVerified(verified)
+                                    if (verified) {
+                                        verificationLabel.text = "Verified"
+                                        verificationLabel.foreground = JBColor.GREEN
+                                        Messages.showInfoMessage(
+                                            "Your account is now verified.",
+                                            "Verification Status",
+                                        )
+                                    } else {
+                                        verificationLabel.text = "Not verified"
+                                        verificationLabel.foreground = JBColor.GRAY
+                                        Messages.showInfoMessage(
+                                            "Your account is still not verified.",
+                                            "Verification Status",
+                                        )
+                                    }
+                                }
+
+                                verificationButtonsPanel.add(resendButton)
+                                verificationButtonsPanel.add(Box.createHorizontalStrut(5))
+                                verificationButtonsPanel.add(recheckButton)
+
+                                verificationPanel.add(verificationButtonsPanel, BorderLayout.EAST)
+                                add(verificationPanel)
                             }
-
-                            val recheckButton = JButton("Recheck Status")
-                            recheckButton.toolTipText = "Check if your account has been verified"
-                            recheckButton.addActionListener {
-                                // Placeholder for future implementation
-                                Messages.showInfoMessage(
-                                    "This feature is not yet implemented.",
-                                    "Verification Status Check",
-                                )
-                            }
-
-                            verificationButtonsPanel.add(resendButton)
-                            verificationButtonsPanel.add(Box.createHorizontalStrut(5))
-                            verificationButtonsPanel.add(recheckButton)
-
-                            verificationPanel.add(verificationButtonsPanel, BorderLayout.EAST)
-                            add(verificationPanel)
 
                             border = JBUI.Borders.empty(5, 0, 10, 0)
                         }

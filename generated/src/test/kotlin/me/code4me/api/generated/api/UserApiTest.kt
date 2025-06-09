@@ -27,6 +27,7 @@ import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteUserDeleteResponse
 import me.code4me.api.generated.model.DeleteUserError
 import me.code4me.api.generated.model.ErrorResponse
+import me.code4me.api.generated.model.HTTPValidationError
 import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
 import me.code4me.api.generated.model.InvalidOrExpiredJWTToken
 import me.code4me.api.generated.model.Response401AuthenticateUserApiUserAuthenticatePost
@@ -51,6 +52,14 @@ class UserApiTest : ShouldSpec() {
             //result shouldBe ("TODO")
         }
 
+        // to test checkVerificationApiUserVerifyCheckGet
+        should("test checkVerificationApiUserVerifyCheckGet") {
+            // uncomment below to test checkVerificationApiUserVerifyCheckGet
+            //val authToken : kotlin.String = authToken_example // kotlin.String | 
+            //val result : kotlin.Any = apiInstance.checkVerificationApiUserVerifyCheckGet(authToken)
+            //result shouldBe ("TODO")
+        }
+
         // to test createUserApiUserCreatePost
         should("test createUserApiUserCreatePost") {
             // uncomment below to test createUserApiUserCreatePost
@@ -68,12 +77,28 @@ class UserApiTest : ShouldSpec() {
             //result shouldBe ("TODO")
         }
 
+        // to test resendVerificationEmailApiUserVerifyResendGet
+        should("test resendVerificationEmailApiUserVerifyResendGet") {
+            // uncomment below to test resendVerificationEmailApiUserVerifyResendGet
+            //val authToken : kotlin.String = authToken_example // kotlin.String | 
+            //val result : kotlin.Any = apiInstance.resendVerificationEmailApiUserVerifyResendGet(authToken)
+            //result shouldBe ("TODO")
+        }
+
         // to test updateUserApiUserUpdatePut
         should("test updateUserApiUserUpdatePut") {
             // uncomment below to test updateUserApiUserUpdatePut
             //val updateUser : UpdateUser =  // UpdateUser | 
             //val authToken : kotlin.String = authToken_example // kotlin.String | 
             //val result : UpdateUserPutResponse = apiInstance.updateUserApiUserUpdatePut(updateUser, authToken)
+            //result shouldBe ("TODO")
+        }
+
+        // to test verifyEmailApiUserVerifyGet
+        should("test verifyEmailApiUserVerifyGet") {
+            // uncomment below to test verifyEmailApiUserVerifyGet
+            //val token : kotlin.String = token_example // kotlin.String | Verification token
+            //val result : kotlin.Any = apiInstance.verifyEmailApiUserVerifyGet(token)
             //result shouldBe ("TODO")
         }
 

@@ -8,6 +8,7 @@ All URIs are relative to *http://localhost*
 | [**checkVerificationApiUserVerifyCheckGet**](UserApi.md#checkVerificationApiUserVerifyCheckGet) | **GET** /api/user/verify/check | Check Verification |
 | [**createUserApiUserCreatePost**](UserApi.md#createUserApiUserCreatePost) | **POST** /api/user/create | Create User |
 | [**deleteUserApiUserDeleteDelete**](UserApi.md#deleteUserApiUserDeleteDelete) | **DELETE** /api/user/delete | Delete User |
+| [**resendVerificationEmailApiUserVerifyResendGet**](UserApi.md#resendVerificationEmailApiUserVerifyResendGet) | **GET** /api/user/verify/resend | Resend Verification Email |
 | [**updateUserApiUserUpdatePut**](UserApi.md#updateUserApiUserUpdatePut) | **PUT** /api/user/update | Update User |
 | [**verifyEmailApiUserVerifyGet**](UserApi.md#verifyEmailApiUserVerifyGet) | **GET** /api/user/verify/ | Verify Email |
 
@@ -188,6 +189,52 @@ try {
 ### Return type
 
 [**DeleteUserDeleteResponse**](DeleteUserDeleteResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+<a id="resendVerificationEmailApiUserVerifyResendGet"></a>
+# **resendVerificationEmailApiUserVerifyResendGet**
+> kotlin.Any resendVerificationEmailApiUserVerifyResendGet(authToken)
+
+Resend Verification Email
+
+Resend verification email to the user
+
+### Example
+```kotlin
+// Import classes:
+//import me.code4me.api.generated.infrastructure.*
+//import me.code4me.api.generated.model.*
+
+val apiInstance = UserApi()
+val authToken : kotlin.String = authToken_example // kotlin.String | 
+try {
+    val result : kotlin.Any = apiInstance.resendVerificationEmailApiUserVerifyResendGet(authToken)
+    println(result)
+} catch (e: ClientException) {
+    println("4xx response calling UserApi#resendVerificationEmailApiUserVerifyResendGet")
+    e.printStackTrace()
+} catch (e: ServerException) {
+    println("5xx response calling UserApi#resendVerificationEmailApiUserVerifyResendGet")
+    e.printStackTrace()
+}
+```
+
+### Parameters
+| Name | Type | Description  | Notes |
+| ------------- | ------------- | ------------- | ------------- |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
+
+### Return type
+
+[**kotlin.Any**](kotlin.Any.md)
 
 ### Authorization
 

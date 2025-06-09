@@ -366,6 +366,79 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
+     * GET /api/user/verify/resend
+     * Resend Verification Email
+     * Resend verification email to the user
+     * @param authToken  (optional, default to "auth_token")
+     * @return kotlin.Any
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    fun resendVerificationEmailApiUserVerifyResendGet(authToken: kotlin.String? = "auth_token") : kotlin.Any {
+        val localVarResponse = resendVerificationEmailApiUserVerifyResendGetWithHttpInfo(authToken = authToken)
+
+        return when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.Any
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/user/verify/resend
+     * Resend Verification Email
+     * Resend verification email to the user
+     * @param authToken  (optional, default to "auth_token")
+     * @return ApiResponse<kotlin.Any?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    fun resendVerificationEmailApiUserVerifyResendGetWithHttpInfo(authToken: kotlin.String?) : ApiResponse<kotlin.Any?> {
+        val localVariableConfig = resendVerificationEmailApiUserVerifyResendGetRequestConfig(authToken = authToken)
+
+        return request<Unit, kotlin.Any>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation resendVerificationEmailApiUserVerifyResendGet
+     *
+     * @param authToken  (optional, default to "auth_token")
+     * @return RequestConfig
+     */
+    fun resendVerificationEmailApiUserVerifyResendGetRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/user/verify/resend",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * PUT /api/user/update
      * Update User
      * Update the currently authenticated user&#39;s data.  Args: - user_to_update: Pydantic model containing fields to update. - app: Application context, injected by FastAPI. - auth_token: Authentication token stored in browser cookies.  Returns: - JSON response with updated user information if successful. - Appropriate error response if auth token is missing or invalid.

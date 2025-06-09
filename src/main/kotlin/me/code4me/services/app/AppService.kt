@@ -9,6 +9,7 @@ import me.code4me.api.generated.api.CompletionApi
 import me.code4me.api.generated.api.ProjectApi
 import me.code4me.api.generated.api.SessionApi
 import me.code4me.api.generated.api.UserApi
+import me.code4me.api.generated.api.UserVerificationApi
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.AcquireSessionGetResponse
@@ -36,6 +37,8 @@ import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.mapsTo
 import me.code4me.utils.record.Record
 import java.io.IOException
+import java.util.Locale
+import java.util.Locale.getDefault
 import java.util.concurrent.atomic.AtomicReference
 
 fun getAppService(): AppService {
@@ -83,6 +86,7 @@ class AppService {
     private val completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val projectApi = ProjectApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val userVerificationApi = UserVerificationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
 
     val currentGenerationProject = AtomicReference<Project?>(null)
 
@@ -558,9 +562,42 @@ class AppService {
         }
     }
 
+    // ============ User Verification Methods ============
+
     fun isUserVerified(): Boolean {
-        // TODO: check via the API on auth
-        return true
+        // check if the user is verified by querying the user verification API
+        try {
+            val response = userVerificationApi.checkVerificationApiUserVerifyCheckGet()
+            LOG.info("User verification status retrieved successfully: $response")
+            return true
+        } catch (e: Exception) {
+            LOG.warn("Failed to check user verification status", e)
+            return false
+        }
+    }
+
+    fun resendVerificationEmail(): Boolean {
+        // resend the verification email by calling the user verification API
+        try {
+            val response = userVerificationApi.resendVerificationEmailApiUserVerifyResendGet()
+            LOG.info("Verification email resent successfully")
+            if (response == null) {
+                LOG.warn("No response received when resending verification email")
+                return false
+            } else {
+                response.toString().contains("true", ignoreCase = true).also { isSuccess ->
+                    if (isSuccess) {
+                        LOG.info("Verification email sent successfully")
+                    } else {
+                        LOG.warn("Failed to send verification email")
+                    }
+                }
+            }
+            return true
+        } catch (e: Exception) {
+            LOG.warn("Failed to resend verification email", e)
+            return false
+        }
     }
 
     // ============ Completion Methods ============

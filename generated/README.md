@@ -58,9 +58,11 @@ All URIs are relative to *http://localhost*
 | *UserApi* | [**checkVerificationApiUserVerifyCheckGet**](docs/UserApi.md#checkverificationapiuserverifycheckget) | **GET** /api/user/verify/check | Check Verification |
 | *UserApi* | [**createUserApiUserCreatePost**](docs/UserApi.md#createuserapiusercreatepost) | **POST** /api/user/create | Create User |
 | *UserApi* | [**deleteUserApiUserDeleteDelete**](docs/UserApi.md#deleteuserapiuserdeletedelete) | **DELETE** /api/user/delete | Delete User |
+| *UserApi* | [**resendVerificationEmailApiUserVerifyResendGet**](docs/UserApi.md#resendverificationemailapiuserverifyresendget) | **GET** /api/user/verify/resend | Resend Verification Email |
 | *UserApi* | [**updateUserApiUserUpdatePut**](docs/UserApi.md#updateuserapiuserupdateput) | **PUT** /api/user/update | Update User |
 | *UserApi* | [**verifyEmailApiUserVerifyGet**](docs/UserApi.md#verifyemailapiuserverifyget) | **GET** /api/user/verify/ | Verify Email |
 | *UserVerificationApi* | [**checkVerificationApiUserVerifyCheckGet**](docs/UserVerificationApi.md#checkverificationapiuserverifycheckget) | **GET** /api/user/verify/check | Check Verification |
+| *UserVerificationApi* | [**resendVerificationEmailApiUserVerifyResendGet**](docs/UserVerificationApi.md#resendverificationemailapiuserverifyresendget) | **GET** /api/user/verify/resend | Resend Verification Email |
 | *UserVerificationApi* | [**verifyEmailApiUserVerifyGet**](docs/UserVerificationApi.md#verifyemailapiuserverifyget) | **GET** /api/user/verify/ | Verify Email |
 
 

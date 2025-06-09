@@ -29,6 +29,7 @@ const val AUTH_STATE_NAME = "me.code4me.state.authentication"
 const val TOKEN_PROPERTY = "authToken"
 const val USER_NAME_PROPERTY = "userName"
 const val USER_EMAIL_PROPERTY = "userEmail"
+const val IS_VERIFIED_PROPERTY = "isVerified"
 
 /**
  * Helper function to access the current authentication settings.
@@ -172,6 +173,30 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
                 LOG.warn("Failed to remove secure data for key: $key", e)
             }
         }
+
+        /**
+         * Checks if the user is verified.
+         *
+         * @return True if the user is verified, false otherwise
+         */
+        fun isUserVerified(): Boolean {
+            return getAuthToken(IS_VERIFIED_PROPERTY)?.toBoolean() ?: false
+        }
+
+        /**
+         * Sets the verification status of the user.
+         *
+         * @param isVerified True if the user is verified, false otherwise
+         */
+        fun setUserVerified(isVerified: Boolean?) {
+            try {
+                setAuthToken(IS_VERIFIED_PROPERTY, isVerified.toString())
+                LOG.debug("User verification status updated successfully: $isVerified")
+            } catch (e: Exception) {
+                LOG.error("Failed to set user verification status", e)
+                throw e
+            }
+        }
     }
 }
 
@@ -210,6 +235,9 @@ class AuthSettings : BaseState() {
 
     @Volatile
     private var cachedToken: String? = null
+
+    @Volatile
+    private var isVerified: Boolean? = false
 
     init {
         GlobalScope.launch(Dispatchers.IO) {
@@ -334,12 +362,30 @@ class AuthSettings : BaseState() {
     }
 
     /**
+     * Checks if the user is verified.
+     *
+     * @return True if the user is verified, false otherwise
+     */
+    fun isVerified(): Boolean? {
+        return isVerified
+    }
+
+    fun setVerified(verified: Boolean?) {
+        val oldVerified = isVerified
+        isVerified = verified
+        AuthState.setUserVerified(verified)
+        propertyChangeSupport.firePropertyChange(IS_VERIFIED_PROPERTY, oldVerified, verified)
+        LOG.debug("User verification status updated: $verified")
+    }
+
+    /**
      * Clears all user authentication data, cache, and notifies listeners.
      */
     fun clearUserData() {
         val oldToken = cachedToken
         val oldName = cachedUserName
         val oldEmail = cachedUserEmail
+        val oldVerified = isVerified
 
         try {
             // Clear all secure data
@@ -359,6 +405,12 @@ class AuthSettings : BaseState() {
                 AuthState.removeSecureData(USER_EMAIL_PROPERTY)
                 cachedUserEmail = null
                 propertyChangeSupport.firePropertyChange(USER_EMAIL_PROPERTY, oldEmail, null)
+            }
+
+            if (oldVerified != null) {
+                AuthState.removeSecureData(IS_VERIFIED_PROPERTY)
+                isVerified = null
+                propertyChangeSupport.firePropertyChange(IS_VERIFIED_PROPERTY, oldVerified, false)
             }
 
             LOG.info("User authentication data cleared successfully")

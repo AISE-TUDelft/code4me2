@@ -642,6 +642,9 @@ class AuthenticationSection : SettingsSection {
     ): String? {
         return try {
             val response = appService.authenticateUser(email, password)
+            authState.state.setUserName(response.user.name.trim())
+            authState.state.setUserEmail(email)
+            authState.state.setVerified(response.user.verified)
             return CookieAwareApiClient.cookieManager.cookieStore.cookies.firstOrNull {
                 it.name == "auth_token"
             }?.value

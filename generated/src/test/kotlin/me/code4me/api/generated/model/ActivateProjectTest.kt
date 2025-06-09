@@ -25,10 +25,10 @@ class ActivateProjectTest : ShouldSpec() {
         // uncomment below to create an instance of ActivateProject
         //val modelInstance = ActivateProject()
 
-        // to test the property `projectToken` - Project token to activate
-        should("test projectToken") {
+        // to test the property `projectId` - Project id to activate
+        should("test projectId") {
             // uncomment below to test the property
-            //modelInstance.projectToken shouldBe ("TODO")
+            //modelInstance.projectId shouldBe ("TODO")
         }
 
     }
