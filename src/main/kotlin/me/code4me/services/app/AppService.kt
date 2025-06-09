@@ -507,37 +507,59 @@ class AppService {
         getAuthState().clearUserData()
     }
 
+    // Add this new method to replace the existing updateUserName method
+
     /**
-     * Updates the current user's name.
+     * Updates the current user's information.
      *
-     * This method updates the user's display name in the Code4Me system. Upon successful update,
-     * the local user information is also updated to reflect the change.
+     * This method updates the user's information in the Code4Me system based on the provided UpdateUser object.
+     * It can handle updates to name, email, password, and other user properties. Upon successful update,
+     * the local user information is also updated to reflect the changes.
      *
-     * @param newName The new display name for the user
+     * @param updateUser The UpdateUser object containing the fields to be updated
      * @return [UpdateUserPutResponse] containing the update result and any relevant messages
      * @throws IOException If there's a network connectivity issue
      * @throws ClientException If the update fails due to client-side issues (4xx errors)
      * @throws ServerException If the server encounters an internal error (5xx errors)
-     * @throws IllegalArgumentException If the new name is blank
+     * @throws IllegalArgumentException If all fields in updateUser are null or empty
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
-    fun updateUserName(newName: String): UpdateUserPutResponse {
-        require(newName.isNotBlank()) { "New name cannot be blank" }
+    fun updateUser(updateUser: UpdateUser): UpdateUserPutResponse {
+        // Validate that at least one field is provided for update
+        val hasValidField = listOf(
+            updateUser.name,
+            updateUser.email,
+            updateUser.password,
+            updateUser.previousPassword,
+            updateUser.preference,
+            updateUser.configId,
+            updateUser.verified
+        ).any { it != null && (it !is String || it.isNotBlank()) }
 
-        val updateUser = UpdateUser(name = newName)
+        require(hasValidField) { "At least one field must be provided for update" }
 
         return try {
-            val response = updateUserApi.updateUserApiUserUpdatePut(updateUser)
+            val response = userApi.updateUserApiUserUpdatePut(updateUser)
 
-            // Update local user information
-            getAuthState().setUserName(newName)
-
-            LOG.info("User name updated successfully to: $newName")
+            // Update local user information if name or email was changed
+            updateUser.name?.takeIf { it.isNotBlank() }?.let { newName ->
+                getAuthState().setUserName(newName)
+            }
+            updateUser.email?.takeIf { it.isNotBlank() }?.let { newEmail ->
+                getAuthState().setUserEmail(newEmail)
+            }
+            LOG.info("User information updated successfully")
             response
         } catch (e: Exception) {
-            LOG.warn("Failed to update user name", e)
+            LOG.warn("Failed to update user information", e)
             throw e
         }
+    }
+
+    fun isUserVerified(): Boolean {
+        // TODO: check via the API on auth
+        return true
+
     }
 
     // ============ Completion Methods ============

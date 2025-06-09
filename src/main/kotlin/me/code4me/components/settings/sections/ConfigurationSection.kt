@@ -1,5 +1,6 @@
 package me.code4me.components.settings.sections
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.ui.DialogWrapper
@@ -15,6 +16,9 @@ import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import groovy.lang.Tuple2
+import me.code4me.api.generated.infrastructure.ClientException
+import me.code4me.api.generated.infrastructure.ServerException
+import me.code4me.api.generated.model.UpdateUser
 import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
 import me.code4me.components.settings.fields.ModuleFloatPreferenceField
 import me.code4me.components.settings.fields.ModuleIntegerPreferenceField
@@ -36,6 +40,7 @@ import java.awt.Font
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.GridLayout
+import java.io.IOException
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
@@ -45,6 +50,7 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSeparator
 import javax.swing.JTree
+import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import javax.swing.text.AttributeSet
@@ -1163,27 +1169,85 @@ class ConfigurationSection : SettingsSection {
     }
 
     /**
+     * Refreshes the user information panel with the latest data from auth state.
+     */
+    private fun refreshUserInfoPanel() {
+        userInfoTitleLabel.text = "User Information"
+        userInfoTitleLabel.foreground = JBColor.foreground()
+
+        // Update user info labels
+        val userName = authState.getUserName() ?: "Unknown User"
+        val userEmail = authState.getUserEmail() ?: "Unknown Email"
+
+        // Update labels in the user info panel
+        val userInfoPanel = modulePreferencesPanel.components.firstOrNull { it is JPanel } as? JPanel
+        userInfoPanel?.let {
+            it.components.forEach { component ->
+                if (component is JLabel) {
+                    when (component.text.startsWith("Name:")) {
+                        true -> component.text = "Name: $userName"
+                        false -> component.text = "Email: $userEmail"
+                    }
+                }
+            }
+        }
+    }
+
+
+
+    /**
      * Shows a dialog for modifying user profile information.
      */
     private fun showUserModificationDialog() {
         val dialog = UserModificationDialog(authState)
+
         if (dialog.showAndGet()) {
-            // User clicked OK, handle name change
             val newName = dialog.getNewName()
-            if (newName.isNotBlank() && newName != authState.getUserName()) {
-                try {
-                    appService.updateUserName(newName)
+            val oldPassword = dialog.getOldPassword()
+            val newPassword = dialog.getNewPassword()
+            val newEmail = dialog.getNewEmail()
+
+            try {
+                // Build UpdateUser object with only non-empty fields
+                val updateUser = UpdateUser(
+                    name = if (newName.isNotBlank() && newName != authState.getUserName()) newName else null,
+                    email = if (newEmail.isNotBlank() && newEmail != authState.getUserEmail()) newEmail else null,
+                    previousPassword = oldPassword.ifBlank { null },
+                    password = newPassword.ifBlank { null }
+                )
+
+                // Check if at least one field is being updated
+                val hasUpdates = listOf(updateUser.name, updateUser.email, updateUser.password).any { it != null }
+
+                if (hasUpdates) {
+                    appService.updateUser(updateUser)
+
                     Messages.showInfoMessage(
-                        "Your name has been updated successfully.",
+                        "Your profile has been updated successfully.",
                         "Profile Updated"
                     )
-                } catch (e: Exception) {
-                    LOG.error("Failed to update user name", e)
-                    Messages.showErrorDialog(
-                        "An error occurred while updating your name. Please try again.",
-                        "Update Error"
+
+                    modulePreferencesPanel.revalidate()
+                    modulePreferencesPanel.repaint()
+                } else {
+                    Messages.showInfoMessage(
+                        "No changes were made to your profile.",
+                        "No Updates"
                     )
                 }
+            } catch (e: Exception) {
+                LOG.error("Failed to update user profile", e)
+                val errorMessage = when (e) {
+                    is ClientException -> "Invalid input or authentication failed. Please check your current password."
+                    is ServerException -> "Server error occurred. Please try again later."
+                    is IOException -> "Network error occurred. Please check your connection."
+                    else -> "An unexpected error occurred: ${e.message}"
+                }
+
+                Messages.showErrorDialog(
+                    errorMessage,
+                    "Profile Update Error"
+                )
             }
         }
     }
@@ -1216,35 +1280,28 @@ class ConfigurationSection : SettingsSection {
             namePanel.add(nameField, BorderLayout.CENTER)
             dialogPanel.add(namePanel)
 
-            // Email change section (placeholder for future implementation)
+            // Email change section
             val emailPanel = JPanel(BorderLayout())
             emailPanel.border = JBUI.Borders.emptyBottom(10)
             emailPanel.add(JLabel("New Email:"), BorderLayout.WEST)
-            emailField.isEnabled = false // Disabled until API support is added
             emailPanel.add(emailField, BorderLayout.CENTER)
-            val emailNote = JLabel("Email change not supported yet")
-            emailNote.foreground = JBColor.GRAY
-            emailPanel.add(emailNote, BorderLayout.SOUTH)
             dialogPanel.add(emailPanel)
 
-            // Password change section (placeholder for future implementation)
+            // Password change section
             val passwordPanel = JPanel()
             passwordPanel.layout = BoxLayout(passwordPanel, BoxLayout.Y_AXIS)
             passwordPanel.border = JBUI.Borders.emptyBottom(10)
 
             val oldPasswordPanel = JPanel(BorderLayout())
             oldPasswordPanel.add(JLabel("Current Password:"), BorderLayout.WEST)
-            oldPasswordField.isEnabled = false // Disabled until API support is added
             oldPasswordPanel.add(oldPasswordField, BorderLayout.CENTER)
 
             val newPasswordPanel = JPanel(BorderLayout())
             newPasswordPanel.add(JLabel("New Password:"), BorderLayout.WEST)
-            newPasswordField.isEnabled = false // Disabled until API support is added
             newPasswordPanel.add(newPasswordField, BorderLayout.CENTER)
 
             val confirmPasswordPanel = JPanel(BorderLayout())
             confirmPasswordPanel.add(JLabel("Confirm Password:"), BorderLayout.WEST)
-            confirmPasswordField.isEnabled = false // Disabled until API support is added
             confirmPasswordPanel.add(confirmPasswordField, BorderLayout.CENTER)
 
             passwordPanel.add(oldPasswordPanel)
@@ -1253,7 +1310,7 @@ class ConfigurationSection : SettingsSection {
             passwordPanel.add(Box.createVerticalStrut(5))
             passwordPanel.add(confirmPasswordPanel)
 
-            val passwordNote = JLabel("Password change not supported yet")
+            val passwordNote = JLabel("Leave password fields empty if you don't want to change your password")
             passwordNote.foreground = JBColor.GRAY
             passwordPanel.add(passwordNote)
 
@@ -1306,7 +1363,50 @@ class ConfigurationSection : SettingsSection {
             return dialogPanel
         }
 
+        override fun doValidate(): ValidationInfo? {
+            val newPassword = String(newPasswordField.password)
+            val confirmPassword = String(confirmPasswordField.password)
+
+            // If user wants to change password, validate password fields
+            if (newPassword.isNotEmpty() || confirmPassword.isNotEmpty()) {
+                if (String(oldPasswordField.password).isEmpty()) {
+                    return ValidationInfo("Current password is required to change password", oldPasswordField)
+                }
+
+                if (newPassword.isEmpty()) {
+                    return ValidationInfo("New password cannot be empty", newPasswordField)
+                }
+
+                if (newPassword != confirmPassword) {
+                    return ValidationInfo("Passwords do not match", confirmPasswordField)
+                }
+
+                if (newPassword.length < 8) {
+                    return ValidationInfo("Password must be at least 6 characters long", newPasswordField)
+                }
+            }
+
+            // Check if at least one field has been modified
+            val nameChanged = nameField.text.trim() != (authState.getUserName() ?: "")
+            val emailChanged = emailField.text.trim() != (authState.getUserEmail() ?: "")
+            val passwordChanged = newPassword.isNotEmpty()
+
+            if (!nameChanged && !emailChanged && !passwordChanged) {
+                return ValidationInfo("Please make at least one change to update your profile")
+            }
+
+            return null
+        }
+
+        override fun doOKAction() {
+            refreshUserInfoPanel()
+            super.doOKAction()
+        }
+
         fun getNewName(): String = nameField.text.trim()
+        fun getOldPassword(): String = String(oldPasswordField.password)
+        fun getNewPassword(): String = String(newPasswordField.password)
+        fun getNewEmail(): String = emailField.text.trim()
     }
 
     /**
