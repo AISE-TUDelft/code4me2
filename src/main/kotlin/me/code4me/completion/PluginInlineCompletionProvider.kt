@@ -30,7 +30,6 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
         // start the timer
         val startTime = System.currentTimeMillis()
 
-        // For testing, return a simple suggestion with some text
         val document = request.editor.document
         val project = request.editor.project!!
         if (!getProjectTokenService(project).hasProjectToken()) {

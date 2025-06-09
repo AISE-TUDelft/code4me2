@@ -627,21 +627,6 @@ class AppService {
         // set the current project for generation
         currentGenerationProject.set(project)
 
-        ResponseCompletionResponseData(
-            metaQueryId = java.util.UUID.randomUUID(),
-            completions =
-                listOf(
-                    ResponseCompletionResponseDataCompletionsInner(
-                        modelId = DEFAULT_MODEL_ID,
-                        modelName = "Default Model",
-                        completion = "Generated code based on context and telemetry",
-                        generationTime = 100, // Example generation time in milliseconds
-                        confidence = java.math.BigDecimal("0.95"),
-                        message = "Completion generated successfully",
-                    ),
-                ),
-        )
-
         val requestCompletion =
             RequestCompletion(
                 modelIds = listOf(DEFAULT_MODEL_ID),
