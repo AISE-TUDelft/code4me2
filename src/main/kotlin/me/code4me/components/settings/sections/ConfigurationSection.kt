@@ -1405,8 +1405,9 @@ class ConfigurationSection : SettingsSection {
                     return ValidationInfo("Passwords do not match", confirmPasswordField)
                 }
 
-                if (newPassword.length < 8) {
-                    return ValidationInfo("Password must be at least 6 characters long", newPasswordField)
+                // check that the password is at least 8 characters long and conforms to the regex
+                if (newPassword.length < 8 && !newPassword.matches(Regex("^(?=.[A-Z])(?=.[a-z])(?=.*\\d)\\S{8,}$"))) {
+                    return ValidationInfo("Password must be at least 8 characters long", newPasswordField)
                 }
             }
 

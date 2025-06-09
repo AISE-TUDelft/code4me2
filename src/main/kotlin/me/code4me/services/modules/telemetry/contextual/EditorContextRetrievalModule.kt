@@ -218,6 +218,7 @@ class EditorContextRetrievalModule : PluginModule {
                 LOG.trace("Collected document length: ${document.text.length} characters")
             }
 
+            // TODO: change these to actual values later down the line
             val pluginVersion = Record.Companion.key<Int>("version_id")
             expanded[pluginVersion] = 1
 
