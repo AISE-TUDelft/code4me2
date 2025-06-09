@@ -4,7 +4,7 @@
 ## Properties
 | Name | Type | Description | Notes |
 | ------------ | ------------- | ------------- | ------------- |
-| **user** | [**UserBase**](UserBase.md) | User details |  |
+| **user** | [**ResponseUser**](ResponseUser.md) | User details |  |
 | **message** | **kotlin.String** |  |  [optional] |
 
 

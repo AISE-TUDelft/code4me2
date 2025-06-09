@@ -1,22 +1,30 @@
 package me.code4me.components.settings.sections
 
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import groovy.lang.Tuple2
+import me.code4me.api.generated.infrastructure.ClientException
+import me.code4me.api.generated.infrastructure.ServerException
+import me.code4me.api.generated.model.UpdateUser
 import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
 import me.code4me.components.settings.fields.ModuleFloatPreferenceField
 import me.code4me.components.settings.fields.ModuleIntegerPreferenceField
 import me.code4me.components.settings.fields.ModuleStringPreferenceField
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.ToggleButtonField
+import me.code4me.services.app.AppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.state.PrefState
@@ -31,6 +39,7 @@ import java.awt.Font
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.GridLayout
+import java.io.IOException
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
@@ -40,6 +49,7 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSeparator
 import javax.swing.JTree
+import javax.swing.Timer
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import javax.swing.text.AttributeSet
@@ -80,6 +90,9 @@ class ConfigurationSection : SettingsSection {
         private const val MIN_MODULE_TREE_HEIGHT = 300
         private const val MIN_PREFERENCES_PANEL_WIDTH = 300
     }
+
+    // Services
+    private val appService = service<AppService>()
 
     // ================= APPLICATION PREFERENCE FIELDS =================
 
@@ -1072,7 +1085,7 @@ class ConfigurationSection : SettingsSection {
     }
 
     /**
-     * Creates the user information display panel.
+     * Creates the user information display panel with verification status and modification options.
      */
     private fun createUserInfoPanel(): JPanel {
         return JPanel(BorderLayout()).apply {
@@ -1083,17 +1096,345 @@ class ConfigurationSection : SettingsSection {
                     add(userInfoTitleLabel, BorderLayout.NORTH)
 
                     val userInfo =
-                        JPanel(GridLayout(2, 1, 5, 5)).apply {
+                        JPanel(GridLayout(3, 1, 5, 5)).apply {
                             add(JLabel("Name: ${authState.getUserName() ?: "Unknown User"}"))
                             add(JLabel("Email: ${authState.getUserEmail() ?: "Unknown Email"}"))
+                            if (authState.isVerified() == null || !(authState.isVerified()!!)) {
+                                val verificationPanel = JPanel(BorderLayout())
+                                val verificationLabel = JLabel("Not verified")
+                                verificationLabel.foreground = JBColor.GRAY
+                                verificationPanel.add(verificationLabel, BorderLayout.WEST)
+
+                                val verificationButtonsPanel = JPanel()
+                                verificationButtonsPanel.layout = BoxLayout(verificationButtonsPanel, BoxLayout.X_AXIS)
+
+                                val resendButton = JButton("Resend Email")
+                                resendButton.toolTipText = "Resend verification email"
+                                resendButton.addActionListener {
+                                    try {
+                                        appService.resendVerificationEmail()
+                                        Messages.showInfoMessage(
+                                            "Verification email has been resent. Please check your inbox.",
+                                            "Email Resent",
+                                        )
+                                        // disable the button for 5 minutes
+                                        resendButton.isEnabled = false
+                                        Timer(300000) { resendButton.isEnabled = true }.start()
+                                    } catch (e: Exception) {
+                                        LOG.error("Failed to resend verification email", e)
+                                        Messages.showErrorDialog(
+                                            "Failed to resend verification email. Please try again later.",
+                                            "Error",
+                                        )
+                                    }
+                                }
+
+                                val recheckButton = JButton("Recheck Status")
+                                recheckButton.toolTipText = "Check if your account has been verified"
+                                recheckButton.addActionListener {
+                                    val verified = appService.isUserVerified()
+                                    authState.setVerified(verified)
+                                    if (verified) {
+                                        verificationLabel.text = "Verified"
+                                        verificationLabel.foreground = JBColor.GREEN
+                                        Messages.showInfoMessage(
+                                            "Your account is now verified.",
+                                            "Verification Status",
+                                        )
+                                    } else {
+                                        verificationLabel.text = "Not verified"
+                                        verificationLabel.foreground = JBColor.GRAY
+                                        Messages.showInfoMessage(
+                                            "Your account is still not verified.",
+                                            "Verification Status",
+                                        )
+                                    }
+                                }
+
+                                verificationButtonsPanel.add(resendButton)
+                                verificationButtonsPanel.add(Box.createHorizontalStrut(5))
+                                verificationButtonsPanel.add(recheckButton)
+
+                                verificationPanel.add(verificationButtonsPanel, BorderLayout.EAST)
+                                add(verificationPanel)
+                            }
+
                             border = JBUI.Borders.empty(5, 0, 10, 0)
                         }
                     add(userInfo, BorderLayout.CENTER)
+
+                    // Add user modification panel
+                    val modificationPanel = createUserModificationPanel()
+                    add(modificationPanel, BorderLayout.SOUTH)
                 }
 
             add(titleAndInfo, BorderLayout.CENTER)
             add(signOutButton, BorderLayout.SOUTH)
         }
+    }
+
+    /**
+     * Creates a panel for user profile modification.
+     */
+    private fun createUserModificationPanel(): JPanel {
+        val panel = JPanel(BorderLayout())
+        panel.border = JBUI.Borders.emptyTop(10)
+
+        val modifyButton = JButton("Modify Profile")
+        modifyButton.toolTipText = "Change your profile information"
+        modifyButton.addActionListener {
+            showUserModificationDialog()
+        }
+
+        panel.add(modifyButton, BorderLayout.CENTER)
+
+        return panel
+    }
+
+    /**
+     * Refreshes the user information panel with the latest data from auth state.
+     */
+    private fun refreshUserInfoPanel() {
+        userInfoTitleLabel.text = "User Information"
+        userInfoTitleLabel.foreground = JBColor.foreground()
+
+        // Update user info labels
+        val userName = authState.getUserName() ?: "Unknown User"
+        val userEmail = authState.getUserEmail() ?: "Unknown Email"
+
+        // Update labels in the user info panel
+        val userInfoPanel = modulePreferencesPanel.components.firstOrNull { it is JPanel } as? JPanel
+        userInfoPanel?.let {
+            it.components.forEach { component ->
+                if (component is JLabel) {
+                    when (component.text.startsWith("Name:")) {
+                        true -> component.text = "Name: $userName"
+                        false -> component.text = "Email: $userEmail"
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Shows a dialog for modifying user profile information.
+     */
+    private fun showUserModificationDialog() {
+        val dialog = UserModificationDialog(authState)
+
+        if (dialog.showAndGet()) {
+            val newName = dialog.getNewName()
+            val oldPassword = dialog.getOldPassword()
+            val newPassword = dialog.getNewPassword()
+            val newEmail = dialog.getNewEmail()
+
+            try {
+                // Build UpdateUser object with only non-empty fields
+                val updateUser =
+                    UpdateUser(
+                        name = if (newName.isNotBlank() && newName != authState.getUserName()) newName else null,
+                        email = if (newEmail.isNotBlank() && newEmail != authState.getUserEmail()) newEmail else null,
+                        previousPassword = oldPassword.ifBlank { null },
+                        password = newPassword.ifBlank { null },
+                    )
+
+                // Check if at least one field is being updated
+                val hasUpdates = listOf(updateUser.name, updateUser.email, updateUser.password).any { it != null }
+
+                if (hasUpdates) {
+                    appService.updateUser(updateUser)
+
+                    Messages.showInfoMessage(
+                        "Your profile has been updated successfully.",
+                        "Profile Updated",
+                    )
+
+                    modulePreferencesPanel.revalidate()
+                    modulePreferencesPanel.repaint()
+                } else {
+                    Messages.showInfoMessage(
+                        "No changes were made to your profile.",
+                        "No Updates",
+                    )
+                }
+            } catch (e: Exception) {
+                LOG.error("Failed to update user profile", e)
+                val errorMessage =
+                    when (e) {
+                        is ClientException -> "Invalid input or authentication failed. Please check your current password."
+                        is ServerException -> "Server error occurred. Please try again later."
+                        is IOException -> "Network error occurred. Please check your connection."
+                        else -> "An unexpected error occurred: ${e.message}"
+                    }
+
+                Messages.showErrorDialog(
+                    errorMessage,
+                    "Profile Update Error",
+                )
+            }
+        }
+    }
+
+    /**
+     * Dialog for modifying user profile information.
+     */
+    private inner class UserModificationDialog(private val authState: me.code4me.services.state.AuthSettings) : DialogWrapper(true) {
+        private val nameField = JBTextField(authState.getUserName() ?: "")
+        private val emailField = JBTextField(authState.getUserEmail() ?: "")
+        private val oldPasswordField = JBPasswordField()
+        private val newPasswordField = JBPasswordField()
+        private val confirmPasswordField = JBPasswordField()
+        private val deleteDataCheckbox = JBCheckBox("Also delete my data")
+
+        init {
+            title = "Modify Profile"
+            init()
+        }
+
+        override fun createCenterPanel(): JComponent {
+            val dialogPanel = JPanel()
+            dialogPanel.layout = BoxLayout(dialogPanel, BoxLayout.Y_AXIS)
+            dialogPanel.border = JBUI.Borders.empty(10)
+
+            // Name change section
+            val namePanel = JPanel(BorderLayout())
+            namePanel.border = JBUI.Borders.emptyBottom(10)
+            namePanel.add(JLabel("New Name:"), BorderLayout.WEST)
+            namePanel.add(nameField, BorderLayout.CENTER)
+            dialogPanel.add(namePanel)
+
+            // Email change section
+            val emailPanel = JPanel(BorderLayout())
+            emailPanel.border = JBUI.Borders.emptyBottom(10)
+            emailPanel.add(JLabel("New Email:"), BorderLayout.WEST)
+            emailPanel.add(emailField, BorderLayout.CENTER)
+            dialogPanel.add(emailPanel)
+
+            // Password change section
+            val passwordPanel = JPanel()
+            passwordPanel.layout = BoxLayout(passwordPanel, BoxLayout.Y_AXIS)
+            passwordPanel.border = JBUI.Borders.emptyBottom(10)
+
+            val oldPasswordPanel = JPanel(BorderLayout())
+            oldPasswordPanel.add(JLabel("Current Password:"), BorderLayout.WEST)
+            oldPasswordPanel.add(oldPasswordField, BorderLayout.CENTER)
+
+            val newPasswordPanel = JPanel(BorderLayout())
+            newPasswordPanel.add(JLabel("New Password:"), BorderLayout.WEST)
+            newPasswordPanel.add(newPasswordField, BorderLayout.CENTER)
+
+            val confirmPasswordPanel = JPanel(BorderLayout())
+            confirmPasswordPanel.add(JLabel("Confirm Password:"), BorderLayout.WEST)
+            confirmPasswordPanel.add(confirmPasswordField, BorderLayout.CENTER)
+
+            passwordPanel.add(oldPasswordPanel)
+            passwordPanel.add(Box.createVerticalStrut(5))
+            passwordPanel.add(newPasswordPanel)
+            passwordPanel.add(Box.createVerticalStrut(5))
+            passwordPanel.add(confirmPasswordPanel)
+
+            val passwordNote = JLabel("Leave password fields empty if you don't want to change your password")
+            passwordNote.foreground = JBColor.GRAY
+            passwordPanel.add(passwordNote)
+
+            dialogPanel.add(passwordPanel)
+
+            // Account deletion section
+            val deletePanel = JPanel(BorderLayout())
+            deletePanel.border = JBUI.Borders.emptyTop(10)
+
+            val deleteButton = JButton("Delete Account")
+            deleteButton.foreground = JBColor.RED
+
+            deleteDataCheckbox.toolTipText = "If checked, all your data will be permanently deleted"
+
+            val deleteOptionsPanel = JPanel(BorderLayout())
+            deleteOptionsPanel.add(deleteDataCheckbox, BorderLayout.WEST)
+            deleteOptionsPanel.add(deleteButton, BorderLayout.EAST)
+
+            deleteButton.addActionListener {
+                val confirmResult =
+                    Messages.showYesNoDialog(
+                        "Are you sure you want to delete your account? This action cannot be undone.",
+                        "Confirm Account Deletion",
+                        "Delete Account",
+                        "Cancel",
+                        Messages.getWarningIcon(),
+                    )
+
+                if (confirmResult == Messages.YES) {
+                    try {
+                        appService.deleteUser(deleteDataCheckbox.isSelected)
+
+                        Messages.showInfoMessage(
+                            "Your account has been deleted successfully.",
+                            "Account Deleted",
+                        )
+                        close(OK_EXIT_CODE)
+                    } catch (e: Exception) {
+                        LOG.error("Failed to delete user account", e)
+                        Messages.showErrorDialog(
+                            "An error occurred while deleting your account. Please try again.",
+                            "Delete Account Error",
+                        )
+                    }
+                }
+            }
+
+            deletePanel.add(deleteOptionsPanel, BorderLayout.CENTER)
+            dialogPanel.add(deletePanel)
+
+            return dialogPanel
+        }
+
+        override fun doValidate(): ValidationInfo? {
+            val newPassword = String(newPasswordField.password)
+            val confirmPassword = String(confirmPasswordField.password)
+
+            // If user wants to change password, validate password fields
+            if (newPassword.isNotEmpty() || confirmPassword.isNotEmpty()) {
+                if (String(oldPasswordField.password).isEmpty()) {
+                    return ValidationInfo("Current password is required to change password", oldPasswordField)
+                }
+
+                if (newPassword.isEmpty()) {
+                    return ValidationInfo("New password cannot be empty", newPasswordField)
+                }
+
+                if (newPassword != confirmPassword) {
+                    return ValidationInfo("Passwords do not match", confirmPasswordField)
+                }
+
+                // check that the password is at least 8 characters long and conforms to the regex
+                if (newPassword.length < 8 && !newPassword.matches(Regex("^(?=.[A-Z])(?=.[a-z])(?=.*\\d)\\S{8,}$"))) {
+                    return ValidationInfo("Password must be at least 8 characters long", newPasswordField)
+                }
+            }
+
+            // Check if at least one field has been modified
+            val nameChanged = nameField.text.trim() != (authState.getUserName() ?: "")
+            val emailChanged = emailField.text.trim() != (authState.getUserEmail() ?: "")
+            val passwordChanged = newPassword.isNotEmpty()
+
+            if (!nameChanged && !emailChanged && !passwordChanged) {
+                return ValidationInfo("Please make at least one change to update your profile")
+            }
+
+            return null
+        }
+
+        override fun doOKAction() {
+            refreshUserInfoPanel()
+            super.doOKAction()
+        }
+
+        fun getNewName(): String = nameField.text.trim()
+
+        fun getOldPassword(): String = String(oldPasswordField.password)
+
+        fun getNewPassword(): String = String(newPasswordField.password)
+
+        fun getNewEmail(): String = emailField.text.trim()
     }
 
     /**

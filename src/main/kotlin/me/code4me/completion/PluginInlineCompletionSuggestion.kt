@@ -3,10 +3,10 @@ package me.code4me.completion
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionSuggestion
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionVariant
 import com.intellij.openapi.diagnostic.Logger
-import me.code4me.api.generated.model.CompletionItem
+import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner
 
 class PluginInlineCompletionSuggestion(
-    private val completionItem: List<CompletionItem>,
+    private val completionItem: List<ResponseCompletionResponseDataCompletionsInner>,
     private val requestId: Long,
 ) : InlineCompletionSuggestion {
     private var variants: List<InlineCompletionVariant>? = null

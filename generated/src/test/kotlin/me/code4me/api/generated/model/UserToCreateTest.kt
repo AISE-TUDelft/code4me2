@@ -46,6 +46,12 @@ class UserToCreateTest : ShouldSpec() {
             //modelInstance.password shouldBe ("TODO")
         }
 
+        // to test the property `configId` - Configuration ID to use
+        should("test configId") {
+            // uncomment below to test the property
+            //modelInstance.configId shouldBe ("TODO")
+        }
+
         // to test the property `token` - JWT token for authentication
         should("test token") {
             // uncomment below to test the property
@@ -56,6 +62,12 @@ class UserToCreateTest : ShouldSpec() {
         should("test provider") {
             // uncomment below to test the property
             //modelInstance.provider shouldBe ("TODO")
+        }
+
+        // to test the property `preference`
+        should("test preference") {
+            // uncomment below to test the property
+            //modelInstance.preference shouldBe ("TODO")
         }
 
     }

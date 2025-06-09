@@ -15,7 +15,7 @@
 
 package me.code4me.api.generated.model
 
-import me.code4me.api.generated.model.UserBase
+import me.code4me.api.generated.model.ResponseUser
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
@@ -32,7 +32,7 @@ data class UpdateUserPutResponse (
 
     /* User details */
     @Json(name = "user")
-    val user: UserBase,
+    val user: ResponseUser,
 
     @Json(name = "message")
     val message: kotlin.String? = "User is updated successfully."

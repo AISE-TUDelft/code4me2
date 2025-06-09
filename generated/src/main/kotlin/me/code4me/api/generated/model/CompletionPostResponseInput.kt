@@ -15,7 +15,7 @@
 
 package me.code4me.api.generated.model
 
-import me.code4me.api.generated.model.CompletionResponseData
+import me.code4me.api.generated.model.ResponseCompletionResponseData
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
@@ -32,7 +32,7 @@ data class CompletionPostResponseInput (
 
     /* Generated code completions including query ID and suggestions */
     @Json(name = "data")
-    val `data`: CompletionResponseData,
+    val `data`: ResponseCompletionResponseData,
 
     @Json(name = "message")
     val message: kotlin.String? = "Completions generated successfully. Ready for display in your IDE."

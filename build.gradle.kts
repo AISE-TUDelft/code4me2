@@ -42,6 +42,8 @@ dependencies {
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.8.1")
     implementation("com.google.oauth-client:google-oauth-client-jetty:1.34.1") // Google OAuth Client Library
     implementation("com.google.auth:google-auth-library-oauth2-http:1.20.0") // Google Auth Library
+    implementation("com.squareup.moshi:moshi-kotlin:1.15.1") // Moshi library for JSON parsing
+    implementation("com.squareup.moshi:moshi-adapters:1.15.1") // Moshi adapters for additional types
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
 

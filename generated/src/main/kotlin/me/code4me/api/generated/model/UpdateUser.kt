@@ -22,15 +22,38 @@ import com.squareup.moshi.JsonClass
 /**
  * 
  *
- * @param name User's new name
+ * @param name 
+ * @param email 
+ * @param previousPassword 
+ * @param password 
+ * @param preference 
+ * @param configId 
+ * @param verified 
  */
 
 
 data class UpdateUser (
 
-    /* User's new name */
     @Json(name = "name")
-    val name: kotlin.String
+    val name: kotlin.String? = null,
+
+    @Json(name = "email")
+    val email: kotlin.String? = null,
+
+    @Json(name = "previous_password")
+    val previousPassword: kotlin.String? = null,
+
+    @Json(name = "password")
+    val password: kotlin.String? = null,
+
+    @Json(name = "preference")
+    val preference: kotlin.String? = null,
+
+    @Json(name = "config_id")
+    val configId: kotlin.Int? = null,
+
+    @Json(name = "verified")
+    val verified: kotlin.Boolean? = null
 
 ) {
 

@@ -25,10 +25,46 @@ class UpdateUserTest : ShouldSpec() {
         // uncomment below to create an instance of UpdateUser
         //val modelInstance = UpdateUser()
 
-        // to test the property `name` - User's new name
+        // to test the property `name`
         should("test name") {
             // uncomment below to test the property
             //modelInstance.name shouldBe ("TODO")
+        }
+
+        // to test the property `email`
+        should("test email") {
+            // uncomment below to test the property
+            //modelInstance.email shouldBe ("TODO")
+        }
+
+        // to test the property `previousPassword`
+        should("test previousPassword") {
+            // uncomment below to test the property
+            //modelInstance.previousPassword shouldBe ("TODO")
+        }
+
+        // to test the property `password`
+        should("test password") {
+            // uncomment below to test the property
+            //modelInstance.password shouldBe ("TODO")
+        }
+
+        // to test the property `preference`
+        should("test preference") {
+            // uncomment below to test the property
+            //modelInstance.preference shouldBe ("TODO")
+        }
+
+        // to test the property `configId`
+        should("test configId") {
+            // uncomment below to test the property
+            //modelInstance.configId shouldBe ("TODO")
+        }
+
+        // to test the property `verified`
+        should("test verified") {
+            // uncomment below to test the property
+            //modelInstance.verified shouldBe ("TODO")
         }
 
     }

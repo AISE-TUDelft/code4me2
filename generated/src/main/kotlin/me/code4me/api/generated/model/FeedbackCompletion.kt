@@ -22,7 +22,7 @@ import com.squareup.moshi.JsonClass
 /**
  * 
  *
- * @param queryId Query ID
+ * @param metaQueryId Meta Query ID
  * @param modelId Model ID
  * @param wasAccepted Whether completion was accepted
  * @param groundTruth 
@@ -31,9 +31,9 @@ import com.squareup.moshi.JsonClass
 
 data class FeedbackCompletion (
 
-    /* Query ID */
-    @Json(name = "query_id")
-    val queryId: java.util.UUID,
+    /* Meta Query ID */
+    @Json(name = "meta_query_id")
+    val metaQueryId: java.util.UUID,
 
     /* Model ID */
     @Json(name = "model_id")

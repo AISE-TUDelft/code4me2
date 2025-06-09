@@ -19,7 +19,9 @@ import io.kotlintest.shouldBe
 import io.kotlintest.specs.ShouldSpec
 
 import me.code4me.api.generated.api.AuthenticationApi
+import me.code4me.api.generated.model.AuthenticateUserError
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
+import me.code4me.api.generated.model.ConfigNotFound
 import me.code4me.api.generated.model.ErrorResponse
 import me.code4me.api.generated.model.Response401AuthenticateUserApiUserAuthenticatePost
 import me.code4me.api.generated.model.UserToAuthenticate

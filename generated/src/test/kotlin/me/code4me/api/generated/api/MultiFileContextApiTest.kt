@@ -20,9 +20,9 @@ import io.kotlintest.specs.ShouldSpec
 
 import me.code4me.api.generated.api.MultiFileContextApi
 import me.code4me.api.generated.model.ErrorResponse
-import me.code4me.api.generated.model.InvalidSessionToken
 import me.code4me.api.generated.model.MultiFileContextUpdateError
 import me.code4me.api.generated.model.MultiFileContextUpdatePostResponse
+import me.code4me.api.generated.model.Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost
 import me.code4me.api.generated.model.UpdateMultiFileContext
 
 class MultiFileContextApiTest : ShouldSpec() {
@@ -35,7 +35,8 @@ class MultiFileContextApiTest : ShouldSpec() {
             // uncomment below to test updateMultiFileContextApiCompletionMultiFileContextUpdatePost
             //val updateMultiFileContext : UpdateMultiFileContext =  // UpdateMultiFileContext | 
             //val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
-            //val result : MultiFileContextUpdatePostResponse = apiInstance.updateMultiFileContextApiCompletionMultiFileContextUpdatePost(updateMultiFileContext, sessionToken)
+            //val projectToken : kotlin.String = projectToken_example // kotlin.String | 
+            //val result : MultiFileContextUpdatePostResponse = apiInstance.updateMultiFileContextApiCompletionMultiFileContextUpdatePost(updateMultiFileContext, sessionToken, projectToken)
             //result shouldBe ("TODO")
         }
 

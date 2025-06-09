@@ -5,14 +5,13 @@ All URIs are relative to *http://localhost*
 | Method | HTTP request | Description |
 | ------------- | ------------- | ------------- |
 | [**getCompletionsByQueryApiCompletionQueryIdGet**](CompletionApi.md#getCompletionsByQueryApiCompletionQueryIdGet) | **GET** /api/completion/{query_id} | Get Completions By Query |
-| [**requestCompletionApiCompletionRequestPost**](CompletionApi.md#requestCompletionApiCompletionRequestPost) | **POST** /api/completion/request/ | Request Completion |
-| [**submitCompletionFeedbackApiCompletionFeedbackPost**](CompletionApi.md#submitCompletionFeedbackApiCompletionFeedbackPost) | **POST** /api/completion/feedback/ | Submit Completion Feedback |
-| [**updateMultiFileContextApiCompletionMultiFileContextUpdatePost**](CompletionApi.md#updateMultiFileContextApiCompletionMultiFileContextUpdatePost) | **POST** /api/completion/multi-file-context/update/ | Update Multi File Context |
+| [**requestCompletionApiCompletionRequestPost**](CompletionApi.md#requestCompletionApiCompletionRequestPost) | **POST** /api/completion/request | Request Completion |
+| [**submitCompletionFeedbackApiCompletionFeedbackPost**](CompletionApi.md#submitCompletionFeedbackApiCompletionFeedbackPost) | **POST** /api/completion/feedback | Submit Completion Feedback |
 
 
 <a id="getCompletionsByQueryApiCompletionQueryIdGet"></a>
 # **getCompletionsByQueryApiCompletionQueryIdGet**
-> CompletionPostResponse getCompletionsByQueryApiCompletionQueryIdGet(queryId, sessionToken)
+> CompletionPostResponseInput getCompletionsByQueryApiCompletionQueryIdGet(queryId, sessionToken)
 
 Get Completions By Query
 
@@ -28,7 +27,7 @@ val apiInstance = CompletionApi()
 val queryId : java.util.UUID = 38400000-8cf0-11bd-b23e-10b96e4ef00d // java.util.UUID | 
 val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
 try {
-    val result : CompletionPostResponse = apiInstance.getCompletionsByQueryApiCompletionQueryIdGet(queryId, sessionToken)
+    val result : CompletionPostResponseInput = apiInstance.getCompletionsByQueryApiCompletionQueryIdGet(queryId, sessionToken)
     println(result)
 } catch (e: ClientException) {
     println("4xx response calling CompletionApi#getCompletionsByQueryApiCompletionQueryIdGet")
@@ -47,7 +46,7 @@ try {
 
 ### Return type
 
-[**CompletionPostResponse**](CompletionPostResponse.md)
+[**CompletionPostResponseInput**](CompletionPostResponseInput.md)
 
 ### Authorization
 
@@ -60,7 +59,7 @@ No authorization required
 
 <a id="requestCompletionApiCompletionRequestPost"></a>
 # **requestCompletionApiCompletionRequestPost**
-> CompletionPostResponse requestCompletionApiCompletionRequestPost(requestCompletion, sessionToken)
+> CompletionPostResponseInput requestCompletionApiCompletionRequestPost(requestCompletion, sessionToken, projectToken)
 
 Request Completion
 
@@ -75,8 +74,9 @@ Request code completions based on provided context.
 val apiInstance = CompletionApi()
 val requestCompletion : RequestCompletion =  // RequestCompletion | 
 val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
+val projectToken : kotlin.String = projectToken_example // kotlin.String | 
 try {
-    val result : CompletionPostResponse = apiInstance.requestCompletionApiCompletionRequestPost(requestCompletion, sessionToken)
+    val result : CompletionPostResponseInput = apiInstance.requestCompletionApiCompletionRequestPost(requestCompletion, sessionToken, projectToken)
     println(result)
 } catch (e: ClientException) {
     println("4xx response calling CompletionApi#requestCompletionApiCompletionRequestPost")
@@ -89,13 +89,14 @@ try {
 
 ### Parameters
 | **requestCompletion** | [**RequestCompletion**](RequestCompletion.md)|  | |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;project_token&quot;] |
 
 ### Return type
 
-[**CompletionPostResponse**](CompletionPostResponse.md)
+[**CompletionPostResponseInput**](CompletionPostResponseInput.md)
 
 ### Authorization
 
@@ -108,7 +109,7 @@ No authorization required
 
 <a id="submitCompletionFeedbackApiCompletionFeedbackPost"></a>
 # **submitCompletionFeedbackApiCompletionFeedbackPost**
-> CompletionFeedbackPostResponse submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken)
+> CompletionFeedbackPostResponse submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken, projectToken)
 
 Submit Completion Feedback
 
@@ -123,8 +124,9 @@ Submit feedback on a generated completion.
 val apiInstance = CompletionApi()
 val feedbackCompletion : FeedbackCompletion =  // FeedbackCompletion | 
 val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
+val projectToken : kotlin.String = projectToken_example // kotlin.String | 
 try {
-    val result : CompletionFeedbackPostResponse = apiInstance.submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken)
+    val result : CompletionFeedbackPostResponse = apiInstance.submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion, sessionToken, projectToken)
     println(result)
 } catch (e: ClientException) {
     println("4xx response calling CompletionApi#submitCompletionFeedbackApiCompletionFeedbackPost")
@@ -137,61 +139,14 @@ try {
 
 ### Parameters
 | **feedbackCompletion** | [**FeedbackCompletion**](FeedbackCompletion.md)|  | |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;project_token&quot;] |
 
 ### Return type
 
 [**CompletionFeedbackPostResponse**](CompletionFeedbackPostResponse.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-<a id="updateMultiFileContextApiCompletionMultiFileContextUpdatePost"></a>
-# **updateMultiFileContextApiCompletionMultiFileContextUpdatePost**
-> MultiFileContextUpdatePostResponse updateMultiFileContextApiCompletionMultiFileContextUpdatePost(updateMultiFileContext, sessionToken)
-
-Update Multi File Context
-
-Update the context for a specific query ID.
-
-### Example
-```kotlin
-// Import classes:
-//import me.code4me.api.generated.infrastructure.*
-//import me.code4me.api.generated.model.*
-
-val apiInstance = CompletionApi()
-val updateMultiFileContext : UpdateMultiFileContext =  // UpdateMultiFileContext | 
-val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
-try {
-    val result : MultiFileContextUpdatePostResponse = apiInstance.updateMultiFileContextApiCompletionMultiFileContextUpdatePost(updateMultiFileContext, sessionToken)
-    println(result)
-} catch (e: ClientException) {
-    println("4xx response calling CompletionApi#updateMultiFileContextApiCompletionMultiFileContextUpdatePost")
-    e.printStackTrace()
-} catch (e: ServerException) {
-    println("5xx response calling CompletionApi#updateMultiFileContextApiCompletionMultiFileContextUpdatePost")
-    e.printStackTrace()
-}
-```
-
-### Parameters
-| **updateMultiFileContext** | [**UpdateMultiFileContext**](UpdateMultiFileContext.md)|  | |
-| Name | Type | Description  | Notes |
-| ------------- | ------------- | ------------- | ------------- |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
-
-### Return type
-
-[**MultiFileContextUpdatePostResponse**](MultiFileContextUpdatePostResponse.md)
 
 ### Authorization
 

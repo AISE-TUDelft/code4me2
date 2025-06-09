@@ -22,11 +22,14 @@ import com.squareup.moshi.JsonClass
 /**
  * 
  *
- * Values: google
+ * Values: no_provider,google
  */
 
 @JsonClass(generateAdapter = false)
 enum class Provider(val value: kotlin.String) {
+
+    @Json(name = "no_provider")
+    no_provider("no_provider"),
 
     @Json(name = "google")
     google("google");

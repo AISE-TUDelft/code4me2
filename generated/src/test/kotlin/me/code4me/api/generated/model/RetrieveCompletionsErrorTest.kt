@@ -25,7 +25,7 @@ class RetrieveCompletionsErrorTest : ShouldSpec() {
         // uncomment below to create an instance of RetrieveCompletionsError
         //val modelInstance = RetrieveCompletionsError()
 
-        // to test the property `message` - Error message
+        // to test the property `message`
         should("test message") {
             // uncomment below to test the property
             //modelInstance.message shouldBe ("TODO")

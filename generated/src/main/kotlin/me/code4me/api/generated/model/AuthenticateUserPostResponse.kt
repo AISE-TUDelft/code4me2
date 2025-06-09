@@ -15,7 +15,7 @@
 
 package me.code4me.api.generated.model
 
-import me.code4me.api.generated.model.UserBase
+import me.code4me.api.generated.model.ResponseUser
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
@@ -25,6 +25,7 @@ import com.squareup.moshi.JsonClass
  *
  * @param message Response message
  * @param user User details
+ * @param config Users config json string
  */
 
 
@@ -36,7 +37,11 @@ data class AuthenticateUserPostResponse (
 
     /* User details */
     @Json(name = "user")
-    val user: UserBase
+    val user: ResponseUser,
+
+    /* Users config json string */
+    @Json(name = "config")
+    val config: kotlin.String
 
 ) {
 

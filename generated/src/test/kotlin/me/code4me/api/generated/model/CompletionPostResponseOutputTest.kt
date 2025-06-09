@@ -19,7 +19,7 @@ import io.kotlintest.shouldBe
 import io.kotlintest.specs.ShouldSpec
 
 import me.code4me.api.generated.model.CompletionPostResponseOutput
-import me.code4me.api.generated.model.CompletionResponseData
+import me.code4me.api.generated.model.ResponseCompletionResponseData
 
 class CompletionPostResponseOutputTest : ShouldSpec() {
     init {

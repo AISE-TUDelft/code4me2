@@ -1,26 +1,49 @@
-
 package me.code4me.services.app
 
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
-import me.code4me.api.generated.api.AuthenticateApi
+import com.intellij.openapi.project.Project
+import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.CompletionApi
-import me.code4me.api.generated.api.CreateUserApi
+import me.code4me.api.generated.api.ProjectApi
+import me.code4me.api.generated.api.SessionApi
 import me.code4me.api.generated.api.UserApi
+import me.code4me.api.generated.api.UserVerificationApi
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
+import me.code4me.api.generated.model.AcquireSessionGetResponse
+import me.code4me.api.generated.model.ActivateProject
+import me.code4me.api.generated.model.ActivateProjectPostResponse
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
-import me.code4me.api.generated.model.CompletionResponseData
+import me.code4me.api.generated.model.BehavioralTelemetryData
+import me.code4me.api.generated.model.ContextData
+import me.code4me.api.generated.model.ContextualTelemetryData
+import me.code4me.api.generated.model.CreateProject
+import me.code4me.api.generated.model.CreateProjectPostResponse
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestCompletion
+import me.code4me.api.generated.model.ResponseCompletionResponseData
+import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner
+import me.code4me.api.generated.model.UpdateUser
+import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
 import me.code4me.services.config.getConfig
+import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.getAuthState
+import me.code4me.utils.api.mapsTo
 import me.code4me.utils.record.Record
 import java.io.IOException
+import java.util.Locale
+import java.util.Locale.getDefault
+import java.util.concurrent.atomic.AtomicReference
+
+fun getAppService(): AppService {
+    return service<AppService>()
+}
 
 /**
  * Main application service for the Code4Me plugin.
@@ -48,6 +71,9 @@ class AppService {
     private val configService = getConfig()
     private val serverConfig = configService.getServerConfig()
 
+    // The Session token
+    private var sessionToken: String? = null
+
     /**
      * The base URL for all API requests, constructed from server configuration.
      * Format: "host:port/contextPath"
@@ -55,10 +81,14 @@ class AppService {
     private val apiBaseUrl = "${serverConfig?.host}:${serverConfig?.port}${serverConfig?.contextPath}"
 
     // API clients using the cookie-aware client's OkHttpClient for automatic session management
-    private val authApi = AuthenticateApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val authApi = AuthenticationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val userApi = UserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-    private val createUserApi = CreateUserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val projectApi = ProjectApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val userVerificationApi = UserVerificationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+
+    val currentGenerationProject = AtomicReference<Project?>(null)
 
     init {
         LOG.info("AppService initialized with API base URL: $apiBaseUrl")
@@ -78,7 +108,7 @@ class AppService {
         val authSettings = getAuthState()
 
         // Prioritize session token from cookies over response message
-        val sessionToken = CookieAwareApiClient.getSessionToken()
+        val sessionToken = CookieAwareApiClient.getAuthToken()
         authSettings.setToken(sessionToken ?: response.message)
 
         // Store user profile information
@@ -115,7 +145,7 @@ class AppService {
             UserToAuthenticate(
                 email = email,
                 password = password,
-                provider = Provider.google,
+                provider = Provider.no_provider,
                 token = "",
             )
 
@@ -174,6 +204,216 @@ class AppService {
         }
     }
 
+    // ============ Session Methods ============
+
+    /**
+     * Stores the session response data in the application's auth state.
+     *
+     * This method extracts the session token from the response and stores it in the auth state
+     * for use throughout the application session. It also handles cookie-based session management.
+     *
+     * @param response The session response containing session token and message
+     */
+    private fun storeSessionResponse(response: AcquireSessionGetResponse) {
+        sessionToken = CookieAwareApiClient.getSessionToken()
+        if (sessionToken.isNullOrBlank()) {
+            LOG.warn("Session token is null or blank, using response message instead")
+            sessionToken = response.sessionToken
+        }
+        LOG.info("Session data stored successfully: ${response.message}")
+    }
+
+    /**
+     * Acquires or creates a session token using the provided auth token.
+     *
+     * This method requests a session from the Code4Me backend using an authentication token.
+     * If no session is currently associated with the auth token, a new session will be created
+     * and stored in the backend. The session token is automatically stored locally for
+     * subsequent API requests.
+     *
+     * @param authToken The authentication token used to acquire the session (optional, defaults to "auth_token")
+     * @return [AcquireSessionGetResponse] containing the session token and success message
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the auth token is invalid or expired (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the auth token is blank when provided
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun acquireSession(authToken: String? = "auth_token"): AcquireSessionGetResponse {
+        authToken?.let { token ->
+            require(token.isNotBlank()) { "Auth token cannot be blank" }
+        }
+
+        return try {
+            val response = sessionApi.acquireSessionApiSessionAcquireGet(authToken)
+            storeSessionResponse(response)
+            LOG.info("Session acquired successfully with auth token")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to acquire session with auth token", e)
+            throw e
+        }
+    }
+
+    /**
+     * Acquires a session using the currently stored authentication token.
+     *
+     * This is a convenience method that uses the authentication token stored in the local
+     * auth state to acquire a session. If no auth token is stored locally, it will fall back
+     * to using the default auth token.
+     *
+     * @return [AcquireSessionGetResponse] containing the session token and success message
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the stored auth token is invalid or expired (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun acquireSessionWithStoredToken(): AcquireSessionGetResponse {
+        val authSettings = getAuthState()
+        val storedToken = authSettings.getToken()
+
+        return if (storedToken?.isNotBlank() ?: false) {
+            acquireSession(storedToken)
+        } else {
+            LOG.info("No stored auth token found, using default token for session acquisition")
+            acquireSession()
+        }
+    }
+
+    /**
+     * Refreshes the current session by acquiring a new session token.
+     *
+     * This method is useful when the current session may have expired or when you want to
+     * ensure you have a fresh session token. It uses the currently stored authentication
+     * token to acquire a new session.
+     *
+     * @return [AcquireSessionGetResponse] containing the new session token and success message
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the stored auth token is invalid or expired (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun refreshSession(): AcquireSessionGetResponse {
+        LOG.info("Refreshing session token")
+        return acquireSessionWithStoredToken()
+    }
+
+    /**
+     * Checks if a valid session is currently available.
+     *
+     * This method verifies if there's a session token stored in the auth state,
+     * indicating that a session has been established.
+     *
+     * @return true if a session token is available, false otherwise
+     */
+    fun hasValidSession(): Boolean {
+        val authSettings = getAuthState()
+        val hasSession = authSettings.getToken()?.isNotBlank()
+        LOG.debug("Session validity check: $hasSession")
+        return hasSession == true
+    }
+
+    // ============ Project Management Methods ============
+
+    /**
+     * Stores the project creation response data locally.
+     *
+     * This method extracts the project token from the response and stores it locally
+     * for use in subsequent project-related operations.
+     *
+     * @param response The project creation response containing project token and details
+     */
+    private fun storeProjectResponse(
+        project: Project,
+        response: CreateProjectPostResponse,
+    ) {
+        getProjectTokenService(project).setProjectToken(response.projectToken)
+        LOG.info("Project data stored successfully: ${response.message}")
+    }
+
+    /**
+     * Creates a new project using the provided project details.
+     *
+     * This method creates a new project in the Code4Me backend using the current session token.
+     * The session token is validated before creating the project. Upon successful creation,
+     * the project token is automatically stored locally for subsequent operations.
+     *
+     * @param createProject The project creation details including name, description, and configuration
+     * @param authToken The authentication token (optional, defaults to "auth_token")
+     * @return [CreateProjectPostResponse] containing the project token and creation details
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the session token is invalid or project creation fails (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the createProject parameter is invalid
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun createProject(
+        createProject: CreateProject,
+        project: Project,
+    ): CreateProjectPostResponse {
+        return try {
+            val response = projectApi.createProjectApiProjectCreatePost(createProject)
+            storeProjectResponse(project, response)
+            LOG.info("Project created successfully: $createProject")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to create project: $createProject", e)
+            throw e
+        }
+    }
+
+    /**
+     * Creates a new project using the currently stored authentication token.
+     *
+     * This is a convenience method that uses the authentication token stored in the local
+     * auth state to create a project. If no auth token is stored locally, it will fall back
+     * to using the default auth token.
+     *
+     * @param createProject The project creation details including name, description, and configuration
+     * @return [CreateProjectPostResponse] containing the project token and creation details
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the stored auth token is invalid or project creation fails (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the createProject parameter is invalid
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun createProjectWithStoredToken(
+        createProject: CreateProject,
+        project: Project,
+    ): CreateProjectPostResponse? {
+        return createProject(createProject, project)
+    }
+
+    /**
+     * Activates an existing project using the provided project details.
+     *
+     * This method activates a project by validating the provided auth token and either
+     * fetching the project from the database to Redis or updating its expiration time if
+     * it already exists in Redis. Upon successful activation, any updated project information
+     * is stored locally.
+     *
+     * @param activateProject The project activation details including project identifier
+     * @param authToken The authentication token (optional, defaults to "auth_token")
+     * @return [ActivateProjectPostResponse] containing activation confirmation and project details
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the auth token is invalid or project activation fails (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the activateProject parameter is invalid
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun activateProject(activateProject: ActivateProject): ActivateProjectPostResponse {
+        return try {
+            val response = projectApi.activateProjectApiProjectActivatePut(activateProject)
+            LOG.info("Project activated successfully: $activateProject")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to activate project: $activateProject", e)
+            throw e
+        }
+    }
+
+    // ============ User Management Methods ============
+
     /**
      * Creates a new user account in the Code4Me system.
      *
@@ -198,7 +438,7 @@ class AppService {
         name: String,
         password: String,
         token: String = "",
-        provider: Provider = Provider.google,
+        provider: Provider = Provider.no_provider,
     ): CreateUserPostResponse {
         require(email.isNotBlank()) { "Email cannot be blank" }
         require(name.isNotBlank()) { "Name cannot be blank" }
@@ -209,11 +449,12 @@ class AppService {
                 name = name,
                 password = password,
                 token = token,
+                configId = 1, // Assuming configId is always 1 - this means the default configuration
                 provider = provider,
             )
 
         return try {
-            val response = createUserApi.createUserApiUserCreatePost(userToCreate)
+            val response = userApi.createUserApiUserCreatePost(userToCreate)
             LOG.info("User created successfully: $email")
             response
         } catch (e: Exception) {
@@ -271,6 +512,94 @@ class AppService {
         getAuthState().clearUserData()
     }
 
+    // Add this new method to replace the existing updateUserName method
+
+    /**
+     * Updates the current user's information.
+     *
+     * This method updates the user's information in the Code4Me system based on the provided UpdateUser object.
+     * It can handle updates to name, email, password, and other user properties. Upon successful update,
+     * the local user information is also updated to reflect the changes.
+     *
+     * @param updateUser The UpdateUser object containing the fields to be updated
+     * @return [UpdateUserPutResponse] containing the update result and any relevant messages
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the update fails due to client-side issues (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If all fields in updateUser are null or empty
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun updateUser(updateUser: UpdateUser): UpdateUserPutResponse {
+        // Validate that at least one field is provided for update
+        val hasValidField =
+            listOf(
+                updateUser.name,
+                updateUser.email,
+                updateUser.password,
+                updateUser.previousPassword,
+                updateUser.preference,
+                updateUser.configId,
+                updateUser.verified,
+            ).any { it != null && (it !is String || it.isNotBlank()) }
+
+        require(hasValidField) { "At least one field must be provided for update" }
+
+        return try {
+            val response = userApi.updateUserApiUserUpdatePut(updateUser)
+
+            // Update local user information if name or email was changed
+            updateUser.name?.takeIf { it.isNotBlank() }?.let { newName ->
+                getAuthState().setUserName(newName)
+            }
+            updateUser.email?.takeIf { it.isNotBlank() }?.let { newEmail ->
+                getAuthState().setUserEmail(newEmail)
+            }
+            LOG.info("User information updated successfully")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to update user information", e)
+            throw e
+        }
+    }
+
+    // ============ User Verification Methods ============
+
+    fun isUserVerified(): Boolean {
+        // check if the user is verified by querying the user verification API
+        try {
+            val response = userVerificationApi.checkVerificationApiUserVerifyCheckGet()
+            LOG.info("User verification status retrieved successfully: $response")
+            return true
+        } catch (e: Exception) {
+            LOG.warn("Failed to check user verification status", e)
+            return false
+        }
+    }
+
+    fun resendVerificationEmail(): Boolean {
+        // resend the verification email by calling the user verification API
+        try {
+            val response = userVerificationApi.resendVerificationEmailApiUserVerifyResendGet()
+            LOG.info("Verification email resent successfully")
+            if (response == null) {
+                LOG.warn("No response received when resending verification email")
+                return false
+            } else {
+                response.toString().contains("true", ignoreCase = true).also { isSuccess ->
+                    if (isSuccess) {
+                        LOG.info("Verification email sent successfully")
+                    } else {
+                        LOG.warn("Failed to send verification email")
+                    }
+                }
+            }
+            return true
+        } catch (e: Exception) {
+            LOG.warn("Failed to resend verification email", e)
+            return false
+        }
+    }
+
     // ============ Completion Methods ============
 
     /**
@@ -289,15 +618,32 @@ class AppService {
      * @see Record.Type.BEHAVIORAL_TELEMETRY
      * @see Record.type.CONTEXTUAL_TELEMETRY
      */
-    fun getInlineCompletion(aggregatedCollectedData: Map<Record.Type, Map<String, Any>>): CompletionResponseData? {
+    fun getInlineCompletion(
+        aggregatedCollectedData: Map<Record.Type, Map<String, Any>>,
+        project: Project,
+    ): ResponseCompletionResponseData? {
         require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
+
+        // set the current project for generation
+        currentGenerationProject.set(project)
 
         val requestCompletion =
             RequestCompletion(
                 modelIds = listOf(DEFAULT_MODEL_ID),
-                context = aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap(),
-                behavioralTelemetry = aggregatedCollectedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap(),
-                contextualTelemetry = aggregatedCollectedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap(),
+                context =
+                    (aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
+                        ContextData::class.java,
+                    ),
+                behavioralTelemetry =
+                    (aggregatedCollectedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
+                        .mapsTo<BehavioralTelemetryData>(
+                            BehavioralTelemetryData::class.java,
+                        ),
+                contextualTelemetry =
+                    (aggregatedCollectedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
+                        .mapsTo<ContextualTelemetryData>(
+                            ContextualTelemetryData::class.java,
+                        ),
             )
 
         return try {
@@ -307,6 +653,8 @@ class AppService {
         } catch (e: Exception) {
             LOG.warn("Failed to get inline completion", e)
             null
+        } finally {
+            currentGenerationProject.set(null)
         }
     }
 }

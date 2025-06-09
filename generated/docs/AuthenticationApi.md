@@ -13,7 +13,7 @@ All URIs are relative to *http://localhost*
 
 Authenticate User
 
-Authenticate a user Note: There are some nuances to how this should be handled. 1. There is a possibility that the token field is JWT token for OAuth providers (this should be checked for) 1.1. Authentication should first check if the token is a JWT token 1.2. If it is a JWT token, then the validity of the token should be checked 1.3. If the token is valid, then the user should be authenticated using the token and allocated a session 1.4. The provider is always Google 2. The filed can also simply represent a password for a user. 3. The authentication should either return a JsonResponseWithStatus with content of UserAuthenticationPostResponse or a ErrorResponse
+Authenticate a user via either OAuth (JWT token) or traditional email/password.  This endpoint supports two methods of authentication: 1. OAuth Authentication:    - The input contains a JWT token from an OAuth provider (Google).    - The token&#39;s validity is verified.    - If valid, the user is fetched by email from the database.    - A session auth token is created and returned as a cookie. 2. Email/Password Authentication:    - The input contains user email and password.    - Credentials are verified against the database.    - If valid, a session auth token is created and returned as a cookie.  Args:     user_to_authenticate: Union of OAuth token or email/password credentials.     app: FastAPI dependency to access the application context.  Returns:     JsonResponseWithStatus: A JSON response containing the authenticated user info     and a session auth token cookie on success, or an error response otherwise.
 
 ### Example
 ```kotlin

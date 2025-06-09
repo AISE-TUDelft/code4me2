@@ -24,10 +24,8 @@ import com.squareup.moshi.JsonClass
  *
  * @param prefix Code before cursor
  * @param suffix Code after cursor
- * @param fileName File name
- * @param languageId Programming language ID
- * @param triggerTypeId Trigger type ID
- * @param versionId Plugin version ID
+ * @param fileName 
+ * @param selectedText 
  * @param contextFiles 
  */
 
@@ -42,21 +40,11 @@ data class ContextData (
     @Json(name = "suffix")
     val suffix: kotlin.String,
 
-    /* File name */
     @Json(name = "file_name")
-    val fileName: kotlin.String,
+    val fileName: kotlin.String?,
 
-    /* Programming language ID */
-    @Json(name = "language_id")
-    val languageId: kotlin.Int,
-
-    /* Trigger type ID */
-    @Json(name = "trigger_type_id")
-    val triggerTypeId: kotlin.Int,
-
-    /* Plugin version ID */
-    @Json(name = "version_id")
-    val versionId: kotlin.Int,
+    @Json(name = "selected_text")
+    val selectedText: kotlin.String? = null,
 
     @Json(name = "context_files")
     val contextFiles: kotlin.collections.List<kotlin.String>? = null
