@@ -129,10 +129,10 @@ class TypingSpeed : PluginModule {
                     ?.toInt() ?: DEFAULT_WINDOW_SIZE
 
             // Calculate current typing speed and convert to integer
-            val cps = trackingService.getTypingSpeed(windowSize).toInt()
+            val cps = trackingService.getTypingSpeed(windowSize)
 
             // Create properly typed record key and store the value
-            val cpsKey = Record.Companion.key<Int>(KEY_TYPING_SPEED)
+            val cpsKey = Record.Companion.key<Double>(KEY_TYPING_SPEED)
             record.put(cpsKey, cps)
 
             LOG.trace("Collected typing speed: $cps CPS (window: ${windowSize}s)")
