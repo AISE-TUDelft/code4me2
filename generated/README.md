@@ -46,6 +46,9 @@ All URIs are relative to *http://localhost*
 | Class | Method | HTTP request | Description |
 | ------------ | ------------- | ------------- | ------------- |
 | *AuthenticationApi* | [**authenticateUserApiUserAuthenticatePost**](docs/AuthenticationApi.md#authenticateuserapiuserauthenticatepost) | **POST** /api/user/authenticate/ | Authenticate User |
+| *ChatApi* | [**deleteChatApiChatDeleteChatIdDelete**](docs/ChatApi.md#deletechatapichatdeletechatiddelete) | **DELETE** /api/chat/delete/{chat_id} | Delete Chat |
+| *ChatApi* | [**getChatHistoryApiChatGetPageNumberGet**](docs/ChatApi.md#getchathistoryapichatgetpagenumberget) | **GET** /api/chat/get/{page_number} | Get Chat History |
+| *ChatApi* | [**requestChatCompletionApiChatRequestPost**](docs/ChatApi.md#requestchatcompletionapichatrequestpost) | **POST** /api/chat/request | Request Chat Completion |
 | *CompletionApi* | [**getCompletionsByQueryApiCompletionQueryIdGet**](docs/CompletionApi.md#getcompletionsbyqueryapicompletionqueryidget) | **GET** /api/completion/{query_id} | Get Completions By Query |
 | *CompletionApi* | [**requestCompletionApiCompletionRequestPost**](docs/CompletionApi.md#requestcompletionapicompletionrequestpost) | **POST** /api/completion/request | Request Completion |
 | *CompletionApi* | [**submitCompletionFeedbackApiCompletionFeedbackPost**](docs/CompletionApi.md#submitcompletionfeedbackapicompletionfeedbackpost) | **POST** /api/completion/feedback | Submit Completion Feedback |
@@ -79,10 +82,17 @@ All URIs are relative to *http://localhost*
  - [me.code4me.api.generated.model.AuthenticateUserOAuth](docs/AuthenticateUserOAuth.md)
  - [me.code4me.api.generated.model.AuthenticateUserPostResponse](docs/AuthenticateUserPostResponse.md)
  - [me.code4me.api.generated.model.BehavioralTelemetryData](docs/BehavioralTelemetryData.md)
+ - [me.code4me.api.generated.model.ChatCompletionErrorItem](docs/ChatCompletionErrorItem.md)
+ - [me.code4me.api.generated.model.ChatCompletionItem](docs/ChatCompletionItem.md)
+ - [me.code4me.api.generated.model.ChatHistoryItem](docs/ChatHistoryItem.md)
+ - [me.code4me.api.generated.model.ChatHistoryItemAssistantResponsesInner](docs/ChatHistoryItemAssistantResponsesInner.md)
+ - [me.code4me.api.generated.model.ChatHistoryResponse](docs/ChatHistoryResponse.md)
+ - [me.code4me.api.generated.model.ChatHistoryResponsePage](docs/ChatHistoryResponsePage.md)
+ - [me.code4me.api.generated.model.ChatMessageItem](docs/ChatMessageItem.md)
+ - [me.code4me.api.generated.model.ChatMessageRole](docs/ChatMessageRole.md)
  - [me.code4me.api.generated.model.CompletionErrorItem](docs/CompletionErrorItem.md)
  - [me.code4me.api.generated.model.CompletionFeedbackPostResponse](docs/CompletionFeedbackPostResponse.md)
- - [me.code4me.api.generated.model.CompletionPostResponseInput](docs/CompletionPostResponseInput.md)
- - [me.code4me.api.generated.model.CompletionPostResponseOutput](docs/CompletionPostResponseOutput.md)
+ - [me.code4me.api.generated.model.CompletionPostResponse](docs/CompletionPostResponse.md)
  - [me.code4me.api.generated.model.ConfigNotFound](docs/ConfigNotFound.md)
  - [me.code4me.api.generated.model.ContextChangeType](docs/ContextChangeType.md)
  - [me.code4me.api.generated.model.ContextData](docs/ContextData.md)
@@ -94,12 +104,15 @@ All URIs are relative to *http://localhost*
  - [me.code4me.api.generated.model.CreateUserError](docs/CreateUserError.md)
  - [me.code4me.api.generated.model.CreateUserOauth](docs/CreateUserOauth.md)
  - [me.code4me.api.generated.model.CreateUserPostResponse](docs/CreateUserPostResponse.md)
+ - [me.code4me.api.generated.model.DeleteChatError](docs/DeleteChatError.md)
+ - [me.code4me.api.generated.model.DeleteChatSuccessResponse](docs/DeleteChatSuccessResponse.md)
  - [me.code4me.api.generated.model.DeleteUserDeleteResponse](docs/DeleteUserDeleteResponse.md)
  - [me.code4me.api.generated.model.DeleteUserError](docs/DeleteUserError.md)
  - [me.code4me.api.generated.model.ErrorResponse](docs/ErrorResponse.md)
  - [me.code4me.api.generated.model.FeedbackCompletion](docs/FeedbackCompletion.md)
  - [me.code4me.api.generated.model.FeedbackRecordingError](docs/FeedbackRecordingError.md)
  - [me.code4me.api.generated.model.FileContextChangeData](docs/FileContextChangeData.md)
+ - [me.code4me.api.generated.model.GenerateChatCompletionsError](docs/GenerateChatCompletionsError.md)
  - [me.code4me.api.generated.model.GenerateCompletionsError](docs/GenerateCompletionsError.md)
  - [me.code4me.api.generated.model.GenerationNotFoundError](docs/GenerationNotFoundError.md)
  - [me.code4me.api.generated.model.HTTPValidationError](docs/HTTPValidationError.md)
@@ -113,11 +126,16 @@ All URIs are relative to *http://localhost*
  - [me.code4me.api.generated.model.NoAccessToGetQueryError](docs/NoAccessToGetQueryError.md)
  - [me.code4me.api.generated.model.NoAccessToProvideFeedbackError](docs/NoAccessToProvideFeedbackError.md)
  - [me.code4me.api.generated.model.Provider](docs/Provider.md)
+ - [me.code4me.api.generated.model.QueryChatMessageRole](docs/QueryChatMessageRole.md)
  - [me.code4me.api.generated.model.QueryNotFoundError](docs/QueryNotFoundError.md)
+ - [me.code4me.api.generated.model.RequestChatCompletion](docs/RequestChatCompletion.md)
  - [me.code4me.api.generated.model.RequestCompletion](docs/RequestCompletion.md)
  - [me.code4me.api.generated.model.Response401ActivateProjectApiProjectActivatePut](docs/Response401ActivateProjectApiProjectActivatePut.md)
  - [me.code4me.api.generated.model.Response401AuthenticateUserApiUserAuthenticatePost](docs/Response401AuthenticateUserApiUserAuthenticatePost.md)
  - [me.code4me.api.generated.model.Response401CreateProjectApiProjectCreatePost](docs/Response401CreateProjectApiProjectCreatePost.md)
+ - [me.code4me.api.generated.model.Response401DeleteChatApiChatDeleteChatIdDelete](docs/Response401DeleteChatApiChatDeleteChatIdDelete.md)
+ - [me.code4me.api.generated.model.Response401GetChatHistoryApiChatGetPageNumberGet](docs/Response401GetChatHistoryApiChatGetPageNumberGet.md)
+ - [me.code4me.api.generated.model.Response401RequestChatCompletionApiChatRequestPost](docs/Response401RequestChatCompletionApiChatRequestPost.md)
  - [me.code4me.api.generated.model.Response401RequestCompletionApiCompletionRequestPost](docs/Response401RequestCompletionApiCompletionRequestPost.md)
  - [me.code4me.api.generated.model.Response401SubmitCompletionFeedbackApiCompletionFeedbackPost](docs/Response401SubmitCompletionFeedbackApiCompletionFeedbackPost.md)
  - [me.code4me.api.generated.model.Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost](docs/Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost.md)
@@ -126,6 +144,7 @@ All URIs are relative to *http://localhost*
  - [me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner](docs/ResponseCompletionResponseDataCompletionsInner.md)
  - [me.code4me.api.generated.model.ResponseFeedbackResponseData](docs/ResponseFeedbackResponseData.md)
  - [me.code4me.api.generated.model.ResponseUser](docs/ResponseUser.md)
+ - [me.code4me.api.generated.model.RetrieveChatCompletionsError](docs/RetrieveChatCompletionsError.md)
  - [me.code4me.api.generated.model.RetrieveCompletionsError](docs/RetrieveCompletionsError.md)
  - [me.code4me.api.generated.model.UpdateMultiFileContext](docs/UpdateMultiFileContext.md)
  - [me.code4me.api.generated.model.UpdateUser](docs/UpdateUser.md)

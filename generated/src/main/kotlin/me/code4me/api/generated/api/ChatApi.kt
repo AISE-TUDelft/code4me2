@@ -19,22 +19,20 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
-import me.code4me.api.generated.model.CompletionFeedbackPostResponse
-import me.code4me.api.generated.model.CompletionPostResponse
+import me.code4me.api.generated.model.ChatHistoryResponse
+import me.code4me.api.generated.model.ChatHistoryResponsePage
+import me.code4me.api.generated.model.DeleteChatError
+import me.code4me.api.generated.model.DeleteChatSuccessResponse
 import me.code4me.api.generated.model.ErrorResponse
-import me.code4me.api.generated.model.FeedbackCompletion
-import me.code4me.api.generated.model.FeedbackRecordingError
-import me.code4me.api.generated.model.GenerateCompletionsError
-import me.code4me.api.generated.model.GenerationNotFoundError
+import me.code4me.api.generated.model.GenerateChatCompletionsError
 import me.code4me.api.generated.model.HTTPValidationError
-import me.code4me.api.generated.model.InvalidOrExpiredSessionToken
 import me.code4me.api.generated.model.NoAccessToGetQueryError
-import me.code4me.api.generated.model.NoAccessToProvideFeedbackError
 import me.code4me.api.generated.model.QueryNotFoundError
-import me.code4me.api.generated.model.RequestCompletion
-import me.code4me.api.generated.model.Response401RequestCompletionApiCompletionRequestPost
-import me.code4me.api.generated.model.Response401SubmitCompletionFeedbackApiCompletionFeedbackPost
-import me.code4me.api.generated.model.RetrieveCompletionsError
+import me.code4me.api.generated.model.RequestChatCompletion
+import me.code4me.api.generated.model.Response401DeleteChatApiChatDeleteChatIdDelete
+import me.code4me.api.generated.model.Response401GetChatHistoryApiChatGetPageNumberGet
+import me.code4me.api.generated.model.Response401RequestChatCompletionApiChatRequestPost
+import me.code4me.api.generated.model.RetrieveChatCompletionsError
 
 import com.squareup.moshi.Json
 
@@ -52,7 +50,7 @@ import me.code4me.api.generated.infrastructure.ResponseType
 import me.code4me.api.generated.infrastructure.Success
 import me.code4me.api.generated.infrastructure.toMultiValue
 
-class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = ApiClient.defaultClient) : ApiClient(basePath, client) {
+class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = ApiClient.defaultClient) : ApiClient(basePath, client) {
     companion object {
         @JvmStatic
         val defaultBasePath: String by lazy {
@@ -61,12 +59,13 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     }
 
     /**
-     * GET /api/completion/{query_id}
-     * Get Completions By Query
-     * Get completions for a specific query ID.
-     * @param queryId 
+     * DELETE /api/chat/delete/{chat_id}
+     * Delete Chat
+     * Delete a specific chat by its ID. Validates that the user has access to the chat through their session and project tokens.
+     * @param chatId 
      * @param sessionToken  (optional, default to "session_token")
-     * @return CompletionPostResponse
+     * @param projectToken  (optional, default to "project_token")
+     * @return DeleteChatSuccessResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -75,11 +74,11 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun getCompletionsByQueryApiCompletionQueryIdGet(queryId: java.util.UUID, sessionToken: kotlin.String? = "session_token") : CompletionPostResponse {
-        val localVarResponse = getCompletionsByQueryApiCompletionQueryIdGetWithHttpInfo(queryId = queryId, sessionToken = sessionToken)
+    fun deleteChatApiChatDeleteChatIdDelete(chatId: java.util.UUID, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : DeleteChatSuccessResponse {
+        val localVarResponse = deleteChatApiChatDeleteChatIdDeleteWithHttpInfo(chatId = chatId, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as CompletionPostResponse
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DeleteChatSuccessResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -94,33 +93,114 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     }
 
     /**
-     * GET /api/completion/{query_id}
-     * Get Completions By Query
-     * Get completions for a specific query ID.
-     * @param queryId 
+     * DELETE /api/chat/delete/{chat_id}
+     * Delete Chat
+     * Delete a specific chat by its ID. Validates that the user has access to the chat through their session and project tokens.
+     * @param chatId 
      * @param sessionToken  (optional, default to "session_token")
-     * @return ApiResponse<CompletionPostResponse?>
+     * @param projectToken  (optional, default to "project_token")
+     * @return ApiResponse<DeleteChatSuccessResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun getCompletionsByQueryApiCompletionQueryIdGetWithHttpInfo(queryId: java.util.UUID, sessionToken: kotlin.String?) : ApiResponse<CompletionPostResponse?> {
-        val localVariableConfig = getCompletionsByQueryApiCompletionQueryIdGetRequestConfig(queryId = queryId, sessionToken = sessionToken)
+    fun deleteChatApiChatDeleteChatIdDeleteWithHttpInfo(chatId: java.util.UUID, sessionToken: kotlin.String?, projectToken: kotlin.String?) : ApiResponse<DeleteChatSuccessResponse?> {
+        val localVariableConfig = deleteChatApiChatDeleteChatIdDeleteRequestConfig(chatId = chatId, sessionToken = sessionToken, projectToken = projectToken)
 
-        return request<Unit, CompletionPostResponse>(
+        return request<Unit, DeleteChatSuccessResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation getCompletionsByQueryApiCompletionQueryIdGet
+     * To obtain the request config of the operation deleteChatApiChatDeleteChatIdDelete
      *
-     * @param queryId 
+     * @param chatId 
      * @param sessionToken  (optional, default to "session_token")
+     * @param projectToken  (optional, default to "project_token")
      * @return RequestConfig
      */
-    fun getCompletionsByQueryApiCompletionQueryIdGetRequestConfig(queryId: java.util.UUID, sessionToken: kotlin.String?) : RequestConfig<Unit> {
+    fun deleteChatApiChatDeleteChatIdDeleteRequestConfig(chatId: java.util.UUID, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/chat/delete/{chat_id}".replace("{"+"chat_id"+"}", encodeURIComponent(chatId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/chat/get/{page_number}
+     * Get Chat History
+     * Get the complete chat history for
+     * @param pageNumber 
+     * @param sessionToken  (optional, default to "session_token")
+     * @param projectToken  (optional, default to "project_token")
+     * @return ChatHistoryResponsePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    fun getChatHistoryApiChatGetPageNumberGet(pageNumber: kotlin.Int, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : ChatHistoryResponsePage {
+        val localVarResponse = getChatHistoryApiChatGetPageNumberGetWithHttpInfo(pageNumber = pageNumber, sessionToken = sessionToken, projectToken = projectToken)
+
+        return when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ChatHistoryResponsePage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/chat/get/{page_number}
+     * Get Chat History
+     * Get the complete chat history for
+     * @param pageNumber 
+     * @param sessionToken  (optional, default to "session_token")
+     * @param projectToken  (optional, default to "project_token")
+     * @return ApiResponse<ChatHistoryResponsePage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    fun getChatHistoryApiChatGetPageNumberGetWithHttpInfo(pageNumber: kotlin.Int, sessionToken: kotlin.String?, projectToken: kotlin.String?) : ApiResponse<ChatHistoryResponsePage?> {
+        val localVariableConfig = getChatHistoryApiChatGetPageNumberGetRequestConfig(pageNumber = pageNumber, sessionToken = sessionToken, projectToken = projectToken)
+
+        return request<Unit, ChatHistoryResponsePage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getChatHistoryApiChatGetPageNumberGet
+     *
+     * @param pageNumber 
+     * @param sessionToken  (optional, default to "session_token")
+     * @param projectToken  (optional, default to "project_token")
+     * @return RequestConfig
+     */
+    fun getChatHistoryApiChatGetPageNumberGetRequestConfig(pageNumber: kotlin.Int, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
@@ -128,7 +208,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
 
         return RequestConfig(
             method = RequestMethod.GET,
-            path = "/api/completion/{query_id}".replace("{"+"query_id"+"}", encodeURIComponent(queryId.toString())),
+            path = "/api/chat/get/{page_number}".replace("{"+"page_number"+"}", encodeURIComponent(pageNumber.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
@@ -137,13 +217,13 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     }
 
     /**
-     * POST /api/completion/request
-     * Request Completion
-     * Request code completions based on provided context.
-     * @param requestCompletion 
+     * POST /api/chat/request
+     * Request Chat Completion
+     * Request chat completions based on provided messages.  The contract here is that the request always contains all the history of the chat as well  We do this because it could be that the user modifies the chat history in the frontend and we want to ensure that the chat completions are based on the latest state of the chat.  Take the case where the user edits a message in the chat history midway through a chat. We don&#39;t want to be generating a completion based on the old state of the chat.
+     * @param requestChatCompletion 
      * @param sessionToken  (optional, default to "session_token")
      * @param projectToken  (optional, default to "project_token")
-     * @return CompletionPostResponse
+     * @return ChatHistoryResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -152,11 +232,11 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun requestCompletionApiCompletionRequestPost(requestCompletion: RequestCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : CompletionPostResponse {
-        val localVarResponse = requestCompletionApiCompletionRequestPostWithHttpInfo(requestCompletion = requestCompletion, sessionToken = sessionToken, projectToken = projectToken)
+    fun requestChatCompletionApiChatRequestPost(requestChatCompletion: RequestChatCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : ChatHistoryResponse {
+        val localVarResponse = requestChatCompletionApiChatRequestPostWithHttpInfo(requestChatCompletion = requestChatCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as CompletionPostResponse
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ChatHistoryResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -171,36 +251,36 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     }
 
     /**
-     * POST /api/completion/request
-     * Request Completion
-     * Request code completions based on provided context.
-     * @param requestCompletion 
+     * POST /api/chat/request
+     * Request Chat Completion
+     * Request chat completions based on provided messages.  The contract here is that the request always contains all the history of the chat as well  We do this because it could be that the user modifies the chat history in the frontend and we want to ensure that the chat completions are based on the latest state of the chat.  Take the case where the user edits a message in the chat history midway through a chat. We don&#39;t want to be generating a completion based on the old state of the chat.
+     * @param requestChatCompletion 
      * @param sessionToken  (optional, default to "session_token")
      * @param projectToken  (optional, default to "project_token")
-     * @return ApiResponse<CompletionPostResponse?>
+     * @return ApiResponse<ChatHistoryResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun requestCompletionApiCompletionRequestPostWithHttpInfo(requestCompletion: RequestCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : ApiResponse<CompletionPostResponse?> {
-        val localVariableConfig = requestCompletionApiCompletionRequestPostRequestConfig(requestCompletion = requestCompletion, sessionToken = sessionToken, projectToken = projectToken)
+    fun requestChatCompletionApiChatRequestPostWithHttpInfo(requestChatCompletion: RequestChatCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : ApiResponse<ChatHistoryResponse?> {
+        val localVariableConfig = requestChatCompletionApiChatRequestPostRequestConfig(requestChatCompletion = requestChatCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
-        return request<RequestCompletion, CompletionPostResponse>(
+        return request<RequestChatCompletion, ChatHistoryResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation requestCompletionApiCompletionRequestPost
+     * To obtain the request config of the operation requestChatCompletionApiChatRequestPost
      *
-     * @param requestCompletion 
+     * @param requestChatCompletion 
      * @param sessionToken  (optional, default to "session_token")
      * @param projectToken  (optional, default to "project_token")
      * @return RequestConfig
      */
-    fun requestCompletionApiCompletionRequestPostRequestConfig(requestCompletion: RequestCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<RequestCompletion> {
-        val localVariableBody = requestCompletion
+    fun requestChatCompletionApiChatRequestPostRequestConfig(requestChatCompletion: RequestChatCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<RequestChatCompletion> {
+        val localVariableBody = requestChatCompletion
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Content-Type"] = "application/json"
@@ -208,87 +288,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/completion/request",
-            query = localVariableQuery,
-            headers = localVariableHeaders,
-            requiresAuthentication = false,
-            body = localVariableBody
-        )
-    }
-
-    /**
-     * POST /api/completion/feedback
-     * Submit Completion Feedback
-     * Submit feedback on a generated completion.
-     * @param feedbackCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
-     * @return CompletionFeedbackPostResponse
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     * @throws UnsupportedOperationException If the API returns an informational or redirection response
-     * @throws ClientException If the API returns a client error response
-     * @throws ServerException If the API returns a server error response
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : CompletionFeedbackPostResponse {
-        val localVarResponse = submitCompletionFeedbackApiCompletionFeedbackPostWithHttpInfo(feedbackCompletion = feedbackCompletion, sessionToken = sessionToken, projectToken = projectToken)
-
-        return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as CompletionFeedbackPostResponse
-            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
-            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
-            ResponseType.ClientError -> {
-                val localVarError = localVarResponse as ClientError<*>
-                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
-            }
-            ResponseType.ServerError -> {
-                val localVarError = localVarResponse as ServerError<*>
-                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
-            }
-        }
-    }
-
-    /**
-     * POST /api/completion/feedback
-     * Submit Completion Feedback
-     * Submit feedback on a generated completion.
-     * @param feedbackCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
-     * @return ApiResponse<CompletionFeedbackPostResponse?>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class)
-    fun submitCompletionFeedbackApiCompletionFeedbackPostWithHttpInfo(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : ApiResponse<CompletionFeedbackPostResponse?> {
-        val localVariableConfig = submitCompletionFeedbackApiCompletionFeedbackPostRequestConfig(feedbackCompletion = feedbackCompletion, sessionToken = sessionToken, projectToken = projectToken)
-
-        return request<FeedbackCompletion, CompletionFeedbackPostResponse>(
-            localVariableConfig
-        )
-    }
-
-    /**
-     * To obtain the request config of the operation submitCompletionFeedbackApiCompletionFeedbackPost
-     *
-     * @param feedbackCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
-     * @return RequestConfig
-     */
-    fun submitCompletionFeedbackApiCompletionFeedbackPostRequestConfig(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<FeedbackCompletion> {
-        val localVariableBody = feedbackCompletion
-        val localVariableQuery: MultiValueMap = mutableMapOf()
-        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Content-Type"] = "application/json"
-        localVariableHeaders["Accept"] = "application/json"
-
-        return RequestConfig(
-            method = RequestMethod.POST,
-            path = "/api/completion/feedback",
+            path = "/api/chat/request",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
