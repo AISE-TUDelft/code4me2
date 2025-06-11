@@ -151,7 +151,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         query: String,
         selectedModel: String?,
     ) {
-        val aiResponse = ioManager.getAIResponse(query, useWeb, selectedFiles.map { it.path }, selectedModel)
+        val aiResponse = ioManager.getAIResponse(query, useWeb, selectedFiles.map { it.path }, selectedModel, project!!)
         appendMessage(AI_NAME, aiResponse)
     }
 
