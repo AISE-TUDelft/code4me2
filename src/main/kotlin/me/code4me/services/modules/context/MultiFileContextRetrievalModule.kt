@@ -1,14 +1,10 @@
-
 package me.code4me.services.modules.context
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.util.io.FileUtil.sanitizeFileName
-import com.intellij.psi.PsiDocumentManager
-import com.intellij.psi.PsiElement
-import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.psi.*
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.Preference
@@ -55,9 +51,9 @@ class MultiFileContextRetrievalModule : PluginModule {
         private val LOG = thisLogger()
 
         // Preference key constants using dot notation
-        private const val PREF_INCLUDE_CONTENTS = "context.include.contents"
         private const val PREF_INCLUDE_LOCATION = "context.include.location"
-        private const val PREF_INCLUDE_PSI = "context.include.psi"
+        private const val PREF_INCLUDE_REFERENCED_CLASSES = "context.include.referenced_classes"
+        private const val PREF_INCLUDE_OPEN_EDITORS = "context.include.open_editors"
 
         // Record key prefix for multi-file context
         private const val KEY_PREFIX_MULTI_FILE = "multi_file_context"
@@ -117,63 +113,59 @@ class MultiFileContextRetrievalModule : PluginModule {
             }
 
             val moduleId = getPreferenceId()
-            val includeContent = getBooleanPreference(moduleId, PREF_INCLUDE_CONTENTS, true)
-            val includeLocation = getBooleanPreference(moduleId, PREF_INCLUDE_LOCATION, true)
-            val includePsi = getBooleanPreference(moduleId, PREF_INCLUDE_PSI, true)
+            val includeRefs = getBooleanPreference(moduleId, PREF_INCLUDE_REFERENCED_CLASSES, true)
+            val includeOpenEditors = getBooleanPreference(moduleId, PREF_INCLUDE_OPEN_EDITORS, true)
 
             val expanded = mutableMapOf<Record.EntryKey, Any>()
-            val editors = EditorFactory.getInstance().allEditors
             val currentEditor = request.editor
-            var processedFiles = 0
+            val editors = EditorFactory.getInstance().allEditors
 
-            for (editor in editors) {
-                // Skip the current editor to avoid duplicate context
-                if (editor == currentEditor) continue
+            val allPaths = mutableSetOf<String>() // Unified set of paths
 
-                val project = editor.project ?: continue
-                val document = editor.document
-                val file = FileDocumentManager.getInstance().getFile(document) ?: continue
-                val caretOffset = editor.caretModel.offset
+            // Collect file paths from all open editors (excluding the current one)
+            if (includeOpenEditors) {
+                for (editor in editors) {
+                    if (editor == currentEditor) continue
 
-                try {
-                    val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
-                    val fileText = document.text
-
-                    // Extract PSI element at cursor position if available
-                    val topElement =
-                        if (includePsi && psiFile != null) {
-                            PsiTreeUtil.getParentOfType(
-                                psiFile.findElementAt(caretOffset),
-                                PsiElement::class.java,
-                            )
-                        } else {
-                            null
-                        }
-
-                    // Build context object based on preferences
-                    val fileContext =
-                        FileContext(
-                            location = if (includeLocation) file.path else "",
-                            psiElement = if (includePsi) topElement?.text ?: "" else "",
-                            contents = if (includeContent) fileText else "",
-                        )
-
-                    // Create standardized key for this file context
-                    val sanitizedFileName = sanitizeFileName(file.name)
-                    val key = Record.key<FileContext>("${KEY_PREFIX_MULTI_FILE}.$sanitizedFileName")
-                    expanded[key] = fileContext
-                    processedFiles++
-
-                    LOG.trace("Collected context for file: ${file.name}")
-                } catch (e: Exception) {
-                    LOG.warn("Failed to collect context for file: ${file.name}", e)
-                    // Continue processing other files even if one fails
+                    val file = FileDocumentManager.getInstance().getFile(editor.document) ?: continue
+                    if (file.isValid) {
+                        allPaths.add(file.path)
+                        LOG.trace("Collected open editor path: ${file.path}")
+                    }
                 }
             }
 
-            LOG.debug("Successfully collected context from $processedFiles additional files")
+            // Collect referenced file paths from PSI references in the current editor
+            if (includeRefs) {
+                val project = currentEditor.project
+                val document = currentEditor.document
+                val psiFile =
+                    PsiDocumentManager.getInstance(project ?: return emptyList())
+                        .getPsiFile(document)
+
+                psiFile?.accept(
+                    object : PsiRecursiveElementWalkingVisitor() {
+                        override fun visitElement(element: PsiElement) {
+                            super.visitElement(element)
+                            val resolved = element.reference?.resolve()
+                            val sourceFile = resolved?.containingFile?.virtualFile
+                            if (sourceFile != null && sourceFile.isValid) {
+                                allPaths.add(sourceFile.path)
+                                LOG.trace("Collected referenced path: ${sourceFile.path}")
+                            }
+                        }
+                    },
+                )
+            }
+
+            // Add the collected paths as a single key for simplicity
+            if (allPaths.isNotEmpty()) {
+                expanded[Record.key<List<String>>("$KEY_PREFIX_MULTI_FILE.paths")] = allPaths.toList()
+            }
+
+            LOG.debug("Successfully collected ${allPaths.size} unique paths")
             return if (expanded.isNotEmpty()) {
-                listOf(Record(type = Record.Type.CONTEXT, expanded = expanded.toMutableMap()))
+                listOf(Record(type = Record.Type.CONTEXT, expanded = expanded))
             } else {
                 emptyList()
             }
@@ -212,29 +204,25 @@ class MultiFileContextRetrievalModule : PluginModule {
     override fun getPreferenceList(): List<Preference> =
         listOf(
             Preference(
-                key = PREF_INCLUDE_CONTENTS,
+                key = PREF_INCLUDE_OPEN_EDITORS,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
-                displayName = "Include File Contents",
-                description =
-                    "Include the complete contents of open files. " +
-                        "Disable for better performance with large files.",
+                displayName = "Include Open Editors",
+                description = "Include file paths of all open editors excluding the current one.",
             ),
             Preference(
-                key = PREF_INCLUDE_LOCATION,
+                key = PREF_INCLUDE_REFERENCED_CLASSES,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
-                displayName = "Include File Location",
-                description = "Include the file system path for each open file.",
-            ),
-            Preference(
-                key = PREF_INCLUDE_PSI,
-                type = PreferenceType.BOOLEAN,
-                defaultValue = "true",
-                displayName = "Include PSI Element",
-                description =
-                    "Include the PSI (Program Structure Interface) element near " +
-                        "the cursor position for structural code understanding.",
+                displayName = "Include Referenced Classes",
+                description = "Include file paths of the referenced classes in current editor.",
             ),
         )
+
+    data class FileContextChangeData(
+        val changeType: String, // e.g., "insert", "delete", "replace"
+        val startLine: Int,
+        val endLine: Int,
+        val newLines: List<String>,
+    )
 }
