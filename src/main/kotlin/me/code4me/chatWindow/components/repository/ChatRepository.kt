@@ -13,7 +13,7 @@ interface ChatRepository {
     fun getChatSession(chatId: String): ChatSession?
     fun getAllChatSessions(): List<ChatSession>
     fun saveChat(chatSession: ChatSession)
-    fun deleteChat(chatId: String)
+    fun deleteChat(chatId: String, deleteFromServer: Boolean = false)
     
     // Message operations
     fun addMessage(chatId: String, role: QueryChatMessageRole, content: String)

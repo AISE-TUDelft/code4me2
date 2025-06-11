@@ -101,12 +101,13 @@ class ChatSessionManager(val chatRepository: ChatRepository) {
         addMessageToCurrentSession(sender, message)
     }
 
-    fun deleteSession(session: ChatSession) {
+    fun deleteSession(session: ChatSession, deleteFromServer: Boolean = false) {
         // Remove from repository
-        chatRepository.deleteChat(session.id)
+        chatRepository.deleteChat(session.id, deleteFromServer)
 
         // Remove from active sessions
         activeSessions.remove(session.id)
+
 
         if (currentSession.id == session.id) {
             val sessions = chatRepository.getAllChatSessions()

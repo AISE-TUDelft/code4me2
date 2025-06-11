@@ -1,12 +1,15 @@
 package me.code4me.services.project
 
+import com.intellij.ide.TypePresentationService.getService
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
 import me.code4me.api.generated.model.QueryChatMessageRole
 import me.code4me.chatWindow.components.managers.ChatSession
 import me.code4me.chatWindow.components.repository.ChatRepository
 import me.code4me.chatWindow.components.utils.ChatConverter
+import me.code4me.services.app.getAppService
 import java.util.Date
+import java.util.UUID
 
 /**
  * Project-specific service that stores chat conversations data.
@@ -18,7 +21,7 @@ import java.util.Date
     name = "ProjectChatState",
     storages = [Storage("code4me-project-chats.xml")],
 )
-class ProjectChatService : SimplePersistentStateComponent<ProjectChatState>(ProjectChatState()), ChatRepository {
+class ProjectChatService(private val project: Project) : SimplePersistentStateComponent<ProjectChatState>(ProjectChatState()), ChatRepository {
 
     // ChatRepository interface implementation
     override fun getChatSession(chatId: String): ChatSession? {
@@ -53,8 +56,14 @@ class ProjectChatService : SimplePersistentStateComponent<ProjectChatState>(Proj
         chatData.messages = messages.toMutableList()
     }
 
-    override fun deleteChat(chatId: String) {
+    override fun deleteChat(chatId: String, deleteFromServer: Boolean) {
         state.chats.remove(chatId)
+        if (deleteFromServer) {
+            getAppService().deleteChat(
+                UUID.fromString(chatId),
+                project = project,
+            )
+        }
     }
 
     override fun addMessage(chatId: String, role: QueryChatMessageRole, content: String) {
