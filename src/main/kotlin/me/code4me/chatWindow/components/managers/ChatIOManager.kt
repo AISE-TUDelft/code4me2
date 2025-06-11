@@ -3,18 +3,32 @@ package me.code4me.chatWindow.components.managers
 import com.intellij.codeInsight.inline.completion.InlineCompletionEvent
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
+import me.code4me.api.generated.model.BehavioralTelemetryData
+import me.code4me.api.generated.model.ContextData
+import me.code4me.api.generated.model.ContextualTelemetryData
+import me.code4me.api.generated.model.RequestChatCompletion
+import me.code4me.chatWindow.components.utils.ChatConverter
+import me.code4me.chatWindow.components.utils.TitleResponsePair
 import me.code4me.services.app.AppService
+import me.code4me.services.app.getAppService
+import me.code4me.services.config.getConfig
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.utils.api.mapsTo
+import me.code4me.utils.record.Record
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
 
 class ChatIOManager {
+
+    val LOG = thisLogger()
+
     /**
      * Gets AI response based on the input and context
      * Uses the module manager to collect data from registered modules
@@ -25,8 +39,10 @@ class ChatIOManager {
         useWeb: Boolean,
         selectedFiles: List<String>,
         selectedModel: String?,
+        chatId: String? = null,
+        previousMessages: List<Pair<String, String>> = emptyList(),
         project: Project,
-    ): String {
+    ): TitleResponsePair {
         // Get the current editor
         val editor = FileEditorManager.getInstance(project).selectedTextEditor
 
@@ -65,12 +81,67 @@ class ChatIOManager {
                     .aggregateByType()
                     .mapValues { (_, values) -> values.toMap() }
 
-                return "AI response for query: $query, useWeb: $useWeb, selectedFiles: ${selectedFiles.joinToString(", ")}, selectedModel: $selectedModel\n" +
-                        "Collected Data: ${aggregatedData.entries.joinToString("\n") { "${it.key}: ${it.value}" }}"
+                // model preferences
+                val modelPrefs = aggregatedData[Record.Type.MODEL]
+                val modelId = getConfig().getModelsConfiguration()
+                    ?.getModelIdByName(selectedModel ?: modelPrefs?.get("preferredCompletionModel")?.toString() ?: "default")
+                val systemPrompt = modelPrefs?.get("systemPrompt")?.toString() ?: "You are a helpful programming assistant."
+
+                // construct the chat history
+                val systemPromptPair = Pair(ChatConverter.SYSTEM_SENDER, systemPrompt)
+                val chatHistory =
+                    (listOf(systemPromptPair) + previousMessages).let {
+                        ChatConverter.toApiMessages(it)
+                    }
+
+                val context =
+                    (aggregatedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
+                        ContextData::class.java,
+                    )
+                val behavioralTelemetry =
+                    (aggregatedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
+                        .mapsTo<BehavioralTelemetryData>(
+                            BehavioralTelemetryData::class.java,
+                        )
+                val contextualTelemetry =
+                    (aggregatedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
+                        .mapsTo<ContextualTelemetryData>(
+                            ContextualTelemetryData::class.java,
+                        )
+
+                // create the request necessary for the AppService
+                val request = RequestChatCompletion(
+                    modelIds = listOfNotNull(modelId),
+                    chatId = chatId ?.let { java.util.UUID.fromString(it) } ?: java.util.UUID.randomUUID(),
+                    messages = chatHistory,
+                    context = context,
+                    contextualTelemetry = contextualTelemetry,
+                    behavioralTelemetry = behavioralTelemetry,
+                    webEnabled = useWeb
+                )
+
+                // call the AppService to get the AI response
+                val appService = getAppService()
+                val response = appService.requestChatCompletion(
+                    request,
+                    project
+                )
+
+                val newChatTitle = response.title
+                return if (response.history.isNotEmpty()) {
+                    TitleResponsePair(
+                        newChatTitle,
+                        response.history.first().assistantResponses.map { it.completion }
+                    )
+                } else {
+                    TitleResponsePair(newChatTitle, emptyList())
+                }
             }
         }
-
-        // Fallback response if no editor is available or no completions were generated
-        return "AI response for query: $query, useWeb: $useWeb, selectedFiles: ${selectedFiles.joinToString(", ")}, selectedModel: $selectedModel"
+        LOG.error("No active editor found in the project.")
+        return TitleResponsePair(
+            "Error: No active editor",
+            emptyList()
+        )
     }
 }

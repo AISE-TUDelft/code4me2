@@ -48,4 +48,11 @@ data class ModelsConfiguration(
     fun getAvailableCompletionModels(): List<ModelConfig> {
         return availableModels.filter { !it.isChatModel }
     }
+
+    fun getModelIdByName(name: String): Int? {
+        if (name == "default") {
+            return availableModels.firstOrNull { it.isDefault }?.id
+        }
+        return availableModels.find { it.name == name }?.id
+    }
 }

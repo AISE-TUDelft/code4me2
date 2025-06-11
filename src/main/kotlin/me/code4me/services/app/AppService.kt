@@ -5,6 +5,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import me.code4me.api.generated.api.AuthenticationApi
+import me.code4me.api.generated.api.ChatApi
 import me.code4me.api.generated.api.CompletionApi
 import me.code4me.api.generated.api.ProjectApi
 import me.code4me.api.generated.api.SessionApi
@@ -17,15 +18,18 @@ import me.code4me.api.generated.model.ActivateProject
 import me.code4me.api.generated.model.ActivateProjectPostResponse
 import me.code4me.api.generated.model.AuthenticateUserPostResponse
 import me.code4me.api.generated.model.BehavioralTelemetryData
+import me.code4me.api.generated.model.ChatHistoryResponse
+import me.code4me.api.generated.model.ChatHistoryResponsePage
 import me.code4me.api.generated.model.ContextData
 import me.code4me.api.generated.model.ContextualTelemetryData
 import me.code4me.api.generated.model.CreateProject
 import me.code4me.api.generated.model.CreateProjectPostResponse
 import me.code4me.api.generated.model.CreateUserPostResponse
+import me.code4me.api.generated.model.DeleteChatSuccessResponse
 import me.code4me.api.generated.model.Provider
+import me.code4me.api.generated.model.RequestChatCompletion
 import me.code4me.api.generated.model.RequestCompletion
 import me.code4me.api.generated.model.ResponseCompletionResponseData
-import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner
 import me.code4me.api.generated.model.UpdateUser
 import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserToAuthenticate
@@ -37,8 +41,6 @@ import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.mapsTo
 import me.code4me.utils.record.Record
 import java.io.IOException
-import java.util.Locale
-import java.util.Locale.getDefault
 import java.util.concurrent.atomic.AtomicReference
 
 fun getAppService(): AppService {
@@ -87,6 +89,7 @@ class AppService {
     private val sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val projectApi = ProjectApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val userVerificationApi = UserVerificationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val chatApi = ChatApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
 
     val currentGenerationProject = AtomicReference<Project?>(null)
 
@@ -597,6 +600,123 @@ class AppService {
         } catch (e: Exception) {
             LOG.warn("Failed to resend verification email", e)
             return false
+        }
+    }
+
+    // ============ Chat Methods ============
+
+    /**
+     * Requests a chat completion based on provided messages.
+     *
+     * This method sends a chat completion request to the Code4Me backend using the current
+     * session and project tokens. The request contains all the history of the chat to ensure
+     * completions are based on the latest state, even if the user has modified previous messages.
+     *
+     * @param requestChatCompletion The chat completion request containing messages and configuration
+     * @param sessionToken The session token (optional, uses stored token if not provided)
+     * @param projectToken The project token (optional, uses stored token if not provided)
+     * @return [ChatHistoryResponse] containing the chat completion and updated history
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the tokens are invalid or request fails (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the requestChatCompletion parameter is invalid
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun requestChatCompletion(
+        requestChatCompletion: RequestChatCompletion,
+        project: Project,
+    ): ChatHistoryResponse {
+        require(requestChatCompletion.messages.isNotEmpty()) { "Messages cannot be empty" }
+
+        currentGenerationProject.set(project)
+
+        return try {
+            val response = chatApi.requestChatCompletionApiChatRequestPost(
+                requestChatCompletion = requestChatCompletion
+            )
+            LOG.info("Chat completion requested successfully")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Chat completion request failed", e)
+            throw e
+        } finally {
+            currentGenerationProject.set(null)
+        }
+    }
+
+    /**
+     * Retrieves chat history for a specific page.
+     *
+     * This method fetches the chat history from the Code4Me backend using pagination.
+     * It validates user access through session and project tokens before returning the history.
+     *
+     * @param pageNumber The page number to retrieve (0-based)
+     * @param sessionToken The session token (optional, uses stored token if not provided)
+     * @param projectToken The project token (optional, uses stored token if not provided)
+     * @return [ChatHistoryResponsePage] containing the chat history for the requested page
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the tokens are invalid or request fails (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the pageNumber is invalid
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun getChatHistory(
+        pageNumber: Int,
+        project: Project,
+    ): ChatHistoryResponsePage {
+        require(pageNumber >= 0) { "Page number must be non-negative" }
+
+        currentGenerationProject.set(project)
+
+        return try {
+            val response = chatApi.getChatHistoryApiChatGetPageNumberGet(
+                pageNumber = pageNumber
+            )
+            LOG.info("Chat history retrieved successfully for page: $pageNumber")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to retrieve chat history for page: $pageNumber", e)
+            throw e
+        } finally {
+            currentGenerationProject.set(null)
+        }
+    }
+
+    /**
+     * Deletes a specific chat by its ID.
+     *
+     * This method deletes a chat conversation from the Code4Me backend. It validates that the user
+     * has access to the chat through their session and project tokens before performing the deletion.
+     *
+     * @param chatId The unique identifier of the chat to delete
+     * @param sessionToken The session token (optional, uses stored token if not provided)
+     * @param projectToken The project token (optional, uses stored token if not provided)
+     * @return [DeleteChatSuccessResponse] containing confirmation of the deletion
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the tokens are invalid or chat access is denied (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalArgumentException If the chatId is invalid
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun deleteChat(
+        chatId: java.util.UUID,
+        project: Project,
+    ): DeleteChatSuccessResponse {
+        require(chatId.toString().isNotBlank()) { "Chat ID cannot be blank" }
+
+        currentGenerationProject.set(project)
+
+        return try {
+            val response = chatApi.deleteChatApiChatDeleteChatIdDelete(
+                chatId = chatId
+            )
+            LOG.info("Chat deleted successfully: $chatId")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to delete chat: $chatId", e)
+            throw e
+        } finally {
+            currentGenerationProject.set(null)
         }
     }
 

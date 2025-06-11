@@ -16,6 +16,7 @@ import me.code4me.chatWindow.components.managers.ChatIOManager
 import me.code4me.chatWindow.components.managers.ChatSessionManager
 import me.code4me.chatWindow.components.managers.ChatViewManager
 import me.code4me.chatWindow.components.topBarPanel.TopBarPanel
+import me.code4me.services.config.getConfig
 import me.code4me.services.project.getProjectChatService
 import java.awt.BorderLayout
 
@@ -151,8 +152,20 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         query: String,
         selectedModel: String?,
     ) {
-        val aiResponse = ioManager.getAIResponse(query, useWeb, selectedFiles.map { it.path }, selectedModel, project!!)
-        appendMessage(AI_NAME, aiResponse)
+        val aiResponse = ioManager.getAIResponse(
+            query,
+            useWeb,
+            selectedFiles.map { it.path },
+            selectedModel,
+            sessionManager?.currentSession?.id?.toString(),
+            sessionManager?.currentSession?.messages!!,
+            project!!)
+        // TODO: handle multiple responses
+        if (aiResponse.title.isNotBlank() && sessionManager?.currentSession?.title != aiResponse.title) {
+            sessionManager?.currentSession?.title = aiResponse.title
+            topBarPanel.updateTitle()
+        }
+        appendMessage(AI_NAME, aiResponse.responses.first())
     }
 
     private fun appendMessage(
@@ -185,7 +198,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     private fun loadModelsFromConfig() {
         try {
-            val models = arrayOf("GPT-4", "Claude-3", "Gemini-Pro", "BEST MODEL EVER")
+            val models = getConfig()
+                .getModelsConfiguration()
+                ?.getAvailableChatModels()
+                ?.map {it.name}?.toTypedArray()
+                ?: emptyArray<String>()
             updateModelList(models)
         } catch (e: Exception) {
             println("Error loading models from config: ${e.message}")
