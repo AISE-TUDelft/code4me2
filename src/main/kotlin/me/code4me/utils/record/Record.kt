@@ -14,6 +14,7 @@ data class Record(
         CONTEXT,
         BEHAVIORAL_TELEMETRY,
         CONTEXTUAL_TELEMETRY,
+        MODEL,
     }
 
     /**
