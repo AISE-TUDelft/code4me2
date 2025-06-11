@@ -756,9 +756,13 @@ class AppService {
         // set the current project for generation
         currentGenerationProject.set(project)
 
+        // model selection
+        val modelId = getConfig().getModelsConfiguration()
+            ?.getModelIdByName(aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default")
+
         val requestCompletion =
             RequestCompletion(
-                modelIds = listOf(DEFAULT_MODEL_ID),
+                modelIds = listOfNotNull(modelId),
                 context =
                     (aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
                         ContextData::class.java,
