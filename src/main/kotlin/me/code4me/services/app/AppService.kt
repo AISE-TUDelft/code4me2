@@ -41,6 +41,7 @@ import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.mapsTo
 import me.code4me.utils.record.Record
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 fun getAppService(): AppService {
@@ -65,33 +66,41 @@ fun getAppService(): AppService {
 class AppService {
     companion object {
         private val LOG = thisLogger()
-
-        /** Default model ID used for completion requests */
         private const val DEFAULT_MODEL_ID = 1
+
+        // Chat-specific timeout configurations
+        private const val CHAT_CONNECT_TIMEOUT_SECONDS = 30L
+        private const val CHAT_READ_TIMEOUT_SECONDS = 300L // 5 minutes for chat completions
+        private const val CHAT_WRITE_TIMEOUT_SECONDS = 60L
     }
 
     private val configService = getConfig()
     private val serverConfig = configService.getServerConfig()
-
-    // The Session token
     private var sessionToken: String? = null
-
-    /**
-     * The base URL for all API requests, constructed from server configuration.
-     * Format: "host:port/contextPath"
-     */
     private val apiBaseUrl = "${serverConfig?.host}:${serverConfig?.port}${serverConfig?.contextPath}"
 
-    // API clients using the cookie-aware client's OkHttpClient for automatic session management
+    // Create a custom OkHttpClient for chat operations with extended timeouts
+    private val chatHttpClient = CookieAwareApiClient.createClientWithCookieHandler()
+        .newBuilder()
+        .connectTimeout(CHAT_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(CHAT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .writeTimeout(CHAT_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true) // Enable automatic retry on connection failure
+        .build()
+
+    // Standard API clients with default timeouts
     private val authApi = AuthenticationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val userApi = UserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val projectApi = ProjectApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val userVerificationApi = UserVerificationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-    private val chatApi = ChatApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+
+    // Chat API with extended timeout configuration
+    private val chatApi = ChatApi(apiBaseUrl, chatHttpClient)
 
     val currentGenerationProject = AtomicReference<Project?>(null)
+
 
     init {
         LOG.info("AppService initialized with API base URL: $apiBaseUrl")

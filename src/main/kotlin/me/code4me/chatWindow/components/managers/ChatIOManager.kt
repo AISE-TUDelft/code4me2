@@ -24,6 +24,8 @@ import me.code4me.utils.api.mapsTo
 import me.code4me.utils.record.Record
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
+import com.intellij.openapi.application.readAction
+import com.intellij.openapi.application.runReadAction
 
 class ChatIOManager {
 
@@ -34,8 +36,7 @@ class ChatIOManager {
      * Uses the module manager to collect data from registered modules
      * and passes it to the AppService for AI response generation
      */
-    fun getAIResponse(
-        query: String,
+    suspend fun getAIResponse(
         useWeb: Boolean,
         selectedFiles: List<String>,
         selectedModel: String?,
@@ -43,105 +44,120 @@ class ChatIOManager {
         previousMessages: List<Pair<String, String>> = emptyList(),
         project: Project,
     ): TitleResponsePair {
-        // Get the current editor
-        val editor = FileEditorManager.getInstance(project).selectedTextEditor
+        // Collect editor data within a read action
+        val editorData = readAction {
+            // Get the current editor
+            val editor = FileEditorManager.getInstance(project).selectedTextEditor
 
-        if (editor != null) {
-            // Get the document from the editor
-            val document = editor.document
+            if (editor != null) {
+                // Get the document from the editor
+                val document = editor.document
 
-            // Get the PsiFile from the editor's virtual file
-            val psiFile = PsiManager.getInstance(project).findFile(editor.virtualFile)
+                // Get the PsiFile from the editor's virtual file
+                val psiFile = PsiManager.getInstance(project).findFile(editor.virtualFile)
 
-            // Only proceed if we have a valid PsiFile
-            if (psiFile != null) {
-                // Create a mock InlineCompletionRequest
-                val mockRequest = InlineCompletionRequest(
-                    event = InlineCompletionEvent.DirectCall(
+                // Only proceed if we have a valid PsiFile
+                if (psiFile != null) {
+                    // Create a mock InlineCompletionRequest
+                    val mockRequest = InlineCompletionRequest(
+                        event = InlineCompletionEvent.DirectCall(
+                            editor = editor,
+                            caret = editor.caretModel.primaryCaret,
+                            context = null
+                        ),
+                        file = psiFile,
                         editor = editor,
-                        caret = editor.caretModel.primaryCaret,
-                        context = null
-                    ),
-                    file = psiFile,
-                    editor = editor,
-                    document = document,
-                    startOffset = editor.caretModel.primaryCaret.offset,
-                    endOffset = editor.caretModel.primaryCaret.offset,
-                    lookupElement = null
-                )
-
-                // Get the module manager for the current project
-                val moduleManager = getModuleManager(project)
-
-                // Collect data from all registered modules
-                val collectedData = moduleManager.collectData(mockRequest)
-
-                // Process the collected data
-                val aggregatedData = collectedData
-                    .aggregateByType()
-                    .mapValues { (_, values) -> values.toMap() }
-
-                // model preferences
-                val modelPrefs = aggregatedData[Record.Type.MODEL]
-                val modelId = getConfig().getModelsConfiguration()
-                    ?.getModelIdByName(selectedModel ?: modelPrefs?.get("preferredCompletionModel")?.toString() ?: "default")
-                val systemPrompt = modelPrefs?.get("systemPrompt")?.toString() ?: "You are a helpful programming assistant."
-
-                // construct the chat history
-                val systemPromptPair = Pair(ChatConverter.SYSTEM_SENDER, systemPrompt)
-                val chatHistory =
-                    (listOf(systemPromptPair) + previousMessages).let {
-                        ChatConverter.toApiMessages(it)
-                    }
-
-                val context =
-                    (aggregatedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
-                        ContextData::class.java,
+                        document = document,
+                        startOffset = editor.caretModel.primaryCaret.offset,
+                        endOffset = editor.caretModel.primaryCaret.offset,
+                        lookupElement = null
                     )
-                val behavioralTelemetry =
-                    (aggregatedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
-                        .mapsTo<BehavioralTelemetryData>(
-                            BehavioralTelemetryData::class.java,
-                        )
-                val contextualTelemetry =
-                    (aggregatedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
-                        .mapsTo<ContextualTelemetryData>(
-                            ContextualTelemetryData::class.java,
-                        )
 
-                // create the request necessary for the AppService
-                val request = RequestChatCompletion(
-                    modelIds = listOfNotNull(modelId),
-                    chatId = chatId ?.let { java.util.UUID.fromString(it) } ?: java.util.UUID.randomUUID(),
-                    messages = chatHistory,
-                    context = context,
-                    contextualTelemetry = contextualTelemetry,
-                    behavioralTelemetry = behavioralTelemetry,
-                    webEnabled = useWeb
-                )
+                    // Get the module manager for the current project
+                    val moduleManager = getModuleManager(project)
 
-                // call the AppService to get the AI response
-                val appService = getAppService()
-                val response = appService.requestChatCompletion(
-                    request,
-                    project
-                )
+                    // Collect data from all registered modules
+                    val collectedData = moduleManager.collectData(mockRequest)
 
-                val newChatTitle = response.title
-                return if (response.history.isNotEmpty()) {
-                    TitleResponsePair(
-                        newChatTitle,
-                        response.history.first().assistantResponses.map { it.completion }
-                    )
+                    // Return the collected data
+                    collectedData
                 } else {
-                    TitleResponsePair(newChatTitle, emptyList())
+                    null
                 }
+            } else {
+                null
             }
         }
-        LOG.error("No active editor found in the project.")
-        return TitleResponsePair(
-            "Error: No active editor",
-            emptyList()
+
+        // Check if we successfully collected data
+        if (editorData == null) {
+            LOG.error("No active editor found in the project.")
+            return TitleResponsePair(
+                "Error: No active editor",
+                emptyList()
+            )
+        }
+
+        // Process the collected data (this doesn't need read access)
+        val aggregatedData = editorData
+            .aggregateByType()
+            .mapValues { (_, values) -> values.toMap() }
+
+        // model preferences
+        val modelPrefs = aggregatedData[Record.Type.MODEL]
+        val modelId = getConfig().getModelsConfiguration()
+            ?.getModelIdByName(selectedModel ?: modelPrefs?.get("preferredCompletionModel")?.toString() ?: "default")
+        val systemPrompt = modelPrefs?.get("systemPrompt")?.toString() ?: "You are a helpful programming assistant."
+
+        // construct the chat history
+        val systemPromptPair = Pair(ChatConverter.SYSTEM_SENDER, systemPrompt)
+        val chatHistory =
+            (listOf(systemPromptPair) + previousMessages).let {
+                ChatConverter.toApiMessages(it)
+            }
+
+        val context =
+            (aggregatedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
+                ContextData::class.java,
+            )
+        val behavioralTelemetry =
+            (aggregatedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
+                .mapsTo<BehavioralTelemetryData>(
+                    BehavioralTelemetryData::class.java,
+                )
+        val contextualTelemetry =
+            (aggregatedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
+                .mapsTo<ContextualTelemetryData>(
+                    ContextualTelemetryData::class.java,
+                )
+
+        // create the request necessary for the AppService
+        val request = RequestChatCompletion(
+            modelIds = listOfNotNull(modelId),
+            chatId = chatId?.let { java.util.UUID.fromString(it) } ?: java.util.UUID.randomUUID(),
+            messages = chatHistory,
+            context = context,
+            contextualTelemetry = contextualTelemetry,
+            behavioralTelemetry = behavioralTelemetry,
+            webEnabled = useWeb
         )
+
+        // call the AppService to get the AI response
+        val appService = getAppService()
+        val response = appService.requestChatCompletion(
+            request,
+            project
+        )
+
+        val newChatTitle = response.title
+        return if (response.history.isNotEmpty()) {
+            TitleResponsePair(
+                newChatTitle,
+                response.history.first().assistantResponses.map { it.completion }
+            )
+        } else {
+            TitleResponsePair(newChatTitle, emptyList())
+        }
     }
+
 }
