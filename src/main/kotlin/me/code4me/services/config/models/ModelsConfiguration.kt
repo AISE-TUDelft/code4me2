@@ -55,4 +55,8 @@ data class ModelsConfiguration(
         }
         return availableModels.find { it.name == name }?.id
     }
+
+    fun modelNameById(modelId: Int): String {
+        return availableModels.find { it.id == modelId }?.name ?: "Unknown Model"
+    }
 }
