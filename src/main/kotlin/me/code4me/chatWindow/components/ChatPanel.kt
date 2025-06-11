@@ -179,8 +179,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                 // Replace the loading message with the actual response
                 if (aiResponse.responses.isNotEmpty()) {
                     updateLastMessage(aiResponse.responses.first())
-                    // add the responses to the session
-                    sessionManager?.addMessageToCurrentSession(AI_NAME, aiResponse.responses.first())
+                    refreshChatDisplay()
                 } else {
                     updateLastMessage("No response received")
                 }

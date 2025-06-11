@@ -167,12 +167,18 @@ class ChatBubble(
         container: JPanel,
         text: String,
     ) {
-        val virtualFile = LightVirtualFile("chat.md", text)
+        // format the text to contain a <llm-snippet-file> tag with a closing </llm-snippet-file> tag
+        //      before the first ``` so that it can be rendered as HTML
+        //      this is a workaround to make sure the text is rendered correctly
+        val formattedText = text.replace(Regex("```([\\s\\S]*?)```")) { "<llm-snippet-file>chat.md</llm-snippet-file>\n${it.groupValues[1]}" }
+
+
+        val virtualFile = LightVirtualFile("chat.md", formattedText)
         val html =
             try {
                 MarkdownUtil.generateMarkdownHtml(virtualFile, text, project)
             } catch (e: Exception) {
-                "<html><body>$text</body></html>"
+                "<html><body>$formattedText</body></html>"
             }
 
         val htmlPane = createStyledHtmlPane(html)
