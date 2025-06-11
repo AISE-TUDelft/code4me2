@@ -4,10 +4,9 @@ import com.intellij.testFramework.HeavyPlatformTestCase
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.manager.getModuleManager
 
-
 /**
  * This test class is designed to verify the initialization of modules from a full configuration file.
- * It should be completed whenever config file can be loaded from server and can be injected easily 
+ * It should be completed whenever config file can be loaded from server and can be injected easily
  */
 class ConfigHeavyTest : HeavyPlatformTestCase() {
     override fun setUp() {

@@ -25,7 +25,6 @@ import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestCompletion
 import me.code4me.api.generated.model.ResponseCompletionResponseData
-import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner
 import me.code4me.api.generated.model.UpdateUser
 import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserToAuthenticate
@@ -37,8 +36,6 @@ import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.mapsTo
 import me.code4me.utils.record.Record
 import java.io.IOException
-import java.util.Locale
-import java.util.Locale.getDefault
 import java.util.concurrent.atomic.AtomicReference
 
 fun getAppService(): AppService {
