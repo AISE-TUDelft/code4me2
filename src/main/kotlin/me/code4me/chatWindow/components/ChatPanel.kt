@@ -16,6 +16,7 @@ import me.code4me.chatWindow.components.managers.ChatIOManager
 import me.code4me.chatWindow.components.managers.ChatSessionManager
 import me.code4me.chatWindow.components.managers.ChatViewManager
 import me.code4me.chatWindow.components.topBarPanel.TopBarPanel
+import me.code4me.services.project.getProjectChatService
 import java.awt.BorderLayout
 
 class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
@@ -25,7 +26,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     private val ioManager = ChatIOManager()
-    private val sessionManager = ChatSessionManager()
+    private var sessionManager: ChatSessionManager? = null
     private val selectedFiles = mutableSetOf<VirtualFile>()
     private var welcomeShown = true
     private var useWeb = false
@@ -49,6 +50,10 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         project = ProjectManager.getInstance().openProjects.firstOrNull()
         if (project == null) return
 
+        // Initialize the session manager with the repository
+        val chatRepository = getProjectChatService(project!!)
+        sessionManager = ChatSessionManager(chatRepository)
+
         inputPanel = createInputPanel(project!!)
         chatDisplayPanel = ChatDisplayPanel(project!!)
         topBarPanel = createTopBarPanel()
@@ -70,7 +75,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     private fun createTopBarPanel() =
         TopBarPanel(
-            sessionManager,
+            sessionManager!!,
             onSessionSwitched = ::refreshChatDisplay,
             onNewChatCreated = ::resetToWelcome,
             onHistoryClicked = { viewManager.showHistoryPanel() },
@@ -78,7 +83,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         )
 
     private fun createHistoryPanel() =
-        HistoryPanel(sessionManager) {
+        HistoryPanel(sessionManager!!) {
             ApplicationManager.getApplication().invokeLater {
                 topBarPanel.updateTitle()
                 refreshChatDisplay()
@@ -117,17 +122,21 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     private fun initializeChatHistory() {
-        sessionManager.currentSession.messages.clear()
+        sessionManager?.currentSession?.messages?.clear()
+        sessionManager?.let { manager ->
+            manager.chatRepository.saveChat(manager.currentSession)
+        }
         refreshChatDisplay()
     }
 
     private fun sendMessage() {
         val message = inputPanel.inputText.trim()
-        if (message.isEmpty()) return
+        if (message.isEmpty() || sessionManager == null) return
 
         if (welcomeShown) {
             welcomeShown = false
-            sessionManager.currentSession.messages.removeIf { (sender, _) -> sender.isEmpty() }
+            sessionManager!!.currentSession.messages.removeIf { (sender, _) -> sender.isEmpty() }
+            sessionManager!!.chatRepository.saveChat(sessionManager!!.currentSession)
             refreshChatDisplay()
         }
 
@@ -150,13 +159,13 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         sender: String,
         message: String,
     ) {
-        sessionManager.addMessageToCurrentSession(sender, message)
+        sessionManager?.addMessageToCurrentSession(sender, message)
         refreshChatDisplay()
     }
 
     private fun refreshChatDisplay() {
         uiScope.launch {
-            val messages = sessionManager.currentSession.messages
+            val messages = sessionManager?.currentSession?.messages ?: mutableListOf()
             ApplicationManager.getApplication().invokeLater {
                 chatDisplayPanel.updateContent(messages)
                 historyPanel.refresh()

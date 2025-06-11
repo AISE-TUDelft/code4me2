@@ -148,14 +148,8 @@ class TopBarPanel(
     private fun createNewChatButton(): IconButton {
         val newChatIcon: Icon = AllIcons.General.Add
         return IconButton(newChatIcon, "New Chat") {
-            val newChatTitle = "New Chat"
-            val existingSession = sessionManager.getAllSessions().find { it.title == newChatTitle }
-
-            if (existingSession != null) {
-                sessionManager.switchToSession(existingSession)
-            } else {
-                sessionManager.createNewSession(newChatTitle)
-            }
+            // Always create a new chat session
+            sessionManager.createNewSession("New Chat")
 
             onNewChatCreated()
             updateTitle()

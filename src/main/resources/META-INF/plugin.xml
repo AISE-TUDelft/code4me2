@@ -26,7 +26,7 @@
                 anchor="right"
                 icon="/icons/pluginIcon.svg"
         />
-        <postStartupActivity implementation="me.code4me.startup.PluginStartupActivity" />
+        <postStartupActivity implementation="me.code4me.lifecycle.PluginStartupActivity" />
 
         <!-- The settings extension points -->
         <applicationConfigurable

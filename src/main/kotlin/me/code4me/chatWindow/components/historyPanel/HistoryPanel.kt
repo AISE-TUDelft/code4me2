@@ -80,8 +80,8 @@ class HistoryPanel(
 
                                 addActionListener {
                                     val visibleSessions =
-                                        sessionManager.getAllSessions().filterNot {
-                                            it.title == "New Chat" && it.messages.size <= 1
+                                        sessionManager.getAllSessions().filterNot { session ->
+                                            sessionManager.isEmptyNewChat(session)
                                             // New chat is always in sessions but shouldn't be shown in history when it's empty.
                                             // so this basically takes care of just that.
                                         }
@@ -106,12 +106,8 @@ class HistoryPanel(
 
                         add(
                             IconButton(AllIcons.General.Add, "New Chat") {
-                                val existingNewChat = sessionManager.getAllSessions().find { it.title == "New Chat" }
-                                if (existingNewChat != null) {
-                                    sessionManager.switchToSession(existingNewChat)
-                                } else {
-                                    sessionManager.createNewSession("New Chat")
-                                }
+                                // Always create a new chat session
+                                sessionManager.createNewSession("New Chat")
                                 onSessionSelected()
                             },
                         )
@@ -146,10 +142,10 @@ class HistoryPanel(
      */
     fun refresh() {
         contentPanel.removeAll()
-        // this is to exclude new chat unless there's been something said in it (which shouldn't happen since the name should change as soon as server responds. TODO potentially change
+        // Exclude empty "New Chat" sessions using the helper method
         val sessions =
-            sessionManager.getAllSessions().filterNot {
-                it.title == "New Chat" && it.messages.size <= 1
+            sessionManager.getAllSessions().filterNot { session ->
+                sessionManager.isEmptyNewChat(session)
             }
         if (sessions.isEmpty()) {
             contentPanel.add(
