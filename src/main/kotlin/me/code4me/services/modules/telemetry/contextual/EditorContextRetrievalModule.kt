@@ -1,5 +1,6 @@
 package me.code4me.services.modules.telemetry.contextual
 
+import com.intellij.codeInsight.inline.completion.InlineCompletionEvent
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -223,7 +224,17 @@ class EditorContextRetrievalModule : PluginModule {
             expanded[pluginVersion] = 1
 
             val triggerType = Record.Companion.key<Int>("trigger_type_id")
-            expanded[triggerType] = 1
+            expanded[triggerType] =
+                request.event.let {
+                    // check that the event is of Type InlineCompletionEvent.DocumentChange
+                    if (it is InlineCompletionEvent.DocumentChange) {
+                        2 // this means that it was automatically triggered by the document change
+
+                    } else {
+                        1 // this means that it was manually triggered by the user either by typing or by a shortcut
+                          // or via the dropdown menu or even via the chat.
+                    }
+                }
 
             val languageId = Record.Companion.key<Int>("language_id")
             expanded[languageId] = 1

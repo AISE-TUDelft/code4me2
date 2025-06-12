@@ -16,7 +16,10 @@ import me.code4me.chatWindow.components.managers.ChatIOManager
 import me.code4me.chatWindow.components.managers.ChatSessionManager
 import me.code4me.chatWindow.components.managers.ChatViewManager
 import me.code4me.chatWindow.components.topBarPanel.TopBarPanel
+import me.code4me.services.config.getConfig
+import me.code4me.services.project.getProjectChatService
 import java.awt.BorderLayout
+import javax.swing.Timer
 
 class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     companion object {
@@ -25,7 +28,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     private val ioManager = ChatIOManager()
-    private val sessionManager = ChatSessionManager()
+    private var sessionManager: ChatSessionManager? = null
     private val selectedFiles = mutableSetOf<VirtualFile>()
     private var welcomeShown = true
     private var useWeb = false
@@ -37,6 +40,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private lateinit var historyPanel: HistoryPanel
     private val viewManager = ChatViewManager()
     private val uiScope = CoroutineScope(Dispatchers.Default)
+    private val aiScope = CoroutineScope(Dispatchers.IO)
 
     init {
         setupPanelLayout()
@@ -48,6 +52,10 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         border = JBUI.Borders.empty()
         project = ProjectManager.getInstance().openProjects.firstOrNull()
         if (project == null) return
+
+        // Initialize the session manager with the repository
+        val chatRepository = getProjectChatService(project!!)
+        sessionManager = ChatSessionManager(chatRepository)
 
         inputPanel = createInputPanel(project!!)
         chatDisplayPanel = ChatDisplayPanel(project!!)
@@ -70,7 +78,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     private fun createTopBarPanel() =
         TopBarPanel(
-            sessionManager,
+            sessionManager!!,
             onSessionSwitched = ::refreshChatDisplay,
             onNewChatCreated = ::resetToWelcome,
             onHistoryClicked = { viewManager.showHistoryPanel() },
@@ -78,7 +86,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         )
 
     private fun createHistoryPanel() =
-        HistoryPanel(sessionManager) {
+        HistoryPanel(sessionManager!!) {
             ApplicationManager.getApplication().invokeLater {
                 topBarPanel.updateTitle()
                 refreshChatDisplay()
@@ -117,17 +125,21 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     private fun initializeChatHistory() {
-        sessionManager.currentSession.messages.clear()
+        sessionManager?.currentSession?.messages?.clear()
+        sessionManager?.let { manager ->
+            manager.chatRepository.saveChat(manager.currentSession)
+        }
         refreshChatDisplay()
     }
 
     private fun sendMessage() {
         val message = inputPanel.inputText.trim()
-        if (message.isEmpty()) return
+        if (message.isEmpty() || sessionManager == null) return
 
         if (welcomeShown) {
             welcomeShown = false
-            sessionManager.currentSession.messages.removeIf { (sender, _) -> sender.isEmpty() }
+            sessionManager!!.currentSession.messages.removeIf { (sender, _) -> sender.isEmpty() }
+            sessionManager!!.chatRepository.saveChat(sessionManager!!.currentSession)
             refreshChatDisplay()
         }
 
@@ -135,28 +147,83 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         appendMessage(USER_NAME, message)
         inputPanel.clearInput()
         chatDisplayPanel.scrollToBottomOnUserAction()
-        processAIResponse(message, selectedModel)
+
+        // Add a loading message
+        appendMessage(AI_NAME, "Generating.")
+
+        // Create a timer to update the loading indicator
+        val loadingPatterns = arrayOf("Generating.", "Generating..", "Generating...")
+        var patternIndex = 0
+        val loadingTimer = Timer(300) { _ ->
+            val loadingText = loadingPatterns[patternIndex]
+            updateLastMessage(loadingText)
+            patternIndex = (patternIndex + 1) % loadingPatterns.size
+        }
+        loadingTimer.start()
+
+        // Process AI response in background
+        aiScope.launch {
+            val aiResponse = processAIResponse(message, selectedModel)
+
+            // Update UI on main thread
+            ApplicationManager.getApplication().invokeLater {
+                // Stop the loading timer
+                loadingTimer.stop()
+
+                // Update title if needed
+                if (aiResponse.title.isNotBlank() && sessionManager?.currentSession?.title != aiResponse.title) {
+                    sessionManager?.currentSession?.title = aiResponse.title
+                    topBarPanel.updateTitle()
+                }
+
+                // Replace the loading message with the actual response
+                if (aiResponse.responses.isNotEmpty()) {
+                    updateLastMessage(aiResponse.responses.first())
+                    refreshChatDisplay()
+                } else {
+                    updateLastMessage("No response received")
+                }
+            }
+        }
     }
 
-    private fun processAIResponse(
+    private suspend fun processAIResponse(
         query: String,
         selectedModel: String?,
-    ) {
-        val aiResponse = ioManager.getAIResponse(query, useWeb, selectedFiles.map { it.path }, selectedModel)
-        appendMessage(AI_NAME, aiResponse)
-    }
+    ) = ioManager.getAIResponse(
+        useWeb,
+        selectedFiles.map { it.path },
+        selectedModel,
+        sessionManager?.currentSession?.id?.toString(),
+        sessionManager?.currentSession?.messages!!,
+        project!!
+    )
 
     private fun appendMessage(
         sender: String,
         message: String,
     ) {
-        sessionManager.addMessageToCurrentSession(sender, message)
+        sessionManager?.addMessageToCurrentSession(sender, message)
         refreshChatDisplay()
+    }
+
+    private fun updateLastMessage(newMessage: String) {
+        if (sessionManager?.currentSession?.messages?.isNotEmpty() == true) {
+            val messages = sessionManager!!.currentSession.messages
+            val lastIndex = messages.size - 1
+            val (sender, _) = messages[lastIndex]
+
+            // Replace the last message
+            messages[lastIndex] = sender to newMessage
+
+            // Update the display
+            refreshChatDisplay()
+        }
     }
 
     private fun refreshChatDisplay() {
         uiScope.launch {
-            val messages = sessionManager.currentSession.messages
+            val messages = sessionManager?.currentSession?.messages ?: mutableListOf()
             ApplicationManager.getApplication().invokeLater {
                 chatDisplayPanel.updateContent(messages)
                 historyPanel.refresh()
@@ -176,7 +243,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     private fun loadModelsFromConfig() {
         try {
-            val models = arrayOf("GPT-4", "Claude-3", "Gemini-Pro", "BEST MODEL EVER")
+            val models = getConfig()
+                .getModelsConfiguration()
+                ?.getAvailableChatModels()
+                ?.map {it.name}?.toTypedArray()
+                ?: emptyArray<String>()
             updateModelList(models)
         } catch (e: Exception) {
             println("Error loading models from config: ${e.message}")

@@ -20,7 +20,7 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import me.code4me.api.generated.model.CompletionFeedbackPostResponse
-import me.code4me.api.generated.model.CompletionPostResponseInput
+import me.code4me.api.generated.model.CompletionPostResponse
 import me.code4me.api.generated.model.ErrorResponse
 import me.code4me.api.generated.model.FeedbackCompletion
 import me.code4me.api.generated.model.FeedbackRecordingError
@@ -66,7 +66,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * Get completions for a specific query ID.
      * @param queryId 
      * @param sessionToken  (optional, default to "session_token")
-     * @return CompletionPostResponseInput
+     * @return CompletionPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -75,11 +75,11 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun getCompletionsByQueryApiCompletionQueryIdGet(queryId: java.util.UUID, sessionToken: kotlin.String? = "session_token") : CompletionPostResponseInput {
+    fun getCompletionsByQueryApiCompletionQueryIdGet(queryId: java.util.UUID, sessionToken: kotlin.String? = "session_token") : CompletionPostResponse {
         val localVarResponse = getCompletionsByQueryApiCompletionQueryIdGetWithHttpInfo(queryId = queryId, sessionToken = sessionToken)
 
         return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as CompletionPostResponseInput
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CompletionPostResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -99,16 +99,16 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * Get completions for a specific query ID.
      * @param queryId 
      * @param sessionToken  (optional, default to "session_token")
-     * @return ApiResponse<CompletionPostResponseInput?>
+     * @return ApiResponse<CompletionPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun getCompletionsByQueryApiCompletionQueryIdGetWithHttpInfo(queryId: java.util.UUID, sessionToken: kotlin.String?) : ApiResponse<CompletionPostResponseInput?> {
+    fun getCompletionsByQueryApiCompletionQueryIdGetWithHttpInfo(queryId: java.util.UUID, sessionToken: kotlin.String?) : ApiResponse<CompletionPostResponse?> {
         val localVariableConfig = getCompletionsByQueryApiCompletionQueryIdGetRequestConfig(queryId = queryId, sessionToken = sessionToken)
 
-        return request<Unit, CompletionPostResponseInput>(
+        return request<Unit, CompletionPostResponse>(
             localVariableConfig
         )
     }
@@ -143,7 +143,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * @param requestCompletion 
      * @param sessionToken  (optional, default to "session_token")
      * @param projectToken  (optional, default to "project_token")
-     * @return CompletionPostResponseInput
+     * @return CompletionPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -152,11 +152,11 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun requestCompletionApiCompletionRequestPost(requestCompletion: RequestCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : CompletionPostResponseInput {
+    fun requestCompletionApiCompletionRequestPost(requestCompletion: RequestCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : CompletionPostResponse {
         val localVarResponse = requestCompletionApiCompletionRequestPostWithHttpInfo(requestCompletion = requestCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as CompletionPostResponseInput
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CompletionPostResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -177,16 +177,16 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * @param requestCompletion 
      * @param sessionToken  (optional, default to "session_token")
      * @param projectToken  (optional, default to "project_token")
-     * @return ApiResponse<CompletionPostResponseInput?>
+     * @return ApiResponse<CompletionPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun requestCompletionApiCompletionRequestPostWithHttpInfo(requestCompletion: RequestCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : ApiResponse<CompletionPostResponseInput?> {
+    fun requestCompletionApiCompletionRequestPostWithHttpInfo(requestCompletion: RequestCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : ApiResponse<CompletionPostResponse?> {
         val localVariableConfig = requestCompletionApiCompletionRequestPostRequestConfig(requestCompletion = requestCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
-        return request<RequestCompletion, CompletionPostResponseInput>(
+        return request<RequestCompletion, CompletionPostResponse>(
             localVariableConfig
         )
     }

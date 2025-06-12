@@ -43,7 +43,25 @@ class HistoryPanel(
                 onSessionSelected()
             },
             onDelete = { session ->
-                sessionManager.deleteSession(session)
+                // confirm the deletion and also ask if the user wants to delete from server
+                val checkbox = javax.swing.JCheckBox("Also delete from server")
+                val panel = javax.swing.JPanel(java.awt.BorderLayout()).apply {
+                    add(javax.swing.JLabel("Are you sure you want to delete this chat session?"), java.awt.BorderLayout.NORTH)
+                    add(checkbox, java.awt.BorderLayout.SOUTH)
+                }
+                val confirm =
+                    JOptionPane.showConfirmDialog(
+                        this,
+                        panel,
+                        "Confirm Deletion",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE,
+                    )
+                val deleteFromServer = checkbox.isSelected
+
+                if (confirm != JOptionPane.YES_OPTION) return@HistoryRenderer
+                // Delete the session
+                sessionManager.deleteSession(session, deleteFromServer)
                 refresh()
             },
         )
@@ -80,23 +98,34 @@ class HistoryPanel(
 
                                 addActionListener {
                                     val visibleSessions =
-                                        sessionManager.getAllSessions().filterNot {
-                                            it.title == "New Chat" && it.messages.size <= 1
+                                        sessionManager.getAllSessions().filterNot { session ->
+                                            sessionManager.isEmptyNewChat(session)
                                             // New chat is always in sessions but shouldn't be shown in history when it's empty.
                                             // so this basically takes care of just that.
                                         }
 
                                     if (visibleSessions.isNotEmpty()) {
+                                        // Confirm deletion of all sessions
+                                        // also ask if the user wants to delete from server
+                                        val checkbox = javax.swing.JCheckBox("Also delete from server")
+                                        val panel = javax.swing.JPanel(java.awt.BorderLayout()).apply {
+                                            add(javax.swing.JLabel("Are you sure you want to delete this chat session?"), java.awt.BorderLayout.NORTH)
+                                            add(checkbox, java.awt.BorderLayout.SOUTH)
+                                        }
+
                                         val confirm =
                                             JOptionPane.showConfirmDialog(
                                                 this,
+                                                panel,
                                                 "Are you sure you want to delete all chat sessions?",
-                                                "Confirm Deletion",
                                                 JOptionPane.YES_NO_OPTION,
                                                 JOptionPane.WARNING_MESSAGE,
                                             )
+                                        val deleteFromServer = checkbox.isSelected
                                         if (confirm == JOptionPane.YES_OPTION) {
-                                            sessionManager.getAllSessions().forEach { sessionManager.deleteSession(it) }
+                                            sessionManager.getAllSessions().forEach {
+                                                sessionManager.deleteSession(it, deleteFromServer)
+                                            }
                                             refresh()
                                         }
                                     }
@@ -106,12 +135,8 @@ class HistoryPanel(
 
                         add(
                             IconButton(AllIcons.General.Add, "New Chat") {
-                                val existingNewChat = sessionManager.getAllSessions().find { it.title == "New Chat" }
-                                if (existingNewChat != null) {
-                                    sessionManager.switchToSession(existingNewChat)
-                                } else {
-                                    sessionManager.createNewSession("New Chat")
-                                }
+                                // Always create a new chat session
+                                sessionManager.createNewSession("New Chat")
                                 onSessionSelected()
                             },
                         )
@@ -146,10 +171,10 @@ class HistoryPanel(
      */
     fun refresh() {
         contentPanel.removeAll()
-        // this is to exclude new chat unless there's been something said in it (which shouldn't happen since the name should change as soon as server responds. TODO potentially change
+        // Exclude empty "New Chat" sessions using the helper method
         val sessions =
-            sessionManager.getAllSessions().filterNot {
-                it.title == "New Chat" && it.messages.size <= 1
+            sessionManager.getAllSessions().filterNot { session ->
+                sessionManager.isEmptyNewChat(session)
             }
         if (sessions.isEmpty()) {
             contentPanel.add(

@@ -11,7 +11,7 @@ All URIs are relative to *http://localhost*
 
 <a id="getCompletionsByQueryApiCompletionQueryIdGet"></a>
 # **getCompletionsByQueryApiCompletionQueryIdGet**
-> CompletionPostResponseInput getCompletionsByQueryApiCompletionQueryIdGet(queryId, sessionToken)
+> CompletionPostResponse getCompletionsByQueryApiCompletionQueryIdGet(queryId, sessionToken)
 
 Get Completions By Query
 
@@ -27,7 +27,7 @@ val apiInstance = CompletionApi()
 val queryId : java.util.UUID = 38400000-8cf0-11bd-b23e-10b96e4ef00d // java.util.UUID | 
 val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
 try {
-    val result : CompletionPostResponseInput = apiInstance.getCompletionsByQueryApiCompletionQueryIdGet(queryId, sessionToken)
+    val result : CompletionPostResponse = apiInstance.getCompletionsByQueryApiCompletionQueryIdGet(queryId, sessionToken)
     println(result)
 } catch (e: ClientException) {
     println("4xx response calling CompletionApi#getCompletionsByQueryApiCompletionQueryIdGet")
@@ -46,7 +46,7 @@ try {
 
 ### Return type
 
-[**CompletionPostResponseInput**](CompletionPostResponseInput.md)
+[**CompletionPostResponse**](CompletionPostResponse.md)
 
 ### Authorization
 
@@ -59,7 +59,7 @@ No authorization required
 
 <a id="requestCompletionApiCompletionRequestPost"></a>
 # **requestCompletionApiCompletionRequestPost**
-> CompletionPostResponseInput requestCompletionApiCompletionRequestPost(requestCompletion, sessionToken, projectToken)
+> CompletionPostResponse requestCompletionApiCompletionRequestPost(requestCompletion, sessionToken, projectToken)
 
 Request Completion
 
@@ -76,7 +76,7 @@ val requestCompletion : RequestCompletion =  // RequestCompletion |
 val sessionToken : kotlin.String = sessionToken_example // kotlin.String | 
 val projectToken : kotlin.String = projectToken_example // kotlin.String | 
 try {
-    val result : CompletionPostResponseInput = apiInstance.requestCompletionApiCompletionRequestPost(requestCompletion, sessionToken, projectToken)
+    val result : CompletionPostResponse = apiInstance.requestCompletionApiCompletionRequestPost(requestCompletion, sessionToken, projectToken)
     println(result)
 } catch (e: ClientException) {
     println("4xx response calling CompletionApi#requestCompletionApiCompletionRequestPost")
@@ -96,7 +96,7 @@ try {
 
 ### Return type
 
-[**CompletionPostResponseInput**](CompletionPostResponseInput.md)
+[**CompletionPostResponse**](CompletionPostResponse.md)
 
 ### Authorization
 

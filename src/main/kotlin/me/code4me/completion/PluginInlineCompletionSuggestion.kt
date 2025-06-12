@@ -4,6 +4,7 @@ import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionSug
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionVariant
 import com.intellij.openapi.diagnostic.Logger
 import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner
+import me.code4me.services.config.getConfig
 
 class PluginInlineCompletionSuggestion(
     private val completionItem: List<ResponseCompletionResponseDataCompletionsInner>,
@@ -24,7 +25,7 @@ class PluginInlineCompletionSuggestion(
                     PluginInlineCompletionVariant(
                         it.completion,
                         requestId,
-                        "DeepSeekCoder",
+                        getConfig().getModelsConfiguration()?.modelNameById(it.modelId) ?: "Unknown Model",
                     )
                 }
         }

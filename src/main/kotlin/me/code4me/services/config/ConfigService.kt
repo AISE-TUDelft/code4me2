@@ -8,6 +8,7 @@ import me.code4me.services.config.models.GoogleOAuthConfig
 import me.code4me.services.config.models.ModuleCategoryConfig
 import me.code4me.services.config.models.ModuleConfig
 import me.code4me.services.config.models.ModuleDependency
+import me.code4me.services.config.models.ModelsConfiguration
 import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.modules.PluginModule
 
@@ -23,6 +24,7 @@ fun getConfig(): ConfigService {
  * - Parsing module categories and their properties
  * - Maintaining a list of available modules
  * - Instantiating module classes dynamically
+ * - Managing model configurations for AI/ML features
  *
  * The configuration uses the HOCON format (Human-Optimized Config Object Notation)
  * which is a superset of JSON with additional features like comments and includes.
@@ -72,6 +74,12 @@ class ConfigService {
     private var googleOAuthConfig: GoogleOAuthConfig? = null
 
     /**
+     * Models configuration parsed from the 'models' section.
+     * Contains available models and system prompt configuration.
+     */
+    private var modelsConfiguration: ModelsConfiguration? = null
+
+    /**
      * Lazy-initialized flattened list of all modules and their submodules.
      * Built only when first accessed to improve startup performance.
      */
@@ -109,6 +117,13 @@ class ConfigService {
      * @return The GoogleOAuthConfig object representing the Google OAuth configuration, or null if not configured.
      */
     fun getGoogleOAuthConfig(): GoogleOAuthConfig? = googleOAuthConfig
+
+    /**
+     * Gets the models configuration.
+     *
+     * @return The ModelsConfiguration object representing the models configuration, or null if not configured.
+     */
+    fun getModelsConfiguration(): ModelsConfiguration? = modelsConfiguration
 
     /**
      * Gets all module categories from the configuration.
@@ -179,6 +194,7 @@ class ConfigService {
         parseModulesConfiguration(highLevelConfig)
         parseServerConfiguration(highLevelConfig)
         parseAuthConfiguration(highLevelConfig)
+        parseModelConfiguration(highLevelConfig)
     }
 
     /**
@@ -260,6 +276,19 @@ class ConfigService {
         if (highLevelConfig.hasPath("auth") && highLevelConfig.getConfig("auth").hasPath("google")) {
             val googleConfig = highLevelConfig.getConfig("auth").getConfig("google")
             googleOAuthConfig = GoogleOAuthConfig.fromConfig(googleConfig)
+        }
+    }
+
+    /**
+     * Parses model configuration from the 'models' section.
+     * Handles available models and system prompt configuration.
+     *
+     * @param highLevelConfig The top-level configuration object
+     */
+    private fun parseModelConfiguration(highLevelConfig: Config) {
+        if (highLevelConfig.hasPath("models")) {
+            val modelsConfig = highLevelConfig.getConfig("models")
+            modelsConfiguration = ModelsConfiguration.fromConfig(modelsConfig)
         }
     }
 

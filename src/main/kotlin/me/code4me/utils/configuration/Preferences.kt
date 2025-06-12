@@ -58,6 +58,7 @@ enum class PreferenceType(val type: String) {
     LONG("long"),
     DOUBLE("double"),
     LIST("list"),
+    TEXT("text"),
     MAP("map"),
 }
 
@@ -66,6 +67,7 @@ enum class PreferenceClass(val type: String) {
     BEHAVIORAL_TELEMETRY("behavioralTelemetry"),
     CONTEXTUAL_TELEMETRY("contextualTelemetry"),
     CONTEXT("context"),
+    MODEL("model"),
     AUTH("auth"),
     SYSTEM("system"),
 }

@@ -1,8 +1,11 @@
-package me.code4me.startup
+package me.code4me.lifecycle
 
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.project.ProjectManagerListener
 import com.intellij.openapi.startup.ProjectActivity
+import com.intellij.util.messages.MessageBusConnection
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.manager.getModuleManager
@@ -34,6 +37,11 @@ class PluginStartupActivity : ProjectActivity {
         moduleManager.initializeModules()
 
         thisLogger().info("Modules initialized successfully.")
+
+        // Register the ProjectCloseListener to save the last chat when a project is closed
+        val connection: MessageBusConnection = project.messageBus.connect()
+        connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
+        thisLogger().info("ProjectCloseListener registered successfully.")
 
         // if the auth token is set, acquire a session
         val authToken = getAuthState().getToken()

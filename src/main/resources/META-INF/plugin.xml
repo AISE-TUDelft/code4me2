@@ -10,6 +10,19 @@
 
     <resource-bundle>messages.MyBundle</resource-bundle>
 
+    <actions>
+        <action id="me.code4me.actions.TriggerInlineCompletionAction"
+                class="me.code4me.actions.TriggerInlineCompletionAction"
+                text="Trigger Inline Completion"
+                description="Manually trigger inline completion">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt shift 9"/>
+<!--            the macOS equivalent is ctrl cmd shift 9-->
+            <keyboard-shortcut keymap="Mac OS X" first-keystroke="ctrl cmd shift 9"/>
+            <add-to-group group-id="EditorActions" anchor="last"/>
+        </action>
+    </actions>
+
+
     <extensions defaultExtensionNs="com.intellij">
         <notificationGroup id="Code4Me V2" displayType="BALLOON" isLogByDefault="true" />
 
@@ -26,7 +39,7 @@
                 anchor="right"
                 icon="/icons/pluginIcon.svg"
         />
-        <postStartupActivity implementation="me.code4me.startup.PluginStartupActivity" />
+        <postStartupActivity implementation="me.code4me.lifecycle.PluginStartupActivity" />
 
         <!-- The settings extension points -->
         <applicationConfigurable

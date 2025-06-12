@@ -2,6 +2,7 @@ package me.code4me.components.settings.sections
 
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
@@ -10,6 +11,7 @@ import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
@@ -18,10 +20,13 @@ import groovy.lang.Tuple2
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.UpdateUser
+import me.code4me.components.settings.fields.FieldInfo
 import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
 import me.code4me.components.settings.fields.ModuleFloatPreferenceField
 import me.code4me.components.settings.fields.ModuleIntegerPreferenceField
+import me.code4me.components.settings.fields.ModuleListPreferenceField
 import me.code4me.components.settings.fields.ModuleStringPreferenceField
+import me.code4me.components.settings.fields.ModuleTextPreferenceField
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.app.AppService
@@ -47,6 +52,7 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.JScrollPane
 import javax.swing.JSeparator
 import javax.swing.JTree
 import javax.swing.Timer
@@ -538,7 +544,13 @@ class ConfigurationSection : SettingsSection {
         preferences.forEach { preference ->
             addPreferenceField(module, preference)
         }
+        if (preferences.isEmpty()) {
+            modulePreferencesPanel.add(JLabel("No preferences available for this module."))
+        }
+        // add some spacing at the end
+        modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
     }
+
 
     /**
      * Adds a single preference field to the panel.
@@ -547,31 +559,43 @@ class ConfigurationSection : SettingsSection {
         module: PluginModule,
         preference: Preference,
     ) {
-        // Create label with tooltip indicator
-        val labelText =
-            if (preference.description.isNotEmpty()) {
-                "${preference.displayName} ⓘ"
-            } else {
-                preference.displayName
-            }
-
-        val label =
-            JLabel("$labelText:").apply {
-                if (preference.description.isNotEmpty()) {
-                    toolTipText = preference.description
-                }
-            }
-
-        modulePreferencesPanel.add(label)
-
         val field = createPreferenceField(module, preference)
 
-        // Add tooltip to field as well
-        if (preference.description.isNotEmpty()) {
-            field.toolTipText = preference.description
-        }
+        // For boolean preferences, no separate label is needed as checkbox contains the text
+        if (preference.type == PreferenceType.BOOLEAN) {
+            // Add tooltip to field
+            if (preference.description.isNotEmpty()) {
+                field.toolTipText = preference.description
+            }
+            modulePreferencesPanel.add(field)
+        } else {
+            // Create label with tooltip indicator for non-boolean types
+            val labelText =
+                if (preference.description.isNotEmpty()) {
+                    "${preference.displayName} ⓘ"
+                } else {
+                    preference.displayName
+                }
+            
+            val label =
+                JBLabel("$labelText:").apply {
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    maximumSize = preferredSize
+                    if (preference.description.isNotEmpty()) {
+                        toolTipText = preference.description
+                    }
+                    border = JBUI.Borders.empty(0)
+                }
 
-        modulePreferencesPanel.add(field)
+            modulePreferencesPanel.add(label)
+
+            // Add tooltip to field as well
+            if (preference.description.isNotEmpty()) {
+                field.toolTipText = preference.description
+            }
+
+            modulePreferencesPanel.add(field)
+        }
     }
 
     /**
@@ -588,12 +612,134 @@ class ConfigurationSection : SettingsSection {
             PreferenceType.STRING -> createStringField(moduleId, preference)
             PreferenceType.INT -> createIntegerField(moduleId, preference)
             PreferenceType.FLOAT -> createFloatField(moduleId, preference)
+            PreferenceType.LIST -> createListField(moduleId, preference)
+            PreferenceType.TEXT -> createTextBoxField(moduleId, preference)
             PreferenceType.LONG -> createIntegerField(moduleId, preference) // Treat as integer for now
             PreferenceType.DOUBLE -> createFloatField(moduleId, preference) // Treat as float for now
             else -> {
                 LOG.warn("Unsupported preference type: ${preference.type}")
                 JBLabel("Unsupported type: ${preference.type}")
             }
+        }
+    }
+
+    /**
+     * creates a list preference field with a ComboBox.
+     */
+    private fun createListField(
+        moduleId: String,
+        preference: Preference
+    ): JComponent {
+        // Parse the comma-separated values from defaultValue
+        val options = preference.defaultValue.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val selectedValue = options.firstOrNull() ?: ""
+
+        // Create ComboBox with options
+        val comboBox = ComboBox(options.toTypedArray()).apply {
+            selectedItem = selectedValue
+            toolTipText = preference.description
+        }
+
+        // Create the specialized list preference field
+        val stateValueField = ModuleListPreferenceField(moduleId, preference, comboBox, options)
+
+        // Store the field for later use
+        val fieldKey = "${moduleId}.${preference.key}"
+        modulePreferenceFields[fieldKey] = stateValueField
+
+        // Initialize with current state value
+        stateValueField.getStateValue().let { currentValue ->
+            stateValueField.setFieldValue(
+                if (currentValue.isNotEmpty()) {
+                    currentValue.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                } else {
+                    options
+                }.joinToString(",")
+            )
+        }
+
+        // Add action listener to update state value on selection change
+        comboBox.addActionListener {
+            val selected = comboBox.selectedItem?.toString() ?: ""
+            val otherValues = options.filter { it != selected }
+
+            stateValueField.setStateValue(
+                if (selected.isNotEmpty()) {
+                    listOf(selected) + otherValues
+                } else {
+                    options
+                }.joinToString(",")
+            )
+        }
+
+        // Create container panel
+        val panel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(comboBox)
+            border = JBUI.Borders.emptyBottom(8)
+        }
+
+        return panel
+    }
+
+    /**
+     * Creates a text box preference field with a scrollable text area.
+     */
+    private fun createTextBoxField(
+        moduleId: String,
+        preference: Preference
+    ): JComponent {
+        val textArea = JBTextArea().apply {
+            text = preference.defaultValue
+            toolTipText = preference.description
+            lineWrap = true
+            wrapStyleWord = true
+            rows = 5
+            columns = 30
+            maximumSize = Dimension(PREFERENCES_PANEL_WIDTH - 60, 120)
+        }
+
+        val scrollPane = JBScrollPane(textArea).apply {
+            preferredSize = Dimension(PREFERENCES_PANEL_WIDTH - 60, 100)
+            minimumSize = Dimension(MIN_PREFERENCES_PANEL_WIDTH - 60, 80)
+            maximumSize = Dimension(PREFERENCES_PANEL_WIDTH - 60, 120)
+            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        }
+
+        // Create the text preference field
+        val stateValueField = ModuleTextPreferenceField(moduleId, preference, textArea)
+
+        val fieldKey = "${moduleId}.${preference.key}"
+        modulePreferenceFields[fieldKey] = stateValueField
+
+        // Initialize with current state value
+        stateValueField.getStateValue().let { currentValue ->
+            stateValueField.setFieldValue(currentValue)
+        }
+
+        // set up document listener to update state value on text change
+        var debounceTimer: Timer? = null
+
+        textArea.document.addDocumentListener(
+            object : DocumentListener {
+                override fun insertUpdate(e: DocumentEvent?) = scheduleUpdate()
+                override fun removeUpdate(e: DocumentEvent?) = scheduleUpdate()
+                override fun changedUpdate(e: DocumentEvent?) = scheduleUpdate()
+
+                private fun scheduleUpdate() {
+                    debounceTimer?.stop()
+                    debounceTimer = Timer(300) {
+                        stateValueField.setStateValue(textArea.text)
+                    }.apply { isRepeats = false; start() }
+                }
+            }
+        )
+
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            scrollPane.alignmentX = Component.LEFT_ALIGNMENT
+            add(scrollPane)
         }
     }
 
@@ -662,7 +808,6 @@ class ConfigurationSection : SettingsSection {
 
         val panel =
             JPanel(BorderLayout()).apply {
-                add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
                 add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
                 add(textField, BorderLayout.EAST)
             }
@@ -758,9 +903,7 @@ class ConfigurationSection : SettingsSection {
 
                 val inputPanel =
                     JPanel(BorderLayout()).apply {
-                        add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
-                        add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
-                        add(textField, BorderLayout.EAST)
+                        add(textField, BorderLayout.WEST)
                     }
 
                 add(inputPanel)
@@ -858,9 +1001,7 @@ class ConfigurationSection : SettingsSection {
 
                 val inputPanel =
                     JPanel(BorderLayout()).apply {
-                        add(JBLabel("${preference.displayName}:"), BorderLayout.WEST)
-                        add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
-                        add(textField, BorderLayout.EAST)
+                        add(textField, BorderLayout.WEST)
                     }
 
                 add(inputPanel)
