@@ -209,12 +209,12 @@ class TelemetryLightTest : BasePlatformTestCase() {
         val hasFileContextData =
             result.any { record ->
                 record.type == Record.Type.CONTEXT &&
-                    (
-                        record.containsKey(fileContentsKey) ||
-                            record.containsKey(prefixKey) ||
-                            record.containsKey(suffixKey) ||
-                            record.containsKey(fileNameKey)
-                    )
+                        (
+                                record.containsKey(fileContentsKey) ||
+                                        record.containsKey(prefixKey) ||
+                                        record.containsKey(suffixKey) ||
+                                        record.containsKey(fileNameKey)
+                                )
             }
 
         Assertions.assertFalse(
