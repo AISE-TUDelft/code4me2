@@ -12,6 +12,7 @@ import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
 import me.code4me.utils.record.Record
 import me.code4me.utils.services.state.getBooleanPreference
+import java.io.File
 
 /**
  * Context module responsible for collecting contextual information from multiple files
@@ -119,8 +120,9 @@ class MultiFileContextRetrievalModule : PluginModule {
             val expanded = mutableMapOf<Record.EntryKey, Any>()
             val currentEditor = request.editor
             val editors = EditorFactory.getInstance().allEditors
+            val allPaths = mutableSetOf<String>()
 
-            val allPaths = mutableSetOf<String>() // Unified set of paths
+            val basePath = currentEditor.project?.basePath
 
             // Collect file paths from all open editors (excluding the current one)
             if (includeOpenEditors) {
@@ -129,8 +131,18 @@ class MultiFileContextRetrievalModule : PluginModule {
 
                     val file = FileDocumentManager.getInstance().getFile(editor.document) ?: continue
                     if (file.isValid) {
-                        allPaths.add(file.path)
-                        LOG.trace("Collected open editor path: ${file.path}")
+                        val filePath = file.path
+                        val relativePath =
+                            basePath?.let { bp ->
+                                if (filePath.startsWith(bp)) {
+                                    filePath.removePrefix(bp).removePrefix(File.separator)
+                                } else {
+                                    filePath
+                                }
+                            } ?: filePath
+
+                        allPaths.add(relativePath)
+                        LOG.trace("Collected open editor path: $relativePath")
                     }
                 }
             }
@@ -150,19 +162,27 @@ class MultiFileContextRetrievalModule : PluginModule {
                             val resolved = element.reference?.resolve()
                             val sourceFile = resolved?.containingFile?.virtualFile
                             if (sourceFile != null && sourceFile.isValid) {
-                                allPaths.add(sourceFile.path)
-                                LOG.trace("Collected referenced path: ${sourceFile.path}")
+                                val filePath = sourceFile.path
+                                val relativePath =
+                                    basePath?.let { bp ->
+                                        if (filePath.startsWith(bp)) {
+                                            filePath.removePrefix(bp).removePrefix(File.separator)
+                                        } else {
+                                            filePath
+                                        }
+                                    } ?: filePath
+
+                                allPaths.add(relativePath)
+                                LOG.trace("Collected referenced path: $relativePath")
                             }
                         }
                     },
                 )
             }
 
-            // Add the collected paths as a single key for simplicity
             if (allPaths.isNotEmpty()) {
                 expanded[Record.key<List<String>>("$KEY_PREFIX_MULTI_FILE.paths")] = allPaths.toList()
             }
-
             LOG.debug("Successfully collected ${allPaths.size} unique paths")
             return if (expanded.isNotEmpty()) {
                 listOf(Record(type = Record.Type.CONTEXT, expanded = expanded))

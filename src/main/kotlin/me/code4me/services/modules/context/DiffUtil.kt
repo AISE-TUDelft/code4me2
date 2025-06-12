@@ -4,9 +4,21 @@ import com.intellij.diff.fragments.LineFragment
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProcessCanceledException
+import me.code4me.api.generated.model.ContextChangeType
 import me.code4me.services.modules.context.MultiFileContextRetrievalModule.FileContextChangeData
+import me.code4me.api.generated.model.FileContextChangeData as ApiChangeData
+import me.code4me.services.modules.context.MultiFileContextRetrievalModule.FileContextChangeData as InternalChangeData
 
-fun computeLineDiffsJetBrains(
+fun InternalChangeData.toApiModel(): ApiChangeData {
+    return ApiChangeData(
+        changeType = ContextChangeType.decode(this.changeType) ?: ContextChangeType.update,
+        startLine = this.startLine,
+        endLine = this.endLine,
+        newLines = this.newLines,
+    )
+}
+
+fun computeLineDiffs(
     oldText: String,
     newText: String,
 ): List<FileContextChangeData> {
