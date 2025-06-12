@@ -1,5 +1,6 @@
 package me.code4me.chatWindow.components.chatDisplayPanel.components
 
+import com.intellij.lang.Language
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -192,10 +193,9 @@ class ChatBubble(
         container: JPanel,
         codeBlock: CodeBlock,
     ) {
-        val fileType =
-            FileTypeManager.getInstance().getFileTypeByExtension(codeBlock.language)
-
-        val virtualFile = LightVirtualFile("code.${codeBlock.language}", fileType, codeBlock.code)
+        val language = Language.findLanguageByID(codeBlock.language.replaceFirstChar { it.uppercaseChar() })
+        val fileType = language?.associatedFileType ?: FileTypeManager.getInstance().getFileTypeByExtension("txt")
+        val virtualFile = LightVirtualFile("code.${fileType.defaultExtension}", fileType, codeBlock.code)
         val document = EditorFactory.getInstance().createDocument(codeBlock.code)
 
         val editor = EditorFactory.getInstance().createEditor(document, project, virtualFile, true) as EditorEx
