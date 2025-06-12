@@ -27,6 +27,7 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
 
     override suspend fun getSuggestionDebounced(request: InlineCompletionRequest): InlineCompletionSuggestion {
         logger.info("Generating inline completion suggestion")
+        println("Generating inline completion suggestion")
         // start the timer
         val startTime = System.currentTimeMillis()
 
