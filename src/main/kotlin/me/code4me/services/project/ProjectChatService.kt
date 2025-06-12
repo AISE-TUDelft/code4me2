@@ -1,6 +1,5 @@
 package me.code4me.services.project
 
-import com.intellij.ide.TypePresentationService.getService
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
 import me.code4me.api.generated.model.QueryChatMessageRole
@@ -21,22 +20,24 @@ import java.util.UUID
     name = "ProjectChatState",
     storages = [Storage("code4me-project-chats.xml")],
 )
-class ProjectChatService(private val project: Project) : SimplePersistentStateComponent<ProjectChatState>(ProjectChatState()), ChatRepository {
-
+class ProjectChatService(
+    private val project: Project,
+) : SimplePersistentStateComponent<ProjectChatState>(ProjectChatState()), ChatRepository {
     // ChatRepository interface implementation
     override fun getChatSession(chatId: String): ChatSession? {
         val chatData = state.chats[chatId] ?: return null
 
-        val messages = chatData.messages.map {
-            val role = QueryChatMessageRole.decode(it.role) ?: QueryChatMessageRole.user
-            ChatConverter.roleToSender(role) to it.content!!
-        }
+        val messages =
+            chatData.messages.map {
+                val role = QueryChatMessageRole.decode(it.role) ?: QueryChatMessageRole.user
+                ChatConverter.roleToSender(role) to it.content!!
+            }
 
         return ChatSession(
             id = chatId,
             title = chatData.title ?: "Chat $chatId",
             messages = messages.toMutableList(),
-            lastUpdated = Date(chatData.lastUpdated ?: System.currentTimeMillis())
+            lastUpdated = Date(chatData.lastUpdated ?: System.currentTimeMillis()),
         )
     }
 
@@ -46,9 +47,10 @@ class ProjectChatService(private val project: Project) : SimplePersistentStateCo
     }
 
     override fun saveChat(chatSession: ChatSession) {
-        val messages = chatSession.messages.map { (sender, content) ->
-            ChatMessage(ChatConverter.senderToRole(sender).value, content)
-        }
+        val messages =
+            chatSession.messages.map { (sender, content) ->
+                ChatMessage(ChatConverter.senderToRole(sender).value, content)
+            }
 
         val chatData = state.chats.getOrPut(chatSession.id) { ChatData() }
         chatData.title = chatSession.title
@@ -56,7 +58,10 @@ class ProjectChatService(private val project: Project) : SimplePersistentStateCo
         chatData.messages = messages.toMutableList()
     }
 
-    override fun deleteChat(chatId: String, deleteFromServer: Boolean) {
+    override fun deleteChat(
+        chatId: String,
+        deleteFromServer: Boolean,
+    ) {
         state.chats.remove(chatId)
         if (deleteFromServer) {
             getAppService().deleteChat(
@@ -66,13 +71,18 @@ class ProjectChatService(private val project: Project) : SimplePersistentStateCo
         }
     }
 
-    override fun addMessage(chatId: String, role: QueryChatMessageRole, content: String) {
-        val chatData = state.chats.getOrPut(chatId) {
-            ChatData().apply {
-                title = "Chat $chatId"
-                lastUpdated = System.currentTimeMillis()
+    override fun addMessage(
+        chatId: String,
+        role: QueryChatMessageRole,
+        content: String,
+    ) {
+        val chatData =
+            state.chats.getOrPut(chatId) {
+                ChatData().apply {
+                    title = "Chat $chatId"
+                    lastUpdated = System.currentTimeMillis()
+                }
             }
-        }
         chatData.messages.add(ChatMessage(role.value, content))
         chatData.lastUpdated = System.currentTimeMillis()
     }
@@ -89,7 +99,10 @@ class ProjectChatService(private val project: Project) : SimplePersistentStateCo
     /**
      * Updates the title of a specific chat
      */
-    fun updateChatTitle(chatId: String, newTitle: String) {
+    fun updateChatTitle(
+        chatId: String,
+        newTitle: String,
+    ) {
         val chatData = state.chats[chatId] ?: return
         chatData.title = newTitle
         chatData.lastUpdated = System.currentTimeMillis()
@@ -185,13 +198,17 @@ class ProjectChatService(private val project: Project) : SimplePersistentStateCo
     /**
      * Adds multiple messages to a chat at once
      */
-    fun addMessages(chatId: String, messages: List<Pair<QueryChatMessageRole, String>>) {
-        val chatData = state.chats.getOrPut(chatId) {
-            ChatData().apply {
-                title = "Chat $chatId"
-                lastUpdated = System.currentTimeMillis()
+    fun addMessages(
+        chatId: String,
+        messages: List<Pair<QueryChatMessageRole, String>>,
+    ) {
+        val chatData =
+            state.chats.getOrPut(chatId) {
+                ChatData().apply {
+                    title = "Chat $chatId"
+                    lastUpdated = System.currentTimeMillis()
+                }
             }
-        }
         messages.forEach { (role, content) ->
             chatData.messages.add(ChatMessage(role.value, content))
         }
@@ -201,16 +218,21 @@ class ProjectChatService(private val project: Project) : SimplePersistentStateCo
     /**
      * Replaces all messages for a specific chat
      */
-    fun setMessages(chatId: String, messages: List<Pair<QueryChatMessageRole, String>>) {
-        val chatData = state.chats.getOrPut(chatId) {
-            ChatData().apply {
-                title = "Chat $chatId"
-                lastUpdated = System.currentTimeMillis()
+    fun setMessages(
+        chatId: String,
+        messages: List<Pair<QueryChatMessageRole, String>>,
+    ) {
+        val chatData =
+            state.chats.getOrPut(chatId) {
+                ChatData().apply {
+                    title = "Chat $chatId"
+                    lastUpdated = System.currentTimeMillis()
+                }
             }
-        }
-        chatData.messages = messages.map { (role, content) ->
-            ChatMessage(role.value, content)
-        }.toMutableList()
+        chatData.messages =
+            messages.map { (role, content) ->
+                ChatMessage(role.value, content)
+            }.toMutableList()
         chatData.lastUpdated = System.currentTimeMillis()
     }
 }

@@ -4,7 +4,7 @@ All URIs are relative to *http://localhost*
 
 | Method | HTTP request | Description |
 | ------------- | ------------- | ------------- |
-| [**authenticateUserApiUserAuthenticatePost**](AuthenticationApi.md#authenticateUserApiUserAuthenticatePost) | **POST** /api/user/authenticate/ | Authenticate User |
+| [**authenticateUserApiUserAuthenticatePost**](AuthenticationApi.md#authenticateUserApiUserAuthenticatePost) | **POST** /api/user/authenticate | Authenticate User |
 
 
 <a id="authenticateUserApiUserAuthenticatePost"></a>

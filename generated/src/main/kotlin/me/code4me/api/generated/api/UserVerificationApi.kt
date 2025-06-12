@@ -20,7 +20,15 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import me.code4me.api.generated.model.ErrorResponse
-import me.code4me.api.generated.model.HTTPValidationError
+import me.code4me.api.generated.model.GetVerificationError
+import me.code4me.api.generated.model.GetVerificationGetResponse
+import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
+import me.code4me.api.generated.model.InvalidOrExpiredVerificationToken
+import me.code4me.api.generated.model.ResendVerificationEmailError
+import me.code4me.api.generated.model.ResendVerificationEmailPostResponse
+import me.code4me.api.generated.model.UserNotFoundError
+import me.code4me.api.generated.model.VerifyUserError
+import me.code4me.api.generated.model.VerifyUserPostHTMLResponse
 
 import com.squareup.moshi.Json
 
@@ -50,8 +58,8 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
      * GET /api/user/verify/check
      * Check Verification
      * Check if the user is verified
-     * @param authToken  (optional, default to "auth_token")
-     * @return kotlin.Any
+     * @param authToken  (optional, default to "")
+     * @return GetVerificationGetResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -60,11 +68,11 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun checkVerificationApiUserVerifyCheckGet(authToken: kotlin.String? = "auth_token") : kotlin.Any {
+    fun checkVerificationApiUserVerifyCheckGet(authToken: kotlin.String? = "") : GetVerificationGetResponse {
         val localVarResponse = checkVerificationApiUserVerifyCheckGetWithHttpInfo(authToken = authToken)
 
         return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.Any
+            ResponseType.Success -> (localVarResponse as Success<*>).data as GetVerificationGetResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -82,17 +90,17 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
      * GET /api/user/verify/check
      * Check Verification
      * Check if the user is verified
-     * @param authToken  (optional, default to "auth_token")
-     * @return ApiResponse<kotlin.Any?>
+     * @param authToken  (optional, default to "")
+     * @return ApiResponse<GetVerificationGetResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun checkVerificationApiUserVerifyCheckGetWithHttpInfo(authToken: kotlin.String?) : ApiResponse<kotlin.Any?> {
+    fun checkVerificationApiUserVerifyCheckGetWithHttpInfo(authToken: kotlin.String?) : ApiResponse<GetVerificationGetResponse?> {
         val localVariableConfig = checkVerificationApiUserVerifyCheckGetRequestConfig(authToken = authToken)
 
-        return request<Unit, kotlin.Any>(
+        return request<Unit, GetVerificationGetResponse>(
             localVariableConfig
         )
     }
@@ -100,7 +108,7 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     /**
      * To obtain the request config of the operation checkVerificationApiUserVerifyCheckGet
      *
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return RequestConfig
      */
     fun checkVerificationApiUserVerifyCheckGetRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
@@ -120,11 +128,11 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     }
 
     /**
-     * GET /api/user/verify/resend
+     * POST /api/user/verify/resend
      * Resend Verification Email
      * Resend verification email to the user
-     * @param authToken  (optional, default to "auth_token")
-     * @return kotlin.Any
+     * @param authToken  (optional, default to "")
+     * @return ResendVerificationEmailPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -133,11 +141,11 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun resendVerificationEmailApiUserVerifyResendGet(authToken: kotlin.String? = "auth_token") : kotlin.Any {
-        val localVarResponse = resendVerificationEmailApiUserVerifyResendGetWithHttpInfo(authToken = authToken)
+    fun resendVerificationEmailApiUserVerifyResendPost(authToken: kotlin.String? = "") : ResendVerificationEmailPostResponse {
+        val localVarResponse = resendVerificationEmailApiUserVerifyResendPostWithHttpInfo(authToken = authToken)
 
         return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.Any
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ResendVerificationEmailPostResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -152,38 +160,38 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     }
 
     /**
-     * GET /api/user/verify/resend
+     * POST /api/user/verify/resend
      * Resend Verification Email
      * Resend verification email to the user
-     * @param authToken  (optional, default to "auth_token")
-     * @return ApiResponse<kotlin.Any?>
+     * @param authToken  (optional, default to "")
+     * @return ApiResponse<ResendVerificationEmailPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun resendVerificationEmailApiUserVerifyResendGetWithHttpInfo(authToken: kotlin.String?) : ApiResponse<kotlin.Any?> {
-        val localVariableConfig = resendVerificationEmailApiUserVerifyResendGetRequestConfig(authToken = authToken)
+    fun resendVerificationEmailApiUserVerifyResendPostWithHttpInfo(authToken: kotlin.String?) : ApiResponse<ResendVerificationEmailPostResponse?> {
+        val localVariableConfig = resendVerificationEmailApiUserVerifyResendPostRequestConfig(authToken = authToken)
 
-        return request<Unit, kotlin.Any>(
+        return request<Unit, ResendVerificationEmailPostResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation resendVerificationEmailApiUserVerifyResendGet
+     * To obtain the request config of the operation resendVerificationEmailApiUserVerifyResendPost
      *
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return RequestConfig
      */
-    fun resendVerificationEmailApiUserVerifyResendGetRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
+    fun resendVerificationEmailApiUserVerifyResendPostRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
-            method = RequestMethod.GET,
+            method = RequestMethod.POST,
             path = "/api/user/verify/resend",
             query = localVariableQuery,
             headers = localVariableHeaders,
@@ -193,11 +201,11 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     }
 
     /**
-     * GET /api/user/verify/
+     * POST /api/user/verify/
      * Verify Email
      * Verify user email with the provided token
      * @param token Verification token
-     * @return kotlin.Any
+     * @return VerifyUserPostHTMLResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -206,11 +214,11 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun verifyEmailApiUserVerifyGet(token: kotlin.String) : kotlin.Any {
-        val localVarResponse = verifyEmailApiUserVerifyGetWithHttpInfo(token = token)
+    fun verifyEmailApiUserVerifyPost(token: kotlin.String) : VerifyUserPostHTMLResponse {
+        val localVarResponse = verifyEmailApiUserVerifyPostWithHttpInfo(token = token)
 
         return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.Any
+            ResponseType.Success -> (localVarResponse as Success<*>).data as VerifyUserPostHTMLResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -225,31 +233,31 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     }
 
     /**
-     * GET /api/user/verify/
+     * POST /api/user/verify/
      * Verify Email
      * Verify user email with the provided token
      * @param token Verification token
-     * @return ApiResponse<kotlin.Any?>
+     * @return ApiResponse<VerifyUserPostHTMLResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun verifyEmailApiUserVerifyGetWithHttpInfo(token: kotlin.String) : ApiResponse<kotlin.Any?> {
-        val localVariableConfig = verifyEmailApiUserVerifyGetRequestConfig(token = token)
+    fun verifyEmailApiUserVerifyPostWithHttpInfo(token: kotlin.String) : ApiResponse<VerifyUserPostHTMLResponse?> {
+        val localVariableConfig = verifyEmailApiUserVerifyPostRequestConfig(token = token)
 
-        return request<Unit, kotlin.Any>(
+        return request<Unit, VerifyUserPostHTMLResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation verifyEmailApiUserVerifyGet
+     * To obtain the request config of the operation verifyEmailApiUserVerifyPost
      *
      * @param token Verification token
      * @return RequestConfig
      */
-    fun verifyEmailApiUserVerifyGetRequestConfig(token: kotlin.String) : RequestConfig<Unit> {
+    fun verifyEmailApiUserVerifyPostRequestConfig(token: kotlin.String) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
@@ -259,7 +267,7 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
-            method = RequestMethod.GET,
+            method = RequestMethod.POST,
             path = "/api/user/verify/",
             query = localVariableQuery,
             headers = localVariableHeaders,

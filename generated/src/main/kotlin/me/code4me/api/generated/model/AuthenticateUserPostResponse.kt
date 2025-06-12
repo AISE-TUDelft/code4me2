@@ -41,7 +41,7 @@ data class AuthenticateUserPostResponse (
 
     /* Users config json string */
     @Json(name = "config")
-    val config: kotlin.String
+    val config: kotlin.collections.Map<kotlin.String, kotlin.Any>
 
 ) {
 

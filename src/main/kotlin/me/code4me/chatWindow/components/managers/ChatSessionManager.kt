@@ -21,7 +21,7 @@ class ChatSessionManager(val chatRepository: ChatRepository) {
 
     /**
      * Gets a session by its ID, either from the cache or from the repository
-     * 
+     *
      * @param id The ID of the session to retrieve
      * @return The session with the given ID, or null if not found
      */
@@ -33,7 +33,7 @@ class ChatSessionManager(val chatRepository: ChatRepository) {
 
     /**
      * Checks if a session is an empty "New Chat" session
-     * 
+     *
      * @param session The session to check
      * @return True if the session is a "New Chat" with 0 or 1 messages
      */
@@ -44,13 +44,14 @@ class ChatSessionManager(val chatRepository: ChatRepository) {
     init {
         // Load the first session or create a new one
         val sessions = chatRepository.getAllChatSessions()
-        currentSession = if (sessions.isNotEmpty()) {
-            val session = sessions.first()
-            activeSessions[session.id] = session
-            session
-        } else {
-            createNewSession()
-        }
+        currentSession =
+            if (sessions.isNotEmpty()) {
+                val session = sessions.first()
+                activeSessions[session.id] = session
+                session
+            } else {
+                createNewSession()
+            }
     }
 
     fun createNewSession(title: String? = null): ChatSession {
@@ -68,9 +69,10 @@ class ChatSessionManager(val chatRepository: ChatRepository) {
 
     fun switchToSession(chatId: String) {
         // Get from cache or load from repository
-        val session = activeSessions[chatId] ?: chatRepository.getChatSession(chatId)?.also {
-            activeSessions[chatId] = it
-        } ?: createNewSession()
+        val session =
+            activeSessions[chatId] ?: chatRepository.getChatSession(chatId)?.also {
+                activeSessions[chatId] = it
+            } ?: createNewSession()
 
         currentSession = session
     }
@@ -101,23 +103,26 @@ class ChatSessionManager(val chatRepository: ChatRepository) {
         addMessageToCurrentSession(sender, message)
     }
 
-    fun deleteSession(session: ChatSession, deleteFromServer: Boolean = false) {
+    fun deleteSession(
+        session: ChatSession,
+        deleteFromServer: Boolean = false,
+    ) {
         // Remove from repository
         chatRepository.deleteChat(session.id, deleteFromServer)
 
         // Remove from active sessions
         activeSessions.remove(session.id)
 
-
         if (currentSession.id == session.id) {
             val sessions = chatRepository.getAllChatSessions()
-            currentSession = if (sessions.isNotEmpty()) {
-                val newSession = sessions.first()
-                activeSessions[newSession.id] = newSession
-                newSession
-            } else {
-                createNewSession("New Chat")
-            }
+            currentSession =
+                if (sessions.isNotEmpty()) {
+                    val newSession = sessions.first()
+                    activeSessions[newSession.id] = newSession
+                    newSession
+                } else {
+                    createNewSession("New Chat")
+                }
         }
     }
 }

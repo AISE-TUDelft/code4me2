@@ -4,8 +4,8 @@ All URIs are relative to *http://localhost*
 
 | Method | HTTP request | Description |
 | ------------- | ------------- | ------------- |
-| [**activateProjectApiProjectActivatePut**](ProjectApi.md#activateProjectApiProjectActivatePut) | **PUT** /api/project/activate/ | Activate Project |
-| [**createProjectApiProjectCreatePost**](ProjectApi.md#createProjectApiProjectCreatePost) | **POST** /api/project/create/ | Create Project |
+| [**activateProjectApiProjectActivatePut**](ProjectApi.md#activateProjectApiProjectActivatePut) | **PUT** /api/project/activate | Activate Project |
+| [**createProjectApiProjectCreatePost**](ProjectApi.md#createProjectApiProjectCreatePost) | **POST** /api/project/create | Create Project |
 
 
 <a id="activateProjectApiProjectActivatePut"></a>
@@ -41,7 +41,7 @@ try {
 | **activateProject** | [**ActivateProject**](ActivateProject.md)|  | |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
@@ -89,7 +89,7 @@ try {
 | **createProject** | [**CreateProject**](CreateProject.md)|  | |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 

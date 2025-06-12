@@ -41,10 +41,10 @@ try {
 
 ### Parameters
 | **chatId** | **java.util.UUID**|  | |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;project_token&quot;] |
+| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
@@ -91,10 +91,10 @@ try {
 
 ### Parameters
 | **pageNumber** | **kotlin.Int**|  | |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;project_token&quot;] |
+| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
@@ -141,10 +141,10 @@ try {
 
 ### Parameters
 | **requestChatCompletion** | [**RequestChatCompletion**](RequestChatCompletion.md)|  | |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;project_token&quot;] |
+| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 

@@ -4,12 +4,12 @@ All URIs are relative to *http://localhost*
 
 | Method | HTTP request | Description |
 | ------------- | ------------- | ------------- |
-| [**pingApiPingGet**](DefaultApi.md#pingApiPingGet) | **GET** /api/ping | Ping |
+| [**pingApiPingHead**](DefaultApi.md#pingApiPingHead) | **HEAD** /api/ping | Ping |
 
 
-<a id="pingApiPingGet"></a>
-# **pingApiPingGet**
-> kotlin.Any pingApiPingGet()
+<a id="pingApiPingHead"></a>
+# **pingApiPingHead**
+> kotlin.Any pingApiPingHead()
 
 Ping
 
@@ -21,13 +21,13 @@ Ping
 
 val apiInstance = DefaultApi()
 try {
-    val result : kotlin.Any = apiInstance.pingApiPingGet()
+    val result : kotlin.Any = apiInstance.pingApiPingHead()
     println(result)
 } catch (e: ClientException) {
-    println("4xx response calling DefaultApi#pingApiPingGet")
+    println("4xx response calling DefaultApi#pingApiPingHead")
     e.printStackTrace()
 } catch (e: ServerException) {
-    println("5xx response calling DefaultApi#pingApiPingGet")
+    println("5xx response calling DefaultApi#pingApiPingHead")
     e.printStackTrace()
 }
 ```

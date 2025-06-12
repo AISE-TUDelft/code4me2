@@ -22,7 +22,6 @@ import okhttp3.HttpUrl
 import me.code4me.api.generated.model.AcquireSessionError
 import me.code4me.api.generated.model.AcquireSessionGetResponse
 import me.code4me.api.generated.model.ErrorResponse
-import me.code4me.api.generated.model.HTTPValidationError
 import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
 
 import com.squareup.moshi.Json
@@ -50,10 +49,10 @@ class SessionApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
-     * GET /api/session/acquire/
+     * GET /api/session/acquire
      * Acquire Session
      * Acquire or create a session token using the provided auth token.  - If the auth token is missing or invalid, return 401. - If no session is associated yet, create one and store it in Redis.
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return AcquireSessionGetResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -63,7 +62,7 @@ class SessionApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun acquireSessionApiSessionAcquireGet(authToken: kotlin.String? = "auth_token") : AcquireSessionGetResponse {
+    fun acquireSessionApiSessionAcquireGet(authToken: kotlin.String? = "") : AcquireSessionGetResponse {
         val localVarResponse = acquireSessionApiSessionAcquireGetWithHttpInfo(authToken = authToken)
 
         return when (localVarResponse.responseType) {
@@ -82,10 +81,10 @@ class SessionApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
-     * GET /api/session/acquire/
+     * GET /api/session/acquire
      * Acquire Session
      * Acquire or create a session token using the provided auth token.  - If the auth token is missing or invalid, return 401. - If no session is associated yet, create one and store it in Redis.
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return ApiResponse<AcquireSessionGetResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -103,7 +102,7 @@ class SessionApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * To obtain the request config of the operation acquireSessionApiSessionAcquireGet
      *
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return RequestConfig
      */
     fun acquireSessionApiSessionAcquireGetRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
@@ -114,7 +113,7 @@ class SessionApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
 
         return RequestConfig(
             method = RequestMethod.GET,
-            path = "/api/session/acquire/",
+            path = "/api/session/acquire",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,

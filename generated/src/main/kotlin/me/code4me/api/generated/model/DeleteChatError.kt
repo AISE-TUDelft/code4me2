@@ -29,7 +29,7 @@ import com.squareup.moshi.JsonClass
 data class DeleteChatError (
 
     @Json(name = "message")
-    val message: kotlin.String? = "Failed to delete chat"
+    val message: kotlin.String? = "Server failed to delete chat"
 
 ) {
 

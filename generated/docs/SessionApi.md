@@ -4,7 +4,7 @@ All URIs are relative to *http://localhost*
 
 | Method | HTTP request | Description |
 | ------------- | ------------- | ------------- |
-| [**acquireSessionApiSessionAcquireGet**](SessionApi.md#acquireSessionApiSessionAcquireGet) | **GET** /api/session/acquire/ | Acquire Session |
+| [**acquireSessionApiSessionAcquireGet**](SessionApi.md#acquireSessionApiSessionAcquireGet) | **GET** /api/session/acquire | Acquire Session |
 
 
 <a id="acquireSessionApiSessionAcquireGet"></a>
@@ -38,7 +38,7 @@ try {
 ### Parameters
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 

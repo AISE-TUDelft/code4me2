@@ -23,21 +23,24 @@ class ChatModel : PluginModule {
             Preference(
                 key = PREFERRED_MODEL_KEY,
                 type = PreferenceType.LIST,
-                defaultValue = getConfig().getModelsConfiguration()?.getAvailableChatModels()?.joinToString(","){
-                    it.name
-                } ?: "default",
+                defaultValue =
+                    getConfig().getModelsConfiguration()?.getAvailableChatModels()?.joinToString(",") {
+                        it.name
+                    } ?: "default",
                 displayName = "Preferred Model",
-                description = "Select your preferred chat model for chat. " +
-                        "This will be used to determine which model to use for generating responses."
+                description =
+                    "Select your preferred chat model for chat. " +
+                        "This will be used to determine which model to use for generating responses.",
             ),
             Preference(
                 key = SYSTEM_PROMPT_KEY,
                 type = PreferenceType.TEXT,
                 defaultValue = getConfig().getModelsConfiguration()?.systemPrompt ?: "You are a helpful assistant.",
                 displayName = "System Prompt",
-                description = "The system prompt to use for the chat model. " +
-                        "This prompt is used to set the context for the chat model's responses."
-            )
+                description =
+                    "The system prompt to use for the chat model. " +
+                        "This prompt is used to set the context for the chat model's responses.",
+            ),
         )
     }
 
@@ -66,14 +69,15 @@ class ChatModel : PluginModule {
             expanded[systemPromptKey] = systemPromptValue
         }
 
-        return listOf(Record(
-            type = Record.Type.MODEL,
-            expanded = expanded
-        ))
+        return listOf(
+            Record(
+                type = Record.Type.MODEL,
+                expanded = expanded,
+            ),
+        )
     }
 
     override fun initializeModules() {
         LOG.debug("Initialized $moduleName")
     }
-
 }

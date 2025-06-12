@@ -26,7 +26,6 @@ import me.code4me.api.generated.model.FeedbackCompletion
 import me.code4me.api.generated.model.FeedbackRecordingError
 import me.code4me.api.generated.model.GenerateCompletionsError
 import me.code4me.api.generated.model.GenerationNotFoundError
-import me.code4me.api.generated.model.HTTPValidationError
 import me.code4me.api.generated.model.InvalidOrExpiredSessionToken
 import me.code4me.api.generated.model.NoAccessToGetQueryError
 import me.code4me.api.generated.model.NoAccessToProvideFeedbackError
@@ -65,7 +64,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * Get Completions By Query
      * Get completions for a specific query ID.
      * @param queryId 
-     * @param sessionToken  (optional, default to "session_token")
+     * @param sessionToken  (optional, default to "")
      * @return CompletionPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -75,7 +74,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun getCompletionsByQueryApiCompletionQueryIdGet(queryId: java.util.UUID, sessionToken: kotlin.String? = "session_token") : CompletionPostResponse {
+    fun getCompletionsByQueryApiCompletionQueryIdGet(queryId: java.util.UUID, sessionToken: kotlin.String? = "") : CompletionPostResponse {
         val localVarResponse = getCompletionsByQueryApiCompletionQueryIdGetWithHttpInfo(queryId = queryId, sessionToken = sessionToken)
 
         return when (localVarResponse.responseType) {
@@ -98,7 +97,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * Get Completions By Query
      * Get completions for a specific query ID.
      * @param queryId 
-     * @param sessionToken  (optional, default to "session_token")
+     * @param sessionToken  (optional, default to "")
      * @return ApiResponse<CompletionPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -117,7 +116,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * To obtain the request config of the operation getCompletionsByQueryApiCompletionQueryIdGet
      *
      * @param queryId 
-     * @param sessionToken  (optional, default to "session_token")
+     * @param sessionToken  (optional, default to "")
      * @return RequestConfig
      */
     fun getCompletionsByQueryApiCompletionQueryIdGetRequestConfig(queryId: java.util.UUID, sessionToken: kotlin.String?) : RequestConfig<Unit> {
@@ -141,8 +140,8 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * Request Completion
      * Request code completions based on provided context.
      * @param requestCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return CompletionPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -152,7 +151,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun requestCompletionApiCompletionRequestPost(requestCompletion: RequestCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : CompletionPostResponse {
+    fun requestCompletionApiCompletionRequestPost(requestCompletion: RequestCompletion, sessionToken: kotlin.String? = "", projectToken: kotlin.String? = "") : CompletionPostResponse {
         val localVarResponse = requestCompletionApiCompletionRequestPostWithHttpInfo(requestCompletion = requestCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
@@ -175,8 +174,8 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * Request Completion
      * Request code completions based on provided context.
      * @param requestCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return ApiResponse<CompletionPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -195,8 +194,8 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * To obtain the request config of the operation requestCompletionApiCompletionRequestPost
      *
      * @param requestCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return RequestConfig
      */
     fun requestCompletionApiCompletionRequestPostRequestConfig(requestCompletion: RequestCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<RequestCompletion> {
@@ -221,8 +220,8 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * Submit Completion Feedback
      * Submit feedback on a generated completion.
      * @param feedbackCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return CompletionFeedbackPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -232,7 +231,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : CompletionFeedbackPostResponse {
+    fun submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String? = "", projectToken: kotlin.String? = "") : CompletionFeedbackPostResponse {
         val localVarResponse = submitCompletionFeedbackApiCompletionFeedbackPostWithHttpInfo(feedbackCompletion = feedbackCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
@@ -255,8 +254,8 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * Submit Completion Feedback
      * Submit feedback on a generated completion.
      * @param feedbackCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return ApiResponse<CompletionFeedbackPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -275,8 +274,8 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * To obtain the request config of the operation submitCompletionFeedbackApiCompletionFeedbackPost
      *
      * @param feedbackCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return RequestConfig
      */
     fun submitCompletionFeedbackApiCompletionFeedbackPostRequestConfig(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<FeedbackCompletion> {

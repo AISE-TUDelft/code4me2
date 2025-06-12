@@ -54,11 +54,11 @@ class ProjectApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
-     * PUT /api/project/activate/
+     * PUT /api/project/activate
      * Activate Project
      * Activates the project by following these steps: 1. Validate the provided auth token 2. If valid, return confirmation 3. If invalid, return an appropriate error response 4. The project might exist in redis or in the database, if it is in the database, it should be fetched from there and put in redis if it is in the redis, its expiration time should be updated.
      * @param activateProject 
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return ActivateProjectPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -68,7 +68,7 @@ class ProjectApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun activateProjectApiProjectActivatePut(activateProject: ActivateProject, authToken: kotlin.String? = "auth_token") : ActivateProjectPostResponse {
+    fun activateProjectApiProjectActivatePut(activateProject: ActivateProject, authToken: kotlin.String? = "") : ActivateProjectPostResponse {
         val localVarResponse = activateProjectApiProjectActivatePutWithHttpInfo(activateProject = activateProject, authToken = authToken)
 
         return when (localVarResponse.responseType) {
@@ -87,11 +87,11 @@ class ProjectApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
-     * PUT /api/project/activate/
+     * PUT /api/project/activate
      * Activate Project
      * Activates the project by following these steps: 1. Validate the provided auth token 2. If valid, return confirmation 3. If invalid, return an appropriate error response 4. The project might exist in redis or in the database, if it is in the database, it should be fetched from there and put in redis if it is in the redis, its expiration time should be updated.
      * @param activateProject 
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return ApiResponse<ActivateProjectPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -110,7 +110,7 @@ class ProjectApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * To obtain the request config of the operation activateProjectApiProjectActivatePut
      *
      * @param activateProject 
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return RequestConfig
      */
     fun activateProjectApiProjectActivatePutRequestConfig(activateProject: ActivateProject, authToken: kotlin.String?) : RequestConfig<ActivateProject> {
@@ -122,7 +122,7 @@ class ProjectApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
 
         return RequestConfig(
             method = RequestMethod.PUT,
-            path = "/api/project/activate/",
+            path = "/api/project/activate",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
@@ -131,11 +131,11 @@ class ProjectApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
-     * POST /api/project/create/
+     * POST /api/project/create
      * Create Project
      * Create a new project 1. Validate the provided session token 2. If valid, create a project and return the project token 3. If invalid, return an appropriate error response
      * @param createProject 
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return CreateProjectPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -145,7 +145,7 @@ class ProjectApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun createProjectApiProjectCreatePost(createProject: CreateProject, authToken: kotlin.String? = "auth_token") : CreateProjectPostResponse {
+    fun createProjectApiProjectCreatePost(createProject: CreateProject, authToken: kotlin.String? = "") : CreateProjectPostResponse {
         val localVarResponse = createProjectApiProjectCreatePostWithHttpInfo(createProject = createProject, authToken = authToken)
 
         return when (localVarResponse.responseType) {
@@ -164,11 +164,11 @@ class ProjectApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
-     * POST /api/project/create/
+     * POST /api/project/create
      * Create Project
      * Create a new project 1. Validate the provided session token 2. If valid, create a project and return the project token 3. If invalid, return an appropriate error response
      * @param createProject 
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return ApiResponse<CreateProjectPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -187,7 +187,7 @@ class ProjectApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * To obtain the request config of the operation createProjectApiProjectCreatePost
      *
      * @param createProject 
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return RequestConfig
      */
     fun createProjectApiProjectCreatePostRequestConfig(createProject: CreateProject, authToken: kotlin.String?) : RequestConfig<CreateProject> {
@@ -199,7 +199,7 @@ class ProjectApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/project/create/",
+            path = "/api/project/create",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,

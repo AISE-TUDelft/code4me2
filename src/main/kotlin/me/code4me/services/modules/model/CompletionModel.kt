@@ -21,13 +21,15 @@ class CompletionModel : PluginModule {
             Preference(
                 key = PREFERRED_MODEL_KEY,
                 type = PreferenceType.LIST,
-                defaultValue = getConfig().getModelsConfiguration()?.getAvailableCompletionModels()?.joinToString(","){
-                    it.name
-                } ?: "default",
+                defaultValue =
+                    getConfig().getModelsConfiguration()?.getAvailableCompletionModels()?.joinToString(",") {
+                        it.name
+                    } ?: "default",
                 displayName = "Preferred Model",
-                description = "Select your preferred chat model for inline completion. " +
-                        "This will be used to determine which model to use for generating responses."
-            )
+                description =
+                    "Select your preferred chat model for inline completion. " +
+                        "This will be used to determine which model to use for generating responses.",
+            ),
         )
     }
 
@@ -49,14 +51,15 @@ class CompletionModel : PluginModule {
                     .firstOrNull() ?: "default"
             expanded[preferredModelKey] = preferredModelValue
         }
-        return listOf(Record(
-            type = Record.Type.MODEL,
-            expanded = expanded
-        ))
+        return listOf(
+            Record(
+                type = Record.Type.MODEL,
+                expanded = expanded,
+            ),
+        )
     }
 
     override fun initializeModules() {
         LOG.debug("Initialized $moduleName")
     }
-
 }

@@ -31,7 +31,6 @@ import com.squareup.moshi.JsonClass
  * @param configId Configuration ID to use
  * @param token JWT token for authentication
  * @param provider OAuth provider (Google, Microsoft, etc.)
- * @param preference 
  */
 
 
@@ -59,10 +58,7 @@ data class UserToCreate (
 
     /* OAuth provider (Google, Microsoft, etc.) */
     @Json(name = "provider")
-    val provider: Provider,
-
-    @Json(name = "preference")
-    val preference: kotlin.String? = null
+    val provider: Provider
 
 ) {
 

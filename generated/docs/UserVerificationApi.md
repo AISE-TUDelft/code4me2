@@ -5,13 +5,13 @@ All URIs are relative to *http://localhost*
 | Method | HTTP request | Description |
 | ------------- | ------------- | ------------- |
 | [**checkVerificationApiUserVerifyCheckGet**](UserVerificationApi.md#checkVerificationApiUserVerifyCheckGet) | **GET** /api/user/verify/check | Check Verification |
-| [**resendVerificationEmailApiUserVerifyResendGet**](UserVerificationApi.md#resendVerificationEmailApiUserVerifyResendGet) | **GET** /api/user/verify/resend | Resend Verification Email |
-| [**verifyEmailApiUserVerifyGet**](UserVerificationApi.md#verifyEmailApiUserVerifyGet) | **GET** /api/user/verify/ | Verify Email |
+| [**resendVerificationEmailApiUserVerifyResendPost**](UserVerificationApi.md#resendVerificationEmailApiUserVerifyResendPost) | **POST** /api/user/verify/resend | Resend Verification Email |
+| [**verifyEmailApiUserVerifyPost**](UserVerificationApi.md#verifyEmailApiUserVerifyPost) | **POST** /api/user/verify/ | Verify Email |
 
 
 <a id="checkVerificationApiUserVerifyCheckGet"></a>
 # **checkVerificationApiUserVerifyCheckGet**
-> kotlin.Any checkVerificationApiUserVerifyCheckGet(authToken)
+> GetVerificationGetResponse checkVerificationApiUserVerifyCheckGet(authToken)
 
 Check Verification
 
@@ -26,7 +26,7 @@ Check if the user is verified
 val apiInstance = UserVerificationApi()
 val authToken : kotlin.String = authToken_example // kotlin.String | 
 try {
-    val result : kotlin.Any = apiInstance.checkVerificationApiUserVerifyCheckGet(authToken)
+    val result : GetVerificationGetResponse = apiInstance.checkVerificationApiUserVerifyCheckGet(authToken)
     println(result)
 } catch (e: ClientException) {
     println("4xx response calling UserVerificationApi#checkVerificationApiUserVerifyCheckGet")
@@ -40,11 +40,11 @@ try {
 ### Parameters
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
-[**kotlin.Any**](kotlin.Any.md)
+[**GetVerificationGetResponse**](GetVerificationGetResponse.md)
 
 ### Authorization
 
@@ -55,9 +55,9 @@ No authorization required
  - **Content-Type**: Not defined
  - **Accept**: application/json
 
-<a id="resendVerificationEmailApiUserVerifyResendGet"></a>
-# **resendVerificationEmailApiUserVerifyResendGet**
-> kotlin.Any resendVerificationEmailApiUserVerifyResendGet(authToken)
+<a id="resendVerificationEmailApiUserVerifyResendPost"></a>
+# **resendVerificationEmailApiUserVerifyResendPost**
+> ResendVerificationEmailPostResponse resendVerificationEmailApiUserVerifyResendPost(authToken)
 
 Resend Verification Email
 
@@ -72,13 +72,13 @@ Resend verification email to the user
 val apiInstance = UserVerificationApi()
 val authToken : kotlin.String = authToken_example // kotlin.String | 
 try {
-    val result : kotlin.Any = apiInstance.resendVerificationEmailApiUserVerifyResendGet(authToken)
+    val result : ResendVerificationEmailPostResponse = apiInstance.resendVerificationEmailApiUserVerifyResendPost(authToken)
     println(result)
 } catch (e: ClientException) {
-    println("4xx response calling UserVerificationApi#resendVerificationEmailApiUserVerifyResendGet")
+    println("4xx response calling UserVerificationApi#resendVerificationEmailApiUserVerifyResendPost")
     e.printStackTrace()
 } catch (e: ServerException) {
-    println("5xx response calling UserVerificationApi#resendVerificationEmailApiUserVerifyResendGet")
+    println("5xx response calling UserVerificationApi#resendVerificationEmailApiUserVerifyResendPost")
     e.printStackTrace()
 }
 ```
@@ -86,11 +86,11 @@ try {
 ### Parameters
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
-[**kotlin.Any**](kotlin.Any.md)
+[**ResendVerificationEmailPostResponse**](ResendVerificationEmailPostResponse.md)
 
 ### Authorization
 
@@ -101,9 +101,9 @@ No authorization required
  - **Content-Type**: Not defined
  - **Accept**: application/json
 
-<a id="verifyEmailApiUserVerifyGet"></a>
-# **verifyEmailApiUserVerifyGet**
-> kotlin.Any verifyEmailApiUserVerifyGet(token)
+<a id="verifyEmailApiUserVerifyPost"></a>
+# **verifyEmailApiUserVerifyPost**
+> VerifyUserPostHTMLResponse verifyEmailApiUserVerifyPost(token)
 
 Verify Email
 
@@ -118,13 +118,13 @@ Verify user email with the provided token
 val apiInstance = UserVerificationApi()
 val token : kotlin.String = token_example // kotlin.String | Verification token
 try {
-    val result : kotlin.Any = apiInstance.verifyEmailApiUserVerifyGet(token)
+    val result : VerifyUserPostHTMLResponse = apiInstance.verifyEmailApiUserVerifyPost(token)
     println(result)
 } catch (e: ClientException) {
-    println("4xx response calling UserVerificationApi#verifyEmailApiUserVerifyGet")
+    println("4xx response calling UserVerificationApi#verifyEmailApiUserVerifyPost")
     e.printStackTrace()
 } catch (e: ServerException) {
-    println("5xx response calling UserVerificationApi#verifyEmailApiUserVerifyGet")
+    println("5xx response calling UserVerificationApi#verifyEmailApiUserVerifyPost")
     e.printStackTrace()
 }
 ```
@@ -136,7 +136,7 @@ try {
 
 ### Return type
 
-[**kotlin.Any**](kotlin.Any.md)
+[**VerifyUserPostHTMLResponse**](VerifyUserPostHTMLResponse.md)
 
 ### Authorization
 

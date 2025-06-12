@@ -11,16 +11,12 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.util.IconLoader
 import com.intellij.util.ProcessingContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import me.code4me.chatWindow.components.chatDisplayPanel.components.ChatBubble
 import me.code4me.services.app.getAppService
 import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.utils.completion.prioritize
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
-
 
 class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
     companion object {
@@ -40,70 +36,77 @@ class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
                 val project = parameters.originalFile.project
 
                 // Collect editor data within a read action
-                val editorData = readAction {
-                    // Get the editor from parameters
-                    val editor = parameters.editor
-                    val document = editor.document
-                    val psiFile = parameters.originalFile
+                val editorData =
+                    readAction {
+                        // Get the editor from parameters
+                        val editor = parameters.editor
+                        val document = editor.document
+                        val psiFile = parameters.originalFile
 
-                    // Create a mock InlineCompletionRequest similar to ChatIOManager
-                    val mockRequest = InlineCompletionRequest(
-                        event = InlineCompletionEvent.DirectCall(
-                            editor = editor,
-                            caret = editor.caretModel.primaryCaret,
-                            context = null
-                        ),
-                        file = psiFile,
-                        editor = editor,
-                        document = document,
-                        startOffset = parameters.offset,
-                        endOffset = parameters.offset,
-                        lookupElement = null
-                    )
+                        // Create a mock InlineCompletionRequest similar to ChatIOManager
+                        val mockRequest =
+                            InlineCompletionRequest(
+                                event =
+                                    InlineCompletionEvent.DirectCall(
+                                        editor = editor,
+                                        caret = editor.caretModel.primaryCaret,
+                                        context = null,
+                                    ),
+                                file = psiFile,
+                                editor = editor,
+                                document = document,
+                                startOffset = parameters.offset,
+                                endOffset = parameters.offset,
+                                lookupElement = null,
+                            )
 
-                    // Get the module manager for the current project
-                    val moduleManager = getModuleManager(project)
+                        // Get the module manager for the current project
+                        val moduleManager = getModuleManager(project)
 
-                    // Collect data from all registered modules
-                    moduleManager.collectData(mockRequest)
-                }
+                        // Collect data from all registered modules
+                        moduleManager.collectData(mockRequest)
+                    }
 
                 // Process the collected data (this doesn't need read access)
-                val aggregatedData = editorData
-                    .aggregateByType()
-                    .mapValues { (_, values) -> values.toMap() }
+                val aggregatedData =
+                    editorData
+                        .aggregateByType()
+                        .mapValues { (_, values) -> values.toMap() }
 
                 // TODO: update to pass \n as a stop sequence when the API supports it
                 // Call AppService to get inline completion
-                val completionResponse = getAppService()
-                    .getInlineCompletion(aggregatedData, project)
+                val completionResponse =
+                    getAppService()
+                        .getInlineCompletion(aggregatedData, project)
 
                 // Process the response and add completions to results
                 if (completionResponse != null) {
                     completionResponse.completions.forEachIndexed { index, completion ->
-                        val element = LookupElementBuilder
-                            .create("code4me_completion_$index")
-                            .withPresentableText(completion.completion)
-                            .withIcon(CHAT_ICON)
-                            .withTypeText("Code4Me V2")
-                            .withInsertHandler { context, item ->
-                                // Insert the completion text at the current position
-                                val document = context.document
-                                val startOffset = context.startOffset
-                                val endOffset = context.tailOffset
+                        val element =
+                            LookupElementBuilder
+                                .create("code4me_completion_$index")
+                                .withPresentableText(completion.completion)
+                                .withIcon(CHAT_ICON)
+                                .withTypeText("Code4Me V2")
+                                .withInsertHandler { context, item ->
+                                    // Insert the completion text at the current position
+                                    val document = context.document
+                                    val startOffset = context.startOffset
+                                    val endOffset = context.tailOffset
 
-                                document.replaceString(startOffset, endOffset, completion.completion)
-                                context.editor.caretModel.moveToOffset(startOffset + completion.completion.length)
-                            }
+                                    document.replaceString(startOffset, endOffset, completion.completion)
+                                    context.editor.caretModel.moveToOffset(startOffset + completion.completion.length)
+                                }
 
                         results.addElement(element.prioritize())
                     }
                 } else {
                     // Fallback completion if service call fails
-                    val fallbackElement = LookupElementBuilder
-                        .create("Code4Me V2 Plugin Completion")
-                        .withPresentableText("Code4Me V2 Error: No completions found")
-                        .withTypeText("Code4Me V2")
+                    val fallbackElement =
+                        LookupElementBuilder
+                            .create("Code4Me V2 Plugin Completion")
+                            .withPresentableText("Code4Me V2 Error: No completions found")
+                            .withTypeText("Code4Me V2")
 
                     results.addElement(fallbackElement.prioritize())
                 }
@@ -112,10 +115,11 @@ class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
             LOG.error("Error getting completions from AppService", e)
 
             // Add fallback completion on error
-            val errorElement = LookupElementBuilder
-                .create("Code4Me V2 Plugin Completion (Error)")
-                .withPresentableText("Code4Me V2 Error: ${e.message ?: "Unknown error"}")
-                .withTypeText("Code4Me V2")
+            val errorElement =
+                LookupElementBuilder
+                    .create("Code4Me V2 Plugin Completion (Error)")
+                    .withPresentableText("Code4Me V2 Error: ${e.message ?: "Unknown error"}")
+                    .withTypeText("Code4Me V2")
 
             results.addElement(errorElement.prioritize())
         }

@@ -42,7 +42,7 @@ try {
 | **queryId** | **java.util.UUID**|  | |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
@@ -89,10 +89,10 @@ try {
 
 ### Parameters
 | **requestCompletion** | [**RequestCompletion**](RequestCompletion.md)|  | |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;project_token&quot;] |
+| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
@@ -139,10 +139,10 @@ try {
 
 ### Parameters
 | **feedbackCompletion** | [**FeedbackCompletion**](FeedbackCompletion.md)|  | |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;project_token&quot;] |
+| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 

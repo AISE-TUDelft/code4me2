@@ -65,7 +65,7 @@ data class ResponseUser (
     val verified: kotlin.Boolean,
 
     @Json(name = "preference")
-    val preference: kotlin.String? = null,
+    val preference: kotlin.collections.Map<kotlin.String, kotlin.Any>? = null,
 
     @Json(name = "auth_token")
     val authToken: java.util.UUID? = null

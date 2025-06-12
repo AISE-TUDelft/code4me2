@@ -51,7 +51,7 @@ class AuthenticationApi(basePath: kotlin.String = defaultBasePath, client: Call.
     }
 
     /**
-     * POST /api/user/authenticate/
+     * POST /api/user/authenticate
      * Authenticate User
      * Authenticate a user via either OAuth (JWT token) or traditional email/password.  This endpoint supports two methods of authentication: 1. OAuth Authentication:    - The input contains a JWT token from an OAuth provider (Google).    - The token&#39;s validity is verified.    - If valid, the user is fetched by email from the database.    - A session auth token is created and returned as a cookie. 2. Email/Password Authentication:    - The input contains user email and password.    - Credentials are verified against the database.    - If valid, a session auth token is created and returned as a cookie.  Args:     user_to_authenticate: Union of OAuth token or email/password credentials.     app: FastAPI dependency to access the application context.  Returns:     JsonResponseWithStatus: A JSON response containing the authenticated user info     and a session auth token cookie on success, or an error response otherwise.
      * @param userToAuthenticate 
@@ -83,7 +83,7 @@ class AuthenticationApi(basePath: kotlin.String = defaultBasePath, client: Call.
     }
 
     /**
-     * POST /api/user/authenticate/
+     * POST /api/user/authenticate
      * Authenticate User
      * Authenticate a user via either OAuth (JWT token) or traditional email/password.  This endpoint supports two methods of authentication: 1. OAuth Authentication:    - The input contains a JWT token from an OAuth provider (Google).    - The token&#39;s validity is verified.    - If valid, the user is fetched by email from the database.    - A session auth token is created and returned as a cookie. 2. Email/Password Authentication:    - The input contains user email and password.    - Credentials are verified against the database.    - If valid, a session auth token is created and returned as a cookie.  Args:     user_to_authenticate: Union of OAuth token or email/password credentials.     app: FastAPI dependency to access the application context.  Returns:     JsonResponseWithStatus: A JSON response containing the authenticated user info     and a session auth token cookie on success, or an error response otherwise.
      * @param userToAuthenticate 
@@ -116,7 +116,7 @@ class AuthenticationApi(basePath: kotlin.String = defaultBasePath, client: Call.
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/user/authenticate/",
+            path = "/api/user/authenticate",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,

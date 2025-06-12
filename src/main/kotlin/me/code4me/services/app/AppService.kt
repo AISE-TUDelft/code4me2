@@ -80,13 +80,14 @@ class AppService {
     private val apiBaseUrl = "${serverConfig?.host}:${serverConfig?.port}${serverConfig?.contextPath}"
 
     // Create a custom OkHttpClient for chat operations with extended timeouts
-    private val chatHttpClient = CookieAwareApiClient.createClientWithCookieHandler()
-        .newBuilder()
-        .connectTimeout(CHAT_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(CHAT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .writeTimeout(CHAT_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true) // Enable automatic retry on connection failure
-        .build()
+    private val chatHttpClient =
+        CookieAwareApiClient.createClientWithCookieHandler()
+            .newBuilder()
+            .connectTimeout(CHAT_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(CHAT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(CHAT_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true) // Enable automatic retry on connection failure
+            .build()
 
     // Standard API clients with default timeouts
     private val authApi = AuthenticationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
@@ -100,7 +101,6 @@ class AppService {
     private val chatApi = ChatApi(apiBaseUrl, chatHttpClient)
 
     val currentGenerationProject = AtomicReference<Project?>(null)
-
 
     init {
         LOG.info("AppService initialized with API base URL: $apiBaseUrl")
@@ -591,7 +591,7 @@ class AppService {
     fun resendVerificationEmail(): Boolean {
         // resend the verification email by calling the user verification API
         try {
-            val response = userVerificationApi.resendVerificationEmailApiUserVerifyResendGet()
+            val response = userVerificationApi.resendVerificationEmailApiUserVerifyResendPost()
             LOG.info("Verification email resent successfully")
             if (response == null) {
                 LOG.warn("No response received when resending verification email")
@@ -640,9 +640,10 @@ class AppService {
         currentGenerationProject.set(project)
 
         return try {
-            val response = chatApi.requestChatCompletionApiChatRequestPost(
-                requestChatCompletion = requestChatCompletion
-            )
+            val response =
+                chatApi.requestChatCompletionApiChatRequestPost(
+                    requestChatCompletion = requestChatCompletion,
+                )
             LOG.info("Chat completion requested successfully")
             response
         } catch (e: Exception) {
@@ -678,9 +679,10 @@ class AppService {
         currentGenerationProject.set(project)
 
         return try {
-            val response = chatApi.getChatHistoryApiChatGetPageNumberGet(
-                pageNumber = pageNumber
-            )
+            val response =
+                chatApi.getChatHistoryApiChatGetPageNumberGet(
+                    pageNumber = pageNumber,
+                )
             LOG.info("Chat history retrieved successfully for page: $pageNumber")
             response
         } catch (e: Exception) {
@@ -716,9 +718,10 @@ class AppService {
         currentGenerationProject.set(project)
 
         return try {
-            val response = chatApi.deleteChatApiChatDeleteChatIdDelete(
-                chatId = chatId
-            )
+            val response =
+                chatApi.deleteChatApiChatDeleteChatIdDelete(
+                    chatId = chatId,
+                )
             LOG.info("Chat deleted successfully: $chatId")
             response
         } catch (e: Exception) {
@@ -757,8 +760,9 @@ class AppService {
         currentGenerationProject.set(project)
 
         // model selection
-        val modelId = getConfig().getModelsConfiguration()
-            ?.getModelIdByName(aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default")
+        val modelId =
+            getConfig().getModelsConfiguration()
+                ?.getModelIdByName(aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default")
 
         val requestCompletion =
             RequestCompletion(

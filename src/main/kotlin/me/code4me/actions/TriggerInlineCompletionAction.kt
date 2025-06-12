@@ -5,7 +5,6 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionEvent
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
-import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.diagnostic.Logger
 
 class TriggerInlineCompletionAction : AnAction() {
@@ -18,11 +17,12 @@ class TriggerInlineCompletionAction : AnAction() {
         logger.info("Manually triggering inline completion")
 
         // Create an inline completion event and trigger completion
-        val event = InlineCompletionEvent.DirectCall(
-            editor,
-            editor.caretModel.currentCaret,
-            e.dataContext
-        )
+        val event =
+            InlineCompletionEvent.DirectCall(
+                editor,
+                editor.caretModel.currentCaret,
+                e.dataContext,
+            )
 
         // Use InlineCompletion utility to get the handler for this editor and invoke the event
         val handler = InlineCompletion.getHandlerOrNull(editor)

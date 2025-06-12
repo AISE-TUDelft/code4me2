@@ -29,7 +29,7 @@ import com.squareup.moshi.JsonClass
 data class RetrieveCompletionsError (
 
     @Json(name = "message")
-    val message: kotlin.String? = "Failed to retrieve completions."
+    val message: kotlin.String? = "Server failed to retrieve completions."
 
 ) {
 

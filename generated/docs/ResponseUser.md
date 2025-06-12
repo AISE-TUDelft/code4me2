@@ -11,7 +11,7 @@
 | **userId** | [**java.util.UUID**](java.util.UUID.md) | Unique id for the user |  |
 | **joinedAt** | [**java.time.OffsetDateTime**](java.time.OffsetDateTime.md) | When the user was created |  |
 | **verified** | **kotlin.Boolean** | Whether the user&#39;s email has been verified |  |
-| **preference** | **kotlin.String** |  |  [optional] |
+| **preference** | [**kotlin.collections.Map&lt;kotlin.String, kotlin.Any&gt;**](kotlin.Any.md) |  |  [optional] |
 | **authToken** | [**java.util.UUID**](java.util.UUID.md) |  |  [optional] |
 
 

@@ -3,8 +3,8 @@ package me.code4me.components.settings.fields
 
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.components.JBCheckBox
-import com.intellij.ui.components.JBTextField
 import com.intellij.ui.components.JBTextArea
+import com.intellij.ui.components.JBTextField
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import javax.swing.JComponent
@@ -108,7 +108,7 @@ class ModuleListPreferenceField(
     private val moduleId: String,
     private val preference: Preference,
     private val comboBox: ComboBox<String>,
-    private val options: List<String>
+    private val options: List<String>,
 ) : StateValueField<String> {
     private val fieldInfo: MutableList<FieldInfo> = mutableListOf()
 
