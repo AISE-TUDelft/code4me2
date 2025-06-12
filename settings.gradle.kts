@@ -1,6 +1,21 @@
-plugins {
-    id("org.gradle.toolchains.foojay-resolver-convention") version "0.8.0"
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
 }
 
-rootProject.name = "Code4Me V2"
-include("generated")
+dependencyResolutionManagement {
+    versionCatalogs {
+        create("clientLibs") { // Use a different name
+            from(files("gradle/libs.versions.toml"))
+        }
+    }
+}
+
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
+
+rootProject.name = "client"
+
+include(":generated")
+include(":integration-tests")

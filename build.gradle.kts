@@ -4,14 +4,14 @@ import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 
 plugins {
-    id("java") // Java support
-    alias(libs.plugins.kotlin) // Kotlin support
-    alias(libs.plugins.intelliJPlatform) // IntelliJ Platform Gradle Plugin
-    alias(libs.plugins.changelog) // Gradle Changelog Plugin
-    alias(libs.plugins.qodana) // Gradle Qodana Plugin
-    alias(libs.plugins.kover) // Gradle Kover Plugin
-    alias(libs.plugins.dokka) // Gradle Dokka Plugin for documentation
-    alias(libs.plugins.ktlint) // Gradle Ktlint Plugin for Kotlin code style
+    id("java")
+    id("org.jetbrains.kotlin.jvm") version "2.1.20"
+    id("org.jetbrains.intellij.platform") version "2.5.0"
+    id("org.jetbrains.changelog") version "2.2.1"
+    id("org.jetbrains.qodana") version "2024.3.4"
+    id("org.jetbrains.kotlinx.kover") version "0.9.1"
+    id("org.jetbrains.dokka") version "1.9.10"
+    id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
 }
 
 group = providers.gradleProperty("pluginGroup").get()
@@ -26,52 +26,48 @@ kotlin {
 repositories {
     mavenCentral()
 
-    // IntelliJ Platform Gradle Plugin Repositories Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-repositories-extension.html
+    // IntelliJ Platform Gradle Plugin Repositories Extension
     intellijPlatform {
         defaultRepositories()
     }
 }
 
-// Dependencies are managed with Gradle version catalog - read more: https://docs.gradle.org/current/userguide/platforms.html#sub:version-catalog
+// Dependencies
 dependencies {
     implementation(project(":generated"))
 
-    implementation("com.typesafe:config:1.4.2") // Hocon configuration library
-    implementation("com.squareup.okhttp3:okhttp:4.12.0") // OkHttp library for HTTP requests
-    implementation("com.google.api-client:google-api-client:2.2.0") // Google API Client Library
+    implementation("com.typesafe:config:1.4.2")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.api-client:google-api-client:2.2.0")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.8.1")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.8.1")
-    implementation("com.google.oauth-client:google-oauth-client-jetty:1.34.1") // Google OAuth Client Library
-    implementation("com.google.auth:google-auth-library-oauth2-http:1.20.0") // Google Auth Library
-    implementation("com.squareup.moshi:moshi-kotlin:1.15.1") // Moshi library for JSON parsing
-    implementation("com.squareup.moshi:moshi-adapters:1.15.1") // Moshi adapters for additional types
+    implementation("com.google.oauth-client:google-oauth-client-jetty:1.34.1")
+    implementation("com.google.auth:google-auth-library-oauth2-http:1.20.0")
+    implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
+    implementation("com.squareup.moshi:moshi-adapters:1.15.1")
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
     testImplementation("org.mockito:mockito-core:5.18.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 
-    // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
+    // IntelliJ Platform Gradle Plugin Dependencies Extension
     intellijPlatform {
         create(providers.gradleProperty("platformType"), providers.gradleProperty("platformVersion"))
 
-        // Plugin Dependencies. Uses `platformBundledPlugins` property from the gradle.properties file for bundled IntelliJ Platform plugins.
         bundledPlugins("org.intellij.plugins.markdown")
         bundledPlugins(providers.gradleProperty("platformBundledPlugins").map { it.split(',') })
-
-        // Plugin Dependencies. Uses `platformPlugins` property from the gradle.properties file for plugin from JetBrains Marketplace.
         plugins(providers.gradleProperty("platformPlugins").map { it.split(',') })
 
         testFramework(TestFrameworkType.Platform)
     }
 }
 
-// Configure IntelliJ Platform Gradle Plugin - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-extension.html
+// Configure IntelliJ Platform Gradle Plugin
 intellijPlatform {
     pluginConfiguration {
         name = providers.gradleProperty("pluginName")
         version = providers.gradleProperty("pluginVersion")
 
-        // Extract the <!-- Plugin description --> section from README.md and provide for the plugin's manifest
         description =
             providers.fileContents(layout.projectDirectory.file("README.md")).asText
                 .map {
@@ -86,8 +82,7 @@ intellijPlatform {
                     }
                 }
 
-        val changelog = project.changelog // local variable for configuration cache compatibility
-        // Get the latest available change notes from the changelog file
+        val changelog = project.changelog
         changeNotes =
             providers.gradleProperty("pluginVersion")
                 .map { pluginVersion ->
@@ -115,9 +110,6 @@ intellijPlatform {
 
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
-        // The pluginVersion is based on the SemVer (https://semver.org) and supports pre-release labels, like 2.1.7-alpha.3
-        // Specify pre-release label to publish the plugin in a custom Release Channel automatically. Read more:
-        // https://plugins.jetbrains.com/docs/intellij/deployment.html#specifying-a-release-channel
         channels =
             providers.gradleProperty("pluginVersion")
                 .map { pluginVersion ->
@@ -137,13 +129,13 @@ intellijPlatform {
     }
 }
 
-// Configure Gradle Changelog Plugin - read more: https://github.com/JetBrains/gradle-changelog-plugin
+// Configure Gradle Changelog Plugin
 changelog {
     groups.empty()
     repositoryUrl = providers.gradleProperty("pluginRepositoryUrl")
 }
 
-// Configure Gradle Kover Plugin - read more: https://github.com/Kotlin/kotlinx-kover#configuration
+// Configure Gradle Kover Plugin
 kover {
     reports {
         total {
@@ -161,14 +153,12 @@ ktlint {
     enableExperimentalRules = true
     filter {
         exclude { element -> element.file.path.contains("generated/") }
+        exclude { element -> element.file.path.contains("integration/") }
     }
     ignoreFailures = true
-    // the reason I set this to true is that we don't want to fail the build if there are any ktlint issues
-    // but it is something we should fix and be aware of
 }
 
 tasks {
-
     wrapper {
         gradleVersion = providers.gradleProperty("gradleVersion").get()
     }
@@ -183,12 +173,17 @@ tasks {
         dependsOn("formatKotlin", "ktlintCheck")
     }
 
-    // Configure Dokka HTML documentation task
+    test {
+        useJUnitPlatform()
+        testLogging {
+            events("passed", "skipped", "failed")
+        }
+    }
+
     val dokkaHtml by getting(org.jetbrains.dokka.gradle.DokkaTask::class) {
         outputDirectory.set(layout.buildDirectory.dir("dokka"))
     }
 
-    // Task to create a zip archive of the Dokka documentation
     register<Zip>("dokkaZip") {
         dependsOn(dokkaHtml)
         archiveBaseName.set("dokka-documentation")
@@ -202,6 +197,17 @@ tasks {
         dependsOn(patchChangelog)
     }
 }
+
+// Add a task to run integration tests - but don't make it part of the build cycle
+tasks.register("integrationTest") {
+    description = "Runs integration tests in the integration-tests subproject"
+    group = "verification"
+
+    dependsOn(":integration-tests:test")
+}
+
+// DON'T make check depend on integration tests to avoid circular dependency
+// Users can run integration tests separately with ./gradlew integrationTest
 
 intellijPlatformTesting {
     runIde {

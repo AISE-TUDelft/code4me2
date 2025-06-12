@@ -5,7 +5,7 @@ package me.code4me.utils.record
  */
 data class Record(
     val type: Type,
-    internal val expanded: MutableMap<EntryKey, Any> = mutableMapOf(),
+    val expanded: MutableMap<EntryKey, Any> = mutableMapOf(),
 ) {
     /**
      * High-level category indicating the purpose of the record.

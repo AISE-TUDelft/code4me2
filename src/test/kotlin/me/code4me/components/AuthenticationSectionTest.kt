@@ -1,29 +1,21 @@
 package me.code4me.components
 
-import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBPasswordField
+import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
-import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.sections.AuthenticationSection
 import org.junit.jupiter.api.Assertions.*
 import javax.swing.JButton
-import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JToggleButton
-import com.intellij.ui.components.JBTextField
-import com.intellij.ui.components.JBPasswordField
-import com.intellij.ui.components.JBLabel
-import java.awt.event.FocusEvent
-import java.awt.Component
-import java.lang.reflect.Field
-import java.lang.reflect.Method
 
 class AuthenticationSectionTest : BasePlatformTestCase() {
-
     fun testApplyTo() {
         val section = AuthenticationSection()
         val builder = FormBuilder.createFormBuilder()
@@ -41,9 +33,9 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
 
     fun testCreateCredentialsPanel() {
         val section = AuthenticationSection()
-        val credentialsPanel = 
+        val credentialsPanel =
             section.javaClass.getDeclaredMethod(
-                "createCredentialsPanel"
+                "createCredentialsPanel",
             ).apply { isAccessible = true }.invoke(section) as JPanel
 
         assertNotNull(credentialsPanel, "Credentials panel should not be null")
@@ -68,9 +60,9 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
 
     fun testCreateGooglePanel() {
         val section = AuthenticationSection()
-        val googlePanel = 
+        val googlePanel =
             section.javaClass.getDeclaredMethod(
-                "createGooglePanel"
+                "createGooglePanel",
             ).apply { isAccessible = true }.invoke(section) as JPanel
 
         assertNotNull(googlePanel, "Google panel should not be null")
@@ -286,10 +278,11 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
         val section = AuthenticationSection()
 
         // Mock the showError method to avoid dialog display
-        val originalShowError = section.javaClass.getDeclaredMethod(
-            "showError", 
-            String::class.java
-        ).apply { isAccessible = true }
+        val originalShowError =
+            section.javaClass.getDeclaredMethod(
+                "showError",
+                String::class.java,
+            ).apply { isAccessible = true }
 
         var errorMessageCalled = false
         val mockShowError = { message: String ->
@@ -298,11 +291,12 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
 
         try {
             // Get the handleGoogleLogin method
-            val handleGoogleLoginMethod = section.javaClass.getDeclaredMethod(
-                "handleGoogleLogin", 
-                String::class.java, 
-                String::class.java
-            ).apply { isAccessible = true }
+            val handleGoogleLoginMethod =
+                section.javaClass.getDeclaredMethod(
+                    "handleGoogleLogin",
+                    String::class.java,
+                    String::class.java,
+                ).apply { isAccessible = true }
 
             // Call the LOG.info method directly to simulate what handleGoogleLogin does
             val loggerField = section.javaClass.getDeclaredField("LOG").apply { isAccessible = true }
@@ -324,11 +318,12 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
 
         try {
             // Get the handleGoogleSignup method
-            val handleGoogleSignupMethod = section.javaClass.getDeclaredMethod(
-                "handleGoogleSignup", 
-                String::class.java, 
-                String::class.java
-            ).apply { isAccessible = true }
+            val handleGoogleSignupMethod =
+                section.javaClass.getDeclaredMethod(
+                    "handleGoogleSignup",
+                    String::class.java,
+                    String::class.java,
+                ).apply { isAccessible = true }
 
             // Call the LOG.info method directly to simulate what handleGoogleSignup does
             val loggerField = section.javaClass.getDeclaredField("LOG").apply { isAccessible = true }
@@ -372,10 +367,11 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
 
         try {
             // Get the showSuccess method
-            val showSuccessMethod = section.javaClass.getDeclaredMethod(
-                "showSuccess", 
-                String::class.java
-            ).apply { isAccessible = true }
+            val showSuccessMethod =
+                section.javaClass.getDeclaredMethod(
+                    "showSuccess",
+                    String::class.java,
+                ).apply { isAccessible = true }
 
             // Get the logger to verify debug message
             val loggerField = section.javaClass.getDeclaredField("LOG").apply { isAccessible = true }
@@ -399,10 +395,11 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
 
         try {
             // Get the showError method
-            val showErrorMethod = section.javaClass.getDeclaredMethod(
-                "showError", 
-                String::class.java
-            ).apply { isAccessible = true }
+            val showErrorMethod =
+                section.javaClass.getDeclaredMethod(
+                    "showError",
+                    String::class.java,
+                ).apply { isAccessible = true }
 
             // Get the logger to verify debug message
             val loggerField = section.javaClass.getDeclaredField("LOG").apply { isAccessible = true }
