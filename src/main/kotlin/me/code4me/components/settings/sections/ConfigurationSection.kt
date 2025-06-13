@@ -1502,9 +1502,18 @@ class ConfigurationSection : SettingsSection {
             deleteOptionsPanel.add(deleteButton, BorderLayout.EAST)
 
             deleteButton.addActionListener {
+                val willDeleteData = deleteDataCheckbox.isSelected
+
+                val confirmMessage =
+                    if (willDeleteData) {
+                        "Are you sure you want to delete your account AND all your data? This action cannot be undone and will permanently remove all your information from our servers."
+                    } else {
+                        "Are you sure you want to delete your account? This action cannot be undone."
+                    }
+
                 val confirmResult =
                     Messages.showYesNoDialog(
-                        "Are you sure you want to delete your account? This action cannot be undone.",
+                        confirmMessage,
                         "Confirm Account Deletion",
                         "Delete Account",
                         "Cancel",
@@ -1513,17 +1522,35 @@ class ConfigurationSection : SettingsSection {
 
                 if (confirmResult == Messages.YES) {
                     try {
-                        appService.deleteUser(deleteDataCheckbox.isSelected)
+                        // Pass the checkbox state to determine if user data should be deleted
+                        appService.deleteUser(willDeleteData)
+
+                        val successMessage =
+                            if (willDeleteData) {
+                                "Your account and all associated data have been deleted successfully."
+                            } else {
+                                "Your account has been deleted successfully."
+                            }
 
                         Messages.showInfoMessage(
-                            "Your account has been deleted successfully.",
+                            successMessage,
                             "Account Deleted",
                         )
+
                         close(OK_EXIT_CODE)
                     } catch (e: Exception) {
-                        LOG.error("Failed to delete user account", e)
+                        LOG.error("Failed to delete user account with deleteData=$willDeleteData", e)
+
+                        val errorMessage =
+                            when (e) {
+                                is ClientException -> "Failed to delete account. Please check your authentication."
+                                is ServerException -> "Server error occurred during account deletion. Please try again later."
+                                is IOException -> "Network error occurred. Please check your connection."
+                                else -> "An error occurred while deleting your account: ${e.message}"
+                            }
+
                         Messages.showErrorDialog(
-                            "An error occurred while deleting your account. Please try again.",
+                            errorMessage,
                             "Delete Account Error",
                         )
                     }
