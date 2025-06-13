@@ -5,10 +5,12 @@ import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionVar
 import com.intellij.openapi.diagnostic.Logger
 import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner
 import me.code4me.services.config.getConfig
+import java.util.UUID
 
 class PluginInlineCompletionSuggestion(
     private val completionItem: List<ResponseCompletionResponseDataCompletionsInner>,
     private val requestId: Long,
+    private val metaQueryId: UUID?,
 ) : InlineCompletionSuggestion {
     private var variants: List<InlineCompletionVariant>? = null
     private val logger = Logger.getInstance(PluginInlineCompletionSuggestion::class.java)
@@ -26,6 +28,7 @@ class PluginInlineCompletionSuggestion(
                         it.completion,
                         requestId,
                         getConfig().getModelsConfiguration()?.modelNameById(it.modelId) ?: "Unknown Model",
+                        metaQueryId,
                     )
                 }
         }

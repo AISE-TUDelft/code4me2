@@ -3,6 +3,7 @@ package me.code4me.completion
 import com.intellij.codeInsight.inline.completion.elements.InlineCompletionElement
 import com.intellij.codeInsight.inline.completion.elements.InlineCompletionGrayTextElement
 import java.time.OffsetDateTime
+import java.util.UUID
 
 class PluginInlineCompletionElement(
     override val text: String,
@@ -12,6 +13,7 @@ class PluginInlineCompletionElement(
     private var originalCompletion: String = text,
     private var presentedAt: MutableSet<OffsetDateTime> = mutableSetOf(),
     private var timesUpdated: Int = 0,
+    internal val metaQueryId: UUID?,
 ) : InlineCompletionElement {
     override fun toPresentable(): InlineCompletionElement.Presentable {
         presentedAt.add(OffsetDateTime.now())

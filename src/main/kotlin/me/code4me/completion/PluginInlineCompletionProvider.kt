@@ -58,6 +58,7 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
         return PluginInlineCompletionSuggestion(
             mappedCompletions,
             requestId,
+            completion?.metaQueryId,
         )
     }
 

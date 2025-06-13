@@ -5,11 +5,13 @@ import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionVar
 import com.intellij.openapi.util.UserDataHolderBase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import java.util.UUID
 
 class PluginInlineCompletionVariant(
     private val completionText: String,
     private val requestId: Long,
     private val completionModel: String,
+    private val metaQueryId: UUID?,
 ) : InlineCompletionVariant {
     override val data: UserDataHolderBase
         get() = UserDataHolderBase()
@@ -20,6 +22,7 @@ class PluginInlineCompletionVariant(
                     completionText,
                     requestId,
                     completionModel,
+                    metaQueryId = metaQueryId,
                 ),
             )
 }
