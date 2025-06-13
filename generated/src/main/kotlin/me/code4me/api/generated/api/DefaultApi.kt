@@ -45,9 +45,9 @@ class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
-     * GET /api/ping
+     * HEAD /api/ping
      * Ping
-     * 
+     * Lightweight health check endpoint.  Returns:     dict: A simple response indicating the service is available.
      * @return kotlin.Any
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -57,8 +57,8 @@ class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun pingApiPingGet() : kotlin.Any {
-        val localVarResponse = pingApiPingGetWithHttpInfo()
+    fun pingApiPingHead() : kotlin.Any {
+        val localVarResponse = pingApiPingHeadWithHttpInfo()
 
         return when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.Any
@@ -76,17 +76,17 @@ class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
-     * GET /api/ping
+     * HEAD /api/ping
      * Ping
-     * 
+     * Lightweight health check endpoint.  Returns:     dict: A simple response indicating the service is available.
      * @return ApiResponse<kotlin.Any?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun pingApiPingGetWithHttpInfo() : ApiResponse<kotlin.Any?> {
-        val localVariableConfig = pingApiPingGetRequestConfig()
+    fun pingApiPingHeadWithHttpInfo() : ApiResponse<kotlin.Any?> {
+        val localVariableConfig = pingApiPingHeadRequestConfig()
 
         return request<Unit, kotlin.Any>(
             localVariableConfig
@@ -94,18 +94,18 @@ class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
-     * To obtain the request config of the operation pingApiPingGet
+     * To obtain the request config of the operation pingApiPingHead
      *
      * @return RequestConfig
      */
-    fun pingApiPingGetRequestConfig() : RequestConfig<Unit> {
+    fun pingApiPingHeadRequestConfig() : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
-            method = RequestMethod.GET,
+            method = RequestMethod.HEAD,
             path = "/api/ping",
             query = localVariableQuery,
             headers = localVariableHeaders,

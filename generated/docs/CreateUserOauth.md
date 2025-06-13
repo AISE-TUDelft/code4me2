@@ -10,7 +10,6 @@
 | **configId** | **kotlin.Int** | Configuration ID to use |  |
 | **token** | **kotlin.String** | JWT token for authentication |  |
 | **provider** | [**Provider**](Provider.md) | OAuth provider (Google, Microsoft, etc.) |  |
-| **preference** | **kotlin.String** |  |  [optional] |
 
 
 

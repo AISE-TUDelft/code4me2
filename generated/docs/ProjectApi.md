@@ -4,8 +4,8 @@ All URIs are relative to *http://localhost*
 
 | Method | HTTP request | Description |
 | ------------- | ------------- | ------------- |
-| [**activateProjectApiProjectActivatePut**](ProjectApi.md#activateProjectApiProjectActivatePut) | **PUT** /api/project/activate/ | Activate Project |
-| [**createProjectApiProjectCreatePost**](ProjectApi.md#createProjectApiProjectCreatePost) | **POST** /api/project/create/ | Create Project |
+| [**activateProjectApiProjectActivatePut**](ProjectApi.md#activateProjectApiProjectActivatePut) | **PUT** /api/project/activate | Activate Project |
+| [**createProjectApiProjectCreatePost**](ProjectApi.md#createProjectApiProjectCreatePost) | **POST** /api/project/create | Create Project |
 
 
 <a id="activateProjectApiProjectActivatePut"></a>
@@ -14,7 +14,7 @@ All URIs are relative to *http://localhost*
 
 Activate Project
 
-Activates the project by following these steps: 1. Validate the provided auth token 2. If valid, return confirmation 3. If invalid, return an appropriate error response 4. The project might exist in redis or in the database, if it is in the database, it should be fetched from there and put in redis if it is in the redis, its expiration time should be updated.
+Activate a project for a user session by performing the following:  1. Validate the auth token and session token from cookies. 2. If the project exists in Redis, update its expiration time. 3. If the project is not found in Redis, fetch it from the database and cache it. 4. Associate the project with the user session and user in the database if not already linked. 5. Return a success response with the project token set as an HttpOnly cookie.  Args:     activate_project_request: Request data containing the project ID to activate.     app: FastAPI dependency injection to get app context.     auth_token: Auth token from cookie to validate user identity.  Returns:     JsonResponseWithStatus: Success or error response with appropriate status and messages.
 
 ### Example
 ```kotlin
@@ -41,7 +41,7 @@ try {
 | **activateProject** | [**ActivateProject**](ActivateProject.md)|  | |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
@@ -62,7 +62,7 @@ No authorization required
 
 Create Project
 
-Create a new project 1. Validate the provided session token 2. If valid, create a project and return the project token 3. If invalid, return an appropriate error response
+Create a new project for an authenticated user.  Steps: 1. Validate the provided auth token to get session info. 2. Verify the session token is valid. 3. Create a new project in the database. 4. Associate the project with the session and the user. 5. Store project metadata in Redis. 6. Return the project token as an HttpOnly cookie in the response.  Args:     project_to_create: Project data provided in the request body.     app: FastAPI dependency to access the app context.     auth_token: Auth token passed as a cookie for authentication.  Returns:     JsonResponseWithStatus: JSON response with project token or error details.
 
 ### Example
 ```kotlin
@@ -89,7 +89,7 @@ try {
 | **createProject** | [**CreateProject**](CreateProject.md)|  | |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **authToken** | **kotlin.String**|  | [optional] [default to &quot;auth_token&quot;] |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 

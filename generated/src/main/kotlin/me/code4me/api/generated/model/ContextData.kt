@@ -41,7 +41,7 @@ data class ContextData (
     val suffix: kotlin.String,
 
     @Json(name = "file_name")
-    val fileName: kotlin.String?,
+    val fileName: kotlin.String? = null,
 
     @Json(name = "selected_text")
     val selectedText: kotlin.String? = null,

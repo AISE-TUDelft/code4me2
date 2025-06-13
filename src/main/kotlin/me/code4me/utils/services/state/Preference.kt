@@ -50,7 +50,6 @@ fun getListPreference(
     return PrefState.getPreferenceValue(moduleId, key) ?: defaultValue
 }
 
-
 /**
  * Helper method to retrieve textual preference values with fallback.
  *
@@ -66,7 +65,6 @@ fun getTextualPreference(
 ): String {
     return PrefState.getPreferenceValue(moduleId, key) ?: defaultValue
 }
-
 
 /**
  * Helper method to retrieve string preference values with fallback.

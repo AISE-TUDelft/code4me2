@@ -20,15 +20,15 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * 
+ * Response model representing a user in the system.
  *
  * @param email User's email address
  * @param name User's full name
- * @param password User's password (will be hashed)
+ * @param password User's password (hashed)
  * @param configId Configuration ID to use
- * @param userId Unique id for the user
- * @param joinedAt When the user was created
- * @param verified Whether the user's email has been verified
+ * @param userId Unique ID for the user
+ * @param joinedAt Timestamp when the user joined
+ * @param verified Whether the user's email is verified
  * @param preference 
  * @param authToken 
  */
@@ -44,7 +44,7 @@ data class ResponseUser (
     @Json(name = "name")
     val name: kotlin.String,
 
-    /* User's password (will be hashed) */
+    /* User's password (hashed) */
     @Json(name = "password")
     val password: kotlin.String,
 
@@ -52,20 +52,20 @@ data class ResponseUser (
     @Json(name = "config_id")
     val configId: kotlin.Int,
 
-    /* Unique id for the user */
+    /* Unique ID for the user */
     @Json(name = "user_id")
     val userId: java.util.UUID,
 
-    /* When the user was created */
+    /* Timestamp when the user joined */
     @Json(name = "joined_at")
     val joinedAt: java.time.OffsetDateTime,
 
-    /* Whether the user's email has been verified */
+    /* Whether the user's email is verified */
     @Json(name = "verified")
     val verified: kotlin.Boolean,
 
     @Json(name = "preference")
-    val preference: kotlin.String? = null,
+    val preference: kotlin.collections.Map<kotlin.String, kotlin.Any>? = null,
 
     @Json(name = "auth_token")
     val authToken: java.util.UUID? = null

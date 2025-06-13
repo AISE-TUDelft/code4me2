@@ -3,7 +3,6 @@ package me.code4me.lifecycle
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.project.ProjectManagerListener
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.util.messages.MessageBusConnection
 import me.code4me.services.app.getAppService

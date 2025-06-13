@@ -154,11 +154,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         // Create a timer to update the loading indicator
         val loadingPatterns = arrayOf("Generating.", "Generating..", "Generating...")
         var patternIndex = 0
-        val loadingTimer = Timer(300) { _ ->
-            val loadingText = loadingPatterns[patternIndex]
-            updateLastMessage(loadingText)
-            patternIndex = (patternIndex + 1) % loadingPatterns.size
-        }
+        val loadingTimer =
+            Timer(300) { _ ->
+                val loadingText = loadingPatterns[patternIndex]
+                updateLastMessage(loadingText)
+                patternIndex = (patternIndex + 1) % loadingPatterns.size
+            }
         loadingTimer.start()
 
         // Process AI response in background
@@ -196,7 +197,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         selectedModel,
         sessionManager?.currentSession?.id?.toString(),
         sessionManager?.currentSession?.messages!!,
-        project!!
+        project!!,
     )
 
     private fun appendMessage(
@@ -243,11 +244,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     private fun loadModelsFromConfig() {
         try {
-            val models = getConfig()
-                .getModelsConfiguration()
-                ?.getAvailableChatModels()
-                ?.map {it.name}?.toTypedArray()
-                ?: emptyArray<String>()
+            val models =
+                getConfig()
+                    .getModelsConfiguration()
+                    ?.getAvailableChatModels()
+                    ?.map { it.name }?.toTypedArray()
+                    ?: emptyArray<String>()
             updateModelList(models)
         } catch (e: Exception) {
             println("Error loading models from config: ${e.message}")

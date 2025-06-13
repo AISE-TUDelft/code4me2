@@ -5,10 +5,10 @@ import com.intellij.openapi.components.service
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import me.code4me.services.config.models.GoogleOAuthConfig
+import me.code4me.services.config.models.ModelsConfiguration
 import me.code4me.services.config.models.ModuleCategoryConfig
 import me.code4me.services.config.models.ModuleConfig
 import me.code4me.services.config.models.ModuleDependency
-import me.code4me.services.config.models.ModelsConfiguration
 import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.modules.PluginModule
 

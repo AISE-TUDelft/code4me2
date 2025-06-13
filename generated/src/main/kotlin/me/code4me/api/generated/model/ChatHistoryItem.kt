@@ -22,20 +22,20 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * Represents a single turn in the chat conversation
+ * Represents a single user-assistant interaction in a chat session.
  *
- * @param userMessage User's message
- * @param assistantResponses Assistant's responses from different models
+ * @param userMessage User's input message
+ * @param assistantResponses Assistant's model responses
  */
 
 
 data class ChatHistoryItem (
 
-    /* User's message */
+    /* User's input message */
     @Json(name = "user_message")
     val userMessage: ChatMessageItem,
 
-    /* Assistant's responses from different models */
+    /* Assistant's model responses */
     @Json(name = "assistant_responses")
     val assistantResponses: kotlin.collections.List<ChatHistoryItemAssistantResponsesInner>
 

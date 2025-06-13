@@ -15,7 +15,7 @@ All URIs are relative to *http://localhost*
 
 Get Completions By Query
 
-Get completions for a specific query ID.
+Retrieve code completions associated with a specific query ID.  This endpoint validates the user&#39;s session token and authorization, ensures the requested query exists and belongs to the requesting user, and then fetches all the associated completion generations from the database.  Parameters: - query_id (UUID): The unique identifier for the meta query whose completions are requested. - app (App, dependency): The application instance providing database and Redis access. - session_token (str, cookie): The session token cookie for user authentication.  Returns: - JsonResponseWithStatus: JSON response with HTTP status and either the completions data   or an error response detailing the failure reason.  Possible responses: - 200: Successfully retrieved completions for the given query ID. - 401: Session token is invalid, expired, or missing. - 403: User does not have access rights to the requested query. - 404: The requested query ID does not exist. - 422, 429: Various client errors (validation or rate limiting). - 500: Internal server error while retrieving completions.
 
 ### Example
 ```kotlin
@@ -42,7 +42,7 @@ try {
 | **queryId** | **java.util.UUID**|  | |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
@@ -63,7 +63,7 @@ No authorization required
 
 Request Completion
 
-Request code completions based on provided context.
+Handle a code completion request.  Steps: - Authenticate session, user, and project tokens via Redis. - Redact any secrets from the context before processing. - Prepare optional Celery tasks for storing context and telemetry. - Aggregate multi-file context if available. - Run completion models concurrently using a thread pool. - Queue database update tasks asynchronously using Celery. - Return completion results or appropriate error responses.
 
 ### Example
 ```kotlin
@@ -89,10 +89,10 @@ try {
 
 ### Parameters
 | **requestCompletion** | [**RequestCompletion**](RequestCompletion.md)|  | |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;project_token&quot;] |
+| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
@@ -113,7 +113,7 @@ No authorization required
 
 Submit Completion Feedback
 
-Submit feedback on a generated completion.
+Submit feedback on a generated completion.  This endpoint validates the user&#39;s session and project tokens against Redis, verifies the user&#39;s authorization to provide feedback on the given query, and enqueues asynchronous tasks to update generation status and optionally save ground truth feedback.  Parameters: - feedback: The feedback data submitted by the user, including acceptance   status and optional ground truth. - app: Dependency-injected application instance providing DB and Redis access. - session_token: Session cookie used to authenticate the user session. - project_token: Project cookie used to authorize project-level access.  Returns: - JsonResponseWithStatus: A response indicating success or describing errors,   including authorization failures, missing records, or internal errors.
 
 ### Example
 ```kotlin
@@ -139,10 +139,10 @@ try {
 
 ### Parameters
 | **feedbackCompletion** | [**FeedbackCompletion**](FeedbackCompletion.md)|  | |
-| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;session_token&quot;] |
+| **sessionToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;project_token&quot;] |
+| **projectToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 

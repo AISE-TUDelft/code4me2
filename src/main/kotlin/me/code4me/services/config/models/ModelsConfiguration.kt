@@ -10,7 +10,7 @@ import com.typesafe.config.Config
  */
 data class ModelsConfiguration(
     val availableModels: List<ModelConfig>,
-    val systemPrompt: String
+    val systemPrompt: String,
 ) {
     companion object {
         /**
@@ -20,23 +20,25 @@ data class ModelsConfiguration(
          * @return A ModelsConfiguration instance parsed from the configuration
          */
         fun fromConfig(config: Config): ModelsConfiguration {
-            val availableModels = if (config.hasPath("available")) {
-                config.getConfigList("available").map { modelConfig ->
-                    ModelConfig.fromConfig(modelConfig)
+            val availableModels =
+                if (config.hasPath("available")) {
+                    config.getConfigList("available").map { modelConfig ->
+                        ModelConfig.fromConfig(modelConfig)
+                    }
+                } else {
+                    emptyList()
                 }
-            } else {
-                emptyList()
-            }
 
-            val systemPrompt = if (config.hasPath("systemPrompt")) {
-                config.getString("systemPrompt")
-            } else {
-                "You are a helpful assistant."
-            }
+            val systemPrompt =
+                if (config.hasPath("systemPrompt")) {
+                    config.getString("systemPrompt")
+                } else {
+                    "You are a helpful assistant."
+                }
 
             return ModelsConfiguration(
                 availableModels = availableModels,
-                systemPrompt = systemPrompt
+                systemPrompt = systemPrompt,
             )
         }
     }

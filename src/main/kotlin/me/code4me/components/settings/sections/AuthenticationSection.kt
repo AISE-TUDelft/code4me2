@@ -649,6 +649,9 @@ class AuthenticationSection : SettingsSection {
                 it.name == "auth_token"
             }?.value
         } catch (e: Exception) {
+            print("Messeduppp")
+            print(e)
+            print("end")
             LOG.warn("Login request failed for email: $email", e)
             null
         }

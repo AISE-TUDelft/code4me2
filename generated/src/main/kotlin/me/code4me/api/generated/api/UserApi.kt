@@ -27,9 +27,13 @@ import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteUserDeleteResponse
 import me.code4me.api.generated.model.DeleteUserError
 import me.code4me.api.generated.model.ErrorResponse
-import me.code4me.api.generated.model.HTTPValidationError
+import me.code4me.api.generated.model.GetVerificationError
+import me.code4me.api.generated.model.GetVerificationGetResponse
 import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
 import me.code4me.api.generated.model.InvalidOrExpiredJWTToken
+import me.code4me.api.generated.model.InvalidOrExpiredVerificationToken
+import me.code4me.api.generated.model.ResendVerificationEmailError
+import me.code4me.api.generated.model.ResendVerificationEmailPostResponse
 import me.code4me.api.generated.model.Response401AuthenticateUserApiUserAuthenticatePost
 import me.code4me.api.generated.model.UpdateUser
 import me.code4me.api.generated.model.UpdateUserError
@@ -38,6 +42,8 @@ import me.code4me.api.generated.model.UserAlreadyExistsWithThisEmail
 import me.code4me.api.generated.model.UserNotFoundError
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
+import me.code4me.api.generated.model.VerifyUserError
+import me.code4me.api.generated.model.VerifyUserPostHTMLResponse
 
 import com.squareup.moshi.Json
 
@@ -64,9 +70,9 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * POST /api/user/authenticate/
+     * POST /api/user/authenticate
      * Authenticate User
-     * Authenticate a user via either OAuth (JWT token) or traditional email/password.  This endpoint supports two methods of authentication: 1. OAuth Authentication:    - The input contains a JWT token from an OAuth provider (Google).    - The token&#39;s validity is verified.    - If valid, the user is fetched by email from the database.    - A session auth token is created and returned as a cookie. 2. Email/Password Authentication:    - The input contains user email and password.    - Credentials are verified against the database.    - If valid, a session auth token is created and returned as a cookie.  Args:     user_to_authenticate: Union of OAuth token or email/password credentials.     app: FastAPI dependency to access the application context.  Returns:     JsonResponseWithStatus: A JSON response containing the authenticated user info     and a session auth token cookie on success, or an error response otherwise.
+     * Authenticate a user using either OAuth (via JWT) or email/password.  This endpoint supports: - OAuth: Validates a JWT token and fetches the user by email. - Email/Password: Verifies credentials against the database.  Args:     user_to_authenticate (Union[AuthenticateUserEmailPassword, AuthenticateUserOAuth]):         Either an email/password object or a JWT-based OAuth object.     app (App): FastAPI dependency that provides access to DB and config.  Returns:     JsonResponseWithStatus: Authenticated user info + auth token cookie,     or an error response.
      * @param userToAuthenticate 
      * @return AuthenticateUserPostResponse
      * @throws IllegalStateException If the request is not correctly configured
@@ -96,9 +102,9 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * POST /api/user/authenticate/
+     * POST /api/user/authenticate
      * Authenticate User
-     * Authenticate a user via either OAuth (JWT token) or traditional email/password.  This endpoint supports two methods of authentication: 1. OAuth Authentication:    - The input contains a JWT token from an OAuth provider (Google).    - The token&#39;s validity is verified.    - If valid, the user is fetched by email from the database.    - A session auth token is created and returned as a cookie. 2. Email/Password Authentication:    - The input contains user email and password.    - Credentials are verified against the database.    - If valid, a session auth token is created and returned as a cookie.  Args:     user_to_authenticate: Union of OAuth token or email/password credentials.     app: FastAPI dependency to access the application context.  Returns:     JsonResponseWithStatus: A JSON response containing the authenticated user info     and a session auth token cookie on success, or an error response otherwise.
+     * Authenticate a user using either OAuth (via JWT) or email/password.  This endpoint supports: - OAuth: Validates a JWT token and fetches the user by email. - Email/Password: Verifies credentials against the database.  Args:     user_to_authenticate (Union[AuthenticateUserEmailPassword, AuthenticateUserOAuth]):         Either an email/password object or a JWT-based OAuth object.     app (App): FastAPI dependency that provides access to DB and config.  Returns:     JsonResponseWithStatus: Authenticated user info + auth token cookie,     or an error response.
      * @param userToAuthenticate 
      * @return ApiResponse<AuthenticateUserPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -129,7 +135,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/user/authenticate/",
+            path = "/api/user/authenticate",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
@@ -140,9 +146,9 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * GET /api/user/verify/check
      * Check Verification
-     * Check if the user is verified
-     * @param authToken  (optional, default to "auth_token")
-     * @return kotlin.Any
+     * Check if the currently authenticated user has verified their email.  Parameters: - app (App): Dependency-injected application context providing access to services. - auth_token (str): Authentication token retrieved from the user&#39;s cookie.  Returns: - JsonResponseWithStatus: User verification status or appropriate error message.
+     * @param authToken  (optional, default to "")
+     * @return GetVerificationGetResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -151,11 +157,11 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun checkVerificationApiUserVerifyCheckGet(authToken: kotlin.String? = "auth_token") : kotlin.Any {
+    fun checkVerificationApiUserVerifyCheckGet(authToken: kotlin.String? = "") : GetVerificationGetResponse {
         val localVarResponse = checkVerificationApiUserVerifyCheckGetWithHttpInfo(authToken = authToken)
 
         return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.Any
+            ResponseType.Success -> (localVarResponse as Success<*>).data as GetVerificationGetResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -172,18 +178,18 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * GET /api/user/verify/check
      * Check Verification
-     * Check if the user is verified
-     * @param authToken  (optional, default to "auth_token")
-     * @return ApiResponse<kotlin.Any?>
+     * Check if the currently authenticated user has verified their email.  Parameters: - app (App): Dependency-injected application context providing access to services. - auth_token (str): Authentication token retrieved from the user&#39;s cookie.  Returns: - JsonResponseWithStatus: User verification status or appropriate error message.
+     * @param authToken  (optional, default to "")
+     * @return ApiResponse<GetVerificationGetResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun checkVerificationApiUserVerifyCheckGetWithHttpInfo(authToken: kotlin.String?) : ApiResponse<kotlin.Any?> {
+    fun checkVerificationApiUserVerifyCheckGetWithHttpInfo(authToken: kotlin.String?) : ApiResponse<GetVerificationGetResponse?> {
         val localVariableConfig = checkVerificationApiUserVerifyCheckGetRequestConfig(authToken = authToken)
 
-        return request<Unit, kotlin.Any>(
+        return request<Unit, GetVerificationGetResponse>(
             localVariableConfig
         )
     }
@@ -191,7 +197,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * To obtain the request config of the operation checkVerificationApiUserVerifyCheckGet
      *
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return RequestConfig
      */
     fun checkVerificationApiUserVerifyCheckGetRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
@@ -213,7 +219,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * POST /api/user/create
      * Create User
-     * Create a new user in the system.  Args:     user_to_create (Union[Queries.CreateUser, Queries.CreateUserOauth]):         The user data to create, can be standard or OAuth-based.     app (App):         The application instance, injected by FastAPI&#39;s dependency system.  Returns:     JsonResponseWithStatus: Response with status code and content.  Steps:     1. Check if the user already exists by email.     2. If OAuth, verify the JWT token and email.     3. Create the user in the database if not exists.     4. Send verification email.     5. Return appropriate response.
+     * Create a new user in the system using standard or OAuth-based data.  Args:     user_to_create (Union[CreateUser, CreateUserOauth]):         User data from the request body (standard or OAuth-based).     app (App):         Application context with access to database and services.  Returns:     JsonResponseWithStatus: JSON response indicating success or failure.  Flow:     1. Check if a user already exists with the given email.     2. If using OAuth, validate the JWT token.     3. Insert the new user into the database.     4. Send a verification email via Celery.     5. Return HTTP 201 with the new user ID.
      * @param userToCreate 
      * @return CreateUserPostResponse
      * @throws IllegalStateException If the request is not correctly configured
@@ -245,7 +251,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * POST /api/user/create
      * Create User
-     * Create a new user in the system.  Args:     user_to_create (Union[Queries.CreateUser, Queries.CreateUserOauth]):         The user data to create, can be standard or OAuth-based.     app (App):         The application instance, injected by FastAPI&#39;s dependency system.  Returns:     JsonResponseWithStatus: Response with status code and content.  Steps:     1. Check if the user already exists by email.     2. If OAuth, verify the JWT token and email.     3. Create the user in the database if not exists.     4. Send verification email.     5. Return appropriate response.
+     * Create a new user in the system using standard or OAuth-based data.  Args:     user_to_create (Union[CreateUser, CreateUserOauth]):         User data from the request body (standard or OAuth-based).     app (App):         Application context with access to database and services.  Returns:     JsonResponseWithStatus: JSON response indicating success or failure.  Flow:     1. Check if a user already exists with the given email.     2. If using OAuth, validate the JWT token.     3. Insert the new user into the database.     4. Send a verification email via Celery.     5. Return HTTP 201 with the new user ID.
      * @param userToCreate 
      * @return ApiResponse<CreateUserPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -287,9 +293,9 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * DELETE /api/user/delete
      * Delete User
-     * Delete the authenticated user&#39;s account and optionally their data.  Args:     delete_data (bool): Flag indicating whether to delete associated data (default: False).     auth_token (str): Authentication token stored in browser cookies.     app (App): Application instance with access to database and session managers.  Returns:     JsonResponseWithStatus: A success message or an appropriate error response.
-     * @param deleteData Delete user&#39;s data (optional, default to false)
-     * @param authToken  (optional, default to "auth_token")
+     * Delete the authenticated user&#39;s account and optionally their associated data.  Args:     delete_data (bool): If True, removes all user-related data (default is False).     auth_token (str): Auth token provided in cookies to authenticate the user.     app (App): Dependency-injected app instance with DB and Redis access.  Returns:     JsonResponseWithStatus: A success or error response depending on the outcome.
+     * @param deleteData Delete user&#39;s associated data (optional, default to false)
+     * @param authToken  (optional, default to "")
      * @return DeleteUserDeleteResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -299,7 +305,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun deleteUserApiUserDeleteDelete(deleteData: kotlin.Boolean? = false, authToken: kotlin.String? = "auth_token") : DeleteUserDeleteResponse {
+    fun deleteUserApiUserDeleteDelete(deleteData: kotlin.Boolean? = false, authToken: kotlin.String? = "") : DeleteUserDeleteResponse {
         val localVarResponse = deleteUserApiUserDeleteDeleteWithHttpInfo(deleteData = deleteData, authToken = authToken)
 
         return when (localVarResponse.responseType) {
@@ -320,9 +326,9 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * DELETE /api/user/delete
      * Delete User
-     * Delete the authenticated user&#39;s account and optionally their data.  Args:     delete_data (bool): Flag indicating whether to delete associated data (default: False).     auth_token (str): Authentication token stored in browser cookies.     app (App): Application instance with access to database and session managers.  Returns:     JsonResponseWithStatus: A success message or an appropriate error response.
-     * @param deleteData Delete user&#39;s data (optional, default to false)
-     * @param authToken  (optional, default to "auth_token")
+     * Delete the authenticated user&#39;s account and optionally their associated data.  Args:     delete_data (bool): If True, removes all user-related data (default is False).     auth_token (str): Auth token provided in cookies to authenticate the user.     app (App): Dependency-injected app instance with DB and Redis access.  Returns:     JsonResponseWithStatus: A success or error response depending on the outcome.
+     * @param deleteData Delete user&#39;s associated data (optional, default to false)
+     * @param authToken  (optional, default to "")
      * @return ApiResponse<DeleteUserDeleteResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -340,8 +346,8 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * To obtain the request config of the operation deleteUserApiUserDeleteDelete
      *
-     * @param deleteData Delete user&#39;s data (optional, default to false)
-     * @param authToken  (optional, default to "auth_token")
+     * @param deleteData Delete user&#39;s associated data (optional, default to false)
+     * @param authToken  (optional, default to "")
      * @return RequestConfig
      */
     fun deleteUserApiUserDeleteDeleteRequestConfig(deleteData: kotlin.Boolean?, authToken: kotlin.String?) : RequestConfig<Unit> {
@@ -366,11 +372,11 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * GET /api/user/verify/resend
+     * POST /api/user/verify/resend
      * Resend Verification Email
-     * Resend verification email to the user
-     * @param authToken  (optional, default to "auth_token")
-     * @return kotlin.Any
+     * Resend a verification email to the user if not already verified.  Parameters: - app (App): Application context for accessing services. - auth_token (str): Auth token from cookie identifying the user.  Returns: - JsonResponseWithStatus: Success confirmation or error message.
+     * @param authToken  (optional, default to "")
+     * @return ResendVerificationEmailPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -379,11 +385,11 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun resendVerificationEmailApiUserVerifyResendGet(authToken: kotlin.String? = "auth_token") : kotlin.Any {
-        val localVarResponse = resendVerificationEmailApiUserVerifyResendGetWithHttpInfo(authToken = authToken)
+    fun resendVerificationEmailApiUserVerifyResendPost(authToken: kotlin.String? = "") : ResendVerificationEmailPostResponse {
+        val localVarResponse = resendVerificationEmailApiUserVerifyResendPostWithHttpInfo(authToken = authToken)
 
         return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.Any
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ResendVerificationEmailPostResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -398,38 +404,38 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * GET /api/user/verify/resend
+     * POST /api/user/verify/resend
      * Resend Verification Email
-     * Resend verification email to the user
-     * @param authToken  (optional, default to "auth_token")
-     * @return ApiResponse<kotlin.Any?>
+     * Resend a verification email to the user if not already verified.  Parameters: - app (App): Application context for accessing services. - auth_token (str): Auth token from cookie identifying the user.  Returns: - JsonResponseWithStatus: Success confirmation or error message.
+     * @param authToken  (optional, default to "")
+     * @return ApiResponse<ResendVerificationEmailPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun resendVerificationEmailApiUserVerifyResendGetWithHttpInfo(authToken: kotlin.String?) : ApiResponse<kotlin.Any?> {
-        val localVariableConfig = resendVerificationEmailApiUserVerifyResendGetRequestConfig(authToken = authToken)
+    fun resendVerificationEmailApiUserVerifyResendPostWithHttpInfo(authToken: kotlin.String?) : ApiResponse<ResendVerificationEmailPostResponse?> {
+        val localVariableConfig = resendVerificationEmailApiUserVerifyResendPostRequestConfig(authToken = authToken)
 
-        return request<Unit, kotlin.Any>(
+        return request<Unit, ResendVerificationEmailPostResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation resendVerificationEmailApiUserVerifyResendGet
+     * To obtain the request config of the operation resendVerificationEmailApiUserVerifyResendPost
      *
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return RequestConfig
      */
-    fun resendVerificationEmailApiUserVerifyResendGetRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
+    fun resendVerificationEmailApiUserVerifyResendPostRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
-            method = RequestMethod.GET,
+            method = RequestMethod.POST,
             path = "/api/user/verify/resend",
             query = localVariableQuery,
             headers = localVariableHeaders,
@@ -441,9 +447,9 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * PUT /api/user/update
      * Update User
-     * Update the currently authenticated user&#39;s data.  Args: - user_to_update: Pydantic model containing fields to update. - app: Application context, injected by FastAPI. - auth_token: Authentication token stored in browser cookies.  Returns: - JSON response with updated user information if successful. - Appropriate error response if auth token is missing or invalid.
+     * Update the currently authenticated user&#39;s data.  Args:     user_to_update (Queries.UpdateUser): Fields the user wants to update.     app (App): Injected application instance with DB and Redis access.     auth_token (str): Auth token stored in the user&#39;s browser cookies.  Returns:     JsonResponseWithStatus: Contains updated user data or error info.
      * @param updateUser 
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return UpdateUserPutResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -453,7 +459,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun updateUserApiUserUpdatePut(updateUser: UpdateUser, authToken: kotlin.String? = "auth_token") : UpdateUserPutResponse {
+    fun updateUserApiUserUpdatePut(updateUser: UpdateUser, authToken: kotlin.String? = "") : UpdateUserPutResponse {
         val localVarResponse = updateUserApiUserUpdatePutWithHttpInfo(updateUser = updateUser, authToken = authToken)
 
         return when (localVarResponse.responseType) {
@@ -474,9 +480,9 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * PUT /api/user/update
      * Update User
-     * Update the currently authenticated user&#39;s data.  Args: - user_to_update: Pydantic model containing fields to update. - app: Application context, injected by FastAPI. - auth_token: Authentication token stored in browser cookies.  Returns: - JSON response with updated user information if successful. - Appropriate error response if auth token is missing or invalid.
+     * Update the currently authenticated user&#39;s data.  Args:     user_to_update (Queries.UpdateUser): Fields the user wants to update.     app (App): Injected application instance with DB and Redis access.     auth_token (str): Auth token stored in the user&#39;s browser cookies.  Returns:     JsonResponseWithStatus: Contains updated user data or error info.
      * @param updateUser 
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return ApiResponse<UpdateUserPutResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -495,7 +501,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * To obtain the request config of the operation updateUserApiUserUpdatePut
      *
      * @param updateUser 
-     * @param authToken  (optional, default to "auth_token")
+     * @param authToken  (optional, default to "")
      * @return RequestConfig
      */
     fun updateUserApiUserUpdatePutRequestConfig(updateUser: UpdateUser, authToken: kotlin.String?) : RequestConfig<UpdateUser> {
@@ -516,11 +522,11 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * GET /api/user/verify/
+     * POST /api/user/verify/
      * Verify Email
-     * Verify user email with the provided token
+     * Verify the user&#39;s email address using the provided verification token.  Parameters: - token (str): Token for email verification, passed via query parameter. - app (App): Application context for accessing services.  Returns: - HTMLResponseWithStatus: HTML response indicating verification outcome.
      * @param token Verification token
-     * @return kotlin.Any
+     * @return VerifyUserPostHTMLResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -529,11 +535,11 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun verifyEmailApiUserVerifyGet(token: kotlin.String) : kotlin.Any {
-        val localVarResponse = verifyEmailApiUserVerifyGetWithHttpInfo(token = token)
+    fun verifyEmailApiUserVerifyPost(token: kotlin.String) : VerifyUserPostHTMLResponse {
+        val localVarResponse = verifyEmailApiUserVerifyPostWithHttpInfo(token = token)
 
         return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.Any
+            ResponseType.Success -> (localVarResponse as Success<*>).data as VerifyUserPostHTMLResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -548,31 +554,31 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * GET /api/user/verify/
+     * POST /api/user/verify/
      * Verify Email
-     * Verify user email with the provided token
+     * Verify the user&#39;s email address using the provided verification token.  Parameters: - token (str): Token for email verification, passed via query parameter. - app (App): Application context for accessing services.  Returns: - HTMLResponseWithStatus: HTML response indicating verification outcome.
      * @param token Verification token
-     * @return ApiResponse<kotlin.Any?>
+     * @return ApiResponse<VerifyUserPostHTMLResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun verifyEmailApiUserVerifyGetWithHttpInfo(token: kotlin.String) : ApiResponse<kotlin.Any?> {
-        val localVariableConfig = verifyEmailApiUserVerifyGetRequestConfig(token = token)
+    fun verifyEmailApiUserVerifyPostWithHttpInfo(token: kotlin.String) : ApiResponse<VerifyUserPostHTMLResponse?> {
+        val localVariableConfig = verifyEmailApiUserVerifyPostRequestConfig(token = token)
 
-        return request<Unit, kotlin.Any>(
+        return request<Unit, VerifyUserPostHTMLResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation verifyEmailApiUserVerifyGet
+     * To obtain the request config of the operation verifyEmailApiUserVerifyPost
      *
      * @param token Verification token
      * @return RequestConfig
      */
-    fun verifyEmailApiUserVerifyGetRequestConfig(token: kotlin.String) : RequestConfig<Unit> {
+    fun verifyEmailApiUserVerifyPostRequestConfig(token: kotlin.String) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
@@ -582,7 +588,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
-            method = RequestMethod.GET,
+            method = RequestMethod.POST,
             path = "/api/user/verify/",
             query = localVariableQuery,
             headers = localVariableHeaders,

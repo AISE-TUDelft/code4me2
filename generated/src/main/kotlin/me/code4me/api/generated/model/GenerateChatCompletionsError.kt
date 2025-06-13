@@ -29,7 +29,7 @@ import com.squareup.moshi.JsonClass
 data class GenerateChatCompletionsError (
 
     @Json(name = "message")
-    val message: kotlin.String? = "Failed to generate chat completions."
+    val message: kotlin.String? = "Server failed to generate chat completions."
 
 ) {
 

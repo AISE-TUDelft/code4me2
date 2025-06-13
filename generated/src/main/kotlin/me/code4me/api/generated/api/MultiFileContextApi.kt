@@ -52,10 +52,10 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
     /**
      * POST /api/completion/multi-file-context/update
      * Update Multi File Context
-     * Update the context for a specific query ID.
+     * Endpoint to update multi-file context content for a given project and session.  Steps: - Validate session token and retrieve session info from Redis. - Validate project token and retrieve project info from Redis. - Apply line-level context updates to the existing multi-file contexts. - Redact secrets in the updated content lines. - Remove any files with empty content. - Update the context change logs accordingly. - Store the updated project info back in Redis. - Return the updated context in the response.  Args:     context_update: UpdateMultiFileContext model containing the changes to apply.     app: The application instance (dependency-injected).     session_token: Session token from cookies.     project_token: Project token from cookies.  Returns:     JsonResponseWithStatus containing the updated multi-file context or an error response.
      * @param updateMultiFileContext 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return MultiFileContextUpdatePostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -65,7 +65,7 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun updateMultiFileContextApiCompletionMultiFileContextUpdatePost(updateMultiFileContext: UpdateMultiFileContext, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : MultiFileContextUpdatePostResponse {
+    fun updateMultiFileContextApiCompletionMultiFileContextUpdatePost(updateMultiFileContext: UpdateMultiFileContext, sessionToken: kotlin.String? = "", projectToken: kotlin.String? = "") : MultiFileContextUpdatePostResponse {
         val localVarResponse = updateMultiFileContextApiCompletionMultiFileContextUpdatePostWithHttpInfo(updateMultiFileContext = updateMultiFileContext, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
@@ -86,10 +86,10 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
     /**
      * POST /api/completion/multi-file-context/update
      * Update Multi File Context
-     * Update the context for a specific query ID.
+     * Endpoint to update multi-file context content for a given project and session.  Steps: - Validate session token and retrieve session info from Redis. - Validate project token and retrieve project info from Redis. - Apply line-level context updates to the existing multi-file contexts. - Redact secrets in the updated content lines. - Remove any files with empty content. - Update the context change logs accordingly. - Store the updated project info back in Redis. - Return the updated context in the response.  Args:     context_update: UpdateMultiFileContext model containing the changes to apply.     app: The application instance (dependency-injected).     session_token: Session token from cookies.     project_token: Project token from cookies.  Returns:     JsonResponseWithStatus containing the updated multi-file context or an error response.
      * @param updateMultiFileContext 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return ApiResponse<MultiFileContextUpdatePostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -108,8 +108,8 @@ class MultiFileContextApi(basePath: kotlin.String = defaultBasePath, client: Cal
      * To obtain the request config of the operation updateMultiFileContextApiCompletionMultiFileContextUpdatePost
      *
      * @param updateMultiFileContext 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return RequestConfig
      */
     fun updateMultiFileContextApiCompletionMultiFileContextUpdatePostRequestConfig(updateMultiFileContext: UpdateMultiFileContext, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<UpdateMultiFileContext> {

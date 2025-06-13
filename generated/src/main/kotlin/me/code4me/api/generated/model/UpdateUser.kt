@@ -47,7 +47,7 @@ data class UpdateUser (
     val password: kotlin.String? = null,
 
     @Json(name = "preference")
-    val preference: kotlin.String? = null,
+    val preference: kotlin.collections.Map<kotlin.String, kotlin.Any>? = null,
 
     @Json(name = "config_id")
     val configId: kotlin.Int? = null,

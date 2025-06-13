@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.ChatApi
 import me.code4me.api.generated.api.CompletionApi
+import me.code4me.api.generated.api.DeactivateSessionApi
 import me.code4me.api.generated.api.ProjectApi
 import me.code4me.api.generated.api.SessionApi
 import me.code4me.api.generated.api.UserApi
@@ -80,13 +81,14 @@ class AppService {
     private val apiBaseUrl = "${serverConfig?.host}:${serverConfig?.port}${serverConfig?.contextPath}"
 
     // Create a custom OkHttpClient for chat operations with extended timeouts
-    private val chatHttpClient = CookieAwareApiClient.createClientWithCookieHandler()
-        .newBuilder()
-        .connectTimeout(CHAT_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(CHAT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .writeTimeout(CHAT_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true) // Enable automatic retry on connection failure
-        .build()
+    private val chatHttpClient =
+        CookieAwareApiClient.createClientWithCookieHandler()
+            .newBuilder()
+            .connectTimeout(CHAT_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(CHAT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(CHAT_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true) // Enable automatic retry on connection failure
+            .build()
 
     // Standard API clients with default timeouts
     private val authApi = AuthenticationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
@@ -95,12 +97,13 @@ class AppService {
     private val sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val projectApi = ProjectApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val userVerificationApi = UserVerificationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val deactivateSessionApi =
+        DeactivateSessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
 
     // Chat API with extended timeout configuration
     private val chatApi = ChatApi(apiBaseUrl, chatHttpClient)
 
     val currentGenerationProject = AtomicReference<Project?>(null)
-
 
     init {
         LOG.info("AppService initialized with API base URL: $apiBaseUrl")
@@ -325,6 +328,29 @@ class AppService {
         return hasSession == true
     }
 
+    /**
+     * Deactivates the current user session.
+     *
+     * This method sends a request to the Code4Me backend to deactivate the current session.
+     * It uses the stored authentication token to validate the request. Upon successful deactivation,
+     * the local session state is cleared.
+     *
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the session token is invalid or deactivation fails (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun deactivateSession() {
+        try {
+            val response = deactivateSessionApi.deactivateSessionApiSessionDeactivatePut()
+            LOG.info("Session deactivated successfully: ${response.message}")
+            clearLocalSession() // Optional: clear local cookies/state after deactivation
+        } catch (e: Exception) {
+            LOG.warn("Failed to deactivate session", e)
+            throw e
+        }
+    }
+
     // ============ Project Management Methods ============
 
     /**
@@ -461,7 +487,8 @@ class AppService {
                 name = name,
                 password = password,
                 token = token,
-                configId = 1, // Assuming configId is always 1 - this means the default configuration
+                // Assuming configId is always 1 - this means the default configuration
+                configId = 1,
                 provider = provider,
             )
 
@@ -512,6 +539,7 @@ class AppService {
      */
     fun logout() {
         clearLocalSession()
+        deactivateSession()
         LOG.info("User logged out successfully")
     }
 
@@ -591,7 +619,7 @@ class AppService {
     fun resendVerificationEmail(): Boolean {
         // resend the verification email by calling the user verification API
         try {
-            val response = userVerificationApi.resendVerificationEmailApiUserVerifyResendGet()
+            val response = userVerificationApi.resendVerificationEmailApiUserVerifyResendPost()
             LOG.info("Verification email resent successfully")
             if (response == null) {
                 LOG.warn("No response received when resending verification email")
@@ -640,9 +668,10 @@ class AppService {
         currentGenerationProject.set(project)
 
         return try {
-            val response = chatApi.requestChatCompletionApiChatRequestPost(
-                requestChatCompletion = requestChatCompletion
-            )
+            val response =
+                chatApi.requestChatCompletionApiChatRequestPost(
+                    requestChatCompletion = requestChatCompletion,
+                )
             LOG.info("Chat completion requested successfully")
             response
         } catch (e: Exception) {
@@ -678,9 +707,10 @@ class AppService {
         currentGenerationProject.set(project)
 
         return try {
-            val response = chatApi.getChatHistoryApiChatGetPageNumberGet(
-                pageNumber = pageNumber
-            )
+            val response =
+                chatApi.getChatHistoryApiChatGetPageNumberGet(
+                    pageNumber = pageNumber,
+                )
             LOG.info("Chat history retrieved successfully for page: $pageNumber")
             response
         } catch (e: Exception) {
@@ -716,9 +746,10 @@ class AppService {
         currentGenerationProject.set(project)
 
         return try {
-            val response = chatApi.deleteChatApiChatDeleteChatIdDelete(
-                chatId = chatId
-            )
+            val response =
+                chatApi.deleteChatApiChatDeleteChatIdDelete(
+                    chatId = chatId,
+                )
             LOG.info("Chat deleted successfully: $chatId")
             response
         } catch (e: Exception) {
@@ -757,8 +788,9 @@ class AppService {
         currentGenerationProject.set(project)
 
         // model selection
-        val modelId = getConfig().getModelsConfiguration()
-            ?.getModelIdByName(aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default")
+        val modelId =
+            getConfig().getModelsConfiguration()
+                ?.getModelIdByName(aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default")
 
         val requestCompletion =
             RequestCompletion(

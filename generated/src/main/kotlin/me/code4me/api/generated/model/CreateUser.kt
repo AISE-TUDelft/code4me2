@@ -26,7 +26,6 @@ import com.squareup.moshi.JsonClass
  * @param name User's full name
  * @param password User's password (will be hashed)
  * @param configId Configuration ID to use
- * @param preference 
  */
 
 
@@ -46,10 +45,7 @@ data class CreateUser (
 
     /* Configuration ID to use */
     @Json(name = "config_id")
-    val configId: kotlin.Int,
-
-    @Json(name = "preference")
-    val preference: kotlin.String? = null
+    val configId: kotlin.Int
 
 ) {
 

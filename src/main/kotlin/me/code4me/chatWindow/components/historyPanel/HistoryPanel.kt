@@ -45,10 +45,11 @@ class HistoryPanel(
             onDelete = { session ->
                 // confirm the deletion and also ask if the user wants to delete from server
                 val checkbox = javax.swing.JCheckBox("Also delete from server")
-                val panel = javax.swing.JPanel(java.awt.BorderLayout()).apply {
-                    add(javax.swing.JLabel("Are you sure you want to delete this chat session?"), java.awt.BorderLayout.NORTH)
-                    add(checkbox, java.awt.BorderLayout.SOUTH)
-                }
+                val panel =
+                    javax.swing.JPanel(java.awt.BorderLayout()).apply {
+                        add(javax.swing.JLabel("Are you sure you want to delete this chat session?"), java.awt.BorderLayout.NORTH)
+                        add(checkbox, java.awt.BorderLayout.SOUTH)
+                    }
                 val confirm =
                     JOptionPane.showConfirmDialog(
                         this,
@@ -108,10 +109,14 @@ class HistoryPanel(
                                         // Confirm deletion of all sessions
                                         // also ask if the user wants to delete from server
                                         val checkbox = javax.swing.JCheckBox("Also delete from server")
-                                        val panel = javax.swing.JPanel(java.awt.BorderLayout()).apply {
-                                            add(javax.swing.JLabel("Are you sure you want to delete this chat session?"), java.awt.BorderLayout.NORTH)
-                                            add(checkbox, java.awt.BorderLayout.SOUTH)
-                                        }
+                                        val panel =
+                                            javax.swing.JPanel(java.awt.BorderLayout()).apply {
+                                                add(
+                                                    javax.swing.JLabel("Are you sure you want to delete this chat session?"),
+                                                    java.awt.BorderLayout.NORTH,
+                                                )
+                                                add(checkbox, java.awt.BorderLayout.SOUTH)
+                                            }
 
                                         val confirm =
                                             JOptionPane.showConfirmDialog(

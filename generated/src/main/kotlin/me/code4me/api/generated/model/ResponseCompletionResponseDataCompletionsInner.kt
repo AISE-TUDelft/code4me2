@@ -25,10 +25,10 @@ import com.squareup.moshi.JsonClass
  * 
  *
  * @param modelId Model ID
- * @param modelName Model name
+ * @param modelName Model name that failed
  * @param completion Generated code
- * @param generationTime Generation time
- * @param confidence Confidence score
+ * @param generationTime Generation time in ms
+ * @param confidence Confidence score of the result
  * @param message 
  */
 
@@ -39,7 +39,7 @@ data class ResponseCompletionResponseDataCompletionsInner (
     @Json(name = "model_id")
     val modelId: kotlin.Int,
 
-    /* Model name */
+    /* Model name that failed */
     @Json(name = "model_name")
     val modelName: kotlin.String,
 
@@ -47,11 +47,11 @@ data class ResponseCompletionResponseDataCompletionsInner (
     @Json(name = "completion")
     val completion: kotlin.String,
 
-    /* Generation time */
+    /* Generation time in ms */
     @Json(name = "generation_time")
     val generationTime: kotlin.Int,
 
-    /* Confidence score */
+    /* Confidence score of the result */
     @Json(name = "confidence")
     val confidence: java.math.BigDecimal,
 

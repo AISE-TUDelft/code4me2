@@ -229,10 +229,9 @@ class EditorContextRetrievalModule : PluginModule {
                     // check that the event is of Type InlineCompletionEvent.DocumentChange
                     if (it is InlineCompletionEvent.DocumentChange) {
                         2 // this means that it was automatically triggered by the document change
-
                     } else {
                         1 // this means that it was manually triggered by the user either by typing or by a shortcut
-                          // or via the dropdown menu or even via the chat.
+                        // or via the dropdown menu or even via the chat.
                     }
                 }
 

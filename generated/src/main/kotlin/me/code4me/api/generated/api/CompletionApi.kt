@@ -26,7 +26,6 @@ import me.code4me.api.generated.model.FeedbackCompletion
 import me.code4me.api.generated.model.FeedbackRecordingError
 import me.code4me.api.generated.model.GenerateCompletionsError
 import me.code4me.api.generated.model.GenerationNotFoundError
-import me.code4me.api.generated.model.HTTPValidationError
 import me.code4me.api.generated.model.InvalidOrExpiredSessionToken
 import me.code4me.api.generated.model.NoAccessToGetQueryError
 import me.code4me.api.generated.model.NoAccessToProvideFeedbackError
@@ -63,9 +62,9 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     /**
      * GET /api/completion/{query_id}
      * Get Completions By Query
-     * Get completions for a specific query ID.
+     * Retrieve code completions associated with a specific query ID.  This endpoint validates the user&#39;s session token and authorization, ensures the requested query exists and belongs to the requesting user, and then fetches all the associated completion generations from the database.  Parameters: - query_id (UUID): The unique identifier for the meta query whose completions are requested. - app (App, dependency): The application instance providing database and Redis access. - session_token (str, cookie): The session token cookie for user authentication.  Returns: - JsonResponseWithStatus: JSON response with HTTP status and either the completions data   or an error response detailing the failure reason.  Possible responses: - 200: Successfully retrieved completions for the given query ID. - 401: Session token is invalid, expired, or missing. - 403: User does not have access rights to the requested query. - 404: The requested query ID does not exist. - 422, 429: Various client errors (validation or rate limiting). - 500: Internal server error while retrieving completions.
      * @param queryId 
-     * @param sessionToken  (optional, default to "session_token")
+     * @param sessionToken  (optional, default to "")
      * @return CompletionPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -75,7 +74,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun getCompletionsByQueryApiCompletionQueryIdGet(queryId: java.util.UUID, sessionToken: kotlin.String? = "session_token") : CompletionPostResponse {
+    fun getCompletionsByQueryApiCompletionQueryIdGet(queryId: java.util.UUID, sessionToken: kotlin.String? = "") : CompletionPostResponse {
         val localVarResponse = getCompletionsByQueryApiCompletionQueryIdGetWithHttpInfo(queryId = queryId, sessionToken = sessionToken)
 
         return when (localVarResponse.responseType) {
@@ -96,9 +95,9 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     /**
      * GET /api/completion/{query_id}
      * Get Completions By Query
-     * Get completions for a specific query ID.
+     * Retrieve code completions associated with a specific query ID.  This endpoint validates the user&#39;s session token and authorization, ensures the requested query exists and belongs to the requesting user, and then fetches all the associated completion generations from the database.  Parameters: - query_id (UUID): The unique identifier for the meta query whose completions are requested. - app (App, dependency): The application instance providing database and Redis access. - session_token (str, cookie): The session token cookie for user authentication.  Returns: - JsonResponseWithStatus: JSON response with HTTP status and either the completions data   or an error response detailing the failure reason.  Possible responses: - 200: Successfully retrieved completions for the given query ID. - 401: Session token is invalid, expired, or missing. - 403: User does not have access rights to the requested query. - 404: The requested query ID does not exist. - 422, 429: Various client errors (validation or rate limiting). - 500: Internal server error while retrieving completions.
      * @param queryId 
-     * @param sessionToken  (optional, default to "session_token")
+     * @param sessionToken  (optional, default to "")
      * @return ApiResponse<CompletionPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -117,7 +116,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * To obtain the request config of the operation getCompletionsByQueryApiCompletionQueryIdGet
      *
      * @param queryId 
-     * @param sessionToken  (optional, default to "session_token")
+     * @param sessionToken  (optional, default to "")
      * @return RequestConfig
      */
     fun getCompletionsByQueryApiCompletionQueryIdGetRequestConfig(queryId: java.util.UUID, sessionToken: kotlin.String?) : RequestConfig<Unit> {
@@ -139,10 +138,10 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     /**
      * POST /api/completion/request
      * Request Completion
-     * Request code completions based on provided context.
+     * Handle a code completion request.  Steps: - Authenticate session, user, and project tokens via Redis. - Redact any secrets from the context before processing. - Prepare optional Celery tasks for storing context and telemetry. - Aggregate multi-file context if available. - Run completion models concurrently using a thread pool. - Queue database update tasks asynchronously using Celery. - Return completion results or appropriate error responses.
      * @param requestCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return CompletionPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -152,7 +151,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun requestCompletionApiCompletionRequestPost(requestCompletion: RequestCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : CompletionPostResponse {
+    fun requestCompletionApiCompletionRequestPost(requestCompletion: RequestCompletion, sessionToken: kotlin.String? = "", projectToken: kotlin.String? = "") : CompletionPostResponse {
         val localVarResponse = requestCompletionApiCompletionRequestPostWithHttpInfo(requestCompletion = requestCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
@@ -173,10 +172,10 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     /**
      * POST /api/completion/request
      * Request Completion
-     * Request code completions based on provided context.
+     * Handle a code completion request.  Steps: - Authenticate session, user, and project tokens via Redis. - Redact any secrets from the context before processing. - Prepare optional Celery tasks for storing context and telemetry. - Aggregate multi-file context if available. - Run completion models concurrently using a thread pool. - Queue database update tasks asynchronously using Celery. - Return completion results or appropriate error responses.
      * @param requestCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return ApiResponse<CompletionPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -195,8 +194,8 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * To obtain the request config of the operation requestCompletionApiCompletionRequestPost
      *
      * @param requestCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return RequestConfig
      */
     fun requestCompletionApiCompletionRequestPostRequestConfig(requestCompletion: RequestCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<RequestCompletion> {
@@ -219,10 +218,10 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     /**
      * POST /api/completion/feedback
      * Submit Completion Feedback
-     * Submit feedback on a generated completion.
+     * Submit feedback on a generated completion.  This endpoint validates the user&#39;s session and project tokens against Redis, verifies the user&#39;s authorization to provide feedback on the given query, and enqueues asynchronous tasks to update generation status and optionally save ground truth feedback.  Parameters: - feedback: The feedback data submitted by the user, including acceptance   status and optional ground truth. - app: Dependency-injected application instance providing DB and Redis access. - session_token: Session cookie used to authenticate the user session. - project_token: Project cookie used to authorize project-level access.  Returns: - JsonResponseWithStatus: A response indicating success or describing errors,   including authorization failures, missing records, or internal errors.
      * @param feedbackCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return CompletionFeedbackPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -232,7 +231,7 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : CompletionFeedbackPostResponse {
+    fun submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String? = "", projectToken: kotlin.String? = "") : CompletionFeedbackPostResponse {
         val localVarResponse = submitCompletionFeedbackApiCompletionFeedbackPostWithHttpInfo(feedbackCompletion = feedbackCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
@@ -253,10 +252,10 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     /**
      * POST /api/completion/feedback
      * Submit Completion Feedback
-     * Submit feedback on a generated completion.
+     * Submit feedback on a generated completion.  This endpoint validates the user&#39;s session and project tokens against Redis, verifies the user&#39;s authorization to provide feedback on the given query, and enqueues asynchronous tasks to update generation status and optionally save ground truth feedback.  Parameters: - feedback: The feedback data submitted by the user, including acceptance   status and optional ground truth. - app: Dependency-injected application instance providing DB and Redis access. - session_token: Session cookie used to authenticate the user session. - project_token: Project cookie used to authorize project-level access.  Returns: - JsonResponseWithStatus: A response indicating success or describing errors,   including authorization failures, missing records, or internal errors.
      * @param feedbackCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return ApiResponse<CompletionFeedbackPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -275,8 +274,8 @@ class CompletionApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
      * To obtain the request config of the operation submitCompletionFeedbackApiCompletionFeedbackPost
      *
      * @param feedbackCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return RequestConfig
      */
     fun submitCompletionFeedbackApiCompletionFeedbackPostRequestConfig(feedbackCompletion: FeedbackCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<FeedbackCompletion> {

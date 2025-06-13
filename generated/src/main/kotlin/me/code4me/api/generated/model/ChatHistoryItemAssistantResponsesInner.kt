@@ -25,11 +25,11 @@ import com.squareup.moshi.JsonClass
  * 
  *
  * @param modelId Model ID
- * @param modelName Model name
+ * @param modelName Model name that failed
  * @param completion Generated text
- * @param generationTime Generation time
+ * @param generationTime Generation time in ms
  * @param confidence Confidence score
- * @param wasAccepted Whether the completion was accepted
+ * @param wasAccepted User acceptance status
  * @param message 
  */
 
@@ -40,7 +40,7 @@ data class ChatHistoryItemAssistantResponsesInner (
     @Json(name = "model_id")
     val modelId: kotlin.Int,
 
-    /* Model name */
+    /* Model name that failed */
     @Json(name = "model_name")
     val modelName: kotlin.String,
 
@@ -48,7 +48,7 @@ data class ChatHistoryItemAssistantResponsesInner (
     @Json(name = "completion")
     val completion: kotlin.String,
 
-    /* Generation time */
+    /* Generation time in ms */
     @Json(name = "generation_time")
     val generationTime: kotlin.Int,
 
@@ -56,7 +56,7 @@ data class ChatHistoryItemAssistantResponsesInner (
     @Json(name = "confidence")
     val confidence: java.math.BigDecimal,
 
-    /* Whether the completion was accepted */
+    /* User acceptance status */
     @Json(name = "was_accepted")
     val wasAccepted: kotlin.Boolean,
 

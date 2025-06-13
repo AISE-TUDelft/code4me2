@@ -20,7 +20,6 @@ import groovy.lang.Tuple2
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.UpdateUser
-import me.code4me.components.settings.fields.FieldInfo
 import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
 import me.code4me.components.settings.fields.ModuleFloatPreferenceField
 import me.code4me.components.settings.fields.ModuleIntegerPreferenceField
@@ -551,7 +550,6 @@ class ConfigurationSection : SettingsSection {
         modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
     }
 
-
     /**
      * Adds a single preference field to the panel.
      */
@@ -576,7 +574,7 @@ class ConfigurationSection : SettingsSection {
                 } else {
                     preference.displayName
                 }
-            
+
             val label =
                 JBLabel("$labelText:").apply {
                     alignmentX = Component.LEFT_ALIGNMENT
@@ -628,23 +626,24 @@ class ConfigurationSection : SettingsSection {
      */
     private fun createListField(
         moduleId: String,
-        preference: Preference
+        preference: Preference,
     ): JComponent {
         // Parse the comma-separated values from defaultValue
         val options = preference.defaultValue.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         val selectedValue = options.firstOrNull() ?: ""
 
         // Create ComboBox with options
-        val comboBox = ComboBox(options.toTypedArray()).apply {
-            selectedItem = selectedValue
-            toolTipText = preference.description
-        }
+        val comboBox =
+            ComboBox(options.toTypedArray()).apply {
+                selectedItem = selectedValue
+                toolTipText = preference.description
+            }
 
         // Create the specialized list preference field
         val stateValueField = ModuleListPreferenceField(moduleId, preference, comboBox, options)
 
         // Store the field for later use
-        val fieldKey = "${moduleId}.${preference.key}"
+        val fieldKey = "$moduleId.${preference.key}"
         modulePreferenceFields[fieldKey] = stateValueField
 
         // Initialize with current state value
@@ -654,7 +653,7 @@ class ConfigurationSection : SettingsSection {
                     currentValue.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                 } else {
                     options
-                }.joinToString(",")
+                }.joinToString(","),
             )
         }
 
@@ -668,16 +667,17 @@ class ConfigurationSection : SettingsSection {
                     listOf(selected) + otherValues
                 } else {
                     options
-                }.joinToString(",")
+                }.joinToString(","),
             )
         }
 
         // Create container panel
-        val panel = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            add(comboBox)
-            border = JBUI.Borders.emptyBottom(8)
-        }
+        val panel =
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                add(comboBox)
+                border = JBUI.Borders.emptyBottom(8)
+            }
 
         return panel
     }
@@ -687,30 +687,32 @@ class ConfigurationSection : SettingsSection {
      */
     private fun createTextBoxField(
         moduleId: String,
-        preference: Preference
+        preference: Preference,
     ): JComponent {
-        val textArea = JBTextArea().apply {
-            text = preference.defaultValue
-            toolTipText = preference.description
-            lineWrap = true
-            wrapStyleWord = true
-            rows = 5
-            columns = 30
-            maximumSize = Dimension(PREFERENCES_PANEL_WIDTH - 60, 120)
-        }
+        val textArea =
+            JBTextArea().apply {
+                text = preference.defaultValue
+                toolTipText = preference.description
+                lineWrap = true
+                wrapStyleWord = true
+                rows = 5
+                columns = 30
+                maximumSize = Dimension(PREFERENCES_PANEL_WIDTH - 60, 120)
+            }
 
-        val scrollPane = JBScrollPane(textArea).apply {
-            preferredSize = Dimension(PREFERENCES_PANEL_WIDTH - 60, 100)
-            minimumSize = Dimension(MIN_PREFERENCES_PANEL_WIDTH - 60, 80)
-            maximumSize = Dimension(PREFERENCES_PANEL_WIDTH - 60, 120)
-            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-        }
+        val scrollPane =
+            JBScrollPane(textArea).apply {
+                preferredSize = Dimension(PREFERENCES_PANEL_WIDTH - 60, 100)
+                minimumSize = Dimension(MIN_PREFERENCES_PANEL_WIDTH - 60, 80)
+                maximumSize = Dimension(PREFERENCES_PANEL_WIDTH - 60, 120)
+                verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+                horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            }
 
         // Create the text preference field
         val stateValueField = ModuleTextPreferenceField(moduleId, preference, textArea)
 
-        val fieldKey = "${moduleId}.${preference.key}"
+        val fieldKey = "$moduleId.${preference.key}"
         modulePreferenceFields[fieldKey] = stateValueField
 
         // Initialize with current state value
@@ -724,16 +726,22 @@ class ConfigurationSection : SettingsSection {
         textArea.document.addDocumentListener(
             object : DocumentListener {
                 override fun insertUpdate(e: DocumentEvent?) = scheduleUpdate()
+
                 override fun removeUpdate(e: DocumentEvent?) = scheduleUpdate()
+
                 override fun changedUpdate(e: DocumentEvent?) = scheduleUpdate()
 
                 private fun scheduleUpdate() {
                     debounceTimer?.stop()
-                    debounceTimer = Timer(300) {
-                        stateValueField.setStateValue(textArea.text)
-                    }.apply { isRepeats = false; start() }
+                    debounceTimer =
+                        Timer(300) {
+                            stateValueField.setStateValue(textArea.text)
+                        }.apply {
+                            isRepeats = false
+                            start()
+                        }
                 }
-            }
+            },
         )
 
         return JPanel().apply {
@@ -1494,9 +1502,19 @@ class ConfigurationSection : SettingsSection {
             deleteOptionsPanel.add(deleteButton, BorderLayout.EAST)
 
             deleteButton.addActionListener {
+                val willDeleteData = deleteDataCheckbox.isSelected
+
+                val confirmMessage =
+                    if (willDeleteData) {
+                        "Are you sure you want to delete your account AND all your data? " +
+                            "This action cannot be undone and will permanently remove all your information from our servers."
+                    } else {
+                        "Are you sure you want to delete your account? This action cannot be undone."
+                    }
+
                 val confirmResult =
                     Messages.showYesNoDialog(
-                        "Are you sure you want to delete your account? This action cannot be undone.",
+                        confirmMessage,
                         "Confirm Account Deletion",
                         "Delete Account",
                         "Cancel",
@@ -1505,17 +1523,35 @@ class ConfigurationSection : SettingsSection {
 
                 if (confirmResult == Messages.YES) {
                     try {
-                        appService.deleteUser(deleteDataCheckbox.isSelected)
+                        // Pass the checkbox state to determine if user data should be deleted
+                        appService.deleteUser(willDeleteData)
+
+                        val successMessage =
+                            if (willDeleteData) {
+                                "Your account and all associated data have been deleted successfully."
+                            } else {
+                                "Your account has been deleted successfully."
+                            }
 
                         Messages.showInfoMessage(
-                            "Your account has been deleted successfully.",
+                            successMessage,
                             "Account Deleted",
                         )
+
                         close(OK_EXIT_CODE)
                     } catch (e: Exception) {
-                        LOG.error("Failed to delete user account", e)
+                        LOG.error("Failed to delete user account with deleteData=$willDeleteData", e)
+
+                        val errorMessage =
+                            when (e) {
+                                is ClientException -> "Failed to delete account. Please check your authentication."
+                                is ServerException -> "Server error occurred during account deletion. Please try again later."
+                                is IOException -> "Network error occurred. Please check your connection."
+                                else -> "An error occurred while deleting your account: ${e.message}"
+                            }
+
                         Messages.showErrorDialog(
-                            "An error occurred while deleting your account. Please try again.",
+                            errorMessage,
                             "Delete Account Error",
                         )
                     }
@@ -1675,6 +1711,7 @@ class ConfigurationSection : SettingsSection {
     private fun handleSignOut() {
         try {
             authState.clearUserData()
+            appService.deactivateSession()
             Messages.showInfoMessage(
                 "You have been signed out successfully.",
                 "Sign Out Complete",

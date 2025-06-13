@@ -22,6 +22,7 @@ public fun activateOrCreateProject(
                 projectId = UUID.fromString(projectToken!!),
             ),
         )
+        projectTokenService.setActivated(true)
     } else {
         logger.warn("No project token found, creating a new project.")
         logger.warn("Project token is null, creating new project.")

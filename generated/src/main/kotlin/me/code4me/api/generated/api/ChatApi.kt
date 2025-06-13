@@ -25,7 +25,6 @@ import me.code4me.api.generated.model.DeleteChatError
 import me.code4me.api.generated.model.DeleteChatSuccessResponse
 import me.code4me.api.generated.model.ErrorResponse
 import me.code4me.api.generated.model.GenerateChatCompletionsError
-import me.code4me.api.generated.model.HTTPValidationError
 import me.code4me.api.generated.model.NoAccessToGetQueryError
 import me.code4me.api.generated.model.QueryNotFoundError
 import me.code4me.api.generated.model.RequestChatCompletion
@@ -63,8 +62,8 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * Delete Chat
      * Delete a specific chat by its ID. Validates that the user has access to the chat through their session and project tokens.
      * @param chatId 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return DeleteChatSuccessResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -74,7 +73,7 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun deleteChatApiChatDeleteChatIdDelete(chatId: java.util.UUID, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : DeleteChatSuccessResponse {
+    fun deleteChatApiChatDeleteChatIdDelete(chatId: java.util.UUID, sessionToken: kotlin.String? = "", projectToken: kotlin.String? = "") : DeleteChatSuccessResponse {
         val localVarResponse = deleteChatApiChatDeleteChatIdDeleteWithHttpInfo(chatId = chatId, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
@@ -97,8 +96,8 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * Delete Chat
      * Delete a specific chat by its ID. Validates that the user has access to the chat through their session and project tokens.
      * @param chatId 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return ApiResponse<DeleteChatSuccessResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -117,8 +116,8 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * To obtain the request config of the operation deleteChatApiChatDeleteChatIdDelete
      *
      * @param chatId 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return RequestConfig
      */
     fun deleteChatApiChatDeleteChatIdDeleteRequestConfig(chatId: java.util.UUID, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<Unit> {
@@ -140,10 +139,10 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * GET /api/chat/get/{page_number}
      * Get Chat History
-     * Get the complete chat history for
+     * Retrieve a page of chat history for a specific project associated with the current session.  Parameters: - app (App): Dependency-injected FastAPI application instance. - page_number (int): The page number of the chat history to retrieve. - session_token (str): Session token stored in a cookie. - project_token (str): Project token stored in a cookie.  Returns: - JsonResponseWithStatus: Paginated chat history or an error response.
      * @param pageNumber 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return ChatHistoryResponsePage
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -153,7 +152,7 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun getChatHistoryApiChatGetPageNumberGet(pageNumber: kotlin.Int, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : ChatHistoryResponsePage {
+    fun getChatHistoryApiChatGetPageNumberGet(pageNumber: kotlin.Int, sessionToken: kotlin.String? = "", projectToken: kotlin.String? = "") : ChatHistoryResponsePage {
         val localVarResponse = getChatHistoryApiChatGetPageNumberGetWithHttpInfo(pageNumber = pageNumber, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
@@ -174,10 +173,10 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * GET /api/chat/get/{page_number}
      * Get Chat History
-     * Get the complete chat history for
+     * Retrieve a page of chat history for a specific project associated with the current session.  Parameters: - app (App): Dependency-injected FastAPI application instance. - page_number (int): The page number of the chat history to retrieve. - session_token (str): Session token stored in a cookie. - project_token (str): Project token stored in a cookie.  Returns: - JsonResponseWithStatus: Paginated chat history or an error response.
      * @param pageNumber 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return ApiResponse<ChatHistoryResponsePage?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -196,8 +195,8 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * To obtain the request config of the operation getChatHistoryApiChatGetPageNumberGet
      *
      * @param pageNumber 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return RequestConfig
      */
     fun getChatHistoryApiChatGetPageNumberGetRequestConfig(pageNumber: kotlin.Int, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<Unit> {
@@ -221,8 +220,8 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * Request Chat Completion
      * Request chat completions based on provided messages.  The contract here is that the request always contains all the history of the chat as well  We do this because it could be that the user modifies the chat history in the frontend and we want to ensure that the chat completions are based on the latest state of the chat.  Take the case where the user edits a message in the chat history midway through a chat. We don&#39;t want to be generating a completion based on the old state of the chat.
      * @param requestChatCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return ChatHistoryResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -232,7 +231,7 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun requestChatCompletionApiChatRequestPost(requestChatCompletion: RequestChatCompletion, sessionToken: kotlin.String? = "session_token", projectToken: kotlin.String? = "project_token") : ChatHistoryResponse {
+    fun requestChatCompletionApiChatRequestPost(requestChatCompletion: RequestChatCompletion, sessionToken: kotlin.String? = "", projectToken: kotlin.String? = "") : ChatHistoryResponse {
         val localVarResponse = requestChatCompletionApiChatRequestPostWithHttpInfo(requestChatCompletion = requestChatCompletion, sessionToken = sessionToken, projectToken = projectToken)
 
         return when (localVarResponse.responseType) {
@@ -255,8 +254,8 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * Request Chat Completion
      * Request chat completions based on provided messages.  The contract here is that the request always contains all the history of the chat as well  We do this because it could be that the user modifies the chat history in the frontend and we want to ensure that the chat completions are based on the latest state of the chat.  Take the case where the user edits a message in the chat history midway through a chat. We don&#39;t want to be generating a completion based on the old state of the chat.
      * @param requestChatCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return ApiResponse<ChatHistoryResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -275,8 +274,8 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * To obtain the request config of the operation requestChatCompletionApiChatRequestPost
      *
      * @param requestChatCompletion 
-     * @param sessionToken  (optional, default to "session_token")
-     * @param projectToken  (optional, default to "project_token")
+     * @param sessionToken  (optional, default to "")
+     * @param projectToken  (optional, default to "")
      * @return RequestConfig
      */
     fun requestChatCompletionApiChatRequestPostRequestConfig(requestChatCompletion: RequestChatCompletion, sessionToken: kotlin.String?, projectToken: kotlin.String?) : RequestConfig<RequestChatCompletion> {

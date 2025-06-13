@@ -20,7 +20,7 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * 
+ * Enumeration of roles within a chat conversation.
  *
  * Values: user,assistant,system
  */

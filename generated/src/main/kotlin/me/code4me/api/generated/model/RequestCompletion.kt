@@ -29,6 +29,10 @@ import com.squareup.moshi.JsonClass
  * @param context Context data for completion
  * @param contextualTelemetry Contextual telemetry data
  * @param behavioralTelemetry Behavioral telemetry data
+ * @param storeContext 
+ * @param storeContextualTelemetry 
+ * @param storeBehavioralTelemetry 
+ * @param stopSequences 
  */
 
 
@@ -48,7 +52,19 @@ data class RequestCompletion (
 
     /* Behavioral telemetry data */
     @Json(name = "behavioral_telemetry")
-    val behavioralTelemetry: BehavioralTelemetryData
+    val behavioralTelemetry: BehavioralTelemetryData,
+
+    @Json(name = "store_context")
+    val storeContext: kotlin.Boolean? = null,
+
+    @Json(name = "store_contextual_telemetry")
+    val storeContextualTelemetry: kotlin.Boolean? = null,
+
+    @Json(name = "store_behavioral_telemetry")
+    val storeBehavioralTelemetry: kotlin.Boolean? = null,
+
+    @Json(name = "stop_sequences")
+    val stopSequences: kotlin.collections.List<kotlin.String>? = null
 
 ) {
 

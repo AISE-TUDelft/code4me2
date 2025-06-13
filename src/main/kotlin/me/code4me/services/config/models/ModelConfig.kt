@@ -13,7 +13,8 @@ data class ModelConfig(
     val id: Int,
     val name: String,
     val isChatModel: Boolean,
-    val isDefault: Boolean = false // Default value for isDefault, can be overridden in config
+    val isDefault: Boolean = false,
+    // Default value for isDefault, can be overridden in config
 ) {
     companion object {
         /**
@@ -27,7 +28,7 @@ data class ModelConfig(
                 id = config.getInt("id"),
                 name = config.getString("name"),
                 isChatModel = config.getBoolean("isChatModel"),
-                isDefault = config.getBoolean("isDefault")
+                isDefault = config.getBoolean("isDefault"),
             )
         }
     }

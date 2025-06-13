@@ -29,8 +29,11 @@ import com.squareup.moshi.JsonClass
  * @param chatId Chat ID
  * @param messages Chat messages as a list of tuples
  * @param context Context data for completion
- * @param contextualTelemetry 
- * @param behavioralTelemetry 
+ * @param contextualTelemetry Contextual telemetry data
+ * @param behavioralTelemetry Behavioral telemetry data
+ * @param storeContext 
+ * @param storeContextualTelemetry 
+ * @param storeBehavioralTelemetry 
  * @param webEnabled 
  */
 
@@ -53,11 +56,22 @@ data class RequestChatCompletion (
     @Json(name = "context")
     val context: ContextData,
 
+    /* Contextual telemetry data */
     @Json(name = "contextual_telemetry")
-    val contextualTelemetry: ContextualTelemetryData? = null,
+    val contextualTelemetry: ContextualTelemetryData,
 
+    /* Behavioral telemetry data */
     @Json(name = "behavioral_telemetry")
-    val behavioralTelemetry: BehavioralTelemetryData? = null,
+    val behavioralTelemetry: BehavioralTelemetryData,
+
+    @Json(name = "store_context")
+    val storeContext: kotlin.Boolean? = null,
+
+    @Json(name = "store_contextual_telemetry")
+    val storeContextualTelemetry: kotlin.Boolean? = null,
+
+    @Json(name = "store_behavioral_telemetry")
+    val storeBehavioralTelemetry: kotlin.Boolean? = null,
 
     @Json(name = "web_enabled")
     val webEnabled: kotlin.Boolean? = null

@@ -25,7 +25,7 @@ import com.squareup.moshi.JsonClass
  *
  * @param message Response message
  * @param user User details
- * @param config Users config json string
+ * @param config User's config JSON string
  */
 
 
@@ -39,9 +39,9 @@ data class AuthenticateUserPostResponse (
     @Json(name = "user")
     val user: ResponseUser,
 
-    /* Users config json string */
+    /* User's config JSON string */
     @Json(name = "config")
-    val config: kotlin.String
+    val config: kotlin.collections.Map<kotlin.String, kotlin.Any>
 
 ) {
 

@@ -29,7 +29,7 @@ import com.squareup.moshi.JsonClass
 data class MultiFileContextUpdateError (
 
     @Json(name = "message")
-    val message: kotlin.String? = "Failed to update multi-file context."
+    val message: kotlin.String? = "Server failed to update multi-file context."
 
 ) {
 
