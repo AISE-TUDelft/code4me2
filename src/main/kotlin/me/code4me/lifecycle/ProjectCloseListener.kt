@@ -22,6 +22,12 @@ class ProjectCloseListener : ProjectManagerListener {
         thisLogger().info("Project closing: ${project.name}")
 
         try {
+            getAppService().deactivateSession()
+        } catch (e: Exception) {
+            thisLogger().error("Failed to deactivate session for project: ${project.name}", e)
+        }
+
+        try {
             // Get the ProjectChatService for this project
             val chatRepository = getProjectChatService(project)
 
@@ -42,9 +48,6 @@ class ProjectCloseListener : ProjectManagerListener {
                 thisLogger().info("Saving current chat session (${it.id}) for project: ${project.name}")
                 chatRepository.saveChat(it)
             }
-
-            // ✅ Call AppService to end the session
-            getAppService().deactivateSession()
 
             thisLogger().info("Successfully saved chat sessions and deactivated session for project: ${project.name}")
         } catch (e: Exception) {
