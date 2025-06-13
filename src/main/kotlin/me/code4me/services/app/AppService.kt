@@ -538,6 +538,7 @@ class AppService {
      */
     fun logout() {
         clearLocalSession()
+        deactivateSession()
         LOG.info("User logged out successfully")
     }
 

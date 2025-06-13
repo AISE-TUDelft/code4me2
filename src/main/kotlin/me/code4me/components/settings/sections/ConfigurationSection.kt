@@ -1710,6 +1710,7 @@ class ConfigurationSection : SettingsSection {
     private fun handleSignOut() {
         try {
             authState.clearUserData()
+            appService.deactivateSession()
             Messages.showInfoMessage(
                 "You have been signed out successfully.",
                 "Sign Out Complete",
