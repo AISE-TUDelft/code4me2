@@ -1,6 +1,11 @@
 package me.code4me.services.project
 
-import com.intellij.openapi.components.*
+import com.intellij.openapi.components.BaseState
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.SimplePersistentStateComponent
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 
 /**
@@ -13,7 +18,6 @@ import com.intellij.openapi.project.Project
     storages = [Storage("code4me-project-token.xml")],
 )
 class ProjectTokenService : SimplePersistentStateComponent<ProjectTokenState>(ProjectTokenState()) {
-
     /**
      * Gets the current state of the project token
      */

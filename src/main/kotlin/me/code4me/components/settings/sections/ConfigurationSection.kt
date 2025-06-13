@@ -1506,7 +1506,8 @@ class ConfigurationSection : SettingsSection {
 
                 val confirmMessage =
                     if (willDeleteData) {
-                        "Are you sure you want to delete your account AND all your data? This action cannot be undone and will permanently remove all your information from our servers."
+                        "Are you sure you want to delete your account AND all your data? " +
+                            "This action cannot be undone and will permanently remove all your information from our servers."
                     } else {
                         "Are you sure you want to delete your account? This action cannot be undone."
                     }

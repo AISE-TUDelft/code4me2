@@ -487,7 +487,8 @@ class AppService {
                 name = name,
                 password = password,
                 token = token,
-                configId = 1, // Assuming configId is always 1 - this means the default configuration
+                // Assuming configId is always 1 - this means the default configuration
+                configId = 1,
                 provider = provider,
             )
 
