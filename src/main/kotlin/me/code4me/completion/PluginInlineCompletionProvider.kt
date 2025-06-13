@@ -32,7 +32,7 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
 
         val document = request.editor.document
         val project = request.editor.project!!
-        if (!getProjectTokenService(project).hasProjectToken()) {
+        if (!getProjectTokenService(project).hasProjectToken() || !getProjectTokenService(project).isActivated()) {
             activateOrCreateProject(project, logger)
         }
 
