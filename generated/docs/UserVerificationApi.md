@@ -15,7 +15,7 @@ All URIs are relative to *http://localhost*
 
 Check Verification
 
-Check if the user is verified
+Check if the currently authenticated user has verified their email.  Parameters: - app (App): Dependency-injected application context providing access to services. - auth_token (str): Authentication token retrieved from the user&#39;s cookie.  Returns: - JsonResponseWithStatus: User verification status or appropriate error message.
 
 ### Example
 ```kotlin
@@ -61,7 +61,7 @@ No authorization required
 
 Resend Verification Email
 
-Resend verification email to the user
+Resend a verification email to the user if not already verified.  Parameters: - app (App): Application context for accessing services. - auth_token (str): Auth token from cookie identifying the user.  Returns: - JsonResponseWithStatus: Success confirmation or error message.
 
 ### Example
 ```kotlin
@@ -107,7 +107,7 @@ No authorization required
 
 Verify Email
 
-Verify user email with the provided token
+Verify the user&#39;s email address using the provided verification token.  Parameters: - token (str): Token for email verification, passed via query parameter. - app (App): Application context for accessing services.  Returns: - HTMLResponseWithStatus: HTML response indicating verification outcome.
 
 ### Example
 ```kotlin

@@ -19,12 +19,9 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
-import me.code4me.api.generated.model.AcquireSessionError
-import me.code4me.api.generated.model.AcquireSessionGetResponse
 import me.code4me.api.generated.model.DeactivateSessionError
 import me.code4me.api.generated.model.DeactivateSessionPostResponse
 import me.code4me.api.generated.model.ErrorResponse
-import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
 import me.code4me.api.generated.model.InvalidOrExpiredSessionToken
 
 import com.squareup.moshi.Json
@@ -43,85 +40,12 @@ import me.code4me.api.generated.infrastructure.ResponseType
 import me.code4me.api.generated.infrastructure.Success
 import me.code4me.api.generated.infrastructure.toMultiValue
 
-class SessionApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = ApiClient.defaultClient) : ApiClient(basePath, client) {
+class DeactivateSessionApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = ApiClient.defaultClient) : ApiClient(basePath, client) {
     companion object {
         @JvmStatic
         val defaultBasePath: String by lazy {
             System.getProperties().getProperty(ApiClient.baseUrlKey, "http://localhost")
         }
-    }
-
-    /**
-     * GET /api/session/acquire
-     * Acquire Session
-     * Acquire or create a session token linked to the provided auth token.  Args:     app (App): Injected FastAPI app instance.     auth_token (str): Auth token from the client&#39;s cookies.  Returns:     JsonResponseWithStatus: Contains the session token or appropriate error response.  Behavior:     - Returns 401 if auth token is missing or invalid.     - If no session token exists for the auth token, creates a new session.     - Sets the session token as an HttpOnly cookie with expiration.
-     * @param authToken  (optional, default to "")
-     * @return AcquireSessionGetResponse
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     * @throws UnsupportedOperationException If the API returns an informational or redirection response
-     * @throws ClientException If the API returns a client error response
-     * @throws ServerException If the API returns a server error response
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun acquireSessionApiSessionAcquireGet(authToken: kotlin.String? = "") : AcquireSessionGetResponse {
-        val localVarResponse = acquireSessionApiSessionAcquireGetWithHttpInfo(authToken = authToken)
-
-        return when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as AcquireSessionGetResponse
-            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
-            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
-            ResponseType.ClientError -> {
-                val localVarError = localVarResponse as ClientError<*>
-                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
-            }
-            ResponseType.ServerError -> {
-                val localVarError = localVarResponse as ServerError<*>
-                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
-            }
-        }
-    }
-
-    /**
-     * GET /api/session/acquire
-     * Acquire Session
-     * Acquire or create a session token linked to the provided auth token.  Args:     app (App): Injected FastAPI app instance.     auth_token (str): Auth token from the client&#39;s cookies.  Returns:     JsonResponseWithStatus: Contains the session token or appropriate error response.  Behavior:     - Returns 401 if auth token is missing or invalid.     - If no session token exists for the auth token, creates a new session.     - Sets the session token as an HttpOnly cookie with expiration.
-     * @param authToken  (optional, default to "")
-     * @return ApiResponse<AcquireSessionGetResponse?>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class)
-    fun acquireSessionApiSessionAcquireGetWithHttpInfo(authToken: kotlin.String?) : ApiResponse<AcquireSessionGetResponse?> {
-        val localVariableConfig = acquireSessionApiSessionAcquireGetRequestConfig(authToken = authToken)
-
-        return request<Unit, AcquireSessionGetResponse>(
-            localVariableConfig
-        )
-    }
-
-    /**
-     * To obtain the request config of the operation acquireSessionApiSessionAcquireGet
-     *
-     * @param authToken  (optional, default to "")
-     * @return RequestConfig
-     */
-    fun acquireSessionApiSessionAcquireGetRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
-        val localVariableBody = null
-        val localVariableQuery: MultiValueMap = mutableMapOf()
-        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Accept"] = "application/json"
-
-        return RequestConfig(
-            method = RequestMethod.GET,
-            path = "/api/session/acquire",
-            query = localVariableQuery,
-            headers = localVariableHeaders,
-            requiresAuthentication = false,
-            body = localVariableBody
-        )
     }
 
     /**

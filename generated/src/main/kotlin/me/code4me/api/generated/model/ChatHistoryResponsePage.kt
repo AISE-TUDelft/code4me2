@@ -21,25 +21,25 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * A glorified list of chat history responses with pagination
+ * Paginated response containing multiple chat histories.
  *
- * @param page Current page number
- * @param perPage Number of records per page
- * @param items List of chat history responses
+ * @param page Current page index
+ * @param perPage Number of items per page
+ * @param items Paginated chat sessions
  */
 
 
 data class ChatHistoryResponsePage (
 
-    /* Current page number */
+    /* Current page index */
     @Json(name = "page")
     val page: kotlin.Int,
 
-    /* Number of records per page */
+    /* Number of items per page */
     @Json(name = "per_page")
     val perPage: kotlin.Int,
 
-    /* List of chat history responses */
+    /* Paginated chat sessions */
     @Json(name = "items")
     val items: kotlin.collections.List<ChatHistoryResponse>
 

@@ -13,7 +13,7 @@ All URIs are relative to *http://localhost*
 
 Update Multi File Context
 
-Update the context for a specific query ID.
+Endpoint to update multi-file context content for a given project and session.  Steps: - Validate session token and retrieve session info from Redis. - Validate project token and retrieve project info from Redis. - Apply line-level context updates to the existing multi-file contexts. - Redact secrets in the updated content lines. - Remove any files with empty content. - Update the context change logs accordingly. - Store the updated project info back in Redis. - Return the updated context in the response.  Args:     context_update: UpdateMultiFileContext model containing the changes to apply.     app: The application instance (dependency-injected).     session_token: Session token from cookies.     project_token: Project token from cookies.  Returns:     JsonResponseWithStatus containing the updated multi-file context or an error response.
 
 ### Example
 ```kotlin

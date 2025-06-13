@@ -8,67 +8,35 @@ import me.code4me.services.app.getAppService
 import me.code4me.services.project.getProjectTokenService
 import java.util.UUID
 
-fun activateOrCreateProject(
+public fun activateOrCreateProject(
     project: Project,
     logger: Logger,
 ) {
     val projectTokenService = getProjectTokenService(project)
-
-    var activated = false
-
+    // if the project token service has a token, activate the project
     if (projectTokenService.hasProjectToken() && projectTokenService.getProjectToken() != null) {
-        try {
-            val projectToken = projectTokenService.getProjectToken()
-            logger.info("Activating project with token: $projectToken")
-            getAppService().activateProject(
-                ActivateProject(
-                    projectId = UUID.fromString(projectToken!!),
-                ),
-            )
-            activated = true
-        } catch (e: Exception) {
-            logger.warn("Activation with existing token failed: ${e.message}")
-        }
-    }
-
-    if (!activated) {
-        logger.warn("Creating a new project and token.")
+        val projectToken = projectTokenService.getProjectToken()
+        logger.info("Activating project with token: $projectToken")
+        getAppService().activateProject(
+            ActivateProject(
+                projectId = UUID.fromString(projectToken!!),
+            ),
+        )
+    } else {
+        logger.warn("No project token found, creating a new project.")
+        logger.warn("Project token is null, creating new project.")
+        // project name
         val projectName = project.name.ifBlank { "Unnamed Project" }
-
         getAppService().createProjectWithStoredToken(
             CreateProject(
                 projectName = projectName,
             ),
             project,
         )
-
-        if (!activated) {
-            logger.warn("Creating a new project and token.")
-            val projectName = project.name.ifBlank { "Unnamed Project" }
-
-            val response =
-                getAppService().createProjectWithStoredToken(
-                    CreateProject(
-                        projectName = projectName,
-                    ),
-                    project,
-                )
-
-            val newToken = response?.projectToken
-            if (!newToken.isNullOrBlank()) {
-                logger.info("Activating project with new token from response: $newToken")
-                try {
-                    getAppService().activateProject(
-                        ActivateProject(
-                            projectId = UUID.fromString(newToken),
-                        ),
-                    )
-                } catch (e: Exception) {
-                    logger.error("Failed to activate project with new token: ${e.message}", e)
-                }
-            } else {
-                logger.error("No token returned from project creation response.")
-            }
+        if (projectTokenService.hasProjectToken()) {
+            logger.info("Project created and token acquired successfully.")
+        } else {
+            logger.warn("Failed to create project or acquire project token.")
         }
     }
 }

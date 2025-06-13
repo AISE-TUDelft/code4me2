@@ -21,25 +21,25 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * Response containing the entire chat history
+ * Complete chat conversation history for a session.
  *
- * @param chatId Chat ID
- * @param title Chat title
- * @param history Chat conversation history
+ * @param chatId Unique chat session ID
+ * @param title Title of the chat
+ * @param history List of message exchanges
  */
 
 
 data class ChatHistoryResponse (
 
-    /* Chat ID */
+    /* Unique chat session ID */
     @Json(name = "chat_id")
     val chatId: java.util.UUID,
 
-    /* Chat title */
+    /* Title of the chat */
     @Json(name = "title")
     val title: kotlin.String,
 
-    /* Chat conversation history */
+    /* List of message exchanges */
     @Json(name = "history")
     val history: kotlin.collections.List<ChatHistoryItem>
 

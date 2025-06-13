@@ -20,13 +20,13 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * 
+ * Represents a successful model completion result.
  *
  * @param modelId Model ID
  * @param modelName Model name
  * @param completion Generated code
- * @param generationTime Generation time
- * @param confidence Confidence score
+ * @param generationTime Generation time in ms
+ * @param confidence Confidence score of the result
  */
 
 
@@ -44,11 +44,11 @@ data class ResponseCompletionItem (
     @Json(name = "completion")
     val completion: kotlin.String,
 
-    /* Generation time */
+    /* Generation time in ms */
     @Json(name = "generation_time")
     val generationTime: kotlin.Int,
 
-    /* Confidence score */
+    /* Confidence score of the result */
     @Json(name = "confidence")
     val confidence: java.math.BigDecimal
 

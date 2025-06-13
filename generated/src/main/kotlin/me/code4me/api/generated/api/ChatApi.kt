@@ -139,7 +139,7 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * GET /api/chat/get/{page_number}
      * Get Chat History
-     * Get the complete chat history for
+     * Retrieve a page of chat history for a specific project associated with the current session.  Parameters: - app (App): Dependency-injected FastAPI application instance. - page_number (int): The page number of the chat history to retrieve. - session_token (str): Session token stored in a cookie. - project_token (str): Project token stored in a cookie.  Returns: - JsonResponseWithStatus: Paginated chat history or an error response.
      * @param pageNumber 
      * @param sessionToken  (optional, default to "")
      * @param projectToken  (optional, default to "")
@@ -173,7 +173,7 @@ class ChatApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * GET /api/chat/get/{page_number}
      * Get Chat History
-     * Get the complete chat history for
+     * Retrieve a page of chat history for a specific project associated with the current session.  Parameters: - app (App): Dependency-injected FastAPI application instance. - page_number (int): The page number of the chat history to retrieve. - session_token (str): Session token stored in a cookie. - project_token (str): Project token stored in a cookie.  Returns: - JsonResponseWithStatus: Paginated chat history or an error response.
      * @param pageNumber 
      * @param sessionToken  (optional, default to "")
      * @param projectToken  (optional, default to "")

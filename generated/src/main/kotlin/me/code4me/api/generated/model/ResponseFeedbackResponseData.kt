@@ -20,7 +20,7 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * 
+ * Response model for storing feedback about completions.
  *
  * @param metaQueryId Meta Query ID
  * @param modelId Model ID

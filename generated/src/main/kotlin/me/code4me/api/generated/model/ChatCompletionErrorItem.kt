@@ -20,16 +20,16 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * 
+ * Represents a failed attempt to generate a chat completion.
  *
- * @param modelName Model name
+ * @param modelName Model name that failed
  * @param message 
  */
 
 
 data class ChatCompletionErrorItem (
 
-    /* Model name */
+    /* Model name that failed */
     @Json(name = "model_name")
     val modelName: kotlin.String,
 

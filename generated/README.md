@@ -45,6 +45,7 @@ All URIs are relative to *http://localhost*
 
 | Class | Method | HTTP request | Description |
 | ------------ | ------------- | ------------- | ------------- |
+| *AcquireSessionApi* | [**acquireSessionApiSessionAcquireGet**](docs/AcquireSessionApi.md#acquiresessionapisessionacquireget) | **GET** /api/session/acquire | Acquire Session |
 | *AuthenticationApi* | [**authenticateUserApiUserAuthenticatePost**](docs/AuthenticationApi.md#authenticateuserapiuserauthenticatepost) | **POST** /api/user/authenticate | Authenticate User |
 | *ChatApi* | [**deleteChatApiChatDeleteChatIdDelete**](docs/ChatApi.md#deletechatapichatdeletechatiddelete) | **DELETE** /api/chat/delete/{chat_id} | Delete Chat |
 | *ChatApi* | [**getChatHistoryApiChatGetPageNumberGet**](docs/ChatApi.md#getchathistoryapichatgetpagenumberget) | **GET** /api/chat/get/{page_number} | Get Chat History |
@@ -52,11 +53,13 @@ All URIs are relative to *http://localhost*
 | *CompletionApi* | [**getCompletionsByQueryApiCompletionQueryIdGet**](docs/CompletionApi.md#getcompletionsbyqueryapicompletionqueryidget) | **GET** /api/completion/{query_id} | Get Completions By Query |
 | *CompletionApi* | [**requestCompletionApiCompletionRequestPost**](docs/CompletionApi.md#requestcompletionapicompletionrequestpost) | **POST** /api/completion/request | Request Completion |
 | *CompletionApi* | [**submitCompletionFeedbackApiCompletionFeedbackPost**](docs/CompletionApi.md#submitcompletionfeedbackapicompletionfeedbackpost) | **POST** /api/completion/feedback | Submit Completion Feedback |
+| *DeactivateSessionApi* | [**deactivateSessionApiSessionDeactivatePut**](docs/DeactivateSessionApi.md#deactivatesessionapisessiondeactivateput) | **PUT** /api/session/deactivate/ | Deactivate Session |
 | *DefaultApi* | [**pingApiPingHead**](docs/DefaultApi.md#pingapipinghead) | **HEAD** /api/ping | Ping |
 | *MultiFileContextApi* | [**updateMultiFileContextApiCompletionMultiFileContextUpdatePost**](docs/MultiFileContextApi.md#updatemultifilecontextapicompletionmultifilecontextupdatepost) | **POST** /api/completion/multi-file-context/update | Update Multi File Context |
 | *ProjectApi* | [**activateProjectApiProjectActivatePut**](docs/ProjectApi.md#activateprojectapiprojectactivateput) | **PUT** /api/project/activate | Activate Project |
 | *ProjectApi* | [**createProjectApiProjectCreatePost**](docs/ProjectApi.md#createprojectapiprojectcreatepost) | **POST** /api/project/create | Create Project |
 | *SessionApi* | [**acquireSessionApiSessionAcquireGet**](docs/SessionApi.md#acquiresessionapisessionacquireget) | **GET** /api/session/acquire | Acquire Session |
+| *SessionApi* | [**deactivateSessionApiSessionDeactivatePut**](docs/SessionApi.md#deactivatesessionapisessiondeactivateput) | **PUT** /api/session/deactivate/ | Deactivate Session |
 | *UserApi* | [**authenticateUserApiUserAuthenticatePost**](docs/UserApi.md#authenticateuserapiuserauthenticatepost) | **POST** /api/user/authenticate | Authenticate User |
 | *UserApi* | [**checkVerificationApiUserVerifyCheckGet**](docs/UserApi.md#checkverificationapiuserverifycheckget) | **GET** /api/user/verify/check | Check Verification |
 | *UserApi* | [**createUserApiUserCreatePost**](docs/UserApi.md#createuserapiusercreatepost) | **POST** /api/user/create | Create User |
@@ -104,6 +107,8 @@ All URIs are relative to *http://localhost*
  - [me.code4me.api.generated.model.CreateUserError](docs/CreateUserError.md)
  - [me.code4me.api.generated.model.CreateUserOauth](docs/CreateUserOauth.md)
  - [me.code4me.api.generated.model.CreateUserPostResponse](docs/CreateUserPostResponse.md)
+ - [me.code4me.api.generated.model.DeactivateSessionError](docs/DeactivateSessionError.md)
+ - [me.code4me.api.generated.model.DeactivateSessionPostResponse](docs/DeactivateSessionPostResponse.md)
  - [me.code4me.api.generated.model.DeleteChatError](docs/DeleteChatError.md)
  - [me.code4me.api.generated.model.DeleteChatSuccessResponse](docs/DeleteChatSuccessResponse.md)
  - [me.code4me.api.generated.model.DeleteUserDeleteResponse](docs/DeleteUserDeleteResponse.md)

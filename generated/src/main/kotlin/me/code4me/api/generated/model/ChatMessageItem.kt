@@ -21,26 +21,26 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * Represents a single message in a chat conversation
+ * Represents a single message in a chat conversation.
  *
- * @param role Role of the message sender
- * @param content Content of the message
- * @param timestamp When the message was sent
+ * @param role Sender's role
+ * @param content Message content
+ * @param timestamp Time the message was sent
  * @param metaQueryId 
  */
 
 
 data class ChatMessageItem (
 
-    /* Role of the message sender */
+    /* Sender's role */
     @Json(name = "role")
     val role: ChatMessageRole,
 
-    /* Content of the message */
+    /* Message content */
     @Json(name = "content")
     val content: kotlin.String,
 
-    /* When the message was sent */
+    /* Time the message was sent */
     @Json(name = "timestamp")
     val timestamp: java.time.OffsetDateTime,
 

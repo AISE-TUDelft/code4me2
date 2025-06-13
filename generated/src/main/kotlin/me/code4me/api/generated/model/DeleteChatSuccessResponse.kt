@@ -20,7 +20,7 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * Success response for chat deletion
+ * Acknowledgement response for successful chat deletion.
  *
  * @param message 
  */

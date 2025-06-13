@@ -20,14 +20,14 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * Represents a single model completion in a chat conversation
+ * Model-generated response in a chat conversation.
  *
  * @param modelId Model ID
  * @param modelName Model name
  * @param completion Generated text
- * @param generationTime Generation time
+ * @param generationTime Generation time in ms
  * @param confidence Confidence score
- * @param wasAccepted Whether the completion was accepted
+ * @param wasAccepted User acceptance status
  */
 
 
@@ -45,7 +45,7 @@ data class ChatCompletionItem (
     @Json(name = "completion")
     val completion: kotlin.String,
 
-    /* Generation time */
+    /* Generation time in ms */
     @Json(name = "generation_time")
     val generationTime: kotlin.Int,
 
@@ -53,7 +53,7 @@ data class ChatCompletionItem (
     @Json(name = "confidence")
     val confidence: java.math.BigDecimal,
 
-    /* Whether the completion was accepted */
+    /* User acceptance status */
     @Json(name = "was_accepted")
     val wasAccepted: kotlin.Boolean
 

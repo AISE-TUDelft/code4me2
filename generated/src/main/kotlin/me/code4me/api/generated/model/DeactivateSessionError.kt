@@ -20,21 +20,16 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * Represents an error during code completion.
+ * 
  *
- * @param modelName Model name that failed
  * @param message 
  */
 
 
-data class CompletionErrorItem (
-
-    /* Model name that failed */
-    @Json(name = "model_name")
-    val modelName: kotlin.String,
+data class DeactivateSessionError (
 
     @Json(name = "message")
-    val message: kotlin.String? = "Completion for model failed"
+    val message: kotlin.String? = "Server failed to deactivate session."
 
 ) {
 

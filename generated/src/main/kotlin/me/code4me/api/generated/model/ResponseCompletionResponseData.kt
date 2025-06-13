@@ -21,10 +21,10 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * 
+ * Container for completion responses for a given meta-query.
  *
  * @param metaQueryId Meta Query ID
- * @param completions Generated completions
+ * @param completions List of generated completions or errors
  */
 
 
@@ -34,7 +34,7 @@ data class ResponseCompletionResponseData (
     @Json(name = "meta_query_id")
     val metaQueryId: java.util.UUID,
 
-    /* Generated completions */
+    /* List of generated completions or errors */
     @Json(name = "completions")
     val completions: kotlin.collections.List<ResponseCompletionResponseDataCompletionsInner>
 

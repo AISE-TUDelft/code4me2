@@ -57,7 +57,7 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     /**
      * GET /api/user/verify/check
      * Check Verification
-     * Check if the user is verified
+     * Check if the currently authenticated user has verified their email.  Parameters: - app (App): Dependency-injected application context providing access to services. - auth_token (str): Authentication token retrieved from the user&#39;s cookie.  Returns: - JsonResponseWithStatus: User verification status or appropriate error message.
      * @param authToken  (optional, default to "")
      * @return GetVerificationGetResponse
      * @throws IllegalStateException If the request is not correctly configured
@@ -89,7 +89,7 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     /**
      * GET /api/user/verify/check
      * Check Verification
-     * Check if the user is verified
+     * Check if the currently authenticated user has verified their email.  Parameters: - app (App): Dependency-injected application context providing access to services. - auth_token (str): Authentication token retrieved from the user&#39;s cookie.  Returns: - JsonResponseWithStatus: User verification status or appropriate error message.
      * @param authToken  (optional, default to "")
      * @return ApiResponse<GetVerificationGetResponse?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -130,7 +130,7 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     /**
      * POST /api/user/verify/resend
      * Resend Verification Email
-     * Resend verification email to the user
+     * Resend a verification email to the user if not already verified.  Parameters: - app (App): Application context for accessing services. - auth_token (str): Auth token from cookie identifying the user.  Returns: - JsonResponseWithStatus: Success confirmation or error message.
      * @param authToken  (optional, default to "")
      * @return ResendVerificationEmailPostResponse
      * @throws IllegalStateException If the request is not correctly configured
@@ -162,7 +162,7 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     /**
      * POST /api/user/verify/resend
      * Resend Verification Email
-     * Resend verification email to the user
+     * Resend a verification email to the user if not already verified.  Parameters: - app (App): Application context for accessing services. - auth_token (str): Auth token from cookie identifying the user.  Returns: - JsonResponseWithStatus: Success confirmation or error message.
      * @param authToken  (optional, default to "")
      * @return ApiResponse<ResendVerificationEmailPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -203,7 +203,7 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     /**
      * POST /api/user/verify/
      * Verify Email
-     * Verify user email with the provided token
+     * Verify the user&#39;s email address using the provided verification token.  Parameters: - token (str): Token for email verification, passed via query parameter. - app (App): Application context for accessing services.  Returns: - HTMLResponseWithStatus: HTML response indicating verification outcome.
      * @param token Verification token
      * @return VerifyUserPostHTMLResponse
      * @throws IllegalStateException If the request is not correctly configured
@@ -235,7 +235,7 @@ class UserVerificationApi(basePath: kotlin.String = defaultBasePath, client: Cal
     /**
      * POST /api/user/verify/
      * Verify Email
-     * Verify user email with the provided token
+     * Verify the user&#39;s email address using the provided verification token.  Parameters: - token (str): Token for email verification, passed via query parameter. - app (App): Application context for accessing services.  Returns: - HTMLResponseWithStatus: HTML response indicating verification outcome.
      * @param token Verification token
      * @return ApiResponse<VerifyUserPostHTMLResponse?>
      * @throws IllegalStateException If the request is not correctly configured

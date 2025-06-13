@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.ChatApi
 import me.code4me.api.generated.api.CompletionApi
+import me.code4me.api.generated.api.DeactivateSessionApi
 import me.code4me.api.generated.api.ProjectApi
 import me.code4me.api.generated.api.SessionApi
 import me.code4me.api.generated.api.UserApi
@@ -96,6 +97,8 @@ class AppService {
     private val sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val projectApi = ProjectApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val userVerificationApi = UserVerificationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val deactivateSessionApi =
+        DeactivateSessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
 
     // Chat API with extended timeout configuration
     private val chatApi = ChatApi(apiBaseUrl, chatHttpClient)
@@ -323,6 +326,35 @@ class AppService {
         val hasSession = authSettings.getToken()?.isNotBlank()
         LOG.debug("Session validity check: $hasSession")
         return hasSession == true
+    }
+
+    /**
+     * Deactivates the current user session.
+     *
+     * This method sends a request to the Code4Me backend to deactivate the current session.
+     * It uses the stored authentication token to validate the request. Upon successful deactivation,
+     * the local session state is cleared.
+     *
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the session token is invalid or deactivation fails (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun deactivateSession() {
+        val authToken = getAuthState().getToken()
+        if (authToken.isNullOrBlank()) {
+            LOG.warn("No auth token found; cannot deactivate session.")
+            return
+        }
+
+        try {
+            val response = deactivateSessionApi.deactivateSessionApiSessionDeactivatePut(authToken)
+            LOG.info("Session deactivated successfully: ${response.message}")
+            clearLocalSession() // Optional: clear local cookies/state after deactivation
+        } catch (e: Exception) {
+            LOG.warn("Failed to deactivate session", e)
+            throw e
+        }
     }
 
     // ============ Project Management Methods ============

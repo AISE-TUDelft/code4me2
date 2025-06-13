@@ -19,7 +19,7 @@ All URIs are relative to *http://localhost*
 
 Authenticate User
 
-Authenticate a user via either OAuth (JWT token) or traditional email/password.  This endpoint supports two methods of authentication: 1. OAuth Authentication:    - The input contains a JWT token from an OAuth provider (Google).    - The token&#39;s validity is verified.    - If valid, the user is fetched by email from the database.    - A session auth token is created and returned as a cookie. 2. Email/Password Authentication:    - The input contains user email and password.    - Credentials are verified against the database.    - If valid, a session auth token is created and returned as a cookie.  Args:     user_to_authenticate: Union of OAuth token or email/password credentials.     app: FastAPI dependency to access the application context.  Returns:     JsonResponseWithStatus: A JSON response containing the authenticated user info     and a session auth token cookie on success, or an error response otherwise.
+Authenticate a user using either OAuth (via JWT) or email/password.  This endpoint supports: - OAuth: Validates a JWT token and fetches the user by email. - Email/Password: Verifies credentials against the database.  Args:     user_to_authenticate (Union[AuthenticateUserEmailPassword, AuthenticateUserOAuth]):         Either an email/password object or a JWT-based OAuth object.     app (App): FastAPI dependency that provides access to DB and config.  Returns:     JsonResponseWithStatus: Authenticated user info + auth token cookie,     or an error response.
 
 ### Example
 ```kotlin
@@ -65,7 +65,7 @@ No authorization required
 
 Check Verification
 
-Check if the user is verified
+Check if the currently authenticated user has verified their email.  Parameters: - app (App): Dependency-injected application context providing access to services. - auth_token (str): Authentication token retrieved from the user&#39;s cookie.  Returns: - JsonResponseWithStatus: User verification status or appropriate error message.
 
 ### Example
 ```kotlin
@@ -111,7 +111,7 @@ No authorization required
 
 Create User
 
-Create a new user in the system.  Args:     user_to_create (Union[Queries.CreateUser, Queries.CreateUserOauth]):         The user data to create, can be standard or OAuth-based.     app (App):         The application instance, injected by FastAPI&#39;s dependency system.  Returns:     JsonResponseWithStatus: Response with status code and content.  Steps:     1. Check if the user already exists by email.     2. If OAuth, verify the JWT token and email.     3. Create the user in the database if not exists.     4. Send verification email.     5. Return appropriate response.
+Create a new user in the system using standard or OAuth-based data.  Args:     user_to_create (Union[CreateUser, CreateUserOauth]):         User data from the request body (standard or OAuth-based).     app (App):         Application context with access to database and services.  Returns:     JsonResponseWithStatus: JSON response indicating success or failure.  Flow:     1. Check if a user already exists with the given email.     2. If using OAuth, validate the JWT token.     3. Insert the new user into the database.     4. Send a verification email via Celery.     5. Return HTTP 201 with the new user ID.
 
 ### Example
 ```kotlin
@@ -157,7 +157,7 @@ No authorization required
 
 Delete User
 
-Delete the authenticated user&#39;s account and optionally their data.  Args:     delete_data (bool): Flag indicating whether to delete associated data (default: False).     auth_token (str): Authentication token stored in browser cookies.     app (App): Application instance with access to database and session managers.  Returns:     JsonResponseWithStatus: A success message or an appropriate error response.
+Delete the authenticated user&#39;s account and optionally their associated data.  Args:     delete_data (bool): If True, removes all user-related data (default is False).     auth_token (str): Auth token provided in cookies to authenticate the user.     app (App): Dependency-injected app instance with DB and Redis access.  Returns:     JsonResponseWithStatus: A success or error response depending on the outcome.
 
 ### Example
 ```kotlin
@@ -166,7 +166,7 @@ Delete the authenticated user&#39;s account and optionally their data.  Args:   
 //import me.code4me.api.generated.model.*
 
 val apiInstance = UserApi()
-val deleteData : kotlin.Boolean = true // kotlin.Boolean | Delete user's data
+val deleteData : kotlin.Boolean = true // kotlin.Boolean | Delete user's associated data
 val authToken : kotlin.String = authToken_example // kotlin.String | 
 try {
     val result : DeleteUserDeleteResponse = apiInstance.deleteUserApiUserDeleteDelete(deleteData, authToken)
@@ -181,7 +181,7 @@ try {
 ```
 
 ### Parameters
-| **deleteData** | **kotlin.Boolean**| Delete user&#39;s data | [optional] [default to false] |
+| **deleteData** | **kotlin.Boolean**| Delete user&#39;s associated data | [optional] [default to false] |
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
 | **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
@@ -205,7 +205,7 @@ No authorization required
 
 Resend Verification Email
 
-Resend verification email to the user
+Resend a verification email to the user if not already verified.  Parameters: - app (App): Application context for accessing services. - auth_token (str): Auth token from cookie identifying the user.  Returns: - JsonResponseWithStatus: Success confirmation or error message.
 
 ### Example
 ```kotlin
@@ -251,7 +251,7 @@ No authorization required
 
 Update User
 
-Update the currently authenticated user&#39;s data.  Args: - user_to_update: Pydantic model containing fields to update. - app: Application context, injected by FastAPI. - auth_token: Authentication token stored in browser cookies.  Returns: - JSON response with updated user information if successful. - Appropriate error response if auth token is missing or invalid.
+Update the currently authenticated user&#39;s data.  Args:     user_to_update (Queries.UpdateUser): Fields the user wants to update.     app (App): Injected application instance with DB and Redis access.     auth_token (str): Auth token stored in the user&#39;s browser cookies.  Returns:     JsonResponseWithStatus: Contains updated user data or error info.
 
 ### Example
 ```kotlin
@@ -299,7 +299,7 @@ No authorization required
 
 Verify Email
 
-Verify user email with the provided token
+Verify the user&#39;s email address using the provided verification token.  Parameters: - token (str): Token for email verification, passed via query parameter. - app (App): Application context for accessing services.  Returns: - HTMLResponseWithStatus: HTML response indicating verification outcome.
 
 ### Example
 ```kotlin

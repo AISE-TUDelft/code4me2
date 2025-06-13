@@ -13,6 +13,8 @@ All URIs are relative to *http://localhost*
 
 Ping
 
+Lightweight health check endpoint.  Returns:     dict: A simple response indicating the service is available.
+
 ### Example
 ```kotlin
 // Import classes:

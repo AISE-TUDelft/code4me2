@@ -47,7 +47,7 @@ class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * HEAD /api/ping
      * Ping
-     * 
+     * Lightweight health check endpoint.  Returns:     dict: A simple response indicating the service is available.
      * @return kotlin.Any
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -78,7 +78,7 @@ class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * HEAD /api/ping
      * Ping
-     * 
+     * Lightweight health check endpoint.  Returns:     dict: A simple response indicating the service is available.
      * @return ApiResponse<kotlin.Any?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception

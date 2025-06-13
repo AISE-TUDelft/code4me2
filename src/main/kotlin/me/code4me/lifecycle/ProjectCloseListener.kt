@@ -3,6 +3,7 @@ package me.code4me.lifecycle
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManagerListener
+import me.code4me.services.app.getAppService
 import me.code4me.services.project.getProjectChatService
 
 /**
@@ -42,9 +43,12 @@ class ProjectCloseListener : ProjectManagerListener {
                 chatRepository.saveChat(it)
             }
 
-            thisLogger().info("Successfully saved chat sessions for project: ${project.name}")
+            // ✅ Call AppService to end the session
+            getAppService().deactivateSession()
+
+            thisLogger().info("Successfully saved chat sessions and deactivated session for project: ${project.name}")
         } catch (e: Exception) {
-            thisLogger().error("Failed to save chat sessions for project: ${project.name}", e)
+            thisLogger().error("Failed to save or deactivate session for project: ${project.name}", e)
         }
     }
 }
