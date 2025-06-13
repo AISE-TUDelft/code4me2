@@ -341,14 +341,8 @@ class AppService {
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
     fun deactivateSession() {
-        val authToken = getAuthState().getToken()
-        if (authToken.isNullOrBlank()) {
-            LOG.warn("No auth token found; cannot deactivate session.")
-            return
-        }
-
         try {
-            val response = deactivateSessionApi.deactivateSessionApiSessionDeactivatePut(authToken)
+            val response = deactivateSessionApi.deactivateSessionApiSessionDeactivatePut()
             LOG.info("Session deactivated successfully: ${response.message}")
             clearLocalSession() // Optional: clear local cookies/state after deactivation
         } catch (e: Exception) {
