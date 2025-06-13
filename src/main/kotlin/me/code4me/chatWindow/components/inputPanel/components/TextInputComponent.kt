@@ -117,7 +117,7 @@ class TextInputComponent(
             "insert-newline",
             object : AbstractAction() {
                 override fun actionPerformed(e: ActionEvent?) {
-                    textArea.append("\n")
+                    textArea.insert("\n", textArea.caretPosition)
                 }
             },
         )

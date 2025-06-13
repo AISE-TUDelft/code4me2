@@ -28,7 +28,7 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
     private val wrapperPanel =
         JPanel(BorderLayout()).apply {
             background = Gray._43
-            add(contentPanel, BorderLayout.NORTH) // use NORTH to allow vertical expansion
+            add(contentPanel, BorderLayout.NORTH)
         }
 
     private val scrollPane =
@@ -42,6 +42,10 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
 
     private var userScrolledUp = false
     private var isUpdatingContent = false
+    private val activeBubbles = mutableListOf<ChatBubble>()
+
+    /** Callback invoked when the panel is restored (e.g., minimized → maximized). */
+    var onRestore: (() -> Unit)? = null
 
     init {
         background = Gray._43
@@ -58,10 +62,27 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         }
     }
 
+    override fun removeNotify() {
+        super.removeNotify()
+        cleanupBubbles()
+    }
+
+    private fun cleanupBubbles() {
+        activeBubbles.forEach { bubble ->
+            try {
+                bubble.disposeEditors()
+            } catch (e: Exception) {
+                println("Error disposing bubble: ${e.message}")
+            }
+        }
+        activeBubbles.clear()
+    }
+
     fun updateContent(messages: List<Pair<String, String>>) {
         val shouldAutoScroll = !userScrolledUp || isAtBottom()
 
         isUpdatingContent = true
+        cleanupBubbles()
         contentPanel.removeAll()
 
         if (messages.isEmpty()) {
@@ -74,6 +95,7 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
                         alignmentX = LEFT_ALIGNMENT
                         maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
                     }
+                activeBubbles.add(bubble)
                 contentPanel.add(bubble)
                 contentPanel.add(Box.createVerticalStrut(0))
             }
@@ -91,11 +113,27 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
 
         if (shouldAutoScroll) {
             Timer(50) {
-                scrollToBottom(false) // Don't reset user scroll flag
+                scrollToBottom(false)
             }.apply {
                 isRepeats = false
                 start()
             }
+        }
+    }
+
+    fun forceRefresh() {
+        SwingUtilities.invokeLater {
+            for (component in contentPanel.components) {
+                if (component is ChatBubble) {
+                    component.revalidate()
+                    component.repaint()
+                    component.forceResetEditorColors()
+                }
+            }
+            contentPanel.revalidate()
+            contentPanel.repaint()
+            scrollPane.revalidate()
+            scrollPane.repaint()
         }
     }
 
@@ -104,17 +142,19 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         label.foreground = Gray._220
         label.font = Font("SansSerif", Font.ITALIC, 16)
 
-        val wrapper =
-            JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.X_AXIS)
-                isOpaque = false
-                border = JBUI.Borders.empty(30, 10, 10, 10)
-                add(Box.createHorizontalGlue())
-                add(label)
-                add(Box.createHorizontalGlue())
-            }
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            isOpaque = false
+            border = JBUI.Borders.empty(30, 10, 10, 10)
+            add(Box.createHorizontalGlue())
+            add(label)
+            add(Box.createHorizontalGlue())
+        }
+    }
 
-        return wrapper
+    override fun addNotify() {
+        super.addNotify()
+        onRestore?.invoke() // 👈 key line added here
     }
 
     private fun isAtBottom(): Boolean {
@@ -136,7 +176,7 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
 
     // New method for when user explicitly sends a message
     fun scrollToBottomOnUserAction() {
-        userScrolledUp = false // User action resets the scroll state
+        userScrolledUp = false
         Timer(50) {
             scrollToBottom(true)
         }.apply {

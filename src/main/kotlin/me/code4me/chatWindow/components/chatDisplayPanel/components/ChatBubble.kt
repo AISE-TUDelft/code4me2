@@ -1,9 +1,9 @@
 package me.code4me.chatWindow.components.chatDisplayPanel.components
 
-import com.intellij.lang.Language
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.ide.CopyPasteManager
@@ -45,6 +45,7 @@ class ChatBubble(
     private val project: Project,
 ) : JPanel() {
     private val editors = mutableListOf<Editor>()
+    private var isDisposed = false
 
     init {
         layout = BorderLayout()
@@ -115,10 +116,27 @@ class ChatBubble(
 
     override fun removeNotify() {
         super.removeNotify()
-        editors.forEach {
-            EditorFactory.getInstance().releaseEditor(it)
+        disposeEditors()
+    }
+
+    /**
+     * Explicitly dispose all editors to prevent memory leaks
+     */
+    fun disposeEditors() {
+        if (!isDisposed) {
+            editors.forEach { editor ->
+                try {
+                    if (!editor.isDisposed) {
+                        EditorFactory.getInstance().releaseEditor(editor)
+                    }
+                } catch (e: Exception) {
+                    // Log but don't throw to avoid cascade failures
+                    println("Error disposing editor: ${e.message}")
+                }
+            }
+            editors.clear()
+            isDisposed = true
         }
-        editors.clear()
     }
 
     private fun extractCodeBlocks(text: String): List<CodeBlock> {
@@ -193,13 +211,19 @@ class ChatBubble(
         container: JPanel,
         codeBlock: CodeBlock,
     ) {
-        val language = Language.findLanguageByID(codeBlock.language.replaceFirstChar { it.uppercaseChar() })
-        val fileType = language?.associatedFileType ?: FileTypeManager.getInstance().getFileTypeByExtension("txt")
-        val virtualFile = LightVirtualFile("code.${fileType.defaultExtension}", fileType, codeBlock.code)
+        if (isDisposed) return
+
+        val ext = getExtensionForLanguage(codeBlock.language)
+        val fileType = FileTypeManager.getInstance().getFileTypeByExtension(ext)
+        val virtualFile = LightVirtualFile("code.$ext", fileType, codeBlock.code)
         val document = EditorFactory.getInstance().createDocument(codeBlock.code)
 
         val editor = EditorFactory.getInstance().createEditor(document, project, virtualFile, true) as EditorEx
         editors.add(editor)
+
+        // Force refresh the color scheme to prevent green background issue
+        val scheme = EditorColorsManager.getInstance().globalScheme.clone()
+        editor.colorsScheme = scheme as EditorColorsScheme
 
         editor.settings.apply {
             isLineNumbersShown = true
@@ -214,9 +238,6 @@ class ChatBubble(
         // Disable the editor's internal scrollbars
         editor.scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
         editor.scrollPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        editor.colorsScheme = scheme
 
         val lineCount = codeBlock.code.lines().size
         val lineHeight = editor.lineHeight
@@ -374,6 +395,31 @@ class ChatBubble(
             g2.fillRoundRect(0, 0, width, height, cornerRadius, cornerRadius)
 
             g2.dispose()
+        }
+    }
+
+    // TODO change once config has all file names?
+    private fun getExtensionForLanguage(language: String): String {
+        return when (language.lowercase()) {
+            "python", "py" -> "py"
+            "java" -> "java"
+            "kotlin", "kt" -> "kt"
+            "js", "javascript" -> "js"
+            "ts", "typescript" -> "ts"
+            "html" -> "html"
+            "css" -> "css"
+            "json" -> "json"
+            else -> "txt"
+        }
+    }
+
+    fun forceResetEditorColors() {
+        if (isDisposed) return
+        for (editor in editors) {
+            if (editor is EditorEx && !editor.isDisposed) {
+                val scheme = EditorColorsManager.getInstance().globalScheme.clone()
+                editor.colorsScheme = scheme as EditorColorsScheme
+            }
         }
     }
 }

@@ -15,6 +15,7 @@ import me.code4me.chatWindow.components.inputPanel.InputPanel
 import me.code4me.chatWindow.components.managers.ChatIOManager
 import me.code4me.chatWindow.components.managers.ChatSessionManager
 import me.code4me.chatWindow.components.managers.ChatViewManager
+import me.code4me.chatWindow.components.persistence.ChatWindowStateService
 import me.code4me.chatWindow.components.topBarPanel.TopBarPanel
 import me.code4me.services.config.getConfig
 import me.code4me.services.project.getProjectChatService
@@ -33,6 +34,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private var welcomeShown = true
     private var useWeb = false
     private var project: Project? = null
+    private var stateService: ChatWindowStateService? = null
 
     private lateinit var inputPanel: InputPanel
     private lateinit var topBarPanel: TopBarPanel
@@ -44,7 +46,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     init {
         setupPanelLayout()
-        initializeChatHistory()
+        restoreLastSession()
         loadModelsFromConfig()
     }
 
@@ -53,12 +55,19 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         project = ProjectManager.getInstance().openProjects.firstOrNull()
         if (project == null) return
 
+        // Initialize the state service
+        stateService = ChatWindowStateService.getInstance(project!!)
+
         // Initialize the session manager with the repository
         val chatRepository = getProjectChatService(project!!)
         sessionManager = ChatSessionManager(chatRepository)
 
         inputPanel = createInputPanel(project!!)
         chatDisplayPanel = ChatDisplayPanel(project!!)
+        chatDisplayPanel.onRestore = {
+            refreshChatDisplay()
+            chatDisplayPanel.forceRefresh()
+        }
         topBarPanel = createTopBarPanel()
         historyPanel = createHistoryPanel()
 
@@ -79,8 +88,14 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private fun createTopBarPanel() =
         TopBarPanel(
             sessionManager!!,
-            onSessionSwitched = ::refreshChatDisplay,
-            onNewChatCreated = ::resetToWelcome,
+            onSessionSwitched = {
+                saveCurrentSession()
+                refreshChatDisplay()
+            },
+            onNewChatCreated = {
+                saveCurrentSession()
+                resetToWelcome()
+            },
             onHistoryClicked = { viewManager.showHistoryPanel() },
             onTitleRenamed = { historyPanel.refresh() },
         )
@@ -89,6 +104,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         HistoryPanel(sessionManager!!) {
             ApplicationManager.getApplication().invokeLater {
                 topBarPanel.updateTitle()
+                saveCurrentSession()
                 refreshChatDisplay()
                 viewManager.showChatPanel()
             }
@@ -100,6 +116,32 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             add(chatDisplayPanel, BorderLayout.CENTER)
             add(inputPanel, BorderLayout.SOUTH)
         }
+
+    private fun saveCurrentSession() {
+        sessionManager?.currentSession?.id?.toString()?.let { sessionId ->
+            stateService?.setLastSessionId(sessionId)
+        }
+    }
+
+    private fun restoreLastSession() {
+        val lastSessionId = stateService?.getLastSessionId()
+        if (lastSessionId != null && sessionManager != null) {
+            // Try to find and restore the last session
+            val session = sessionManager!!.getAllSessions().find { it.id.toString() == lastSessionId }
+            if (session != null) {
+                sessionManager!!.switchToSession(session)
+                welcomeShown = session.messages.isEmpty()
+                // Force refresh to prevent the green background issue
+                ApplicationManager.getApplication().invokeLater {
+                    refreshChatDisplay()
+                    chatDisplayPanel.forceRefresh()
+                }
+                return
+            }
+        }
+        // If no valid last session, initialize with default
+        initializeChatHistory()
+    }
 
     private fun addSelectedFile(file: VirtualFile) {
         if (selectedFiles.add(file)) {
@@ -148,6 +190,9 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         inputPanel.clearInput()
         chatDisplayPanel.scrollToBottomOnUserAction()
 
+        // Save session after sending message
+        saveCurrentSession()
+
         // Add a loading message
         appendMessage(AI_NAME, "Generating.")
 
@@ -184,6 +229,9 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                 } else {
                     updateLastMessage("No response received")
                 }
+
+                // Save session after receiving response
+                saveCurrentSession()
             }
         }
     }
@@ -232,6 +280,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         }
     }
 
+    override fun removeNotify() {
+        super.removeNotify()
+        // Save current session when panel is being disposed
+        saveCurrentSession()
+    }
+
     fun updateModelList(models: Array<String>) {
         inputPanel.updateModelComboBox(models)
     }
@@ -240,6 +294,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         selectedFiles.clear()
         initializeChatHistory()
         resetToWelcome()
+        saveCurrentSession()
     }
 
     private fun loadModelsFromConfig() {

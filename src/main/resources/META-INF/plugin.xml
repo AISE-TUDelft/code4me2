@@ -16,6 +16,8 @@
                 text="Trigger Inline Completion"
                 description="Manually trigger inline completion">
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt shift 9"/>
+            <!--            the macOS equivalent is ctrl cmd shift 9-->
+            <keyboard-shortcut keymap="Mac OS X" first-keystroke="ctrl cmd shift 9"/>
             <add-to-group group-id="EditorActions" anchor="last"/>
         </action>
     </actions>
@@ -46,6 +48,8 @@
                 displayName="Code4Me V2"
                 id="me.code4me.settings.Code4MeConfigurable"
         />
-    </extensions>
 
+        <!-- Service registration for ChatWindowStateService -->
+        <projectService serviceImplementation="me.code4me.chatWindow.components.persistence.ChatWindowStateService"/>
+    </extensions>
 </idea-plugin>
