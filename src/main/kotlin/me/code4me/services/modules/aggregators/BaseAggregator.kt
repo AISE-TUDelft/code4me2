@@ -5,8 +5,10 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionInsertEnvironm
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.codeInsight.inline.completion.elements.InlineCompletionElement
 import com.intellij.openapi.diagnostic.thisLogger
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
@@ -217,25 +219,22 @@ abstract class BaseAggregator : PluginModule {
             aggregatedData
         }
 
+    /**
+     * NOTE: if you ever need to wait for the return values or anything else,
+     * consider using 'runBlocking' or other coroutine scopes
+     */
     override fun afterInsertion(
         environment: InlineCompletionInsertEnvironment,
         elements: List<InlineCompletionElement>,
     ) {
-        // The implementation for the aggregators inherently is very similar to the collectData method,
-        // so we can reuse that logic here.
-        runBlocking {
-            try {
-                val submodules = getSubmodules()
-
-                coroutineScope {
-                    submodules.forEach { module ->
-                        async {
-                            module.afterInsertion(environment, elements)
-                        }
-                    }
+        val submodules = getSubmodules()
+        submodules.forEach { module ->
+            GlobalScope.launch {
+                try {
+                    module.afterInsertion(environment, elements)
+                } catch (e: Exception) {
+                    LOG.error("Failed to run after insertion for module: ${module.moduleName}", e)
                 }
-            } catch (e: Exception) {
-                LOG.error("Failed to run after insertion: ", e)
             }
         }
     }

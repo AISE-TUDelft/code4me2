@@ -86,8 +86,6 @@ class EditorContextRetrievalModule : PluginModule {
         private const val PREF_INCLUDE_CARET_POSITION = "context.include.caret.position"
         private const val PREF_INCLUDE_SELECTION_TEXT = "context.include.selection.text"
         private const val PREF_INCLUDE_LENGTH = "context.include.length"
-
-        private val VALUE_UNKNOWN_LANGUAGE = getConfig().getLanguagesConfig()?.languageMap?.size ?: 0
     }
 
     /**
@@ -185,8 +183,8 @@ class EditorContextRetrievalModule : PluginModule {
             //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.language")?.toBoolean() == true*/true) {
             if (getBooleanPreference(moduleId, PREF_INCLUDE_LANGUAGE, true)) {
                 val languageKey = Record.Companion.key<Int>(KEY_CONTEXT_LANGUAGE)
-                val languageId = getConfig().getLanguagesConfig()?.languageMap?.get(psiFile.language.displayName)
-                expanded[languageKey] = languageId ?: VALUE_UNKNOWN_LANGUAGE
+                val languageId = getConfig().getLanguagesConfig()?.getLanguageId(psiFile.language.displayName)
+                expanded[languageKey] = languageId as Any // getLanguageId returns Int
                 LOG.trace("Collected language: ${psiFile.language.displayName} with ID $languageId")
             }
 
