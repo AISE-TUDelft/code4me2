@@ -1,5 +1,6 @@
 package me.code4me.services.app
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
@@ -344,7 +345,6 @@ class AppService {
         try {
             val response = deactivateSessionApi.deactivateSessionApiSessionDeactivatePut()
             LOG.info("Session deactivated successfully: ${response.message}")
-            clearLocalSession() // Optional: clear local cookies/state after deactivation
         } catch (e: Exception) {
             LOG.warn("Failed to deactivate session", e)
             throw e
@@ -532,24 +532,19 @@ class AppService {
     }
 
     /**
-     * Logs out the current user by clearing the local session.
-     *
-     * This method clears all locally stored authentication data including cookies and auth state.
-     * The user will need to authenticate again to access protected resources.
-     */
-    fun logout() {
-        clearLocalSession()
-        deactivateSession()
-        LOG.info("User logged out successfully")
-    }
-
-    /**
      * Clears all local session data including cookies and authentication state.
      * This is a utility method used by both logout and deleteUser operations.
      */
     private fun clearLocalSession() {
         CookieAwareApiClient.clearCookies()
-        getAuthState().clearUserData()
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                getAuthState().clearUserData()
+                LOG.info("User data cleared successfully during sign out")
+            } catch (e: Exception) {
+                LOG.error("Failed to clear user data during sign out", e)
+            }
+        }
     }
 
     // Add this new method to replace the existing updateUserName method

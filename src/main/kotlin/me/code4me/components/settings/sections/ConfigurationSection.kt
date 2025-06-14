@@ -1,5 +1,6 @@
 package me.code4me.components.settings.sections
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.ui.ComboBox
@@ -1710,7 +1711,14 @@ class ConfigurationSection : SettingsSection {
      */
     private fun handleSignOut() {
         try {
-            authState.clearUserData()
+            ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    authState.clearUserData()
+                    LOG.info("User data cleared successfully during sign out")
+                } catch (e: Exception) {
+                    LOG.error("Failed to clear user data during sign out", e)
+                }
+            }
             appService.deactivateSession()
             Messages.showInfoMessage(
                 "You have been signed out successfully.",

@@ -17,7 +17,7 @@
                 description="Manually trigger inline completion">
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt shift 9"/>
 <!--            the macOS equivalent is ctrl cmd shift 9-->
-            <keyboard-shortcut keymap="Mac OS X" first-keystroke="ctrl cmd shift 9"/>
+<!--            <keyboard-shortcut keymap="Mac OS X" first-keystroke="ctrl cmd shift 9"/>-->
             <add-to-group group-id="EditorActions" anchor="last"/>
         </action>
     </actions>
