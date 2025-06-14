@@ -13,6 +13,7 @@ import com.intellij.util.xmlb.annotations.MapAnnotation
 import com.intellij.util.xmlb.annotations.Tag
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.settings.Code4MeConfigurable
 import me.code4me.utils.configuration.Preference
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
@@ -57,21 +58,6 @@ fun getPrefState(): PrefSettings {
 class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
     companion object {
         private val LOG = thisLogger()
-
-        /**
-         * Disables completion storage by setting the flag to false.
-         *
-         * This method provides a way to globally disable completion storage,
-         * which can be useful for privacy concerns or performance optimization.
-         */
-        fun clearCompletions() {
-            try {
-                getPrefState().storeCompletions = false
-                LOG.debug("Completion storage disabled")
-            } catch (e: Exception) {
-                LOG.error("Failed to clear completions setting", e)
-            }
-        }
 
         /**
          * Retrieves all available modules from the active project's ModuleManager.
@@ -279,6 +265,7 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
 
                 // Fire property change event
                 state.propertyChangeSupport.firePropertyChange(fullKey, oldValue, value)
+                Code4MeConfigurable.atomicSettingsChanged.set(true)
 
                 LOG.debug("Set preference: $fullKey = $value")
             } catch (e: Exception) {
@@ -328,29 +315,11 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
 class PrefSettings : BaseState() {
     // ================= APPLICATION SETTINGS =================
 
-    /**
-     * Controls whether code completions are stored for analytics or improvement.
-     *
-     * When enabled, the plugin may store completion data for:
-     * - Usage analytics
-     * - Model improvement
-     * - Performance optimization
-     *
-     * Default: false (privacy-first approach)
-     */
-    var storeCompletions by property(false)
-
-    /**
-     * Controls whether code context is stored along with completions.
-     *
-     * When enabled, additional context information may be stored:
-     * - File types and project structure
-     * - Code patterns and usage
-     * - Development context
-     *
-     * Default: false (privacy-first approach)
-     */
     var storeContext by property(false)
+
+    var storeBehavioralTelemetry by property(false)
+
+    var storeContextualTelemetry by property(false)
 
     // ================= MODULE MANAGEMENT =================
 

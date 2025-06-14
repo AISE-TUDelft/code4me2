@@ -105,27 +105,9 @@ class ConfigurationSection : SettingsSection {
     /**
      * Checkbox for controlling completion data storage.
      */
-    private val storeCompletionField =
+    private val storeContextField =
         JBCheckBox("Store Completions").apply {
             toolTipText = "Enable storage of code completion data for analytics and improvements"
-        }
-
-    private val storeCompletionFieldSVF =
-        object : ToggleButtonField(storeCompletionField) {
-            override fun getStateValue(): Boolean = getPrefState().storeCompletions
-
-            override fun setStateValue(value: Boolean) {
-                storeCompletionField.isSelected = value
-                getPrefState().storeCompletions = value
-            }
-        }
-
-    /**
-     * Checkbox for controlling context data storage.
-     */
-    private val storeContextField =
-        JBCheckBox("Store Context").apply {
-            toolTipText = "Enable storage of code context data for enhanced completions"
         }
 
     private val storeContextFieldSVF =
@@ -135,6 +117,42 @@ class ConfigurationSection : SettingsSection {
             override fun setStateValue(value: Boolean) {
                 storeContextField.isSelected = value
                 getPrefState().storeContext = value
+            }
+        }
+
+    /**
+     * Checkbox for controlling context data storage.
+     */
+    private val storeContextualTelemetryField =
+        JBCheckBox("Store contextual telemetry").apply {
+            toolTipText = "Enable storage of contextual telemetry data for enhanced completions"
+        }
+
+    private val storeContextualTelemetryFieldSVF =
+        object : ToggleButtonField(storeContextualTelemetryField) {
+            override fun getStateValue(): Boolean = getPrefState().storeContextualTelemetry
+
+            override fun setStateValue(value: Boolean) {
+                storeContextualTelemetryField.isSelected = value
+                getPrefState().storeContextualTelemetry = value
+            }
+        }
+
+    /**
+     * Checkbox for controlling context data storage.
+     */
+    private val storeBehavioralTelemetryField =
+        JBCheckBox("Store behavioral telemetry").apply {
+            toolTipText = "Enable storage of code context data for enhanced completions"
+        }
+
+    private val storeBehavioralTelemetryFieldSVF =
+        object : ToggleButtonField(storeBehavioralTelemetryField) {
+            override fun getStateValue(): Boolean = getPrefState().storeBehavioralTelemetry
+
+            override fun setStateValue(value: Boolean) {
+                storeBehavioralTelemetryField.isSelected = value
+                getPrefState().storeBehavioralTelemetry = value
             }
         }
 
@@ -250,8 +268,9 @@ class ConfigurationSection : SettingsSection {
      */
     private fun initializeFields() {
         val prefState = getPrefState()
-        storeCompletionField.isSelected = prefState.storeCompletions
         storeContextField.isSelected = prefState.storeContext
+        storeContextualTelemetryField.isSelected = prefState.storeContextualTelemetry
+        storeBehavioralTelemetryField.isSelected = prefState.storeBehavioralTelemetry
     }
 
     /**
@@ -1202,8 +1221,9 @@ class ConfigurationSection : SettingsSection {
         // Register application preference fields
         stateValueFields.addAll(
             listOf(
-                storeCompletionFieldSVF,
                 storeContextFieldSVF,
+                storeContextualTelemetryFieldSVF,
+                storeBehavioralTelemetryFieldSVF,
             ),
         )
 
@@ -1645,8 +1665,8 @@ class ConfigurationSection : SettingsSection {
 
             val optionsPanel =
                 JPanel(GridLayout(2, 1, 5, 5)).apply {
-                    add(storeCompletionField)
                     add(storeContextField)
+                    add(storeContextualTelemetryField)
                 }
 
             add(configTitle, BorderLayout.NORTH)

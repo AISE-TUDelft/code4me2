@@ -44,6 +44,7 @@ dependencies {
     implementation("com.google.auth:google-auth-library-oauth2-http:1.20.0") // Google Auth Library
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1") // Moshi library for JSON parsing
     implementation("com.squareup.moshi:moshi-adapters:1.15.1") // Moshi adapters for additional types
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
 

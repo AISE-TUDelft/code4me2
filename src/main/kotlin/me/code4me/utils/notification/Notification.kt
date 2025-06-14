@@ -200,3 +200,22 @@ fun Project.showAuthSuccessNotification(
         includeDismissAction = includeDismissAction,
     )
 }
+
+/**
+ * Shows a notification when preference synchronization fails.
+ *
+ * @param title Optional custom title for the notification
+ * @param message Optional custom message for the notification
+ */
+fun Project.showPreferenceSyncFailedNotification(
+    title: String = "Preference Sync Failed",
+    message: String = "Failed to sync preferences to server. Your changes are saved locally and will be synced when connection is restored.",
+) {
+    showAuthNotification(
+        title = title,
+        message = message,
+        type = NotificationType.WARNING,
+        includeSettingsAction = false,
+        includeDismissAction = true,
+    )
+}

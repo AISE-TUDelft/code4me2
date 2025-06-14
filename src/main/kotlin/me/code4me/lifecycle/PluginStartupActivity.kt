@@ -6,9 +6,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.util.messages.MessageBusConnection
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.manager.getModuleManager
@@ -25,7 +22,6 @@ import me.code4me.utils.notification.showTokenInvalidationNotification
  * before modules are initialized.
  */
 class PluginStartupActivity : ProjectActivity {
-
     private val LOG = thisLogger()
 
     override suspend fun execute(project: Project) {

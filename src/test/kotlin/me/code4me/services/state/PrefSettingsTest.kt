@@ -13,19 +13,22 @@ class PrefSettingsTest {
         val prefSettings = PrefSettings()
 
         // Test default values
-        assertFalse(prefSettings.storeCompletions)
         assertFalse(prefSettings.storeContext)
+        assertFalse(prefSettings.storeBehavioralTelemetry)
+        assertFalse(prefSettings.storeContextualTelemetry)
         assertTrue(prefSettings.enabledModules.isEmpty())
         assertTrue(prefSettings.modulePreferences.isEmpty())
         assertTrue(prefSettings.moduleValues.isEmpty())
 
         // Test setting values
-        prefSettings.storeCompletions = true
+        prefSettings.storeBehavioralTelemetry = true
         prefSettings.storeContext = true
+        prefSettings.storeContextualTelemetry = true
 
         // Verify values were set
-        assertTrue(prefSettings.storeCompletions)
         assertTrue(prefSettings.storeContext)
+        assertTrue(prefSettings.storeBehavioralTelemetry)
+        assertTrue(prefSettings.storeContextualTelemetry)
     }
 
     @Test
