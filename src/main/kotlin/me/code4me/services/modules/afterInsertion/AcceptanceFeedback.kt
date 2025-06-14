@@ -12,6 +12,11 @@ import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.record.Record
 
+/**
+ * Module for collecting acceptance feedback after inline completion insertions.
+ * This module is responsible for sending feedback to the server
+ * when a user accepts an inline completion suggestion.
+ */
 class AcceptanceFeedback : PluginModule {
     companion object {
         private val LOG = thisLogger()
@@ -39,6 +44,12 @@ class AcceptanceFeedback : PluginModule {
         return PreferenceClass.AFTER_INSERTION
     }
 
+    /**
+     * This method is called after an inline completion insertion.
+     * It sends a request to server indicating that this code suggestion has been accepted and inserted.
+     * It collects the completion ID and model name from the inserted elements
+     * and sends the acceptance feedback to the server.
+     */
     override fun afterInsertion(
         environment: InlineCompletionInsertEnvironment,
         elements: List<InlineCompletionElement>,
@@ -64,24 +75,20 @@ class AcceptanceFeedback : PluginModule {
             return
         }
 
-        // Send the ground truth to the server
+        // Send the acceptance feedback to the server
         try {
-            // Use a default model ID (1) since we don't have access to the actual model ID
             // The wasAccepted parameter is true since we're in the afterInsertion method
             val response =
                 getAppService().submitCompletionFeedback(
                     metaQueryId = completionId,
-                    modelId = getConfig().getModelsConfiguration()?.getModelIdByName(modelName) ?: 1, // Default model ID
-                    wasAccepted = true, // The completion was accepted
+                    modelId = getConfig().getModelsConfiguration()?.getModelIdByName(modelName) ?: 1,
+                    wasAccepted = true,
                     groundTruth = null,
                     project = project,
                 )
 
             if (response != null) {
                 LOG.info("Acceptance feedback sent to server successfully")
-                println("Acceptance feedback sent to server successfully")
-                println("Acceptance feedback sent to server successfully")
-                println("Acceptance feedback sent to server successfully")
             } else {
                 LOG.warn("Failed to send acceptance feedback to server")
             }

@@ -54,7 +54,7 @@ class LanguagesConfigTest {
                         "Java" to 11,
                         "Python" to 47,
                         "Kotlin" to 98,
-                        "TypeScript" to 41, // Different language
+                        "TypeScript" to 41,
                     ),
             )
         assertTrue(languagesConfig != differentLanguagesConfig)

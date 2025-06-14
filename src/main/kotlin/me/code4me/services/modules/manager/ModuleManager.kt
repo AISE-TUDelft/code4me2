@@ -10,6 +10,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import me.code4me.services.config.getConfig
 import me.code4me.services.config.models.ModuleConfig
@@ -338,12 +339,17 @@ class ModuleManager(private val project: Project) : PluginModule {
         environment: InlineCompletionInsertEnvironment,
         elements: List<InlineCompletionElement>,
     ) {
-        // Call the afterInsertion method on all modules
-        modules.forEach { module ->
-            try {
-                module.afterInsertion(environment, elements)
-            } catch (e: Exception) {
-                LOG.warn("After insertion failed for module: ${module.moduleName}", e)
+        runBlocking {
+            coroutineScope {
+                modules.forEach { module ->
+                    launch {
+                        try {
+                            module.afterInsertion(environment, elements)
+                        } catch (e: Exception) {
+                            LOG.warn("After insertion failed for module: ${module.moduleName}", e)
+                        }
+                    }
+                }
             }
         }
     }

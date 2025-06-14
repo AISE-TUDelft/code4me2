@@ -29,9 +29,6 @@ class PluginStartupActivity : ProjectActivity {
         // Get the ModuleManager for this project
         val moduleManager = getModuleManager(project)
 
-        println("Registered languages: ")
-        println(com.intellij.lang.Language.getRegisteredLanguages().map { it -> it.displayName.split(": ").get(0) }.toString())
-
         // Store the instantiated modules in the ModuleManager
         moduleManager.storeModules(instantiatedModules)
 

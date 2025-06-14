@@ -22,6 +22,20 @@ import java.util.Timer
 import java.util.UUID
 import kotlin.concurrent.schedule
 
+/**
+ * GroundTruth module collects ground truth data after inline code completion insertion.
+ * It sends the ground truth data to the server at specified intervals
+ * after the insertion of inline completion elements.
+ * This module does not collect data during the insertion,
+ * but rather focuses on the ground truth
+ * after the code has been inserted into the editor.
+ *
+ * It allows users to specify how many characters to consider
+ * to the left and right of the inserted code,
+ * as well as the intervals at which to check for ground truth after insertion.
+ *
+ * This module is part of the after insertion modules.
+ */
 class GroundTruth : PluginModule {
     companion object {
         private val LOG = thisLogger()
@@ -147,10 +161,6 @@ class GroundTruth : PluginModule {
         val application = ApplicationManager.getApplication()
         val timer = Timer("GroundTruthTimer", true)
 
-        println("initial time: ${System.currentTimeMillis()}")
-        println("initial time: ${System.currentTimeMillis()}")
-        println("initial time: ${System.currentTimeMillis()}")
-
         for (interval in checkingIntervals) {
             timer.schedule(delay = interval * 1000L) {
                 try {
@@ -219,17 +229,6 @@ class GroundTruth : PluginModule {
         LOG.info("Extended range: [$leftBoundary, $rightBoundary]")
         LOG.info("Extended text: $extendedText")
 
-        println("Current time: ${System.currentTimeMillis()}")
-        println("Current time: ${System.currentTimeMillis()}")
-        println("Current time: ${System.currentTimeMillis()}")
-
-        // Also print to standard output for visibility
-        println("Ground Truth for inserted code:")
-        println("Inserted code range: [$startOffset, $endOffset]")
-        println("Inserted text: $insertedText")
-        println("Extended range: [$leftBoundary, $rightBoundary]")
-        println("Extended text: $extendedText")
-
         // Send the ground truth to the server
         try {
             // Use a default model ID (1) since we don't have access to the actual model ID
@@ -237,17 +236,14 @@ class GroundTruth : PluginModule {
             val response =
                 getAppService().submitCompletionFeedback(
                     metaQueryId = completionId,
-                    modelId = getConfig().getModelsConfiguration()?.getModelIdByName(modelName) ?: 1, // Default model ID
-                    wasAccepted = true, // The completion was accepted
+                    modelId = getConfig().getModelsConfiguration()?.getModelIdByName(modelName) ?: 1,
+                    wasAccepted = true,
                     groundTruth = extendedText,
                     project = project,
                 )
 
             if (response != null) {
                 LOG.info("Ground truth data sent to server successfully")
-                println("Acceptance feedback sent to server successfully")
-                println("Acceptance feedback sent to server successfully")
-                println("Acceptance feedback sent to server successfully")
             } else {
                 LOG.warn("Failed to send ground truth data to server")
             }
