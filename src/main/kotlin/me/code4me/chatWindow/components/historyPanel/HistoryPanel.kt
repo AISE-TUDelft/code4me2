@@ -98,12 +98,7 @@ class HistoryPanel(
                                 toolTipText = "Delete all chat sessions"
 
                                 addActionListener {
-                                    val visibleSessions =
-                                        sessionManager.getAllSessions().filterNot { session ->
-                                            sessionManager.isEmptyNewChat(session)
-                                            // New chat is always in sessions but shouldn't be shown in history when it's empty.
-                                            // so this basically takes care of just that.
-                                        }
+                                    val visibleSessions = sessionManager.getAllSessions().filter { session -> session.messages.size >= 1 }
 
                                     if (visibleSessions.isNotEmpty()) {
                                         // Confirm deletion of all sessions
@@ -177,10 +172,7 @@ class HistoryPanel(
     fun refresh() {
         contentPanel.removeAll()
         // Exclude empty "New Chat" sessions using the helper method
-        val sessions =
-            sessionManager.getAllSessions().filterNot { session ->
-                sessionManager.isEmptyNewChat(session)
-            }
+        val sessions = sessionManager.getAllSessions().filter { session -> session.messages.size >= 1 }
         if (sessions.isEmpty()) {
             contentPanel.add(
                 JLabel("No chat sessions yet").apply {

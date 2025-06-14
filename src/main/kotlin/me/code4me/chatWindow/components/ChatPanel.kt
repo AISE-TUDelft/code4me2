@@ -96,7 +96,10 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                 saveCurrentSession()
                 resetToWelcome()
             },
-            onHistoryClicked = { viewManager.showHistoryPanel() },
+            onHistoryClicked = {
+                saveCurrentSession()
+                viewManager.showHistoryPanel()
+            },
             onTitleRenamed = { historyPanel.refresh() },
         )
 
@@ -118,8 +121,9 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         }
 
     private fun saveCurrentSession() {
-        sessionManager?.currentSession?.id?.toString()?.let { sessionId ->
-            stateService?.setLastSessionId(sessionId)
+        sessionManager?.currentSession?.let { session ->
+            stateService?.setLastSessionId(session.id.toString())
+            sessionManager?.chatRepository?.saveChat(session)
         }
     }
 
