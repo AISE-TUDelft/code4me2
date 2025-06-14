@@ -1,5 +1,6 @@
 package me.code4me.services.app
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
@@ -816,35 +817,37 @@ class AppService {
 
             val basePath = project.basePath ?: return@withContext null
             val contextService = getProjectMultiFileContextService(project)
-
+            val changedFiles = mutableMapOf<String, String>()
             withContext(Dispatchers.Default) {
                 for (relPath in relativePaths) {
                     val fullPath = "$basePath${File.separator}$relPath".replace("/", File.separator)
                     val virtualFile = LocalFileSystem.getInstance().findFileByPath(fullPath) ?: continue
-                    val document = FileDocumentManager.getInstance().getDocument(virtualFile) ?: continue
-                    val newText = document.text
-
+                    val newText =
+                        ApplicationManager.getApplication().runReadAction<String?> {
+                            FileDocumentManager.getInstance().getDocument(virtualFile)?.text
+                        } ?: continue
                     contextService.saveInitialSnapshotIfMissing(fullPath, newText)
 
                     val changes = contextService.updateFileContent(fullPath, newText)
                     if (changes.isNotEmpty()) {
                         multiFileDiffs[relPath] = changes.map { it.toApiModel() }
+                        changedFiles[fullPath] = newText
                     }
                 }
             }
 
             if (multiFileDiffs.isNotEmpty()) {
-                println("Diffs")
-                println(multiFileDiffs)
                 val update = UpdateMultiFileContext(contextUpdates = multiFileDiffs)
-                try {
-                    multiFileContextApi.updateMultiFileContextApiCompletionMultiFileContextUpdatePost(update)
-                    LOG.debug("Sent multi-file diffs for context update.")
-                } catch (e: Exception) {
-                    LOG.warn("Failed to send multi-file diffs", e)
+                val sent = sendMultiFileContextUpdate(update)
+
+                if (sent) {
+                    // update local cache once the server confirms the update
+                    changedFiles.forEach { (path, text) ->
+                        contextService.writeCache(path, text)
+                    }
+                } else {
+                    LOG.warn("Failed to send multi-file context updates")
                 }
-            } else {
-                LOG.debug("No multi-file diffs found for context update.")
             }
 
             rawContext["context_files"] = relativePaths
@@ -875,4 +878,15 @@ class AppService {
                 currentGenerationProject.set(null)
             }
         }
+
+    fun sendMultiFileContextUpdate(update: UpdateMultiFileContext): Boolean {
+        return try {
+            multiFileContextApi.updateMultiFileContextApiCompletionMultiFileContextUpdatePost(update)
+            LOG.debug("Multi-file context update sent successfully.")
+            true
+        } catch (e: Exception) {
+            LOG.warn("Failed to send multi-file context update", e)
+            false
+        }
+    }
 }

@@ -10,10 +10,12 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.project.ProjectManager
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.state.AuthState.Companion.getAuthToken
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
@@ -416,6 +418,15 @@ class AuthSettings : BaseState() {
             LOG.info("User authentication data cleared successfully")
         } catch (e: Exception) {
             LOG.error("Failed to clear user data completely", e)
+        }
+        // Clear multi-file context cache for all open projects upon user logout
+        ProjectManager.getInstance().openProjects.forEach { project ->
+            try {
+                getProjectMultiFileContextService(project).clearCache()
+                LOG.info("Cleared context cache for project: ${project.name}")
+            } catch (e: Exception) {
+                LOG.warn("Failed to clear context cache for project: ${project.name}", e)
+            }
         }
     }
 
