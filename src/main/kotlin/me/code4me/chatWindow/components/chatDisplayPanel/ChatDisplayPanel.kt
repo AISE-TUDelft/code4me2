@@ -18,6 +18,7 @@ import javax.swing.SwingUtilities
 import javax.swing.Timer
 
 class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>(BorderLayout()) {
+    var onRegenerateFromIndex: ((Int) -> Unit)? = null
     private val contentPanel =
         JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -88,10 +89,23 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         if (messages.isEmpty()) {
             contentPanel.add(makeCenteredLabel("Welcome! Ask me anything."))
         } else {
-            for ((sender, message) in messages) {
+            for ((index, pair) in messages.withIndex()) {
+                val (sender, message) = pair
                 val isUser = sender == "You"
                 val bubble =
-                    ChatBubble(sender, message, isUser, project).apply {
+                    ChatBubble(
+                        sender,
+                        message,
+                        isUser,
+                        project,
+                        onRegenerate =
+                            if (!isUser) {
+                                { onRegenerateFromIndex?.invoke(index) }
+                            } else {
+                                null
+                            },
+                        showRegenerate = !message.startsWith("Generating"),
+                    ).apply {
                         alignmentX = LEFT_ALIGNMENT
                         maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
                     }

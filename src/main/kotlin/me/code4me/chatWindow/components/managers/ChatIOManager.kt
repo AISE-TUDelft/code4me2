@@ -114,10 +114,11 @@ class ChatIOManager {
                 ChatConverter.toApiMessages(it)
             }
 
-        val context =
-            (aggregatedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
-                ContextData::class.java,
-            )
+
+        val contextMap = (aggregatedData[Record.Type.CONTEXT] ?: emptyMap()).toMutableMap()
+        contextMap["context_files"] = selectedFiles
+        val context = contextMap.mapsTo(ContextData::class.java)
+
         val behavioralTelemetry =
             (aggregatedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
                 .mapsTo<BehavioralTelemetryData>(

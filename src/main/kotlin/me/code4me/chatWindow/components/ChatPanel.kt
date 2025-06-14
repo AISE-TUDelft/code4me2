@@ -68,6 +68,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             refreshChatDisplay()
             chatDisplayPanel.forceRefresh()
         }
+        chatDisplayPanel.onRegenerateFromIndex = { index -> regenerateFromIndex(index) }
         topBarPanel = createTopBarPanel()
         historyPanel = createHistoryPanel()
 
@@ -318,5 +319,65 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     fun reloadModels() {
         loadModelsFromConfig()
+    }
+
+    private fun regenerateFromIndex(index: Int) {
+        val messages = sessionManager?.currentSession?.messages ?: return
+        if (index < 0 || index >= messages.size) return
+
+        // Keep only messages up to the specified index (excluding the message at that index)
+        val retainedMessages = messages.subList(0, index).toList() // Copy the list
+
+        // Clear the current session messages and add only the retained ones
+        sessionManager?.currentSession?.messages?.clear()
+        sessionManager?.currentSession?.messages?.addAll(retainedMessages)
+
+        // **IMPORTANT: Save the truncated session to persistent storage immediately**
+        saveCurrentSession()
+
+        // Refresh the display to show the truncated conversation
+        refreshChatDisplay()
+
+        // Find the last user message to regenerate from
+        val lastUserMsg = retainedMessages.lastOrNull { it.first == USER_NAME }?.second ?: return
+        val selectedModel = inputPanel.getSelectedModel()
+
+        // Add the new AI response placeholder
+        appendMessage(AI_NAME, "Generating.")
+
+        // Create loading animation
+        val loadingPatterns = arrayOf("Generating.", "Generating..", "Generating...")
+        var patternIndex = 0
+        val loadingTimer =
+            Timer(300) {
+                updateLastMessage(loadingPatterns[patternIndex])
+                patternIndex = (patternIndex + 1) % loadingPatterns.size
+            }
+        loadingTimer.start()
+
+        // Process AI response with only the retained messages as context
+        aiScope.launch {
+            val aiResponse = processAIResponse(lastUserMsg, selectedModel)
+            ApplicationManager.getApplication().invokeLater {
+                loadingTimer.stop()
+
+                if (aiResponse.responses.isNotEmpty()) {
+                    updateLastMessage(aiResponse.responses.first())
+                    refreshChatDisplay()
+                } else {
+                    updateLastMessage("No response received")
+                }
+                saveCurrentSession()
+
+                // Update title if provided
+                if (aiResponse.title.isNotBlank()) {
+                    sessionManager?.currentSession?.title = aiResponse.title
+                    topBarPanel.updateTitle()
+                }
+
+                // Save the session with the new AI response
+                saveCurrentSession()
+            }
+        }
     }
 }

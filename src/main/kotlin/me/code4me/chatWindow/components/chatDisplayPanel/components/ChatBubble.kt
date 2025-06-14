@@ -20,6 +20,7 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -43,6 +44,8 @@ class ChatBubble(
     message: String,
     isUser: Boolean,
     private val project: Project,
+    private val onRegenerate: (() -> Unit)? = null,
+    private val showRegenerate: Boolean = true,
 ) : JPanel() {
     private val editors = mutableListOf<Editor>()
     private var isDisposed = false
@@ -109,6 +112,36 @@ class ChatBubble(
             val htmlPane = createStyledHtmlPane(html)
             htmlPane.alignmentX = LEFT_ALIGNMENT
             container.add(htmlPane)
+        }
+        if (!isUser && onRegenerate != null && showRegenerate) {
+            container.add(Box.createVerticalStrut(8))
+
+            val regenerateButton =
+                JButton("↻").apply {
+                    toolTipText = "Regenerate this response"
+                    font = Font("SansSerif", Font.PLAIN, 12)
+                    foreground = Color.WHITE
+                    isFocusPainted = false
+                    isContentAreaFilled = false
+                    isBorderPainted = false
+                    isOpaque = false
+                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                }
+
+            regenerateButton.addActionListener {
+                onRegenerate.invoke()
+            }
+
+            val buttonWrapper =
+                JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
+                    isOpaque = false
+                    alignmentX = LEFT_ALIGNMENT
+                    preferredSize = Dimension(container.maximumSize.width, regenerateButton.preferredSize.height)
+                    maximumSize = Dimension(Int.MAX_VALUE, regenerateButton.preferredSize.height)
+                    add(regenerateButton)
+                }
+
+            container.add(buttonWrapper)
         }
 
         add(container, BorderLayout.CENTER)
