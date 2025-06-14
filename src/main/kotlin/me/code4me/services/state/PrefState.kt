@@ -71,7 +71,7 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
             return try {
                 val activeProject = ProjectManager.getInstance().openProjects.firstOrNull()
                 if (activeProject != null) {
-                    getModuleManager(activeProject).getAvailableModules()
+                    getModuleManager().getAvailableModules()
                 } else {
                     LOG.warn("No active project found, returning empty module list")
                     emptyList()

@@ -38,6 +38,7 @@ import javax.swing.JToggleButton
  * - Credential-based authentication (email/password)
  * - Google OAuth authentication (future feature)
  * - Dynamic form switching between login and signup modes
+ * - Password reset functionality
  * - Input validation and error handling
  * - Secure credential storage
  * - Reactive UI updates based on authentication state
@@ -66,6 +67,9 @@ class AuthenticationSection : SettingsSection {
 
         /** New user registration */
         SIGNUP,
+
+        /** Password reset mode */
+        FORGOT_PASSWORD,
     }
 
     /**
@@ -83,6 +87,11 @@ class AuthenticationSection : SettingsSection {
      * Flag indicating whether the UI needs to be refreshed due to authentication state changes.
      */
     val requiresUIRefresh = AtomicBoolean(false)
+
+    /**
+     * Current authentication mode
+     */
+    private var currentAuthMode = AuthMode.LOGIN
 
     // ================= UI FIELDS =================
 
@@ -255,12 +264,38 @@ class AuthenticationSection : SettingsSection {
         }
 
     /**
-     * Authentication action button (Login/Sign Up).
+     * Authentication action button (Login/Sign Up/Reset Password).
      */
     private val authButton =
         JButton("Login").apply {
             toolTipText = "Click to authenticate"
             addActionListener { performAuthentication() }
+        }
+
+    /**
+     * Forgot password link button.
+     */
+    private val forgotPasswordButton =
+        JButton("Forgot Password?").apply {
+            toolTipText = "Reset your password via email"
+            isBorderPainted = false
+            isContentAreaFilled = false
+            isFocusPainted = false
+            foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
+            addActionListener { switchToForgotPasswordMode() }
+        }
+
+    /**
+     * Back to login button (shown in forgot password mode).
+     */
+    private val backToLoginButton =
+        JButton("Back to Login").apply {
+            toolTipText = "Return to login form"
+            isBorderPainted = false
+            isContentAreaFilled = false
+            isFocusPainted = false
+            foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
+            addActionListener { switchToLoginMode() }
         }
 
     /**
@@ -282,6 +317,7 @@ class AuthenticationSection : SettingsSection {
 
     private val fullNameLabel = JLabel("Full name:")
     private val confirmPasswordLabel = JLabel("Confirm password:")
+    private val passwordLabel = JLabel("Password:")
 
     private val credentialsTitleLabel =
         JBLabel("Credential-based Authentication").apply {
@@ -315,7 +351,7 @@ class AuthenticationSection : SettingsSection {
      */
     private fun updateToggleText() {
         val isSignupMode = authModeToggle.isSelected
-        authModeToggle.text = if (isSignupMode) "Sign Up Mode" else "Login Mode"
+        authModeToggle.text = if (isSignupMode) "Login Mode" else "Sign Up Mode"
 
         // Set toggle button appearance based on mode
         authModeToggle.background =
@@ -342,18 +378,83 @@ class AuthenticationSection : SettingsSection {
      * Updates form field visibility based on current authentication mode.
      */
     private fun updateFormVisibility() {
-        val isSignupMode = authModeToggle.isSelected
+        when (currentAuthMode) {
+            AuthMode.LOGIN -> {
+                val isSignupMode = authModeToggle.isSelected
 
-        fullNameField.isVisible = isSignupMode
-        confirmPasswordField.isVisible = isSignupMode
-        fullNameLabel.isVisible = isSignupMode
-        confirmPasswordLabel.isVisible = isSignupMode
+                // Show/hide toggle and related elements
+                authModeToggle.isVisible = true
+                modeHelpLabel.isVisible = true
 
-        LOG.debug("Form visibility updated: Signup mode = $isSignupMode")
+                // Show/hide fields based on signup mode
+                fullNameField.isVisible = isSignupMode
+                confirmPasswordField.isVisible = isSignupMode
+                fullNameLabel.isVisible = isSignupMode
+                confirmPasswordLabel.isVisible = isSignupMode
+
+                // Show password field and forgot password link
+                passwordField.isVisible = true
+                passwordLabel.isVisible = true
+                forgotPasswordButton.isVisible = !isSignupMode
+                backToLoginButton.isVisible = false
+
+                // Update button text
+                authButton.text = if (isSignupMode) "Sign Up" else "Login"
+            }
+
+            AuthMode.SIGNUP -> {
+                // Same as LOGIN mode when toggle is selected
+                passwordLabel.isVisible = true
+                updateFormVisibility()
+            }
+
+            AuthMode.FORGOT_PASSWORD -> {
+                // Hide toggle and signup-specific elements
+                authModeToggle.isVisible = false
+                modeHelpLabel.isVisible = false
+                fullNameField.isVisible = false
+                confirmPasswordField.isVisible = false
+                fullNameLabel.isVisible = false
+                confirmPasswordLabel.isVisible = false
+
+                // Hide password field, label and forgot password link
+                passwordField.isVisible = false
+                passwordLabel.isVisible = false
+
+                forgotPasswordButton.isVisible = false
+                backToLoginButton.isVisible = true
+
+                // Update button text
+                authButton.text = "Send Reset Email"
+            }
+        }
+
+        LOG.debug("Form visibility updated: Current mode = $currentAuthMode")
 
         // just to ensure the UI refreshes correctly
         requiresUIRefresh.set(true)
-        updateToggleText()
+        if (currentAuthMode != AuthMode.FORGOT_PASSWORD) {
+            updateToggleText()
+        }
+    }
+
+    /**
+     * Switches to forgot password mode.
+     */
+    private fun switchToForgotPasswordMode() {
+        currentAuthMode = AuthMode.FORGOT_PASSWORD
+        updateFormVisibility()
+        LOG.debug("Switched to forgot password mode")
+    }
+
+    /**
+     * Switches back to login mode.
+     */
+    private fun switchToLoginMode() {
+        currentAuthMode = AuthMode.LOGIN
+        authModeToggle.isSelected = false // Reset to login mode
+        updateFormVisibility()
+        LOG.debug("Switched back to login mode")
     }
 
     override fun applyTo(
@@ -450,7 +551,7 @@ class AuthenticationSection : SettingsSection {
             // Password field
             gbc.gridx = 0
             gbc.gridy = 4
-            formPanel.add(JLabel("Password:"), gbc)
+            formPanel.add(passwordLabel, gbc)
             gbc.gridx = 1
             formPanel.add(passwordField, gbc)
 
@@ -461,10 +562,24 @@ class AuthenticationSection : SettingsSection {
             gbc.gridx = 1
             formPanel.add(confirmPasswordField, gbc)
 
+            // Forgot password link (login only)
+            gbc.gridx = 1
+            gbc.gridy = 6
+            gbc.gridwidth = 1
+            gbc.anchor = GridBagConstraints.EAST
+            formPanel.add(forgotPasswordButton, gbc)
+
+            // Back to login link (forgot password only)
+            gbc.gridx = 1
+            gbc.gridy = 6
+            gbc.anchor = GridBagConstraints.EAST
+            formPanel.add(backToLoginButton, gbc)
+
             // Auth button
             gbc.gridx = 0
-            gbc.gridy = 6
+            gbc.gridy = 7
             gbc.gridwidth = 2
+            gbc.anchor = GridBagConstraints.WEST
             formPanel.add(authButton, gbc)
 
             add(formPanel, BorderLayout.CENTER)
@@ -505,10 +620,40 @@ class AuthenticationSection : SettingsSection {
         clearFieldErrors()
 
         try {
-            handleCredentialsAuth()
+            when (currentAuthMode) {
+                AuthMode.FORGOT_PASSWORD -> handleForgotPassword()
+                else -> handleCredentialsAuth()
+            }
         } catch (e: Exception) {
             LOG.error("Authentication process failed", e)
             showError("Authentication failed due to an unexpected error")
+        }
+    }
+
+    /**
+     * Handles forgot password request.
+     */
+    private fun handleForgotPassword() {
+        val email = emailField.text.trim()
+
+        try {
+            // TODO: Call the actual password reset API method from AppService
+            // For now, we'll simulate the call
+            // appService.requestPasswordReset(email)
+
+            // Show success message
+            Messages.showInfoMessage(
+                "A password reset email has been sent to $email. Please check your inbox and follow the instructions to reset your password.",
+                "Password Reset Email Sent"
+            )
+
+            // Switch back to login mode
+            switchToLoginMode()
+
+            LOG.info("Password reset email requested for: $email")
+        } catch (e: Exception) {
+            LOG.error("Failed to send password reset email", e)
+            showError("Failed to send password reset email. Please try again later.")
         }
     }
 
@@ -517,8 +662,6 @@ class AuthenticationSection : SettingsSection {
      */
     private fun validateInput(): Boolean {
         val email = emailField.text.trim()
-        val password = String(passwordField.password)
-        val isSignupMode = authModeToggle.isSelected
 
         when {
             email.isBlank() -> {
@@ -531,6 +674,18 @@ class AuthenticationSection : SettingsSection {
                 emailField.requestFocus()
                 return false
             }
+        }
+
+        // For forgot password mode, only email validation is needed
+        if (currentAuthMode == AuthMode.FORGOT_PASSWORD) {
+            return true
+        }
+
+        // For login/signup modes, validate password and other fields
+        val password = String(passwordField.password)
+        val isSignupMode = authModeToggle.isSelected
+
+        when {
             password.isBlank() -> {
                 showError("Password is required")
                 passwordField.requestFocus()

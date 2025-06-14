@@ -27,8 +27,13 @@ import java.util.concurrent.CopyOnWriteArrayList
  * @param project The IntelliJ project instance
  * @return The ModuleManager service for the project
  */
+@Deprecated("use `getModuleManager` instead")
 fun getModuleManager(project: Project): ModuleManager {
-    return project.service<ModuleManager>()
+    return getModuleManager()
+}
+
+fun getModuleManager(): ModuleManager {
+    return service<ModuleManager>()
 }
 
 /**
@@ -44,11 +49,10 @@ fun getModuleManager(project: Project): ModuleManager {
  * This service operates at the project level, ensuring each IntelliJ project
  * has its own isolated module management context.
  *
- * @param project The IntelliJ project this manager is associated with
  * @since 1.0.0
  */
-@Service(Service.Level.PROJECT)
-class ModuleManager(private val project: Project) : PluginModule {
+@Service
+class ModuleManager : PluginModule {
     companion object {
         private val LOG = thisLogger()
     }

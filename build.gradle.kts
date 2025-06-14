@@ -203,14 +203,16 @@ tasks {
 
         // Exclude generated code from coverage reports
         classDirectories.setFrom(
-            files(classDirectories.files.map {
-                fileTree(it) {
-                    exclude(
-                        "**/generated/**",
-                        "**/integration/**"
-                    )
-                }
-            })
+            files(
+                classDirectories.files.map {
+                    fileTree(it) {
+                        exclude(
+                            "**/generated/**",
+                            "**/integration/**",
+                        )
+                    }
+                },
+            ),
         )
     }
 
@@ -226,14 +228,16 @@ tasks {
 
         // Exclude generated code from coverage verification
         classDirectories.setFrom(
-            files(classDirectories.files.map {
-                fileTree(it) {
-                    exclude(
-                        "**/generated/**",
-                        "**/integration/**"
-                    )
-                }
-            })
+            files(
+                classDirectories.files.map {
+                    fileTree(it) {
+                        exclude(
+                            "**/generated/**",
+                            "**/integration/**",
+                        )
+                    }
+                },
+            ),
         )
     }
 

@@ -39,7 +39,7 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
         val requestId = request.requestId
 
         // get the module manager given the editor
-        val moduleManager = getModuleManager(request.editor.project!!)
+        val moduleManager = getModuleManager()
         val aggregatedCollectedData =
             moduleManager
                 .collectData(request)

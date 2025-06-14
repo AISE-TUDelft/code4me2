@@ -33,6 +33,7 @@ import javax.swing.JComponent
 class Code4MeConfigurable : Configurable {
     private val appService = getAppService()
     private val LOG = thisLogger()
+
     companion object {
         val atomicSettingsChanged = AtomicReference(false)
     }

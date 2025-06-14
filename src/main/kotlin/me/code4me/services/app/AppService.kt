@@ -37,9 +37,13 @@ import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
+import me.code4me.services.config.ConfigService
 import me.code4me.services.config.getConfig
+import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.getAuthState
+import me.code4me.services.state.getPrefState
+import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.api.mapsTo
 import me.code4me.utils.record.Record
 import java.io.IOException
@@ -169,6 +173,38 @@ class AppService {
             val response = authApi.authenticateUserApiUserAuthenticatePost(userToAuthenticate)
             storeAuthenticationResponse(response)
             LOG.info("User authenticated successfully: $email")
+
+            if (!response.user.preference.isNullOrEmpty()) {
+                LOG.info("User preferences found, updating preference state")
+                getPrefState().fromSerializableMap(response.user.preference!!)
+            } else {
+                LOG.info("No user preferences found, using default preference state")
+            }
+
+            val configService = ConfigService.fromConfigString(response.config)
+            val instantiatedModules = configService.instantiateModules()
+            // the reason I did no include the parsing and instantiation of modules in the
+            // parallel thread is because I want to ensure that the modules are
+            // instantiated before the ModuleManager is initialized. and because this process relies
+            // on the response from the authentication API, it needs to be done synchronously
+            LOG.info("Modules instantiated successfully: ${instantiatedModules.size} modules")
+
+            // Execute module initialization on a background thread to avoid blocking the UI
+            ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    // Get the ModuleManager for this project
+                    val moduleManager = getModuleManager()
+                    // Store the instantiated modules in the ModuleManager
+                    moduleManager.storeModules(instantiatedModules)
+
+                    // Initialize all enabled modules
+                    moduleManager.initializeModules()
+                    thisLogger().info("Modules initialized successfully.")
+                } catch (e: Exception) {
+                    thisLogger().error("Failed to initialize modules", e)
+                }
+            }
+
             response
         } catch (e: Exception) {
             LOG.warn("Authentication failed for user: $email", e)
@@ -616,16 +652,11 @@ class AppService {
         try {
             val response = userVerificationApi.resendVerificationEmailApiUserVerifyResendPost()
             LOG.info("Verification email resent successfully")
-            if (response == null) {
-                LOG.warn("No response received when resending verification email")
-                return false
-            } else {
-                response.toString().contains("true", ignoreCase = true).also { isSuccess ->
-                    if (isSuccess) {
-                        LOG.info("Verification email sent successfully")
-                    } else {
-                        LOG.warn("Failed to send verification email")
-                    }
+            response.toString().contains("true", ignoreCase = true).also { isSuccess ->
+                if (isSuccess) {
+                    LOG.info("Verification email sent successfully")
+                } else {
+                    LOG.warn("Failed to send verification email")
                 }
             }
             return true
