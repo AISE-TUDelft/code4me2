@@ -145,6 +145,7 @@ class PreferencesTest {
                     PreferenceType.DOUBLE,
                     PreferenceType.LIST,
                     PreferenceType.MAP,
+                    PreferenceType.TEXT,
                 )
 
             val actualTypes = PreferenceType.values().toSet()
@@ -186,6 +187,8 @@ class PreferencesTest {
                     PreferenceClass.CONTEXT,
                     PreferenceClass.AUTH,
                     PreferenceClass.SYSTEM,
+                    PreferenceClass.AFTER_INSERTION,
+                    PreferenceClass.MODEL,
                 )
 
             val actualClasses = PreferenceClass.values().toSet()
