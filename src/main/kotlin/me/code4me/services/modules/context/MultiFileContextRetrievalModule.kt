@@ -4,7 +4,9 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.psi.*
+import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiRecursiveElementWalkingVisitor
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.Preference
@@ -240,7 +242,7 @@ class MultiFileContextRetrievalModule : PluginModule {
         )
 
     data class FileContextChangeData(
-        val changeType: String, // e.g., "insert", "delete", "replace"
+        val changeType: String,
         val startLine: Int,
         val endLine: Int,
         val newLines: List<String>,

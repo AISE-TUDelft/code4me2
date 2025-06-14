@@ -81,9 +81,9 @@ class ProjectMultiFileContextService(private val project: Project) {
 
     private fun sanitize(path: String): String {
         return path
-            .replace("_", "__")         // escape existing underscores
-            .replace(":", "_c_")        // colon
-            .replace(File.separator, "_s_")  // slash/backslash
+            .replace("_", "__") // escape existing underscores
+            .replace(":", "_c_") // colon
+            .replace(File.separator, "_s_") // slash/backslash
     }
 
     private fun savePathMapping(originalPath: String) {
@@ -150,6 +150,7 @@ class ProjectMultiFileContextService(private val project: Project) {
         val cacheFile = getCacheFile(filePath)
         cacheFile.writeText(newText)
     }
+
     fun clearCache() {
         contextCacheDir.listFiles()?.forEach { it.delete() }
         saveEmptyXml(pathMapFile)

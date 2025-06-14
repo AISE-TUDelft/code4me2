@@ -5,7 +5,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.util.messages.MessageBusConnection
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import me.code4me.api.generated.model.UpdateMultiFileContext
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
@@ -78,7 +83,7 @@ class PluginStartupActivity : ProjectActivity {
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             LOG.info("Cache validation coroutine started")
             while (isActive) {
-                //TODO choose a better interval, potentially use a config value
+                // TODO choose a better interval, potentially use a config value
                 delay(TimeUnit.MINUTES.toMillis(1))
 
                 val cacheDir = contextService.contextCacheDir
@@ -113,13 +118,12 @@ class PluginStartupActivity : ProjectActivity {
 
                         try {
                             appService.sendMultiFileContextUpdate(update)
+                            cacheFile.delete()
+                            // TODO check if it's worth it to remove the mapping (optimization)
+                            contextService.removeMapping(cacheFile.name)
                         } catch (e: Exception) {
                             thisLogger().warn("Failed to send delete diff for missing file: $relativePath", e)
                         }
-
-                        cacheFile.delete()
-                        // TODO check if it's worth it to remove the mapping (optimization)
-                        contextService.removeMapping(cacheFile.name)
                     }
                 }
             }
