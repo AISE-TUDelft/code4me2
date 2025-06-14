@@ -5,6 +5,7 @@ import com.intellij.openapi.components.service
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import me.code4me.services.config.models.GoogleOAuthConfig
+import me.code4me.services.config.models.LanguagesConfig
 import me.code4me.services.config.models.ModelsConfiguration
 import me.code4me.services.config.models.ModuleCategoryConfig
 import me.code4me.services.config.models.ModuleConfig
@@ -80,6 +81,12 @@ class ConfigService {
     private var modelsConfiguration: ModelsConfiguration? = null
 
     /**
+     * Languages configuration parsed from the 'languages' section.
+     * Contains a mapping of language names to their corresponding IDs.
+     */
+    private var languagesConfig: LanguagesConfig? = null
+
+    /**
      * Lazy-initialized flattened list of all modules and their submodules.
      * Built only when first accessed to improve startup performance.
      */
@@ -124,6 +131,13 @@ class ConfigService {
      * @return The ModelsConfiguration object representing the models configuration, or null if not configured.
      */
     fun getModelsConfiguration(): ModelsConfiguration? = modelsConfiguration
+
+    /**
+     * Gets the languages configuration.
+     *
+     * @return The LanguagesConfig object representing the languages configuration, or null if not configured.
+     */
+    fun getLanguagesConfig(): LanguagesConfig? = languagesConfig
 
     /**
      * Gets all module categories from the configuration.
@@ -195,6 +209,7 @@ class ConfigService {
         parseServerConfiguration(highLevelConfig)
         parseAuthConfiguration(highLevelConfig)
         parseModelConfiguration(highLevelConfig)
+        parseLanguagesConfiguration(highLevelConfig)
     }
 
     /**
@@ -289,6 +304,19 @@ class ConfigService {
         if (highLevelConfig.hasPath("models")) {
             val modelsConfig = highLevelConfig.getConfig("models")
             modelsConfiguration = ModelsConfiguration.fromConfig(modelsConfig)
+        }
+    }
+
+    /**
+     * Parses languages configuration from the 'languages' section.
+     * Creates a mapping of language names to their corresponding IDs.
+     *
+     * @param highLevelConfig The top-level configuration object
+     */
+    private fun parseLanguagesConfiguration(highLevelConfig: Config) {
+        if (highLevelConfig.hasPath("languages")) {
+            val languagesConfig = highLevelConfig.getConfig("languages")
+            this.languagesConfig = LanguagesConfig.fromConfig(languagesConfig)
         }
     }
 

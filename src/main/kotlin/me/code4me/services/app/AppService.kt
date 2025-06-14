@@ -34,6 +34,7 @@ import me.code4me.api.generated.model.CreateProjectPostResponse
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteChatSuccessResponse
 import me.code4me.api.generated.model.FileContextChangeData
+import me.code4me.api.generated.model.FeedbackCompletion
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestChatCompletion
 import me.code4me.api.generated.model.RequestCompletion
@@ -887,6 +888,50 @@ class AppService {
         } catch (e: Exception) {
             LOG.warn("Failed to send multi-file context update", e)
             false
+        }
+    }
+
+    /**
+     * Submits feedback for a completion, including ground truth data.
+     *
+     * This method sends feedback about a completion to the Code4Me backend, including
+     * whether the completion was accepted and the ground truth data (the actual code
+     * that was inserted or modified).
+     *
+     * @param metaQueryId The unique identifier of the completion query
+     * @param modelId The ID of the model that generated the completion
+     * @param wasAccepted Whether the completion was accepted by the user
+     * @param groundTruth The ground truth data (the actual code that was inserted or modified)
+     * @param project The project context
+     * @return [CompletionFeedbackPostResponse] containing the server's response, or null if the request fails
+     */
+    fun submitCompletionFeedback(
+        metaQueryId: java.util.UUID,
+        modelId: Int,
+        wasAccepted: Boolean,
+        groundTruth: String?,
+        project: Project,
+    ): me.code4me.api.generated.model.CompletionFeedbackPostResponse? {
+        // set the current project for generation
+        currentGenerationProject.set(project)
+
+        val feedbackCompletion =
+            FeedbackCompletion(
+                metaQueryId = metaQueryId,
+                modelId = modelId,
+                wasAccepted = wasAccepted,
+                groundTruth = groundTruth,
+            )
+
+        return try {
+            val response = completionApi.submitCompletionFeedbackApiCompletionFeedbackPost(feedbackCompletion)
+            LOG.debug("Completion feedback submitted successfully")
+            response
+        } catch (e: Exception) {
+            LOG.warn("Failed to submit completion feedback", e)
+            null
+        } finally {
+            currentGenerationProject.set(null)
         }
     }
 }
