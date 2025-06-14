@@ -8,9 +8,11 @@ All URIs are relative to *http://localhost*
 | [**checkVerificationApiUserVerifyCheckGet**](UserApi.md#checkVerificationApiUserVerifyCheckGet) | **GET** /api/user/verify/check | Check Verification |
 | [**createUserApiUserCreatePost**](UserApi.md#createUserApiUserCreatePost) | **POST** /api/user/create | Create User |
 | [**deleteUserApiUserDeleteDelete**](UserApi.md#deleteUserApiUserDeleteDelete) | **DELETE** /api/user/delete | Delete User |
-| [**requestPasswordResetApiUserResetPasswordResetPasswordRequestPost**](UserApi.md#requestPasswordResetApiUserResetPasswordResetPasswordRequestPost) | **POST** /api/user/reset-password/reset-password/request | Request Password Reset |
+| [**getUserFromAuthTokenApiUserGetGet**](UserApi.md#getUserFromAuthTokenApiUserGetGet) | **GET** /api/user/get | Get User From Auth Token |
+| [**getUserFromAuthTokenApiUserGetGet_0**](UserApi.md#getUserFromAuthTokenApiUserGetGet_0) | **GET** /api/user/get | Get User From Auth Token |
+| [**requestPasswordResetApiUserResetPasswordRequestPost**](UserApi.md#requestPasswordResetApiUserResetPasswordRequestPost) | **POST** /api/user/reset-password/request | Request Password Reset |
 | [**resendVerificationEmailApiUserVerifyResendPost**](UserApi.md#resendVerificationEmailApiUserVerifyResendPost) | **POST** /api/user/verify/resend | Resend Verification Email |
-| [**showPasswordResetFormApiUserResetPasswordResetPasswordGet**](UserApi.md#showPasswordResetFormApiUserResetPasswordResetPasswordGet) | **GET** /api/user/reset-password/reset-password/ | Show Password Reset Form |
+| [**showPasswordResetFormApiUserResetPasswordGet**](UserApi.md#showPasswordResetFormApiUserResetPasswordGet) | **GET** /api/user/reset-password/ | Show Password Reset Form |
 | [**updateUserApiUserUpdatePut**](UserApi.md#updateUserApiUserUpdatePut) | **PUT** /api/user/update | Update User |
 | [**verifyEmailApiUserVerifyPost**](UserApi.md#verifyEmailApiUserVerifyPost) | **POST** /api/user/verify/ | Verify Email |
 
@@ -201,9 +203,101 @@ No authorization required
  - **Content-Type**: Not defined
  - **Accept**: application/json
 
-<a id="requestPasswordResetApiUserResetPasswordResetPasswordRequestPost"></a>
-# **requestPasswordResetApiUserResetPasswordResetPasswordRequestPost**
-> PasswordResetRequestPostResponse requestPasswordResetApiUserResetPasswordResetPasswordRequestPost(authToken)
+<a id="getUserFromAuthTokenApiUserGetGet"></a>
+# **getUserFromAuthTokenApiUserGetGet**
+> GetUserGetResponse getUserFromAuthTokenApiUserGetGet(authToken)
+
+Get User From Auth Token
+
+Get the authenticated user based on the auth_token cookie.  Args:     auth_token (Optional[str]): Authentication token stored in cookie.     app (App): FastAPI dependency to access DB and Redis.  Returns:     JsonResponseWithStatus: Response with user info or an error.
+
+### Example
+```kotlin
+// Import classes:
+//import me.code4me.api.generated.infrastructure.*
+//import me.code4me.api.generated.model.*
+
+val apiInstance = UserApi()
+val authToken : kotlin.String = authToken_example // kotlin.String | 
+try {
+    val result : GetUserGetResponse = apiInstance.getUserFromAuthTokenApiUserGetGet(authToken)
+    println(result)
+} catch (e: ClientException) {
+    println("4xx response calling UserApi#getUserFromAuthTokenApiUserGetGet")
+    e.printStackTrace()
+} catch (e: ServerException) {
+    println("5xx response calling UserApi#getUserFromAuthTokenApiUserGetGet")
+    e.printStackTrace()
+}
+```
+
+### Parameters
+| Name | Type | Description  | Notes |
+| ------------- | ------------- | ------------- | ------------- |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
+
+### Return type
+
+[**GetUserGetResponse**](GetUserGetResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+<a id="getUserFromAuthTokenApiUserGetGet_0"></a>
+# **getUserFromAuthTokenApiUserGetGet_0**
+> GetUserGetResponse getUserFromAuthTokenApiUserGetGet_0(authToken)
+
+Get User From Auth Token
+
+Get the authenticated user based on the auth_token cookie.  Args:     auth_token (Optional[str]): Authentication token stored in cookie.     app (App): FastAPI dependency to access DB and Redis.  Returns:     JsonResponseWithStatus: Response with user info or an error.
+
+### Example
+```kotlin
+// Import classes:
+//import me.code4me.api.generated.infrastructure.*
+//import me.code4me.api.generated.model.*
+
+val apiInstance = UserApi()
+val authToken : kotlin.String = authToken_example // kotlin.String | 
+try {
+    val result : GetUserGetResponse = apiInstance.getUserFromAuthTokenApiUserGetGet_0(authToken)
+    println(result)
+} catch (e: ClientException) {
+    println("4xx response calling UserApi#getUserFromAuthTokenApiUserGetGet_0")
+    e.printStackTrace()
+} catch (e: ServerException) {
+    println("5xx response calling UserApi#getUserFromAuthTokenApiUserGetGet_0")
+    e.printStackTrace()
+}
+```
+
+### Parameters
+| Name | Type | Description  | Notes |
+| ------------- | ------------- | ------------- | ------------- |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
+
+### Return type
+
+[**GetUserGetResponse**](GetUserGetResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+<a id="requestPasswordResetApiUserResetPasswordRequestPost"></a>
+# **requestPasswordResetApiUserResetPasswordRequestPost**
+> PasswordResetRequestPostResponse requestPasswordResetApiUserResetPasswordRequestPost(authToken)
 
 Request Password Reset
 
@@ -218,13 +312,13 @@ Initiate a password reset request by sending a reset email to the user.  This en
 val apiInstance = UserApi()
 val authToken : kotlin.String = authToken_example // kotlin.String | 
 try {
-    val result : PasswordResetRequestPostResponse = apiInstance.requestPasswordResetApiUserResetPasswordResetPasswordRequestPost(authToken)
+    val result : PasswordResetRequestPostResponse = apiInstance.requestPasswordResetApiUserResetPasswordRequestPost(authToken)
     println(result)
 } catch (e: ClientException) {
-    println("4xx response calling UserApi#requestPasswordResetApiUserResetPasswordResetPasswordRequestPost")
+    println("4xx response calling UserApi#requestPasswordResetApiUserResetPasswordRequestPost")
     e.printStackTrace()
 } catch (e: ServerException) {
-    println("5xx response calling UserApi#requestPasswordResetApiUserResetPasswordResetPasswordRequestPost")
+    println("5xx response calling UserApi#requestPasswordResetApiUserResetPasswordRequestPost")
     e.printStackTrace()
 }
 ```
@@ -232,7 +326,7 @@ try {
 ### Parameters
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **authToken** | **kotlin.String**|  | |
+| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
 
 ### Return type
 
@@ -293,9 +387,9 @@ No authorization required
  - **Content-Type**: Not defined
  - **Accept**: application/json
 
-<a id="showPasswordResetFormApiUserResetPasswordResetPasswordGet"></a>
-# **showPasswordResetFormApiUserResetPasswordResetPasswordGet**
-> PasswordResetGetHTMLResponse showPasswordResetFormApiUserResetPasswordResetPasswordGet(token)
+<a id="showPasswordResetFormApiUserResetPasswordGet"></a>
+# **showPasswordResetFormApiUserResetPasswordGet**
+> PasswordResetGetHTMLResponse showPasswordResetFormApiUserResetPasswordGet(token)
 
 Show Password Reset Form
 
@@ -310,13 +404,13 @@ Display the password reset form page.  This endpoint validates the reset token a
 val apiInstance = UserApi()
 val token : kotlin.String = token_example // kotlin.String | Password reset token
 try {
-    val result : PasswordResetGetHTMLResponse = apiInstance.showPasswordResetFormApiUserResetPasswordResetPasswordGet(token)
+    val result : PasswordResetGetHTMLResponse = apiInstance.showPasswordResetFormApiUserResetPasswordGet(token)
     println(result)
 } catch (e: ClientException) {
-    println("4xx response calling UserApi#showPasswordResetFormApiUserResetPasswordResetPasswordGet")
+    println("4xx response calling UserApi#showPasswordResetFormApiUserResetPasswordGet")
     e.printStackTrace()
 } catch (e: ServerException) {
-    println("5xx response calling UserApi#showPasswordResetFormApiUserResetPasswordResetPasswordGet")
+    println("5xx response calling UserApi#showPasswordResetFormApiUserResetPasswordGet")
     e.printStackTrace()
 }
 ```

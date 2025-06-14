@@ -27,6 +27,8 @@ import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteUserDeleteResponse
 import me.code4me.api.generated.model.DeleteUserError
 import me.code4me.api.generated.model.ErrorResponse
+import me.code4me.api.generated.model.GetUserError
+import me.code4me.api.generated.model.GetUserGetResponse
 import me.code4me.api.generated.model.GetVerificationError
 import me.code4me.api.generated.model.GetVerificationGetResponse
 import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
@@ -376,10 +378,156 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * POST /api/user/reset-password/reset-password/request
+     * GET /api/user/get
+     * Get User From Auth Token
+     * Get the authenticated user based on the auth_token cookie.  Args:     auth_token (Optional[str]): Authentication token stored in cookie.     app (App): FastAPI dependency to access DB and Redis.  Returns:     JsonResponseWithStatus: Response with user info or an error.
+     * @param authToken  (optional, default to "")
+     * @return GetUserGetResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    fun getUserFromAuthTokenApiUserGetGet(authToken: kotlin.String? = "") : GetUserGetResponse {
+        val localVarResponse = getUserFromAuthTokenApiUserGetGetWithHttpInfo(authToken = authToken)
+
+        return when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as GetUserGetResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/user/get
+     * Get User From Auth Token
+     * Get the authenticated user based on the auth_token cookie.  Args:     auth_token (Optional[str]): Authentication token stored in cookie.     app (App): FastAPI dependency to access DB and Redis.  Returns:     JsonResponseWithStatus: Response with user info or an error.
+     * @param authToken  (optional, default to "")
+     * @return ApiResponse<GetUserGetResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    fun getUserFromAuthTokenApiUserGetGetWithHttpInfo(authToken: kotlin.String?) : ApiResponse<GetUserGetResponse?> {
+        val localVariableConfig = getUserFromAuthTokenApiUserGetGetRequestConfig(authToken = authToken)
+
+        return request<Unit, GetUserGetResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getUserFromAuthTokenApiUserGetGet
+     *
+     * @param authToken  (optional, default to "")
+     * @return RequestConfig
+     */
+    fun getUserFromAuthTokenApiUserGetGetRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/user/get",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/user/get
+     * Get User From Auth Token
+     * Get the authenticated user based on the auth_token cookie.  Args:     auth_token (Optional[str]): Authentication token stored in cookie.     app (App): FastAPI dependency to access DB and Redis.  Returns:     JsonResponseWithStatus: Response with user info or an error.
+     * @param authToken  (optional, default to "")
+     * @return GetUserGetResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    fun getUserFromAuthTokenApiUserGetGet_0(authToken: kotlin.String? = "") : GetUserGetResponse {
+        val localVarResponse = getUserFromAuthTokenApiUserGetGet_0WithHttpInfo(authToken = authToken)
+
+        return when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as GetUserGetResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/user/get
+     * Get User From Auth Token
+     * Get the authenticated user based on the auth_token cookie.  Args:     auth_token (Optional[str]): Authentication token stored in cookie.     app (App): FastAPI dependency to access DB and Redis.  Returns:     JsonResponseWithStatus: Response with user info or an error.
+     * @param authToken  (optional, default to "")
+     * @return ApiResponse<GetUserGetResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    fun getUserFromAuthTokenApiUserGetGet_0WithHttpInfo(authToken: kotlin.String?) : ApiResponse<GetUserGetResponse?> {
+        val localVariableConfig = getUserFromAuthTokenApiUserGetGet_0RequestConfig(authToken = authToken)
+
+        return request<Unit, GetUserGetResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getUserFromAuthTokenApiUserGetGet_0
+     *
+     * @param authToken  (optional, default to "")
+     * @return RequestConfig
+     */
+    fun getUserFromAuthTokenApiUserGetGet_0RequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/user/get",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/user/reset-password/request
      * Request Password Reset
      * Initiate a password reset request by sending a reset email to the user.  This endpoint generates a secure reset token, stores it in Redis with expiration, and sends an email containing a link to the password reset form.  Parameters: - email (str): The email address of the user requesting password reset - app (App): Application context for accessing services  Returns: - JsonResponseWithStatus: Success confirmation or error response
-     * @param authToken 
+     * @param authToken  (optional, default to "")
      * @return PasswordResetRequestPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -389,8 +537,8 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun requestPasswordResetApiUserResetPasswordResetPasswordRequestPost(authToken: kotlin.String) : PasswordResetRequestPostResponse {
-        val localVarResponse = requestPasswordResetApiUserResetPasswordResetPasswordRequestPostWithHttpInfo(authToken = authToken)
+    fun requestPasswordResetApiUserResetPasswordRequestPost(authToken: kotlin.String? = "") : PasswordResetRequestPostResponse {
+        val localVarResponse = requestPasswordResetApiUserResetPasswordRequestPostWithHttpInfo(authToken = authToken)
 
         return when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as PasswordResetRequestPostResponse
@@ -408,18 +556,18 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * POST /api/user/reset-password/reset-password/request
+     * POST /api/user/reset-password/request
      * Request Password Reset
      * Initiate a password reset request by sending a reset email to the user.  This endpoint generates a secure reset token, stores it in Redis with expiration, and sends an email containing a link to the password reset form.  Parameters: - email (str): The email address of the user requesting password reset - app (App): Application context for accessing services  Returns: - JsonResponseWithStatus: Success confirmation or error response
-     * @param authToken 
+     * @param authToken  (optional, default to "")
      * @return ApiResponse<PasswordResetRequestPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun requestPasswordResetApiUserResetPasswordResetPasswordRequestPostWithHttpInfo(authToken: kotlin.String) : ApiResponse<PasswordResetRequestPostResponse?> {
-        val localVariableConfig = requestPasswordResetApiUserResetPasswordResetPasswordRequestPostRequestConfig(authToken = authToken)
+    fun requestPasswordResetApiUserResetPasswordRequestPostWithHttpInfo(authToken: kotlin.String?) : ApiResponse<PasswordResetRequestPostResponse?> {
+        val localVariableConfig = requestPasswordResetApiUserResetPasswordRequestPostRequestConfig(authToken = authToken)
 
         return request<Unit, PasswordResetRequestPostResponse>(
             localVariableConfig
@@ -427,12 +575,12 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * To obtain the request config of the operation requestPasswordResetApiUserResetPasswordResetPasswordRequestPost
+     * To obtain the request config of the operation requestPasswordResetApiUserResetPasswordRequestPost
      *
-     * @param authToken 
+     * @param authToken  (optional, default to "")
      * @return RequestConfig
      */
-    fun requestPasswordResetApiUserResetPasswordResetPasswordRequestPostRequestConfig(authToken: kotlin.String) : RequestConfig<Unit> {
+    fun requestPasswordResetApiUserResetPasswordRequestPostRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
@@ -440,7 +588,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/user/reset-password/reset-password/request",
+            path = "/api/user/reset-password/request",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
@@ -522,7 +670,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * GET /api/user/reset-password/reset-password/
+     * GET /api/user/reset-password/
      * Show Password Reset Form
      * Display the password reset form page.  This endpoint validates the reset token and displays an HTML form where users can enter their current password and new password to complete the reset.  Parameters: - token (str): Password reset token from the email link - app (App): Application context for accessing services  Returns: - HTMLResponse: Password reset form or error page
      * @param token Password reset token
@@ -535,8 +683,8 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun showPasswordResetFormApiUserResetPasswordResetPasswordGet(token: kotlin.String) : PasswordResetGetHTMLResponse {
-        val localVarResponse = showPasswordResetFormApiUserResetPasswordResetPasswordGetWithHttpInfo(token = token)
+    fun showPasswordResetFormApiUserResetPasswordGet(token: kotlin.String) : PasswordResetGetHTMLResponse {
+        val localVarResponse = showPasswordResetFormApiUserResetPasswordGetWithHttpInfo(token = token)
 
         return when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as PasswordResetGetHTMLResponse
@@ -554,7 +702,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * GET /api/user/reset-password/reset-password/
+     * GET /api/user/reset-password/
      * Show Password Reset Form
      * Display the password reset form page.  This endpoint validates the reset token and displays an HTML form where users can enter their current password and new password to complete the reset.  Parameters: - token (str): Password reset token from the email link - app (App): Application context for accessing services  Returns: - HTMLResponse: Password reset form or error page
      * @param token Password reset token
@@ -564,8 +712,8 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun showPasswordResetFormApiUserResetPasswordResetPasswordGetWithHttpInfo(token: kotlin.String) : ApiResponse<PasswordResetGetHTMLResponse?> {
-        val localVariableConfig = showPasswordResetFormApiUserResetPasswordResetPasswordGetRequestConfig(token = token)
+    fun showPasswordResetFormApiUserResetPasswordGetWithHttpInfo(token: kotlin.String) : ApiResponse<PasswordResetGetHTMLResponse?> {
+        val localVariableConfig = showPasswordResetFormApiUserResetPasswordGetRequestConfig(token = token)
 
         return request<Unit, PasswordResetGetHTMLResponse>(
             localVariableConfig
@@ -573,12 +721,12 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
-     * To obtain the request config of the operation showPasswordResetFormApiUserResetPasswordResetPasswordGet
+     * To obtain the request config of the operation showPasswordResetFormApiUserResetPasswordGet
      *
      * @param token Password reset token
      * @return RequestConfig
      */
-    fun showPasswordResetFormApiUserResetPasswordResetPasswordGetRequestConfig(token: kotlin.String) : RequestConfig<Unit> {
+    fun showPasswordResetFormApiUserResetPasswordGetRequestConfig(token: kotlin.String) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
@@ -589,7 +737,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
 
         return RequestConfig(
             method = RequestMethod.GET,
-            path = "/api/user/reset-password/reset-password/",
+            path = "/api/user/reset-password/",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,

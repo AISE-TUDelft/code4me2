@@ -62,9 +62,11 @@ All URIs are relative to *http://localhost*
 | *UserApi* | [**checkVerificationApiUserVerifyCheckGet**](docs/UserApi.md#checkverificationapiuserverifycheckget) | **GET** /api/user/verify/check | Check Verification |
 | *UserApi* | [**createUserApiUserCreatePost**](docs/UserApi.md#createuserapiusercreatepost) | **POST** /api/user/create | Create User |
 | *UserApi* | [**deleteUserApiUserDeleteDelete**](docs/UserApi.md#deleteuserapiuserdeletedelete) | **DELETE** /api/user/delete | Delete User |
-| *UserApi* | [**requestPasswordResetApiUserResetPasswordResetPasswordRequestPost**](docs/UserApi.md#requestpasswordresetapiuserresetpasswordresetpasswordrequestpost) | **POST** /api/user/reset-password/reset-password/request | Request Password Reset |
+| *UserApi* | [**getUserFromAuthTokenApiUserGetGet**](docs/UserApi.md#getuserfromauthtokenapiusergetget) | **GET** /api/user/get | Get User From Auth Token |
+| *UserApi* | [**getUserFromAuthTokenApiUserGetGet_0**](docs/UserApi.md#getuserfromauthtokenapiusergetget_0) | **GET** /api/user/get | Get User From Auth Token |
+| *UserApi* | [**requestPasswordResetApiUserResetPasswordRequestPost**](docs/UserApi.md#requestpasswordresetapiuserresetpasswordrequestpost) | **POST** /api/user/reset-password/request | Request Password Reset |
 | *UserApi* | [**resendVerificationEmailApiUserVerifyResendPost**](docs/UserApi.md#resendverificationemailapiuserverifyresendpost) | **POST** /api/user/verify/resend | Resend Verification Email |
-| *UserApi* | [**showPasswordResetFormApiUserResetPasswordResetPasswordGet**](docs/UserApi.md#showpasswordresetformapiuserresetpasswordresetpasswordget) | **GET** /api/user/reset-password/reset-password/ | Show Password Reset Form |
+| *UserApi* | [**showPasswordResetFormApiUserResetPasswordGet**](docs/UserApi.md#showpasswordresetformapiuserresetpasswordget) | **GET** /api/user/reset-password/ | Show Password Reset Form |
 | *UserApi* | [**updateUserApiUserUpdatePut**](docs/UserApi.md#updateuserapiuserupdateput) | **PUT** /api/user/update | Update User |
 | *UserApi* | [**verifyEmailApiUserVerifyPost**](docs/UserApi.md#verifyemailapiuserverifypost) | **POST** /api/user/verify/ | Verify Email |
 | *UserVerificationApi* | [**checkVerificationApiUserVerifyCheckGet**](docs/UserVerificationApi.md#checkverificationapiuserverifycheckget) | **GET** /api/user/verify/check | Check Verification |
@@ -120,6 +122,8 @@ All URIs are relative to *http://localhost*
  - [me.code4me.api.generated.model.GenerateChatCompletionsError](docs/GenerateChatCompletionsError.md)
  - [me.code4me.api.generated.model.GenerateCompletionsError](docs/GenerateCompletionsError.md)
  - [me.code4me.api.generated.model.GenerationNotFoundError](docs/GenerationNotFoundError.md)
+ - [me.code4me.api.generated.model.GetUserError](docs/GetUserError.md)
+ - [me.code4me.api.generated.model.GetUserGetResponse](docs/GetUserGetResponse.md)
  - [me.code4me.api.generated.model.GetVerificationError](docs/GetVerificationError.md)
  - [me.code4me.api.generated.model.GetVerificationGetResponse](docs/GetVerificationGetResponse.md)
  - [me.code4me.api.generated.model.InvalidEmailOrPassword](docs/InvalidEmailOrPassword.md)

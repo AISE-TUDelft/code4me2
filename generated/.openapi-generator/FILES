@@ -49,6 +49,8 @@ docs/FileContextChangeData.md
 docs/GenerateChatCompletionsError.md
 docs/GenerateCompletionsError.md
 docs/GenerationNotFoundError.md
+docs/GetUserError.md
+docs/GetUserGetResponse.md
 docs/GetVerificationError.md
 docs/GetVerificationGetResponse.md
 docs/InvalidEmailOrPassword.md
@@ -179,6 +181,8 @@ src/main/kotlin/me/code4me/api/generated/model/FileContextChangeData.kt
 src/main/kotlin/me/code4me/api/generated/model/GenerateChatCompletionsError.kt
 src/main/kotlin/me/code4me/api/generated/model/GenerateCompletionsError.kt
 src/main/kotlin/me/code4me/api/generated/model/GenerationNotFoundError.kt
+src/main/kotlin/me/code4me/api/generated/model/GetUserError.kt
+src/main/kotlin/me/code4me/api/generated/model/GetUserGetResponse.kt
 src/main/kotlin/me/code4me/api/generated/model/GetVerificationError.kt
 src/main/kotlin/me/code4me/api/generated/model/GetVerificationGetResponse.kt
 src/main/kotlin/me/code4me/api/generated/model/InvalidEmailOrPassword.kt
@@ -228,7 +232,5 @@ src/main/kotlin/me/code4me/api/generated/model/UserToAuthenticate.kt
 src/main/kotlin/me/code4me/api/generated/model/UserToCreate.kt
 src/main/kotlin/me/code4me/api/generated/model/VerifyUserError.kt
 src/main/kotlin/me/code4me/api/generated/model/VerifyUserPostHTMLResponse.kt
-src/test/kotlin/me/code4me/api/generated/model/InvalidOrExpiredResetTokenTest.kt
-src/test/kotlin/me/code4me/api/generated/model/PasswordResetErrorTest.kt
-src/test/kotlin/me/code4me/api/generated/model/PasswordResetGetHTMLResponseTest.kt
-src/test/kotlin/me/code4me/api/generated/model/PasswordResetRequestPostResponseTest.kt
+src/test/kotlin/me/code4me/api/generated/model/GetUserErrorTest.kt
+src/test/kotlin/me/code4me/api/generated/model/GetUserGetResponseTest.kt
