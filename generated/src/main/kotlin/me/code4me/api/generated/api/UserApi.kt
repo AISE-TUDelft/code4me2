@@ -31,7 +31,11 @@ import me.code4me.api.generated.model.GetVerificationError
 import me.code4me.api.generated.model.GetVerificationGetResponse
 import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
 import me.code4me.api.generated.model.InvalidOrExpiredJWTToken
+import me.code4me.api.generated.model.InvalidOrExpiredResetToken
 import me.code4me.api.generated.model.InvalidOrExpiredVerificationToken
+import me.code4me.api.generated.model.PasswordResetError
+import me.code4me.api.generated.model.PasswordResetGetHTMLResponse
+import me.code4me.api.generated.model.PasswordResetRequestPostResponse
 import me.code4me.api.generated.model.ResendVerificationEmailError
 import me.code4me.api.generated.model.ResendVerificationEmailPostResponse
 import me.code4me.api.generated.model.Response401AuthenticateUserApiUserAuthenticatePost
@@ -372,6 +376,79 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     }
 
     /**
+     * POST /api/user/reset-password/reset-password/request
+     * Request Password Reset
+     * Initiate a password reset request by sending a reset email to the user.  This endpoint generates a secure reset token, stores it in Redis with expiration, and sends an email containing a link to the password reset form.  Parameters: - email (str): The email address of the user requesting password reset - app (App): Application context for accessing services  Returns: - JsonResponseWithStatus: Success confirmation or error response
+     * @param authToken 
+     * @return PasswordResetRequestPostResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    fun requestPasswordResetApiUserResetPasswordResetPasswordRequestPost(authToken: kotlin.String) : PasswordResetRequestPostResponse {
+        val localVarResponse = requestPasswordResetApiUserResetPasswordResetPasswordRequestPostWithHttpInfo(authToken = authToken)
+
+        return when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PasswordResetRequestPostResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/user/reset-password/reset-password/request
+     * Request Password Reset
+     * Initiate a password reset request by sending a reset email to the user.  This endpoint generates a secure reset token, stores it in Redis with expiration, and sends an email containing a link to the password reset form.  Parameters: - email (str): The email address of the user requesting password reset - app (App): Application context for accessing services  Returns: - JsonResponseWithStatus: Success confirmation or error response
+     * @param authToken 
+     * @return ApiResponse<PasswordResetRequestPostResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    fun requestPasswordResetApiUserResetPasswordResetPasswordRequestPostWithHttpInfo(authToken: kotlin.String) : ApiResponse<PasswordResetRequestPostResponse?> {
+        val localVariableConfig = requestPasswordResetApiUserResetPasswordResetPasswordRequestPostRequestConfig(authToken = authToken)
+
+        return request<Unit, PasswordResetRequestPostResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation requestPasswordResetApiUserResetPasswordResetPasswordRequestPost
+     *
+     * @param authToken 
+     * @return RequestConfig
+     */
+    fun requestPasswordResetApiUserResetPasswordResetPasswordRequestPostRequestConfig(authToken: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/user/reset-password/reset-password/request",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/user/verify/resend
      * Resend Verification Email
      * Resend a verification email to the user if not already verified.  Parameters: - app (App): Application context for accessing services. - auth_token (str): Auth token from cookie identifying the user.  Returns: - JsonResponseWithStatus: Success confirmation or error message.
@@ -437,6 +514,82 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/user/verify/resend",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/user/reset-password/reset-password/
+     * Show Password Reset Form
+     * Display the password reset form page.  This endpoint validates the reset token and displays an HTML form where users can enter their current password and new password to complete the reset.  Parameters: - token (str): Password reset token from the email link - app (App): Application context for accessing services  Returns: - HTMLResponse: Password reset form or error page
+     * @param token Password reset token
+     * @return PasswordResetGetHTMLResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    fun showPasswordResetFormApiUserResetPasswordResetPasswordGet(token: kotlin.String) : PasswordResetGetHTMLResponse {
+        val localVarResponse = showPasswordResetFormApiUserResetPasswordResetPasswordGetWithHttpInfo(token = token)
+
+        return when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PasswordResetGetHTMLResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/user/reset-password/reset-password/
+     * Show Password Reset Form
+     * Display the password reset form page.  This endpoint validates the reset token and displays an HTML form where users can enter their current password and new password to complete the reset.  Parameters: - token (str): Password reset token from the email link - app (App): Application context for accessing services  Returns: - HTMLResponse: Password reset form or error page
+     * @param token Password reset token
+     * @return ApiResponse<PasswordResetGetHTMLResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    fun showPasswordResetFormApiUserResetPasswordResetPasswordGetWithHttpInfo(token: kotlin.String) : ApiResponse<PasswordResetGetHTMLResponse?> {
+        val localVariableConfig = showPasswordResetFormApiUserResetPasswordResetPasswordGetRequestConfig(token = token)
+
+        return request<Unit, PasswordResetGetHTMLResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation showPasswordResetFormApiUserResetPasswordResetPasswordGet
+     *
+     * @param token Password reset token
+     * @return RequestConfig
+     */
+    fun showPasswordResetFormApiUserResetPasswordResetPasswordGetRequestConfig(token: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("token", listOf(token.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/user/reset-password/reset-password/",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,

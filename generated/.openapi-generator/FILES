@@ -1,6 +1,5 @@
 README.md
 build.gradle
-docs/AcquireSessionApi.md
 docs/AcquireSessionError.md
 docs/AcquireSessionGetResponse.md
 docs/ActivateProject.md
@@ -36,7 +35,6 @@ docs/CreateUser.md
 docs/CreateUserError.md
 docs/CreateUserOauth.md
 docs/CreateUserPostResponse.md
-docs/DeactivateSessionApi.md
 docs/DeactivateSessionError.md
 docs/DeactivateSessionPostResponse.md
 docs/DefaultApi.md
@@ -57,6 +55,7 @@ docs/InvalidEmailOrPassword.md
 docs/InvalidOrExpiredAuthToken.md
 docs/InvalidOrExpiredJWTToken.md
 docs/InvalidOrExpiredProjectToken.md
+docs/InvalidOrExpiredResetToken.md
 docs/InvalidOrExpiredSessionToken.md
 docs/InvalidOrExpiredVerificationToken.md
 docs/MultiFileContextApi.md
@@ -64,6 +63,9 @@ docs/MultiFileContextUpdateError.md
 docs/MultiFileContextUpdatePostResponse.md
 docs/NoAccessToGetQueryError.md
 docs/NoAccessToProvideFeedbackError.md
+docs/PasswordResetError.md
+docs/PasswordResetGetHTMLResponse.md
+docs/PasswordResetRequestPostResponse.md
 docs/ProjectApi.md
 docs/Provider.md
 docs/QueryChatMessageRole.md
@@ -106,11 +108,9 @@ gradle/wrapper/gradle-wrapper.properties
 gradlew
 gradlew.bat
 settings.gradle
-src/main/kotlin/me/code4me/api/generated/api/AcquireSessionApi.kt
 src/main/kotlin/me/code4me/api/generated/api/AuthenticationApi.kt
 src/main/kotlin/me/code4me/api/generated/api/ChatApi.kt
 src/main/kotlin/me/code4me/api/generated/api/CompletionApi.kt
-src/main/kotlin/me/code4me/api/generated/api/DeactivateSessionApi.kt
 src/main/kotlin/me/code4me/api/generated/api/DefaultApi.kt
 src/main/kotlin/me/code4me/api/generated/api/MultiFileContextApi.kt
 src/main/kotlin/me/code4me/api/generated/api/ProjectApi.kt
@@ -185,12 +185,16 @@ src/main/kotlin/me/code4me/api/generated/model/InvalidEmailOrPassword.kt
 src/main/kotlin/me/code4me/api/generated/model/InvalidOrExpiredAuthToken.kt
 src/main/kotlin/me/code4me/api/generated/model/InvalidOrExpiredJWTToken.kt
 src/main/kotlin/me/code4me/api/generated/model/InvalidOrExpiredProjectToken.kt
+src/main/kotlin/me/code4me/api/generated/model/InvalidOrExpiredResetToken.kt
 src/main/kotlin/me/code4me/api/generated/model/InvalidOrExpiredSessionToken.kt
 src/main/kotlin/me/code4me/api/generated/model/InvalidOrExpiredVerificationToken.kt
 src/main/kotlin/me/code4me/api/generated/model/MultiFileContextUpdateError.kt
 src/main/kotlin/me/code4me/api/generated/model/MultiFileContextUpdatePostResponse.kt
 src/main/kotlin/me/code4me/api/generated/model/NoAccessToGetQueryError.kt
 src/main/kotlin/me/code4me/api/generated/model/NoAccessToProvideFeedbackError.kt
+src/main/kotlin/me/code4me/api/generated/model/PasswordResetError.kt
+src/main/kotlin/me/code4me/api/generated/model/PasswordResetGetHTMLResponse.kt
+src/main/kotlin/me/code4me/api/generated/model/PasswordResetRequestPostResponse.kt
 src/main/kotlin/me/code4me/api/generated/model/Provider.kt
 src/main/kotlin/me/code4me/api/generated/model/QueryChatMessageRole.kt
 src/main/kotlin/me/code4me/api/generated/model/QueryNotFoundError.kt
@@ -224,7 +228,7 @@ src/main/kotlin/me/code4me/api/generated/model/UserToAuthenticate.kt
 src/main/kotlin/me/code4me/api/generated/model/UserToCreate.kt
 src/main/kotlin/me/code4me/api/generated/model/VerifyUserError.kt
 src/main/kotlin/me/code4me/api/generated/model/VerifyUserPostHTMLResponse.kt
-src/test/kotlin/me/code4me/api/generated/api/AcquireSessionApiTest.kt
-src/test/kotlin/me/code4me/api/generated/api/DeactivateSessionApiTest.kt
-src/test/kotlin/me/code4me/api/generated/model/DeactivateSessionErrorTest.kt
-src/test/kotlin/me/code4me/api/generated/model/DeactivateSessionPostResponseTest.kt
+src/test/kotlin/me/code4me/api/generated/model/InvalidOrExpiredResetTokenTest.kt
+src/test/kotlin/me/code4me/api/generated/model/PasswordResetErrorTest.kt
+src/test/kotlin/me/code4me/api/generated/model/PasswordResetGetHTMLResponseTest.kt
+src/test/kotlin/me/code4me/api/generated/model/PasswordResetRequestPostResponseTest.kt

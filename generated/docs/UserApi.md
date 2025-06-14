@@ -8,7 +8,9 @@ All URIs are relative to *http://localhost*
 | [**checkVerificationApiUserVerifyCheckGet**](UserApi.md#checkVerificationApiUserVerifyCheckGet) | **GET** /api/user/verify/check | Check Verification |
 | [**createUserApiUserCreatePost**](UserApi.md#createUserApiUserCreatePost) | **POST** /api/user/create | Create User |
 | [**deleteUserApiUserDeleteDelete**](UserApi.md#deleteUserApiUserDeleteDelete) | **DELETE** /api/user/delete | Delete User |
+| [**requestPasswordResetApiUserResetPasswordResetPasswordRequestPost**](UserApi.md#requestPasswordResetApiUserResetPasswordResetPasswordRequestPost) | **POST** /api/user/reset-password/reset-password/request | Request Password Reset |
 | [**resendVerificationEmailApiUserVerifyResendPost**](UserApi.md#resendVerificationEmailApiUserVerifyResendPost) | **POST** /api/user/verify/resend | Resend Verification Email |
+| [**showPasswordResetFormApiUserResetPasswordResetPasswordGet**](UserApi.md#showPasswordResetFormApiUserResetPasswordResetPasswordGet) | **GET** /api/user/reset-password/reset-password/ | Show Password Reset Form |
 | [**updateUserApiUserUpdatePut**](UserApi.md#updateUserApiUserUpdatePut) | **PUT** /api/user/update | Update User |
 | [**verifyEmailApiUserVerifyPost**](UserApi.md#verifyEmailApiUserVerifyPost) | **POST** /api/user/verify/ | Verify Email |
 
@@ -199,6 +201,52 @@ No authorization required
  - **Content-Type**: Not defined
  - **Accept**: application/json
 
+<a id="requestPasswordResetApiUserResetPasswordResetPasswordRequestPost"></a>
+# **requestPasswordResetApiUserResetPasswordResetPasswordRequestPost**
+> PasswordResetRequestPostResponse requestPasswordResetApiUserResetPasswordResetPasswordRequestPost(authToken)
+
+Request Password Reset
+
+Initiate a password reset request by sending a reset email to the user.  This endpoint generates a secure reset token, stores it in Redis with expiration, and sends an email containing a link to the password reset form.  Parameters: - email (str): The email address of the user requesting password reset - app (App): Application context for accessing services  Returns: - JsonResponseWithStatus: Success confirmation or error response
+
+### Example
+```kotlin
+// Import classes:
+//import me.code4me.api.generated.infrastructure.*
+//import me.code4me.api.generated.model.*
+
+val apiInstance = UserApi()
+val authToken : kotlin.String = authToken_example // kotlin.String | 
+try {
+    val result : PasswordResetRequestPostResponse = apiInstance.requestPasswordResetApiUserResetPasswordResetPasswordRequestPost(authToken)
+    println(result)
+} catch (e: ClientException) {
+    println("4xx response calling UserApi#requestPasswordResetApiUserResetPasswordResetPasswordRequestPost")
+    e.printStackTrace()
+} catch (e: ServerException) {
+    println("5xx response calling UserApi#requestPasswordResetApiUserResetPasswordResetPasswordRequestPost")
+    e.printStackTrace()
+}
+```
+
+### Parameters
+| Name | Type | Description  | Notes |
+| ------------- | ------------- | ------------- | ------------- |
+| **authToken** | **kotlin.String**|  | |
+
+### Return type
+
+[**PasswordResetRequestPostResponse**](PasswordResetRequestPostResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
 <a id="resendVerificationEmailApiUserVerifyResendPost"></a>
 # **resendVerificationEmailApiUserVerifyResendPost**
 > ResendVerificationEmailPostResponse resendVerificationEmailApiUserVerifyResendPost(authToken)
@@ -235,6 +283,52 @@ try {
 ### Return type
 
 [**ResendVerificationEmailPostResponse**](ResendVerificationEmailPostResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+<a id="showPasswordResetFormApiUserResetPasswordResetPasswordGet"></a>
+# **showPasswordResetFormApiUserResetPasswordResetPasswordGet**
+> PasswordResetGetHTMLResponse showPasswordResetFormApiUserResetPasswordResetPasswordGet(token)
+
+Show Password Reset Form
+
+Display the password reset form page.  This endpoint validates the reset token and displays an HTML form where users can enter their current password and new password to complete the reset.  Parameters: - token (str): Password reset token from the email link - app (App): Application context for accessing services  Returns: - HTMLResponse: Password reset form or error page
+
+### Example
+```kotlin
+// Import classes:
+//import me.code4me.api.generated.infrastructure.*
+//import me.code4me.api.generated.model.*
+
+val apiInstance = UserApi()
+val token : kotlin.String = token_example // kotlin.String | Password reset token
+try {
+    val result : PasswordResetGetHTMLResponse = apiInstance.showPasswordResetFormApiUserResetPasswordResetPasswordGet(token)
+    println(result)
+} catch (e: ClientException) {
+    println("4xx response calling UserApi#showPasswordResetFormApiUserResetPasswordResetPasswordGet")
+    e.printStackTrace()
+} catch (e: ServerException) {
+    println("5xx response calling UserApi#showPasswordResetFormApiUserResetPasswordResetPasswordGet")
+    e.printStackTrace()
+}
+```
+
+### Parameters
+| Name | Type | Description  | Notes |
+| ------------- | ------------- | ------------- | ------------- |
+| **token** | **kotlin.String**| Password reset token | |
+
+### Return type
+
+[**PasswordResetGetHTMLResponse**](PasswordResetGetHTMLResponse.md)
 
 ### Authorization
 
