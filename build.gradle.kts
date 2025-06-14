@@ -49,6 +49,7 @@ dependencies {
     testImplementation(libs.opentest4j)
     testImplementation("org.mockito:mockito-core:5.18.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    testImplementation("io.mockk:mockk:1.14.2")
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension
     intellijPlatform {
