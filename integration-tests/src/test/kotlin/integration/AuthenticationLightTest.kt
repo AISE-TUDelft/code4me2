@@ -49,7 +49,7 @@ class AuthenticationLightTest : BasePlatformTestCase() {
 
         // Match real AppService behavior
         whenever(mockAppService.authenticateUser(validEmail, validPassword))
-            .thenReturn(AuthenticateUserPostResponse(user = user, message = "auth-success", config = "{}"))
+            .thenReturn(AuthenticateUserPostResponse(user = user, message = "auth-success", config = mapOf()))
 
         whenever(mockAppService.createUser(
             email = validEmail,

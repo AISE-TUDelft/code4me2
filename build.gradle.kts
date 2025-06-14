@@ -4,14 +4,14 @@ import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 
 plugins {
-    id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.1.20"
-    id("org.jetbrains.intellij.platform") version "2.5.0"
-    id("org.jetbrains.changelog") version "2.2.1"
-    id("org.jetbrains.qodana") version "2024.3.4"
-    id("org.jetbrains.kotlinx.kover") version "0.9.1"
-    id("org.jetbrains.dokka") version "1.9.10"
-    id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
+    id("java") // Java support
+    alias(libs.plugins.kotlin) // Kotlin support
+    alias(libs.plugins.intelliJPlatform) // IntelliJ Platform Gradle Plugin
+    alias(libs.plugins.changelog) // Gradle Changelog Plugin
+    alias(libs.plugins.qodana) // Gradle Qodana Plugin
+    alias(libs.plugins.kover) // Gradle Kover Plugin
+    alias(libs.plugins.dokka) // Gradle Dokka Plugin for documentation
+    alias(libs.plugins.ktlint) // Gradle Ktlint Plugin for Kotlin code style
 }
 
 group = providers.gradleProperty("pluginGroup").get()
@@ -56,6 +56,8 @@ dependencies {
 
         bundledPlugins("org.intellij.plugins.markdown")
         bundledPlugins(providers.gradleProperty("platformBundledPlugins").map { it.split(',') })
+
+        // Plugin Dependencies. Uses `platformPlugins` property from the gradle.properties file for plugin from JetBrains Marketplace.
         plugins(providers.gradleProperty("platformPlugins").map { it.split(',') })
 
         testFramework(TestFrameworkType.Platform)
@@ -110,6 +112,9 @@ intellijPlatform {
 
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
+        // The pluginVersion is based on the SemVer (https://semver.org) and supports pre-release labels, like 2.1.7-alpha.3
+        // Specify pre-release label to publish the plugin in a custom Release Channel automatically. Read more:
+        // https://plugins.jetbrains.com/docs/intellij/deployment.html#specifying-a-release-channel
         channels =
             providers.gradleProperty("pluginVersion")
                 .map { pluginVersion ->
