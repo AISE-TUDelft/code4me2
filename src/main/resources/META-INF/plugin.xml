@@ -8,8 +8,6 @@
     <depends>org.intellij.plugins.markdown</depends>
     <depends>com.intellij.modules.platform</depends>
 
-    <resource-bundle>messages.MyBundle</resource-bundle>
-
     <actions>
         <action id="me.code4me.actions.TriggerInlineCompletionAction"
                 class="me.code4me.actions.TriggerInlineCompletionAction"
