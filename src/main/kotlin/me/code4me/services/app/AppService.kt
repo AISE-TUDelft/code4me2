@@ -68,6 +68,8 @@ fun getAppService(): AppService {
 class AppService {
     companion object {
         private val LOG = thisLogger()
+
+        /** Default model ID used for completion requests */
         private const val DEFAULT_MODEL_ID = 1
 
         // Chat-specific timeout configurations
