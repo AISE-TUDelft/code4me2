@@ -2,7 +2,6 @@ package me.code4me.services.config.models
 
 import com.intellij.psi.codeStyle.NameUtil
 import com.typesafe.config.Config
-import me.code4me.services.config.getConfig
 
 /**
  * Represents the languages configuration section.
@@ -13,7 +12,6 @@ data class LanguagesConfig(
     val languageMap: Map<String, Int>,
 ) {
     companion object {
-
         private const val VALUE_UNKNOWN_LANGUAGE = 179
 
         /**
@@ -55,10 +53,11 @@ data class LanguagesConfig(
      */
     fun getLanguageIdFuzzy(language: String): Int {
         val matcher = NameUtil.buildMatcher(language).build()
-        val bestMatch = languageMap.keys
-            .asSequence()
-            .filter { matcher.matches(it) }
-            .maxByOrNull { matcher.matchingDegree(it) }
+        val bestMatch =
+            languageMap.keys
+                .asSequence()
+                .filter { matcher.matches(it) }
+                .maxByOrNull { matcher.matchingDegree(it) }
 
         return bestMatch?.let { languageMap[it] } ?: VALUE_UNKNOWN_LANGUAGE
     }

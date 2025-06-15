@@ -33,8 +33,8 @@ import me.code4me.api.generated.model.CreateProject
 import me.code4me.api.generated.model.CreateProjectPostResponse
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteChatSuccessResponse
-import me.code4me.api.generated.model.FileContextChangeData
 import me.code4me.api.generated.model.FeedbackCompletion
+import me.code4me.api.generated.model.FileContextChangeData
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestChatCompletion
 import me.code4me.api.generated.model.RequestCompletion
