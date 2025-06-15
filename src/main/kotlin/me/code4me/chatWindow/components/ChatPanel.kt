@@ -231,6 +231,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                 if (aiResponse.responses.isNotEmpty()) {
                     updateLastMessage(aiResponse.responses.first())
                     refreshChatDisplay()
+                    sessionManager?.chatRepository?.saveChat(sessionManager!!.currentSession)
                 } else {
                     updateLastMessage("No response received")
                 }
