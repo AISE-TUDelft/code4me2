@@ -70,4 +70,5 @@ enum class PreferenceClass(val type: String) {
     MODEL("model"),
     AUTH("auth"),
     SYSTEM("system"),
+    AFTER_INSERTION("afterInsertion"),
 }

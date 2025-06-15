@@ -4,6 +4,8 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionEvent
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.patterns.PlatformPatterns.psiFile
+import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getPrefState
@@ -180,9 +182,10 @@ class EditorContextRetrievalModule : PluginModule {
             // TODO: uncomment when the preference storage properly works
             //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.language")?.toBoolean() == true*/true) {
             if (getBooleanPreference(moduleId, PREF_INCLUDE_LANGUAGE, true)) {
-                val languageKey = Record.Companion.key<String>(KEY_CONTEXT_LANGUAGE)
-                expanded[languageKey] = psiFile.language.displayName
-                LOG.trace("Collected language: ${psiFile.language.displayName}")
+                val languageKey = Record.Companion.key<Int>(KEY_CONTEXT_LANGUAGE)
+                val languageId = getConfig().getLanguagesConfig()?.getLanguageId(psiFile.language.displayName)
+                expanded[languageKey] = languageId as Any // getLanguageId returns Int
+                LOG.trace("Collected language: ${psiFile.language.displayName} with ID $languageId")
             }
 
             if (getBooleanPreference(moduleId, PREF_INCLUDE_FILEPATH, true)) {
