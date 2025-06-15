@@ -270,6 +270,7 @@ class ConfigurationSection : SettingsSection {
                 val currentUser = getAppService().getCurrentUser()
                 authState.setUserName(currentUser.user.name)
                 authState.setUserEmail(currentUser.user.email)
+                authState.setVerified(currentUser.user.verified)
                 // if there is a preference and it was updated more than 1 minute ago, load it
                 if (currentUser.user.preference != null
                     && (System.currentTimeMillis() - getPrefState().lastUpdatedTimeStamp) > 60_000) {

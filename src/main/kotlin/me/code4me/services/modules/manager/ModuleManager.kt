@@ -25,14 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Retrieves the ModuleManager service instance for the given project.
  *
- * @param project The IntelliJ project instance
  * @return The ModuleManager service for the project
  */
-@Deprecated("use `getModuleManager` instead")
-fun getModuleManager(project: Project): ModuleManager {
-    return getModuleManager()
-}
-
 fun getModuleManager(): ModuleManager {
     return service<ModuleManager>()
 }
