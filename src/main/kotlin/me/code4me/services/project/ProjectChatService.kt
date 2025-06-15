@@ -33,10 +33,12 @@ class ProjectChatService(
         val chatData = state.chats[chatId] ?: return null
 
         val messages =
-            chatData.messages.map {
-                val role = QueryChatMessageRole.decode(it.role) ?: QueryChatMessageRole.user
-                ChatConverter.roleToSender(role) to it.content!!
-            }
+            chatData.messages
+                .filter { it.content != null }
+                .map {
+                    val role = QueryChatMessageRole.decode(it.role) ?: QueryChatMessageRole.user
+                    ChatConverter.roleToSender(role) to it.content!!
+                }
 
         return ChatSession(
             id = chatId,

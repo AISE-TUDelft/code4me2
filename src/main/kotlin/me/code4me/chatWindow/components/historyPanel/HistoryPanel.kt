@@ -172,7 +172,10 @@ class HistoryPanel(
     fun refresh() {
         contentPanel.removeAll()
         // Exclude empty "New Chat" sessions using the helper method
-        val sessions = sessionManager.getAllSessions().filter { session -> session.messages.size >= 1 }
+        val sessions =
+            sessionManager.getAllSessions().filter { session ->
+                session.messages.any { it.second.isNotBlank() }
+            }
         if (sessions.isEmpty()) {
             contentPanel.add(
                 JLabel("No chat sessions yet").apply {
