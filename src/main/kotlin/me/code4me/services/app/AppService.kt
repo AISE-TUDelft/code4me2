@@ -6,6 +6,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,6 +36,7 @@ import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteChatSuccessResponse
 import me.code4me.api.generated.model.FeedbackCompletion
 import me.code4me.api.generated.model.FileContextChangeData
+import me.code4me.api.generated.model.GetUserGetResponse
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestChatCompletion
 import me.code4me.api.generated.model.RequestCompletion

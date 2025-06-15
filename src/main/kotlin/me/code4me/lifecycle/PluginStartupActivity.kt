@@ -14,9 +14,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import me.code4me.api.generated.model.UpdateMultiFileContext
 import me.code4me.services.app.getAppService
-import me.code4me.services.config.getConfig
-import me.code4me.services.modules.context.MultiFileContextRetrievalModule
 import me.code4me.services.config.ConfigService
+import me.code4me.services.modules.context.MultiFileContextRetrievalModule
 import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.state.getAuthState
@@ -55,7 +54,6 @@ class PluginStartupActivity : ProjectActivity {
         if (authToken != null) {
             thisLogger().info("Acquiring session with stored token")
             try {
-                // First load the config and set the preferences
                 val response = getAppService().getCurrentUser()
 
                 if (!response.user.preference.isNullOrEmpty()) {
@@ -68,31 +66,17 @@ class PluginStartupActivity : ProjectActivity {
                 val configService = ConfigService.fromConfigString(response.config)
                 val instantiatedModules = configService.instantiateModules()
                 LOG.info("Modules instantiated successfully: ${instantiatedModules.size} modules")
-
-                // Get the ModuleManager for this project
                 val moduleManager = getModuleManager()
-                // Store the instantiated modules in the ModuleManager
                 moduleManager.storeModules(instantiatedModules)
 
-                // Initialize all enabled modules
                 moduleManager.initializeModules()
-                startCacheValidation(project)
                 thisLogger().info("Modules initialized successfully.")
 
-        // Register the ProjectCloseListener to save the last chat when a project is closed
-        val connection: MessageBusConnection = project.messageBus.connect()
-        connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
-        thisLogger().info("ProjectCloseListener registered successfully.")
-
-        // if the auth token is set, acquire a session
-        val authToken = getAuthState().getToken()
-        if (authToken != null) {
-            thisLogger().info("Acquiring session with stored token")
-            try {
                 // Acquire session using the stored auth token
                 getAppService().acquireSessionWithStoredToken()
                 thisLogger().info("Session acquired successfully.")
                 activateOrCreateProject(project, thisLogger())
+                startCacheValidation(project)
             } catch (e: Exception) {
                 thisLogger().error("Failed to acquire session with stored token", e)
 
@@ -114,6 +98,11 @@ class PluginStartupActivity : ProjectActivity {
             // Show notification prompting user to login
             project.showLoginRequiredNotification()
         }
+
+        // Register the ProjectCloseListener to save the last chat when a project is closed
+        val connection: MessageBusConnection = project.messageBus.connect()
+        connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
+        thisLogger().info("ProjectCloseListener registered successfully.")
     }
 
     private fun startCacheValidation(project: Project) {
