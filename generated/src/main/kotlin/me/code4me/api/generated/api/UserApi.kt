@@ -527,7 +527,7 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * POST /api/user/reset-password/request
      * Request Password Reset
      * Initiate a password reset request by sending a reset email to the user.  This endpoint generates a secure reset token, stores it in Redis with expiration, and sends an email containing a link to the password reset form.  Parameters: - email (str): The email address of the user requesting password reset - app (App): Application context for accessing services  Returns: - JsonResponseWithStatus: Success confirmation or error response
-     * @param authToken  (optional, default to "")
+     * @param email Email address of the user requesting password reset
      * @return PasswordResetRequestPostResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -537,8 +537,8 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    fun requestPasswordResetApiUserResetPasswordRequestPost(authToken: kotlin.String? = "") : PasswordResetRequestPostResponse {
-        val localVarResponse = requestPasswordResetApiUserResetPasswordRequestPostWithHttpInfo(authToken = authToken)
+    fun requestPasswordResetApiUserResetPasswordRequestPost(email: kotlin.String) : PasswordResetRequestPostResponse {
+        val localVarResponse = requestPasswordResetApiUserResetPasswordRequestPostWithHttpInfo(email = email)
 
         return when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as PasswordResetRequestPostResponse
@@ -559,15 +559,15 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
      * POST /api/user/reset-password/request
      * Request Password Reset
      * Initiate a password reset request by sending a reset email to the user.  This endpoint generates a secure reset token, stores it in Redis with expiration, and sends an email containing a link to the password reset form.  Parameters: - email (str): The email address of the user requesting password reset - app (App): Application context for accessing services  Returns: - JsonResponseWithStatus: Success confirmation or error response
-     * @param authToken  (optional, default to "")
+     * @param email Email address of the user requesting password reset
      * @return ApiResponse<PasswordResetRequestPostResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    fun requestPasswordResetApiUserResetPasswordRequestPostWithHttpInfo(authToken: kotlin.String?) : ApiResponse<PasswordResetRequestPostResponse?> {
-        val localVariableConfig = requestPasswordResetApiUserResetPasswordRequestPostRequestConfig(authToken = authToken)
+    fun requestPasswordResetApiUserResetPasswordRequestPostWithHttpInfo(email: kotlin.String) : ApiResponse<PasswordResetRequestPostResponse?> {
+        val localVariableConfig = requestPasswordResetApiUserResetPasswordRequestPostRequestConfig(email = email)
 
         return request<Unit, PasswordResetRequestPostResponse>(
             localVariableConfig
@@ -577,12 +577,15 @@ class UserApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory = 
     /**
      * To obtain the request config of the operation requestPasswordResetApiUserResetPasswordRequestPost
      *
-     * @param authToken  (optional, default to "")
+     * @param email Email address of the user requesting password reset
      * @return RequestConfig
      */
-    fun requestPasswordResetApiUserResetPasswordRequestPostRequestConfig(authToken: kotlin.String?) : RequestConfig<Unit> {
+    fun requestPasswordResetApiUserResetPasswordRequestPostRequestConfig(email: kotlin.String) : RequestConfig<Unit> {
         val localVariableBody = null
-        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("email", listOf(email.toString()))
+            }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Accept"] = "application/json"
 

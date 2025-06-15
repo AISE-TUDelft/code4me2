@@ -662,6 +662,25 @@ class AppService {
         }
     }
 
+    /**
+     * request a reset of the user's password.
+     * This method sends a password reset request to the Code4Me backend.
+     *
+     * @return true if the request was successful, false otherwise
+     */
+    fun requestPasswordReset(email: String): Boolean {
+        require(email.isNotBlank()) { "Email cannot be blank" }
+
+        try {
+            val response = userApi.requestPasswordResetApiUserResetPasswordRequestPost(email)
+            LOG.info("Password reset requested successfully for user: $email")
+            return true
+        } catch (e: Exception) {
+            LOG.warn("Failed to request password reset for user: $email", e)
+            return false
+        }
+    }
+
 
     // ============ User Verification Methods ============
 

@@ -297,7 +297,7 @@ No authorization required
 
 <a id="requestPasswordResetApiUserResetPasswordRequestPost"></a>
 # **requestPasswordResetApiUserResetPasswordRequestPost**
-> PasswordResetRequestPostResponse requestPasswordResetApiUserResetPasswordRequestPost(authToken)
+> PasswordResetRequestPostResponse requestPasswordResetApiUserResetPasswordRequestPost(email)
 
 Request Password Reset
 
@@ -310,9 +310,9 @@ Initiate a password reset request by sending a reset email to the user.  This en
 //import me.code4me.api.generated.model.*
 
 val apiInstance = UserApi()
-val authToken : kotlin.String = authToken_example // kotlin.String | 
+val email : kotlin.String = email_example // kotlin.String | Email address of the user requesting password reset
 try {
-    val result : PasswordResetRequestPostResponse = apiInstance.requestPasswordResetApiUserResetPasswordRequestPost(authToken)
+    val result : PasswordResetRequestPostResponse = apiInstance.requestPasswordResetApiUserResetPasswordRequestPost(email)
     println(result)
 } catch (e: ClientException) {
     println("4xx response calling UserApi#requestPasswordResetApiUserResetPasswordRequestPost")
@@ -326,7 +326,7 @@ try {
 ### Parameters
 | Name | Type | Description  | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| **authToken** | **kotlin.String**|  | [optional] [default to &quot;&quot;] |
+| **email** | **kotlin.String**| Email address of the user requesting password reset | |
 
 ### Return type
 

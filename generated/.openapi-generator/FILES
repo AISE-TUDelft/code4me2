@@ -69,6 +69,7 @@ docs/PasswordResetError.md
 docs/PasswordResetGetHTMLResponse.md
 docs/PasswordResetRequestPostResponse.md
 docs/ProjectApi.md
+docs/ProjectNotFoundError.md
 docs/Provider.md
 docs/QueryChatMessageRole.md
 docs/QueryNotFoundError.md
@@ -85,6 +86,9 @@ docs/Response401RequestChatCompletionApiChatRequestPost.md
 docs/Response401RequestCompletionApiCompletionRequestPost.md
 docs/Response401SubmitCompletionFeedbackApiCompletionFeedbackPost.md
 docs/Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost.md
+docs/Response404ActivateProjectApiProjectActivatePut.md
+docs/Response404CreateProjectApiProjectCreatePost.md
+docs/Response404DeactivateSessionApiSessionDeactivatePut.md
 docs/ResponseCompletionItem.md
 docs/ResponseCompletionResponseData.md
 docs/ResponseCompletionResponseDataCompletionsInner.md
@@ -93,6 +97,7 @@ docs/ResponseUser.md
 docs/RetrieveChatCompletionsError.md
 docs/RetrieveCompletionsError.md
 docs/SessionApi.md
+docs/SessionNotFoundError.md
 docs/UpdateMultiFileContext.md
 docs/UpdateUser.md
 docs/UpdateUserError.md
@@ -199,6 +204,7 @@ src/main/kotlin/me/code4me/api/generated/model/NoAccessToProvideFeedbackError.kt
 src/main/kotlin/me/code4me/api/generated/model/PasswordResetError.kt
 src/main/kotlin/me/code4me/api/generated/model/PasswordResetGetHTMLResponse.kt
 src/main/kotlin/me/code4me/api/generated/model/PasswordResetRequestPostResponse.kt
+src/main/kotlin/me/code4me/api/generated/model/ProjectNotFoundError.kt
 src/main/kotlin/me/code4me/api/generated/model/Provider.kt
 src/main/kotlin/me/code4me/api/generated/model/QueryChatMessageRole.kt
 src/main/kotlin/me/code4me/api/generated/model/QueryNotFoundError.kt
@@ -215,6 +221,9 @@ src/main/kotlin/me/code4me/api/generated/model/Response401RequestChatCompletionA
 src/main/kotlin/me/code4me/api/generated/model/Response401RequestCompletionApiCompletionRequestPost.kt
 src/main/kotlin/me/code4me/api/generated/model/Response401SubmitCompletionFeedbackApiCompletionFeedbackPost.kt
 src/main/kotlin/me/code4me/api/generated/model/Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost.kt
+src/main/kotlin/me/code4me/api/generated/model/Response404ActivateProjectApiProjectActivatePut.kt
+src/main/kotlin/me/code4me/api/generated/model/Response404CreateProjectApiProjectCreatePost.kt
+src/main/kotlin/me/code4me/api/generated/model/Response404DeactivateSessionApiSessionDeactivatePut.kt
 src/main/kotlin/me/code4me/api/generated/model/ResponseCompletionItem.kt
 src/main/kotlin/me/code4me/api/generated/model/ResponseCompletionResponseData.kt
 src/main/kotlin/me/code4me/api/generated/model/ResponseCompletionResponseDataCompletionsInner.kt
@@ -222,6 +231,7 @@ src/main/kotlin/me/code4me/api/generated/model/ResponseFeedbackResponseData.kt
 src/main/kotlin/me/code4me/api/generated/model/ResponseUser.kt
 src/main/kotlin/me/code4me/api/generated/model/RetrieveChatCompletionsError.kt
 src/main/kotlin/me/code4me/api/generated/model/RetrieveCompletionsError.kt
+src/main/kotlin/me/code4me/api/generated/model/SessionNotFoundError.kt
 src/main/kotlin/me/code4me/api/generated/model/UpdateMultiFileContext.kt
 src/main/kotlin/me/code4me/api/generated/model/UpdateUser.kt
 src/main/kotlin/me/code4me/api/generated/model/UpdateUserError.kt
@@ -232,5 +242,8 @@ src/main/kotlin/me/code4me/api/generated/model/UserToAuthenticate.kt
 src/main/kotlin/me/code4me/api/generated/model/UserToCreate.kt
 src/main/kotlin/me/code4me/api/generated/model/VerifyUserError.kt
 src/main/kotlin/me/code4me/api/generated/model/VerifyUserPostHTMLResponse.kt
-src/test/kotlin/me/code4me/api/generated/model/GetUserErrorTest.kt
-src/test/kotlin/me/code4me/api/generated/model/GetUserGetResponseTest.kt
+src/test/kotlin/me/code4me/api/generated/model/ProjectNotFoundErrorTest.kt
+src/test/kotlin/me/code4me/api/generated/model/Response404ActivateProjectApiProjectActivatePutTest.kt
+src/test/kotlin/me/code4me/api/generated/model/Response404CreateProjectApiProjectCreatePostTest.kt
+src/test/kotlin/me/code4me/api/generated/model/Response404DeactivateSessionApiSessionDeactivatePutTest.kt
+src/test/kotlin/me/code4me/api/generated/model/SessionNotFoundErrorTest.kt

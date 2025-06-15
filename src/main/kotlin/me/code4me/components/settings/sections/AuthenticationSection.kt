@@ -637,20 +637,19 @@ class AuthenticationSection : SettingsSection {
         val email = emailField.text.trim()
 
         try {
-            // TODO: Call the actual password reset API method from AppService
-            // For now, we'll simulate the call
-            // appService.requestPasswordReset(email)
+            val success = appService.requestPasswordReset(email)
 
             // Show success message
-            Messages.showInfoMessage(
-                "A password reset email has been sent to $email. Please check your inbox and follow the instructions to reset your password.",
-                "Password Reset Email Sent"
-            )
-
-            // Switch back to login mode
-            switchToLoginMode()
-
-            LOG.info("Password reset email requested for: $email")
+            if (!success) {
+                showError("Failed to send password reset email. Please check your email address and try again.")
+            } else {
+                Messages.showInfoMessage(
+                    "A password reset email has been sent to $email. Please check your inbox and follow the instructions to reset your password.",
+                    "Password Reset Email Sent"
+                )
+                switchToLoginMode()
+                LOG.info("Password reset email requested for: $email")
+            }
         } catch (e: Exception) {
             LOG.error("Failed to send password reset email", e)
             showError("Failed to send password reset email. Please try again later.")
