@@ -224,4 +224,14 @@ class TextInputComponent(
         textArea.caretPosition = 0
         updateHeight()
     }
+
+    fun setText(value: String) {
+        textArea.text = value
+        textArea.caretPosition = value.length
+    }
+
+    fun focusInput() {
+        textArea.requestFocusInWindow()
+        textArea.caretPosition = textArea.text.length
+    }
 }

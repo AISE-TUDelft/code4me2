@@ -48,6 +48,8 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private var aiJob: Job? = null
     private var regenerateJob: Job? = null
     private var loadingTimer: Timer? = null
+    private var editIndex: Int? = null
+    private var isEditing = false
 
     init {
         setupPanelLayout()
@@ -75,6 +77,9 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             chatDisplayPanel.forceRefresh()
         }
         chatDisplayPanel.onRegenerateFromIndex = { index -> regenerateFromIndex(index) }
+        chatDisplayPanel.onEditUserMessage = { index, message ->
+            enterEditMode(index, message)
+        }
         topBarPanel = createTopBarPanel()
         historyPanel = createHistoryPanel()
 
@@ -188,6 +193,17 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private fun sendMessage() {
         val message = inputPanel.inputText.trim()
         if (message.isEmpty() || sessionManager == null) return
+
+        if (isEditing) {
+            val index = editIndex ?: return
+            val messages = sessionManager!!.currentSession.messages
+            if (editIndex != null && editIndex!! < messages.size) {
+                val retained = messages.take(editIndex!!)
+                messages.clear()
+                messages.addAll(retained)
+            }
+            exitEditMode()
+        }
 
         if (welcomeShown) {
             welcomeShown = false
@@ -408,5 +424,27 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                     saveCurrentSession()
                 }
             }
+    }
+
+    private fun enterEditMode(
+        index: Int,
+        originalText: String,
+    ) {
+        editIndex = index
+        isEditing = true
+        inputPanel.setInputText(originalText)
+        inputPanel.focusInputField()
+        inputPanel.showCancelEditButton {
+            exitEditMode()
+        }
+        chatDisplayPanel.showEditOverlay()
+    }
+
+    private fun exitEditMode() {
+        editIndex = null
+        isEditing = false
+        inputPanel.clearInput()
+        inputPanel.hideCancelEditButton()
+        chatDisplayPanel.hideEditOverlay()
     }
 }

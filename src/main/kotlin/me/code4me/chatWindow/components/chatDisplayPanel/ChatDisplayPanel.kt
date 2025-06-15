@@ -7,18 +7,23 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import me.code4me.chatWindow.components.chatDisplayPanel.components.ChatBubble
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.OverlayLayout
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 
 class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>(BorderLayout()) {
-    var onRegenerateFromIndex: ((Int) -> Unit)? = null
     private val contentPanel =
         JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -32,6 +37,35 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
             add(contentPanel, BorderLayout.NORTH)
         }
 
+    private val editOverlayPanel =
+        object : JPanel(BorderLayout()) {
+            override fun contains(
+                x: Int,
+                y: Int,
+            ): Boolean = true
+
+            override fun paintComponent(g: Graphics) {
+                super.paintComponent(g)
+                val g2 = g.create() as Graphics2D
+                g2.color = Color(0, 0, 0, 120) // 50% opacity black
+                g2.fillRect(0, 0, width, height)
+                g2.dispose()
+            }
+        }.apply {
+            isOpaque = false
+            isVisible = false
+
+            val label = JLabel("Exit edit mode to view chat", JLabel.CENTER)
+            label.foreground = Color.WHITE
+            label.font = Font("SansSerif", Font.BOLD, 16)
+            add(label, BorderLayout.CENTER)
+
+            addMouseListener(
+                object : MouseAdapter() {
+                    override fun mousePressed(e: MouseEvent?) {}
+                },
+            )
+        }
     private val scrollPane =
         JBScrollPane(wrapperPanel).apply {
             verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS
@@ -45,22 +79,44 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
     private var isUpdatingContent = false
     private val activeBubbles = mutableListOf<ChatBubble>()
 
+    var onRegenerateFromIndex: ((Int) -> Unit)? = null
+    var onEditUserMessage: ((index: Int, text: String) -> Unit)? = null
+
     /** Callback invoked when the panel is restored (e.g., minimized → maximized). */
     var onRestore: (() -> Unit)? = null
 
     init {
-        background = Gray._43
-        border = null
-        add(scrollPane, BorderLayout.CENTER)
-
-        scrollPane.verticalScrollBar.addAdjustmentListener { e ->
-            // Only track user scrolling when we're not programmatically updating content
-            if (!isUpdatingContent && !e.valueIsAdjusting) {
-                val scrollBar = scrollPane.verticalScrollBar
-                val maxValue = scrollBar.maximum - scrollBar.visibleAmount
-                userScrolledUp = scrollBar.value < maxValue - 10
+        val layeredWrapper =
+            JPanel().apply {
+                layout = OverlayLayout(this)
+                isOpaque = false
+                background = Color(0, 0, 0, 0) // fully transparent
+                alignmentX = LEFT_ALIGNMENT
+                alignmentY = TOP_ALIGNMENT
             }
-        }
+
+// Set both to fill parent
+        scrollPane.alignmentX = LEFT_ALIGNMENT
+        scrollPane.alignmentY = TOP_ALIGNMENT
+
+        editOverlayPanel.alignmentX = LEFT_ALIGNMENT
+        editOverlayPanel.alignmentY = TOP_ALIGNMENT
+
+// Force overlay panel to match scrollPane size later
+        editOverlayPanel.addComponentListener(
+            object : java.awt.event.ComponentAdapter() {
+                override fun componentResized(e: java.awt.event.ComponentEvent?) {
+                    editOverlayPanel.preferredSize = scrollPane.size
+                    editOverlayPanel.revalidate()
+                    editOverlayPanel.repaint()
+                }
+            },
+        )
+
+        layeredWrapper.add(editOverlayPanel) // overlay added last = on top
+        layeredWrapper.add(scrollPane)
+
+        add(layeredWrapper, BorderLayout.CENTER)
     }
 
     override fun removeNotify() {
@@ -101,6 +157,12 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
                         onRegenerate =
                             if (!isUser) {
                                 { onRegenerateFromIndex?.invoke(index) }
+                            } else {
+                                null
+                            },
+                        onEdit =
+                            if (isUser) {
+                                { onEditUserMessage?.invoke(index, message) }
                             } else {
                                 null
                             },
@@ -201,6 +263,10 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
 
     override fun doLayout() {
         super.doLayout()
+
+        editOverlayPanel.setBounds(0, 0, scrollPane.width, scrollPane.height)
+        editOverlayPanel.revalidate()
+        editOverlayPanel.repaint()
         contentPanel.revalidate()
         contentPanel.repaint()
         scrollPane.revalidate()
@@ -211,5 +277,17 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         if (activeBubbles.isNotEmpty()) {
             activeBubbles.last().updateMessageTextOnly(newText)
         }
+    }
+
+    fun showEditOverlay() {
+        editOverlayPanel.isVisible = true
+        editOverlayPanel.revalidate()
+        editOverlayPanel.repaint()
+    }
+
+    fun hideEditOverlay() {
+        editOverlayPanel.isVisible = false
+        editOverlayPanel.revalidate()
+        editOverlayPanel.repaint()
     }
 }

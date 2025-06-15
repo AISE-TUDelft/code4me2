@@ -45,6 +45,7 @@ class ChatBubble(
     isUser: Boolean,
     private val project: Project,
     private val onRegenerate: (() -> Unit)? = null,
+    private val onEdit: (() -> Unit)? = null,
     private val showRegenerate: Boolean = true,
 ) : JPanel() {
     private val editors = mutableListOf<Editor>()
@@ -66,14 +67,13 @@ class ChatBubble(
 
         val senderPanel =
             JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                layout = BorderLayout()
                 isOpaque = false
                 alignmentX = LEFT_ALIGNMENT
             }
 
         val iconPath: String? =
             when (sender) {
-                // TODO improve when other languages are supported
                 "You" -> "/icons/user_dark.svg"
                 "Code4Me V2" -> "/icons/pluginIcon_chatSize.svg"
                 else -> null
@@ -91,8 +91,33 @@ class ChatBubble(
                 font = Font("SansSerif", Font.BOLD, 12)
             }
 
-        senderPanel.add(iconLabel)
-        senderPanel.add(senderLabel)
+        val leftPanel =
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                isOpaque = false
+                add(iconLabel)
+                add(senderLabel)
+            }
+
+        senderPanel.add(leftPanel, BorderLayout.WEST)
+
+        if (isUser && onEdit != null) {
+            val editButton =
+                JButton("✎").apply {
+                    toolTipText = "Edit this message"
+                    font = Font("SansSerif", Font.PLAIN, 11)
+                    foreground = Color.LIGHT_GRAY
+                    isFocusPainted = false
+                    isContentAreaFilled = false
+                    isBorderPainted = false
+                    isOpaque = false
+                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    border = JBUI.Borders.empty()
+                }
+            editButton.addActionListener { onEdit.invoke() }
+
+            senderPanel.add(editButton, BorderLayout.EAST)
+        }
 
         container.add(senderPanel)
         container.add(Box.createVerticalStrut(4))

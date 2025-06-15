@@ -123,6 +123,22 @@ class InputPanel(
         inputControlsComponent.onStop = action
     }
 
+    fun setInputText(text: String) {
+        textInputComponent.setText(text)
+    }
+
+    fun showCancelEditButton(onCancel: () -> Unit) {
+        inputControlsComponent.showCancelEditButton(onCancel)
+    }
+
+    fun hideCancelEditButton() {
+        inputControlsComponent.hideCancelEditButton()
+    }
+
+    fun focusInputField() {
+        textInputComponent.focusInput()
+    }
+
     val inputText: String get() = textInputComponent.text
 }
 

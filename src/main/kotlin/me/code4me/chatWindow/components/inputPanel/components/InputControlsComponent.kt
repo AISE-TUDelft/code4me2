@@ -25,6 +25,7 @@ class InputControlsComponent(
     private val modelComboBox = ModelComboBox()
     private val sendButton = createSendButton()
     private val stopButton = createStopButton()
+    private var onCancelEdit: (() -> Unit)? = null
     private val leftPanel =
         JPanel().apply {
             background = this@InputControlsComponent.background
@@ -80,6 +81,17 @@ class InputControlsComponent(
             action = onFileAdd,
         )
 
+    private var cancelEditButton =
+        JButton("Cancel").apply {
+            toolTipText = "Cancel editing"
+            isFocusPainted = false
+            isContentAreaFilled = false
+            isBorderPainted = true
+            isOpaque = false
+            foreground = JBColor.foreground()
+            addActionListener { onCancelEdit?.invoke() }
+        }
+
     private fun createWebToggleButton() =
         IconToggleButton(
             tooltip = "Enable web search",
@@ -109,6 +121,26 @@ class InputControlsComponent(
             tooltip = "Stop generation",
             action = { onStop?.invoke() },
         )
+    }
+
+    fun showCancelEditButton(onCancel: () -> Unit) {
+        onCancelEdit = onCancel
+        cancelEditButton.isVisible = true
+        rightPanel.removeAll()
+        rightPanel.add(cancelEditButton)
+        rightPanel.add(Box.createHorizontalStrut(8))
+        rightPanel.add(sendButton)
+        rightPanel.revalidate()
+        rightPanel.repaint()
+    }
+
+    fun hideCancelEditButton() {
+        rightPanel.removeAll()
+        rightPanel.add(sendButton)
+        rightPanel.revalidate()
+        rightPanel.repaint()
+        cancelEditButton.isVisible = false
+        onCancelEdit = null
     }
 
     fun getAddFileButton(): JButton = addFileButton
