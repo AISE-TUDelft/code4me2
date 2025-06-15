@@ -53,9 +53,7 @@ class Code4MeConfigurableComponent {
     /**
      * Section responsible for application configuration and module management.
      */
-    private val configurationSection = lazy {
-        ConfigurationSection()
-    }
+    private var configurationSection: ConfigurationSection? = null
 
     /**
      * Authentication state service for monitoring login status changes.
@@ -110,6 +108,8 @@ class Code4MeConfigurableComponent {
         try {
             // Show appropriate section based on authentication state
             if (authService.getToken().isNullOrBlank()) {
+                // if switched to authentication section, set the configuration section to null
+                configurationSection = null
                 LOG.debug("User not authenticated, showing authentication section")
                 authSettingsSection.applyTo(builder, fieldStates)
 //                authService.setToken("Test Token")
@@ -118,7 +118,10 @@ class Code4MeConfigurableComponent {
             } else {
                 LOG.debug("User authenticated, showing configuration section")
                 // ensure configuration section is initialized
-                configurationSection.value.applyTo(builder, fieldStates)
+                if (configurationSection == null) {
+                    configurationSection = ConfigurationSection()
+                }
+                configurationSection?.applyTo(builder, fieldStates)
             }
 
             // Add separator and fill remaining space

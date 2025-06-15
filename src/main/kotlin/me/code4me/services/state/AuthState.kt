@@ -409,7 +409,7 @@ class AuthSettings : BaseState() {
 
             if (oldVerified != null) {
                 AuthState.removeSecureData(IS_VERIFIED_PROPERTY)
-                isVerified = null
+                isVerified = false
                 propertyChangeSupport.firePropertyChange(IS_VERIFIED_PROPERTY, oldVerified, false)
             }
 
