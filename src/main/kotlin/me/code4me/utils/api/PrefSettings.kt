@@ -85,7 +85,6 @@ fun PrefSettings.fromSerializableMap(data: Map<String, Any>): PrefSettings {
     this.lastUpdatedTimeStamp = System.currentTimeMillis()
     this.isBeingUpdated = false
 
-
     return this
 }
 

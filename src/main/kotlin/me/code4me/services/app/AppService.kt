@@ -5,6 +5,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.ChatApi
 import me.code4me.api.generated.api.CompletionApi
@@ -206,6 +207,14 @@ class AppService {
                 } catch (e: Exception) {
                     thisLogger().error("Failed to initialize modules", e)
                 }
+            }
+
+            // for all of the open projects, we need to set their project token service activated to false
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                // get the project token service for the project
+                val projectTokenService = getProjectTokenService(project)
+                // set the activated state to false
+                projectTokenService.setActivated(false)
             }
 
             // the reason this is moved so far down is because there is a change listener

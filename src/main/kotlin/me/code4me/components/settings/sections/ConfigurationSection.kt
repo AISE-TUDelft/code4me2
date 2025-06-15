@@ -33,7 +33,6 @@ import me.code4me.services.app.AppService
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.manager.ModuleManager
 import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getAuthState
@@ -272,8 +271,9 @@ class ConfigurationSection : SettingsSection {
                 authState.setUserEmail(currentUser.user.email)
                 authState.setVerified(currentUser.user.verified)
                 // if there is a preference and it was updated more than 1 minute ago, load it
-                if (currentUser.user.preference != null
-                    && (System.currentTimeMillis() - getPrefState().lastUpdatedTimeStamp) > 60_000) {
+                if (currentUser.user.preference != null &&
+                    (System.currentTimeMillis() - getPrefState().lastUpdatedTimeStamp) > 60_000
+                ) {
                     getPrefState().fromSerializableMap(currentUser.user.preference!!)
                 }
             } catch (e: Exception) {
@@ -286,7 +286,6 @@ class ConfigurationSection : SettingsSection {
             setupModuleTree()
             LOG.debug("ConfigurationSection initialized")
         }
-
     }
 
     /**

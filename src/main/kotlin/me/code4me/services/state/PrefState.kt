@@ -8,11 +8,9 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.util.xmlb.annotations.MapAnnotation
 import com.intellij.util.xmlb.annotations.Tag
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.settings.Code4MeConfigurable
 import me.code4me.utils.configuration.Preference
 import java.beans.PropertyChangeListener
