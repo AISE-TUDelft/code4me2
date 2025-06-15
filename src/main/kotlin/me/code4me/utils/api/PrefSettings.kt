@@ -57,6 +57,8 @@ fun PrefSettings.toJsonString(): String {
  * @return PrefSettings instance populated with the deserialized data
  */
 fun PrefSettings.fromSerializableMap(data: Map<String, Any>): PrefSettings {
+    this.isBeingUpdated = true
+
     // Update application-wide settings
     (data["store_context"] as? Boolean)?.let { this.storeContext = it }
     (data["store_behavioral_telemetry"] as? Boolean)?.let { this.storeBehavioralTelemetry = it }
@@ -79,6 +81,10 @@ fun PrefSettings.fromSerializableMap(data: Map<String, Any>): PrefSettings {
             }
         }
     }
+
+    this.lastUpdatedTimeStamp = System.currentTimeMillis()
+    this.isBeingUpdated = false
+
 
     return this
 }

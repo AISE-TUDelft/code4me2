@@ -53,7 +53,9 @@ class Code4MeConfigurableComponent {
     /**
      * Section responsible for application configuration and module management.
      */
-    private val configurationSection = ConfigurationSection()
+    private val configurationSection = lazy {
+        ConfigurationSection()
+    }
 
     /**
      * Authentication state service for monitoring login status changes.
@@ -115,7 +117,8 @@ class Code4MeConfigurableComponent {
 //                authService.setUserEmail("<TEST EMAIL>")
             } else {
                 LOG.debug("User authenticated, showing configuration section")
-                configurationSection.applyTo(builder, fieldStates)
+                // ensure configuration section is initialized
+                configurationSection.value.applyTo(builder, fieldStates)
             }
 
             // Add separator and fill remaining space

@@ -173,8 +173,6 @@ class AppService {
 
         return try {
             val response = authApi.authenticateUserApiUserAuthenticatePost(userToAuthenticate)
-            storeAuthenticationResponse(response)
-            LOG.info("User authenticated successfully: $email")
 
             if (!response.user.preference.isNullOrEmpty()) {
                 LOG.info("User preferences found, updating preference state")
@@ -185,24 +183,20 @@ class AppService {
 
             val configService = ConfigService.fromConfigString(response.config)
             val instantiatedModules = configService.instantiateModules()
-            // the reason I did no include the parsing and instantiation of modules in the
-            // parallel thread is because I want to ensure that the modules are
-            // instantiated before the ModuleManager is initialized. and because this process relies
-            // on the response from the authentication API, it needs to be done synchronously
             LOG.info("Modules instantiated successfully: ${instantiatedModules.size} modules")
+
+            // Get the ModuleManager for this project
+            val moduleManager = getModuleManager()
+            // Store the instantiated modules in the ModuleManager
+            moduleManager.storeModules(instantiatedModules)
+
+            // Initialize all enabled modules
+            moduleManager.initializeModules()
+            thisLogger().info("Modules initialized successfully.")
 
             // Execute module initialization on a background thread to avoid blocking the UI
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
-                    // Get the ModuleManager for this project
-                    val moduleManager = getModuleManager()
-                    // Store the instantiated modules in the ModuleManager
-                    moduleManager.storeModules(instantiatedModules)
-
-                    // Initialize all enabled modules
-                    moduleManager.initializeModules()
-                    thisLogger().info("Modules initialized successfully.")
-
                     // after that make sure that the current state of the preferences is updated
                     updateUser(
                         UpdateUser(
@@ -213,6 +207,13 @@ class AppService {
                     thisLogger().error("Failed to initialize modules", e)
                 }
             }
+
+            // the reason this is moved so far down is because there is a change listener
+            // on the auth state values (so the token, user name, and email)
+            // that will update the UI components when the values change
+            // and we want to make sure that the modules are initialized before we store the auth state
+            storeAuthenticationResponse(response)
+            LOG.info("User authenticated successfully: $email")
 
             response
         } catch (e: Exception) {

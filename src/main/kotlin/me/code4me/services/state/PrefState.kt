@@ -60,29 +60,6 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
         private val LOG = thisLogger()
 
         /**
-         * Retrieves all available modules from the active project's ModuleManager.
-         *
-         * This method attempts to find an active project and retrieve its module list.
-         * If no active project is found, it returns an empty list.
-         *
-         * @return List of available [PluginModule] instances, or empty list if none found
-         */
-        fun getAvailableModules(): List<PluginModule> {
-            return try {
-                val activeProject = ProjectManager.getInstance().openProjects.firstOrNull()
-                if (activeProject != null) {
-                    getModuleManager().getAvailableModules()
-                } else {
-                    LOG.warn("No active project found, returning empty module list")
-                    emptyList()
-                }
-            } catch (e: Exception) {
-                LOG.error("Failed to retrieve available modules", e)
-                emptyList()
-            }
-        }
-
-        /**
          * Retrieves the set of currently enabled module IDs.
          *
          * @return HashSet of enabled module IDs, never null but may be empty
@@ -313,6 +290,11 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
  * @since 1.0.0
  */
 class PrefSettings : BaseState() {
+    // ================= APPLICATION-WIDE SETTINGS =================
+    var lastUpdatedTimeStamp by property(0L)
+
+    var isBeingUpdated by property(false)
+
     // ================= APPLICATION SETTINGS =================
 
     var storeContext by property(false)

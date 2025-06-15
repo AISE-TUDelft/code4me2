@@ -33,6 +33,8 @@ import me.code4me.services.app.AppService
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.manager.ModuleManager
+import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
@@ -263,24 +265,27 @@ class ConfigurationSection : SettingsSection {
         if (!getAuthState().isAuthenticated()) {
             LOG.warn("ConfigurationSection initialized without authentication")
             authState.clearUserData()
-        }
-
-        try {
-            val currentUser = getAppService().getCurrentUser()
-            authState.setUserName(currentUser.user.name)
-            authState.setUserEmail(currentUser.user.email)
-            if (currentUser.user.preference != null) {
-                getPrefState().fromSerializableMap(currentUser.user.preference!!)
+        } else {
+            try {
+                val currentUser = getAppService().getCurrentUser()
+                authState.setUserName(currentUser.user.name)
+                authState.setUserEmail(currentUser.user.email)
+                // if there is a preference and it was updated more than 1 minute ago, load it
+                if (currentUser.user.preference != null
+                    && (System.currentTimeMillis() - getPrefState().lastUpdatedTimeStamp) > 60_000) {
+                    getPrefState().fromSerializableMap(currentUser.user.preference!!)
+                }
+            } catch (e: Exception) {
+                // remove user data if fetching fails
+                authState.clearUserData()
+                // rebuild the ui
             }
-        } catch (e: Exception) {
-            // remove user data if fetching fails
-            authState.clearUserData()
-            // rebuild the ui
+
+            initializeFields()
+            setupModuleTree()
+            LOG.debug("ConfigurationSection initialized")
         }
 
-        initializeFields()
-        setupModuleTree()
-        LOG.debug("ConfigurationSection initialized")
     }
 
     /**
@@ -322,7 +327,7 @@ class ConfigurationSection : SettingsSection {
         val rootNode = DefaultMutableTreeNode("Modules")
 
         try {
-            val modules = PrefState.getAvailableModules()
+            val modules = getModuleManager().getAvailableModules()
             LOG.debug("Loading ${modules.size} modules into tree")
 
             modules.forEach { module ->

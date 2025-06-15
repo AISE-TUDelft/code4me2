@@ -56,16 +56,14 @@ class PluginStartupActivity : ProjectActivity {
                 val instantiatedModules = configService.instantiateModules()
                 LOG.info("Modules instantiated successfully: ${instantiatedModules.size} modules")
 
-                ApplicationManager.getApplication().executeOnPooledThread {
-                    try {
-                        val moduleManager = getModuleManager()
-                        moduleManager.storeModules(instantiatedModules)
-                        moduleManager.initializeModules()
-                        thisLogger().info("Modules initialized successfully.")
-                    } catch (e: Exception) {
-                        thisLogger().error("Failed to initialize modules", e)
-                    }
-                }
+                // Get the ModuleManager for this project
+                val moduleManager = getModuleManager()
+                // Store the instantiated modules in the ModuleManager
+                moduleManager.storeModules(instantiatedModules)
+
+                // Initialize all enabled modules
+                moduleManager.initializeModules()
+                thisLogger().info("Modules initialized successfully.")
 
                 getAppService().acquireSessionWithStoredToken()
                 thisLogger().info("Session acquired successfully.")
