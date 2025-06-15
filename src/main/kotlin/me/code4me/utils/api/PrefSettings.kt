@@ -120,6 +120,10 @@ fun PrefSettings.fromJsonString(jsonString: String): PrefSettings {
     return this
 }
 
+fun PrefSettings.updateFromMap(data: Map<String, Any>): PrefSettings {
+    return this.fromSerializableMap(data)
+}
+
 /**
  * Creates a new PrefSettings instance from a serializable map.
  *

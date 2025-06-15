@@ -28,6 +28,7 @@ import me.code4me.api.generated.model.CreateProject
 import me.code4me.api.generated.model.CreateProjectPostResponse
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteChatSuccessResponse
+import me.code4me.api.generated.model.GetUserGetResponse
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestChatCompletion
 import me.code4me.api.generated.model.RequestCompletion
@@ -45,6 +46,7 @@ import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.api.mapsTo
+import me.code4me.utils.api.toSerializableMap
 import me.code4me.utils.record.Record
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -200,6 +202,13 @@ class AppService {
                     // Initialize all enabled modules
                     moduleManager.initializeModules()
                     thisLogger().info("Modules initialized successfully.")
+
+                    // after that make sure that the current state of the preferences is updated
+                    updateUser(
+                        UpdateUser(
+                            preference = getPrefState().toSerializableMap()
+                        )
+                    )
                 } catch (e: Exception) {
                     thisLogger().error("Failed to initialize modules", e)
                 }
@@ -632,6 +641,27 @@ class AppService {
             throw e
         }
     }
+
+    /**
+     * Retrieves the currently authenticated user using the stored auth token.
+     *
+     * @return GetUserGetResponse containing the current user's information
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the request fails due to client-side issues (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun getCurrentUser(): GetUserGetResponse {
+        try {
+            val response =  userApi.getUserFromAuthTokenApiUserGetGet()
+            LOG.info("Current user retrieved successfully: ${response.user.email}")
+            return response
+        } catch (e: Exception) {
+            LOG.warn("Failed to retrieve current user", e)
+            throw e
+        }
+    }
+
 
     // ============ User Verification Methods ============
 

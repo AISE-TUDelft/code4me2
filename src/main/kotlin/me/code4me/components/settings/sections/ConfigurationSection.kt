@@ -30,11 +30,13 @@ import me.code4me.components.settings.fields.ModuleTextPreferenceField
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.app.AppService
+import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
+import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceType
 import java.awt.BorderLayout
@@ -258,6 +260,25 @@ class ConfigurationSection : SettingsSection {
     private val authState = getAuthState()
 
     init {
+        if (!getAuthState().isAuthenticated()) {
+            LOG.warn("ConfigurationSection initialized without authentication")
+            authState.clearUserData()
+        }
+
+        try {
+            val currentUser = getAppService().getCurrentUser()
+            authState.setUserName(currentUser.user.name)
+            authState.setUserEmail(currentUser.user.email)
+            if (currentUser.user.preference != null) {
+                getPrefState().fromSerializableMap(currentUser.user.preference!!)
+            }
+        } catch (e: Exception) {
+            // remove user data if fetching fails
+            authState.clearUserData()
+            // rebuild the ui
+        }
+
+
         initializeFields()
         setupModuleTree()
         LOG.debug("ConfigurationSection initialized")
@@ -1667,6 +1688,7 @@ class ConfigurationSection : SettingsSection {
                 JPanel(GridLayout(2, 1, 5, 5)).apply {
                     add(storeContextField)
                     add(storeContextualTelemetryField)
+                    add(storeBehavioralTelemetryField)
                 }
 
             add(configTitle, BorderLayout.NORTH)

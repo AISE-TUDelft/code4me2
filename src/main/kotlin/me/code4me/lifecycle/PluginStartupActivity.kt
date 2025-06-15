@@ -6,9 +6,16 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.util.messages.MessageBusConnection
+import me.code4me.api.generated.model.UpdateUser
+import me.code4me.services.app.AppService
 import me.code4me.services.app.getAppService
+import me.code4me.services.config.ConfigService
+import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.state.getAuthState
+import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.activateOrCreateProject
+import me.code4me.utils.api.fromSerializableMap
+import me.code4me.utils.api.toSerializableMap
 import me.code4me.utils.notification.showLoginRequiredNotification
 import me.code4me.utils.notification.showTokenInvalidationNotification
 
@@ -25,7 +32,6 @@ class PluginStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
         // Handle authentication and session acquisition
         handleAuthenticationAndSession(project)
-
         // Register the ProjectCloseListener to save the last chat when a project is closed
         val connection: MessageBusConnection = project.messageBus.connect()
         connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
@@ -39,7 +45,31 @@ class PluginStartupActivity : ProjectActivity {
         if (authToken != null) {
             thisLogger().info("Acquiring session with stored token")
             try {
-                // Acquire session using the stored auth token
+                // First load the config and set the preferences
+                val response = getAppService().getCurrentUser()
+
+                if (!response.user.preference.isNullOrEmpty()) {
+                    LOG.info("User preferences found, updating preference state")
+                    getPrefState().fromSerializableMap(response.user.preference!!)
+                } else {
+                    LOG.info("No user preferences found, using default preference state")
+                }
+
+                val configService = ConfigService.fromConfigString(response.config)
+                val instantiatedModules = configService.instantiateModules()
+                LOG.info("Modules instantiated successfully: ${instantiatedModules.size} modules")
+
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    try {
+                        val moduleManager = getModuleManager()
+                        moduleManager.storeModules(instantiatedModules)
+                        moduleManager.initializeModules()
+                        thisLogger().info("Modules initialized successfully.")
+                    } catch (e: Exception) {
+                        thisLogger().error("Failed to initialize modules", e)
+                    }
+                }
+
                 getAppService().acquireSessionWithStoredToken()
                 thisLogger().info("Session acquired successfully.")
                 activateOrCreateProject(project, thisLogger())
@@ -61,7 +91,6 @@ class PluginStartupActivity : ProjectActivity {
             }
         } else {
             thisLogger().warn("No authentication token found. Skipping session acquisition.")
-
             // Show notification prompting user to login
             project.showLoginRequiredNotification()
         }
