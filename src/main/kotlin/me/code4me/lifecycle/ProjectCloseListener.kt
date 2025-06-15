@@ -6,6 +6,7 @@ import com.intellij.openapi.project.ProjectManagerListener
 import me.code4me.services.app.getAppService
 import me.code4me.services.project.getProjectChatService
 import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.state.getAuthState
 
 /**
  * Listener for project closing events.
@@ -23,7 +24,9 @@ class ProjectCloseListener : ProjectManagerListener {
         thisLogger().info("Project closing: ${project.name}")
 
         try {
-            getAppService().deactivateSession()
+            if (getAuthState().isAuthenticated()) {
+                getAppService().deactivateSession()
+            }
         } catch (e: Exception) {
             thisLogger().error("Failed to deactivate session for project: ${project.name}", e)
         }

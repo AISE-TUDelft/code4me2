@@ -1,13 +1,19 @@
 package me.code4me.services.app
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.ChatApi
 import me.code4me.api.generated.api.CompletionApi
 import me.code4me.api.generated.api.DeactivateSessionApi
+import me.code4me.api.generated.api.MultiFileContextApi
 import me.code4me.api.generated.api.ProjectApi
 import me.code4me.api.generated.api.SessionApi
 import me.code4me.api.generated.api.UserApi
@@ -28,20 +34,25 @@ import me.code4me.api.generated.model.CreateProjectPostResponse
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteChatSuccessResponse
 import me.code4me.api.generated.model.FeedbackCompletion
+import me.code4me.api.generated.model.FileContextChangeData
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestChatCompletion
 import me.code4me.api.generated.model.RequestCompletion
 import me.code4me.api.generated.model.ResponseCompletionResponseData
+import me.code4me.api.generated.model.UpdateMultiFileContext
 import me.code4me.api.generated.model.UpdateUser
 import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
 import me.code4me.services.config.getConfig
+import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.mapsTo
 import me.code4me.utils.record.Record
+import toApiModel
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -100,6 +111,10 @@ class AppService {
     private val userVerificationApi = UserVerificationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val deactivateSessionApi =
         DeactivateSessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val multiFileContextApi =
+        MultiFileContextApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val fileSnapshotCache = mutableMapOf<String, String>()
+    val fileHashes = mutableMapOf<String, Int>()
 
     // Chat API with extended timeout configuration
     private val chatApi = ChatApi(apiBaseUrl, chatHttpClient)
@@ -779,48 +794,100 @@ class AppService {
      * @see Record.Type.BEHAVIORAL_TELEMETRY
      * @see Record.type.CONTEXTUAL_TELEMETRY
      */
-    fun getInlineCompletion(
+    suspend fun getInlineCompletion(
         aggregatedCollectedData: Map<Record.Type, Map<String, Any>>,
         project: Project,
-    ): ResponseCompletionResponseData? {
-        require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
+    ): ResponseCompletionResponseData? =
+        withContext(Dispatchers.IO) {
+            require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
 
-        // set the current project for generation
-        currentGenerationProject.set(project)
+            currentGenerationProject.set(project)
+            val modelId =
+                getConfig().getModelsConfiguration()
+                    ?.getModelIdByName(
+                        aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default",
+                    )
 
-        // model selection
-        val modelId =
-            getConfig().getModelsConfiguration()
-                ?.getModelIdByName(aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default")
+            val rawContext = aggregatedCollectedData[Record.Type.CONTEXT]?.toMutableMap() ?: error("Missing CONTEXT")
+            val context = rawContext.mapsTo<ContextData>(ContextData::class.java)
 
-        val requestCompletion =
-            RequestCompletion(
-                modelIds = listOfNotNull(modelId),
-                context =
-                    (aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
-                        ContextData::class.java,
-                    ),
-                behavioralTelemetry =
-                    (aggregatedCollectedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
-                        .mapsTo<BehavioralTelemetryData>(
-                            BehavioralTelemetryData::class.java,
-                        ),
-                contextualTelemetry =
-                    (aggregatedCollectedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
-                        .mapsTo<ContextualTelemetryData>(
-                            ContextualTelemetryData::class.java,
-                        ),
-            )
+            val multiFileDiffs: MutableMap<String, List<FileContextChangeData>> = mutableMapOf()
 
+            val relativePaths =
+                (rawContext["multi_file_context.paths"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+
+            val basePath = project.basePath ?: return@withContext null
+            val contextService = getProjectMultiFileContextService(project)
+            val changedFiles = mutableMapOf<String, String>()
+            withContext(Dispatchers.Default) {
+                for (relPath in relativePaths) {
+                    val fullPath = "$basePath${File.separator}$relPath".replace("/", File.separator)
+                    val virtualFile = LocalFileSystem.getInstance().findFileByPath(fullPath) ?: continue
+                    val newText =
+                        ApplicationManager.getApplication().runReadAction<String?> {
+                            FileDocumentManager.getInstance().getDocument(virtualFile)?.text
+                        } ?: continue
+                    contextService.saveInitialSnapshotIfMissing(fullPath, newText)
+
+                    val changes = contextService.updateFileContent(fullPath, newText)
+                    if (changes.isNotEmpty()) {
+                        multiFileDiffs[relPath] = changes.map { it.toApiModel() }
+                        changedFiles[fullPath] = newText
+                    }
+                }
+            }
+
+            if (multiFileDiffs.isNotEmpty()) {
+                val update = UpdateMultiFileContext(contextUpdates = multiFileDiffs)
+                val sent = sendMultiFileContextUpdate(update)
+
+                if (sent) {
+                    // update local cache once the server confirms the update
+                    changedFiles.forEach { (path, text) ->
+                        contextService.writeCache(path, text)
+                    }
+                } else {
+                    LOG.warn("Failed to send multi-file context updates")
+                }
+            }
+
+            rawContext["context_files"] = relativePaths
+            val requestCompletion =
+                RequestCompletion(
+                    modelIds = listOfNotNull(modelId),
+                    context = rawContext.mapsTo(ContextData::class.java),
+                    behavioralTelemetry =
+                        (aggregatedCollectedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
+                            .mapsTo<BehavioralTelemetryData>(
+                                BehavioralTelemetryData::class.java,
+                            ),
+                    contextualTelemetry =
+                        (aggregatedCollectedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
+                            .mapsTo<ContextualTelemetryData>(
+                                ContextualTelemetryData::class.java,
+                            ),
+                )
+
+            try {
+                val response = completionApi.requestCompletionApiCompletionRequestPost(requestCompletion)
+                LOG.debug("Inline completion request successful")
+                response.data
+            } catch (e: Exception) {
+                LOG.warn("Failed to get inline completion", e)
+                null
+            } finally {
+                currentGenerationProject.set(null)
+            }
+        }
+
+    fun sendMultiFileContextUpdate(update: UpdateMultiFileContext): Boolean {
         return try {
-            val response = completionApi.requestCompletionApiCompletionRequestPost(requestCompletion)
-            LOG.debug("Inline completion request successful")
-            response.data
+            multiFileContextApi.updateMultiFileContextApiCompletionMultiFileContextUpdatePost(update)
+            LOG.debug("Multi-file context update sent successfully.")
+            true
         } catch (e: Exception) {
-            LOG.warn("Failed to get inline completion", e)
-            null
-        } finally {
-            currentGenerationProject.set(null)
+            LOG.warn("Failed to send multi-file context update", e)
+            false
         }
     }
 

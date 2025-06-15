@@ -5,11 +5,23 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.util.messages.MessageBusConnection
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import me.code4me.api.generated.model.UpdateMultiFileContext
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
+import me.code4me.services.modules.context.MultiFileContextRetrievalModule
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.activateOrCreateProject
+import toApiModel
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Project activity that initializes modules at startup.
@@ -19,6 +31,8 @@ import me.code4me.utils.api.activateOrCreateProject
  * before modules are initialized.
  */
 class PluginStartupActivity : ProjectActivity {
+    private val LOG = thisLogger()
+
     override suspend fun execute(project: Project) {
         // Ensure ConfigService is loaded
         val configService = getConfig()
@@ -34,6 +48,8 @@ class PluginStartupActivity : ProjectActivity {
 
         // Initialize all enabled modules
         moduleManager.initializeModules()
+
+        startCacheValidation(project)
 
         thisLogger().info("Modules initialized successfully.")
 
@@ -56,6 +72,61 @@ class PluginStartupActivity : ProjectActivity {
             }
         } else {
             thisLogger().warn("No authentication token found. Skipping session acquisition.")
+        }
+    }
+
+    private fun startCacheValidation(project: Project) {
+        val contextService = getProjectMultiFileContextService(project)
+        val appService = getAppService()
+        val basePath = project.basePath ?: return
+
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            LOG.info("Cache validation coroutine started")
+            while (isActive) {
+                // TODO choose a better interval, potentially use a config value
+                delay(TimeUnit.MINUTES.toMillis(1))
+
+                val cacheDir = contextService.contextCacheDir
+                val cachedFiles = cacheDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".xml") } ?: continue
+
+                for (cacheFile in cachedFiles) {
+                    val sanitizedName = cacheFile.name
+                    val originalPath = contextService.getMappedPath(sanitizedName)
+
+                    if (originalPath == null) {
+                        continue
+                    }
+                    val actualFile = File(originalPath)
+
+                    LOG.info("Checking file existence: $originalPath — exists=${actualFile.exists()}")
+
+                    if (!actualFile.exists()) {
+                        val lines = cacheFile.readLines()
+                        val diff =
+                            listOf(
+                                MultiFileContextRetrievalModule.FileContextChangeData(
+                                    changeType = "delete",
+                                    startLine = 0,
+                                    endLine = lines.size,
+                                    newLines = emptyList(),
+                                ).toApiModel(),
+                            )
+
+                        val relativePath = originalPath.removePrefix(basePath).removePrefix(File.separator)
+                        val update = UpdateMultiFileContext(contextUpdates = mapOf(relativePath to diff))
+                        LOG.info("File deleted, sending update: $relativePath")
+
+                        try {
+                            appService.sendMultiFileContextUpdate(update)
+                            cacheFile.delete()
+                            // TODO check if it's worth it to remove the mapping (optimization)
+                            contextService.removeMapping(cacheFile.name)
+                        } catch (e: Exception) {
+                            thisLogger().warn("Failed to send delete diff for missing file: $relativePath", e)
+                        }
+                    }
+                }
+            }
         }
     }
 }
