@@ -45,7 +45,6 @@ All URIs are relative to *http://localhost*
 
 | Class | Method | HTTP request | Description |
 | ------------ | ------------- | ------------- | ------------- |
-| *AcquireSessionApi* | [**acquireSessionApiSessionAcquireGet**](docs/AcquireSessionApi.md#acquiresessionapisessionacquireget) | **GET** /api/session/acquire | Acquire Session |
 | *AuthenticationApi* | [**authenticateUserApiUserAuthenticatePost**](docs/AuthenticationApi.md#authenticateuserapiuserauthenticatepost) | **POST** /api/user/authenticate | Authenticate User |
 | *ChatApi* | [**deleteChatApiChatDeleteChatIdDelete**](docs/ChatApi.md#deletechatapichatdeletechatiddelete) | **DELETE** /api/chat/delete/{chat_id} | Delete Chat |
 | *ChatApi* | [**getChatHistoryApiChatGetPageNumberGet**](docs/ChatApi.md#getchathistoryapichatgetpagenumberget) | **GET** /api/chat/get/{page_number} | Get Chat History |
@@ -53,7 +52,6 @@ All URIs are relative to *http://localhost*
 | *CompletionApi* | [**getCompletionsByQueryApiCompletionQueryIdGet**](docs/CompletionApi.md#getcompletionsbyqueryapicompletionqueryidget) | **GET** /api/completion/{query_id} | Get Completions By Query |
 | *CompletionApi* | [**requestCompletionApiCompletionRequestPost**](docs/CompletionApi.md#requestcompletionapicompletionrequestpost) | **POST** /api/completion/request | Request Completion |
 | *CompletionApi* | [**submitCompletionFeedbackApiCompletionFeedbackPost**](docs/CompletionApi.md#submitcompletionfeedbackapicompletionfeedbackpost) | **POST** /api/completion/feedback | Submit Completion Feedback |
-| *DeactivateSessionApi* | [**deactivateSessionApiSessionDeactivatePut**](docs/DeactivateSessionApi.md#deactivatesessionapisessiondeactivateput) | **PUT** /api/session/deactivate/ | Deactivate Session |
 | *DefaultApi* | [**pingApiPingHead**](docs/DefaultApi.md#pingapipinghead) | **HEAD** /api/ping | Ping |
 | *MultiFileContextApi* | [**updateMultiFileContextApiCompletionMultiFileContextUpdatePost**](docs/MultiFileContextApi.md#updatemultifilecontextapicompletionmultifilecontextupdatepost) | **POST** /api/completion/multi-file-context/update | Update Multi File Context |
 | *ProjectApi* | [**activateProjectApiProjectActivatePut**](docs/ProjectApi.md#activateprojectapiprojectactivateput) | **PUT** /api/project/activate | Activate Project |
@@ -64,7 +62,11 @@ All URIs are relative to *http://localhost*
 | *UserApi* | [**checkVerificationApiUserVerifyCheckGet**](docs/UserApi.md#checkverificationapiuserverifycheckget) | **GET** /api/user/verify/check | Check Verification |
 | *UserApi* | [**createUserApiUserCreatePost**](docs/UserApi.md#createuserapiusercreatepost) | **POST** /api/user/create | Create User |
 | *UserApi* | [**deleteUserApiUserDeleteDelete**](docs/UserApi.md#deleteuserapiuserdeletedelete) | **DELETE** /api/user/delete | Delete User |
+| *UserApi* | [**getUserFromAuthTokenApiUserGetGet**](docs/UserApi.md#getuserfromauthtokenapiusergetget) | **GET** /api/user/get | Get User From Auth Token |
+| *UserApi* | [**getUserFromAuthTokenApiUserGetGet_0**](docs/UserApi.md#getuserfromauthtokenapiusergetget_0) | **GET** /api/user/get | Get User From Auth Token |
+| *UserApi* | [**requestPasswordResetApiUserResetPasswordRequestPost**](docs/UserApi.md#requestpasswordresetapiuserresetpasswordrequestpost) | **POST** /api/user/reset-password/request | Request Password Reset |
 | *UserApi* | [**resendVerificationEmailApiUserVerifyResendPost**](docs/UserApi.md#resendverificationemailapiuserverifyresendpost) | **POST** /api/user/verify/resend | Resend Verification Email |
+| *UserApi* | [**showPasswordResetFormApiUserResetPasswordGet**](docs/UserApi.md#showpasswordresetformapiuserresetpasswordget) | **GET** /api/user/reset-password/ | Show Password Reset Form |
 | *UserApi* | [**updateUserApiUserUpdatePut**](docs/UserApi.md#updateuserapiuserupdateput) | **PUT** /api/user/update | Update User |
 | *UserApi* | [**verifyEmailApiUserVerifyPost**](docs/UserApi.md#verifyemailapiuserverifypost) | **POST** /api/user/verify/ | Verify Email |
 | *UserVerificationApi* | [**checkVerificationApiUserVerifyCheckGet**](docs/UserVerificationApi.md#checkverificationapiuserverifycheckget) | **GET** /api/user/verify/check | Check Verification |
@@ -120,18 +122,25 @@ All URIs are relative to *http://localhost*
  - [me.code4me.api.generated.model.GenerateChatCompletionsError](docs/GenerateChatCompletionsError.md)
  - [me.code4me.api.generated.model.GenerateCompletionsError](docs/GenerateCompletionsError.md)
  - [me.code4me.api.generated.model.GenerationNotFoundError](docs/GenerationNotFoundError.md)
+ - [me.code4me.api.generated.model.GetUserError](docs/GetUserError.md)
+ - [me.code4me.api.generated.model.GetUserGetResponse](docs/GetUserGetResponse.md)
  - [me.code4me.api.generated.model.GetVerificationError](docs/GetVerificationError.md)
  - [me.code4me.api.generated.model.GetVerificationGetResponse](docs/GetVerificationGetResponse.md)
  - [me.code4me.api.generated.model.InvalidEmailOrPassword](docs/InvalidEmailOrPassword.md)
  - [me.code4me.api.generated.model.InvalidOrExpiredAuthToken](docs/InvalidOrExpiredAuthToken.md)
  - [me.code4me.api.generated.model.InvalidOrExpiredJWTToken](docs/InvalidOrExpiredJWTToken.md)
  - [me.code4me.api.generated.model.InvalidOrExpiredProjectToken](docs/InvalidOrExpiredProjectToken.md)
+ - [me.code4me.api.generated.model.InvalidOrExpiredResetToken](docs/InvalidOrExpiredResetToken.md)
  - [me.code4me.api.generated.model.InvalidOrExpiredSessionToken](docs/InvalidOrExpiredSessionToken.md)
  - [me.code4me.api.generated.model.InvalidOrExpiredVerificationToken](docs/InvalidOrExpiredVerificationToken.md)
  - [me.code4me.api.generated.model.MultiFileContextUpdateError](docs/MultiFileContextUpdateError.md)
  - [me.code4me.api.generated.model.MultiFileContextUpdatePostResponse](docs/MultiFileContextUpdatePostResponse.md)
  - [me.code4me.api.generated.model.NoAccessToGetQueryError](docs/NoAccessToGetQueryError.md)
  - [me.code4me.api.generated.model.NoAccessToProvideFeedbackError](docs/NoAccessToProvideFeedbackError.md)
+ - [me.code4me.api.generated.model.PasswordResetError](docs/PasswordResetError.md)
+ - [me.code4me.api.generated.model.PasswordResetGetHTMLResponse](docs/PasswordResetGetHTMLResponse.md)
+ - [me.code4me.api.generated.model.PasswordResetRequestPostResponse](docs/PasswordResetRequestPostResponse.md)
+ - [me.code4me.api.generated.model.ProjectNotFoundError](docs/ProjectNotFoundError.md)
  - [me.code4me.api.generated.model.Provider](docs/Provider.md)
  - [me.code4me.api.generated.model.QueryChatMessageRole](docs/QueryChatMessageRole.md)
  - [me.code4me.api.generated.model.QueryNotFoundError](docs/QueryNotFoundError.md)
@@ -148,6 +157,9 @@ All URIs are relative to *http://localhost*
  - [me.code4me.api.generated.model.Response401RequestCompletionApiCompletionRequestPost](docs/Response401RequestCompletionApiCompletionRequestPost.md)
  - [me.code4me.api.generated.model.Response401SubmitCompletionFeedbackApiCompletionFeedbackPost](docs/Response401SubmitCompletionFeedbackApiCompletionFeedbackPost.md)
  - [me.code4me.api.generated.model.Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost](docs/Response401UpdateMultiFileContextApiCompletionMultiFileContextUpdatePost.md)
+ - [me.code4me.api.generated.model.Response404ActivateProjectApiProjectActivatePut](docs/Response404ActivateProjectApiProjectActivatePut.md)
+ - [me.code4me.api.generated.model.Response404CreateProjectApiProjectCreatePost](docs/Response404CreateProjectApiProjectCreatePost.md)
+ - [me.code4me.api.generated.model.Response404DeactivateSessionApiSessionDeactivatePut](docs/Response404DeactivateSessionApiSessionDeactivatePut.md)
  - [me.code4me.api.generated.model.ResponseCompletionItem](docs/ResponseCompletionItem.md)
  - [me.code4me.api.generated.model.ResponseCompletionResponseData](docs/ResponseCompletionResponseData.md)
  - [me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner](docs/ResponseCompletionResponseDataCompletionsInner.md)
@@ -155,6 +167,7 @@ All URIs are relative to *http://localhost*
  - [me.code4me.api.generated.model.ResponseUser](docs/ResponseUser.md)
  - [me.code4me.api.generated.model.RetrieveChatCompletionsError](docs/RetrieveChatCompletionsError.md)
  - [me.code4me.api.generated.model.RetrieveCompletionsError](docs/RetrieveCompletionsError.md)
+ - [me.code4me.api.generated.model.SessionNotFoundError](docs/SessionNotFoundError.md)
  - [me.code4me.api.generated.model.UpdateMultiFileContext](docs/UpdateMultiFileContext.md)
  - [me.code4me.api.generated.model.UpdateUser](docs/UpdateUser.md)
  - [me.code4me.api.generated.model.UpdateUserError](docs/UpdateUserError.md)

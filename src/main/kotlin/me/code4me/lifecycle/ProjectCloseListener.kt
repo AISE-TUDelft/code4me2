@@ -31,11 +31,7 @@ class ProjectCloseListener : ProjectManagerListener {
             thisLogger().error("Failed to deactivate session for project: ${project.name}", e)
         }
 
-        try {
-            getProjectTokenService(project).setActivated(false)
-        } catch (e: Exception) {
-            thisLogger().error("Failed to deactivate project token for project: ${project.name}", e)
-        }
+        getProjectTokenService(project).setActivated(false)
 
         try {
             // Get the ProjectChatService for this project

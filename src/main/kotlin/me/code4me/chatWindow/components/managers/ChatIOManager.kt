@@ -70,7 +70,7 @@ class ChatIOManager {
                             )
 
                         // Get the module manager for the current project
-                        val moduleManager = getModuleManager(project)
+                        val moduleManager = getModuleManager()
 
                         // Collect data from all registered modules
                         val collectedData = moduleManager.collectData(mockRequest)
