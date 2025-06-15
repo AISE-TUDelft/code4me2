@@ -87,7 +87,7 @@ class PluginStartupActivity : ProjectActivity {
                 delay(TimeUnit.MINUTES.toMillis(1))
 
                 val cacheDir = contextService.contextCacheDir
-                val cachedFiles = cacheDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".meta") } ?: continue
+                val cachedFiles = cacheDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".xml") } ?: continue
 
                 for (cacheFile in cachedFiles) {
                     val sanitizedName = cacheFile.name
