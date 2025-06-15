@@ -7,7 +7,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.project.Project
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -26,11 +25,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * Retrieves the ModuleManager service instance for the given project.
  *
- * @param project The IntelliJ project instance
  * @return The ModuleManager service for the project
  */
-fun getModuleManager(project: Project): ModuleManager {
-    return project.service<ModuleManager>()
+fun getModuleManager(): ModuleManager {
+    return service<ModuleManager>()
 }
 
 /**
@@ -46,11 +44,10 @@ fun getModuleManager(project: Project): ModuleManager {
  * This service operates at the project level, ensuring each IntelliJ project
  * has its own isolated module management context.
  *
- * @param project The IntelliJ project this manager is associated with
  * @since 1.0.0
  */
-@Service(Service.Level.PROJECT)
-class ModuleManager(private val project: Project) : PluginModule {
+@Service
+class ModuleManager : PluginModule {
     companion object {
         private val LOG = thisLogger()
     }

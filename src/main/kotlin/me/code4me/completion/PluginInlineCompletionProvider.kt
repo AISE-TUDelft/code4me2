@@ -12,6 +12,7 @@ import com.intellij.openapi.diagnostic.Logger
 import me.code4me.services.app.AppService
 import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
@@ -40,7 +41,7 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
         val requestId = request.requestId
 
         // get the module manager given the editor
-        val moduleManager = getModuleManager(request.editor.project!!)
+        val moduleManager = getModuleManager()
         val aggregatedCollectedData =
             moduleManager
                 .collectData(request)
@@ -76,6 +77,6 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
         get() = InlineCompletionProviderID("Code4Me V2")
 
     override fun isEnabled(event: InlineCompletionEvent): Boolean {
-        return true
+        return getAuthState().isAuthenticated()
     }
 }

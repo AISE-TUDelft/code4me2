@@ -1,5 +1,6 @@
 package me.code4me.components.settings.sections
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.ui.ComboBox
@@ -29,11 +30,14 @@ import me.code4me.components.settings.fields.ModuleTextPreferenceField
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.app.AppService
+import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
+import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceType
 import java.awt.BorderLayout
@@ -104,27 +108,9 @@ class ConfigurationSection : SettingsSection {
     /**
      * Checkbox for controlling completion data storage.
      */
-    private val storeCompletionField =
+    private val storeContextField =
         JBCheckBox("Store Completions").apply {
             toolTipText = "Enable storage of code completion data for analytics and improvements"
-        }
-
-    private val storeCompletionFieldSVF =
-        object : ToggleButtonField(storeCompletionField) {
-            override fun getStateValue(): Boolean = getPrefState().storeCompletions
-
-            override fun setStateValue(value: Boolean) {
-                storeCompletionField.isSelected = value
-                getPrefState().storeCompletions = value
-            }
-        }
-
-    /**
-     * Checkbox for controlling context data storage.
-     */
-    private val storeContextField =
-        JBCheckBox("Store Context").apply {
-            toolTipText = "Enable storage of code context data for enhanced completions"
         }
 
     private val storeContextFieldSVF =
@@ -134,6 +120,42 @@ class ConfigurationSection : SettingsSection {
             override fun setStateValue(value: Boolean) {
                 storeContextField.isSelected = value
                 getPrefState().storeContext = value
+            }
+        }
+
+    /**
+     * Checkbox for controlling context data storage.
+     */
+    private val storeContextualTelemetryField =
+        JBCheckBox("Store contextual telemetry").apply {
+            toolTipText = "Enable storage of contextual telemetry data for enhanced completions"
+        }
+
+    private val storeContextualTelemetryFieldSVF =
+        object : ToggleButtonField(storeContextualTelemetryField) {
+            override fun getStateValue(): Boolean = getPrefState().storeContextualTelemetry
+
+            override fun setStateValue(value: Boolean) {
+                storeContextualTelemetryField.isSelected = value
+                getPrefState().storeContextualTelemetry = value
+            }
+        }
+
+    /**
+     * Checkbox for controlling context data storage.
+     */
+    private val storeBehavioralTelemetryField =
+        JBCheckBox("Store behavioral telemetry").apply {
+            toolTipText = "Enable storage of code context data for enhanced completions"
+        }
+
+    private val storeBehavioralTelemetryFieldSVF =
+        object : ToggleButtonField(storeBehavioralTelemetryField) {
+            override fun getStateValue(): Boolean = getPrefState().storeBehavioralTelemetry
+
+            override fun setStateValue(value: Boolean) {
+                storeBehavioralTelemetryField.isSelected = value
+                getPrefState().storeBehavioralTelemetry = value
             }
         }
 
@@ -239,9 +261,31 @@ class ConfigurationSection : SettingsSection {
     private val authState = getAuthState()
 
     init {
-        initializeFields()
-        setupModuleTree()
-        LOG.debug("ConfigurationSection initialized")
+        if (!getAuthState().isAuthenticated()) {
+            LOG.warn("ConfigurationSection initialized without authentication")
+            authState.clearUserData()
+        } else {
+            try {
+                val currentUser = getAppService().getCurrentUser()
+                authState.setUserName(currentUser.user.name)
+                authState.setUserEmail(currentUser.user.email)
+                authState.setVerified(currentUser.user.verified)
+                // if there is a preference and it was updated more than 1 minute ago, load it
+                if (currentUser.user.preference != null &&
+                    (System.currentTimeMillis() - getPrefState().lastUpdatedTimeStamp) > 60_000
+                ) {
+                    getPrefState().fromSerializableMap(currentUser.user.preference!!)
+                }
+            } catch (e: Exception) {
+                // remove user data if fetching fails
+                authState.clearUserData()
+                // rebuild the ui
+            }
+
+            initializeFields()
+            setupModuleTree()
+            LOG.debug("ConfigurationSection initialized")
+        }
     }
 
     /**
@@ -249,8 +293,9 @@ class ConfigurationSection : SettingsSection {
      */
     private fun initializeFields() {
         val prefState = getPrefState()
-        storeCompletionField.isSelected = prefState.storeCompletions
         storeContextField.isSelected = prefState.storeContext
+        storeContextualTelemetryField.isSelected = prefState.storeContextualTelemetry
+        storeBehavioralTelemetryField.isSelected = prefState.storeBehavioralTelemetry
     }
 
     /**
@@ -282,7 +327,7 @@ class ConfigurationSection : SettingsSection {
         val rootNode = DefaultMutableTreeNode("Modules")
 
         try {
-            val modules = PrefState.getAvailableModules()
+            val modules = getModuleManager().getAvailableModules()
             LOG.debug("Loading ${modules.size} modules into tree")
 
             modules.forEach { module ->
@@ -1201,8 +1246,9 @@ class ConfigurationSection : SettingsSection {
         // Register application preference fields
         stateValueFields.addAll(
             listOf(
-                storeCompletionFieldSVF,
                 storeContextFieldSVF,
+                storeContextualTelemetryFieldSVF,
+                storeBehavioralTelemetryFieldSVF,
             ),
         )
 
@@ -1644,8 +1690,9 @@ class ConfigurationSection : SettingsSection {
 
             val optionsPanel =
                 JPanel(GridLayout(2, 1, 5, 5)).apply {
-                    add(storeCompletionField)
                     add(storeContextField)
+                    add(storeContextualTelemetryField)
+                    add(storeBehavioralTelemetryField)
                 }
 
             add(configTitle, BorderLayout.NORTH)
@@ -1710,7 +1757,14 @@ class ConfigurationSection : SettingsSection {
      */
     private fun handleSignOut() {
         try {
-            authState.clearUserData()
+            ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    authState.clearUserData()
+                    LOG.info("User data cleared successfully during sign out")
+                } catch (e: Exception) {
+                    LOG.error("Failed to clear user data during sign out", e)
+                }
+            }
             appService.deactivateSession()
             Messages.showInfoMessage(
                 "You have been signed out successfully.",

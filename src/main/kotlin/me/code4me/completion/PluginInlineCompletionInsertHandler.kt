@@ -14,7 +14,7 @@ class PluginInlineCompletionInsertHandler : InlineCompletionInsertHandler {
         // TODO : Implement the afterInsertion logic, for now only calling the super method
         DefaultInlineCompletionInsertHandler.INSTANCE.afterInsertion(environment, elements)
 
-        val moduleManager = getModuleManager(environment.editor.project!!)
+        val moduleManager = getModuleManager()
         val aggregatedCollectedData =
             moduleManager
                 .afterInsertion(

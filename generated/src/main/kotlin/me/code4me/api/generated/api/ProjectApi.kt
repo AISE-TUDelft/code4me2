@@ -28,6 +28,8 @@ import me.code4me.api.generated.model.CreateProjectPostResponse
 import me.code4me.api.generated.model.ErrorResponse
 import me.code4me.api.generated.model.Response401ActivateProjectApiProjectActivatePut
 import me.code4me.api.generated.model.Response401CreateProjectApiProjectCreatePost
+import me.code4me.api.generated.model.Response404ActivateProjectApiProjectActivatePut
+import me.code4me.api.generated.model.Response404CreateProjectApiProjectCreatePost
 
 import com.squareup.moshi.Json
 

@@ -15,7 +15,6 @@
 
 package me.code4me.api.generated.model
 
-import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
 import me.code4me.api.generated.model.InvalidOrExpiredProjectToken
 import me.code4me.api.generated.model.InvalidOrExpiredSessionToken
 

@@ -6,6 +6,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,6 +36,7 @@ import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteChatSuccessResponse
 import me.code4me.api.generated.model.FeedbackCompletion
 import me.code4me.api.generated.model.FileContextChangeData
+import me.code4me.api.generated.model.GetUserGetResponse
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestChatCompletion
 import me.code4me.api.generated.model.RequestCompletion
@@ -45,11 +47,16 @@ import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
+import me.code4me.services.config.ConfigService
 import me.code4me.services.config.getConfig
+import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.getAuthState
+import me.code4me.services.state.getPrefState
+import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.api.mapsTo
+import me.code4me.utils.api.toSerializableMap
 import me.code4me.utils.record.Record
 import toApiModel
 import java.io.File
@@ -182,8 +189,56 @@ class AppService {
 
         return try {
             val response = authApi.authenticateUserApiUserAuthenticatePost(userToAuthenticate)
+
+            if (!response.user.preference.isNullOrEmpty()) {
+                LOG.info("User preferences found, updating preference state")
+                getPrefState().fromSerializableMap(response.user.preference!!)
+            } else {
+                LOG.info("No user preferences found, using default preference state")
+            }
+
+            val configService = ConfigService.fromConfigString(response.config)
+            val instantiatedModules = configService.instantiateModules()
+            LOG.info("Modules instantiated successfully: ${instantiatedModules.size} modules")
+
+            // Get the ModuleManager for this project
+            val moduleManager = getModuleManager()
+            // Store the instantiated modules in the ModuleManager
+            moduleManager.storeModules(instantiatedModules)
+
+            // Initialize all enabled modules
+            moduleManager.initializeModules()
+            thisLogger().info("Modules initialized successfully.")
+
+            // Execute module initialization on a background thread to avoid blocking the UI
+            ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    // after that make sure that the current state of the preferences is updated
+                    updateUser(
+                        UpdateUser(
+                            preference = getPrefState().toSerializableMap(),
+                        ),
+                    )
+                } catch (e: Exception) {
+                    thisLogger().error("Failed to initialize modules", e)
+                }
+            }
+
+            // for all of the open projects, we need to set their project token service activated to false
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                // get the project token service for the project
+                val projectTokenService = getProjectTokenService(project)
+                // set the activated state to false
+                projectTokenService.setActivated(false)
+            }
+
+            // the reason this is moved so far down is because there is a change listener
+            // on the auth state values (so the token, user name, and email)
+            // that will update the UI components when the values change
+            // and we want to make sure that the modules are initialized before we store the auth state
             storeAuthenticationResponse(response)
             LOG.info("User authenticated successfully: $email")
+
             response
         } catch (e: Exception) {
             LOG.warn("Authentication failed for user: $email", e)
@@ -360,7 +415,6 @@ class AppService {
         try {
             val response = deactivateSessionApi.deactivateSessionApiSessionDeactivatePut()
             LOG.info("Session deactivated successfully: ${response.message}")
-            clearLocalSession() // Optional: clear local cookies/state after deactivation
         } catch (e: Exception) {
             LOG.warn("Failed to deactivate session", e)
             throw e
@@ -548,24 +602,19 @@ class AppService {
     }
 
     /**
-     * Logs out the current user by clearing the local session.
-     *
-     * This method clears all locally stored authentication data including cookies and auth state.
-     * The user will need to authenticate again to access protected resources.
-     */
-    fun logout() {
-        clearLocalSession()
-        deactivateSession()
-        LOG.info("User logged out successfully")
-    }
-
-    /**
      * Clears all local session data including cookies and authentication state.
      * This is a utility method used by both logout and deleteUser operations.
      */
     private fun clearLocalSession() {
         CookieAwareApiClient.clearCookies()
-        getAuthState().clearUserData()
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                getAuthState().clearUserData()
+                LOG.info("User data cleared successfully during sign out")
+            } catch (e: Exception) {
+                LOG.error("Failed to clear user data during sign out", e)
+            }
+        }
     }
 
     // Add this new method to replace the existing updateUserName method
@@ -618,6 +667,45 @@ class AppService {
         }
     }
 
+    /**
+     * Retrieves the currently authenticated user using the stored auth token.
+     *
+     * @return GetUserGetResponse containing the current user's information
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the request fails due to client-side issues (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun getCurrentUser(): GetUserGetResponse {
+        try {
+            val response = userApi.getUserFromAuthTokenApiUserGetGet()
+            LOG.info("Current user retrieved successfully: ${response.user.email}")
+            return response
+        } catch (e: Exception) {
+            LOG.warn("Failed to retrieve current user", e)
+            throw e
+        }
+    }
+
+    /**
+     * request a reset of the user's password.
+     * This method sends a password reset request to the Code4Me backend.
+     *
+     * @return true if the request was successful, false otherwise
+     */
+    fun requestPasswordReset(email: String): Boolean {
+        require(email.isNotBlank()) { "Email cannot be blank" }
+
+        try {
+            val response = userApi.requestPasswordResetApiUserResetPasswordRequestPost(email)
+            LOG.info("Password reset requested successfully for user: $email")
+            return true
+        } catch (e: Exception) {
+            LOG.warn("Failed to request password reset for user: $email", e)
+            return false
+        }
+    }
+
     // ============ User Verification Methods ============
 
     fun isUserVerified(): Boolean {
@@ -637,16 +725,11 @@ class AppService {
         try {
             val response = userVerificationApi.resendVerificationEmailApiUserVerifyResendPost()
             LOG.info("Verification email resent successfully")
-            if (response == null) {
-                LOG.warn("No response received when resending verification email")
-                return false
-            } else {
-                response.toString().contains("true", ignoreCase = true).also { isSuccess ->
-                    if (isSuccess) {
-                        LOG.info("Verification email sent successfully")
-                    } else {
-                        LOG.warn("Failed to send verification email")
-                    }
+            response.toString().contains("true", ignoreCase = true).also { isSuccess ->
+                if (isSuccess) {
+                    LOG.info("Verification email sent successfully")
+                } else {
+                    LOG.warn("Failed to send verification email")
                 }
             }
             return true

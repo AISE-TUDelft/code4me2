@@ -26,6 +26,8 @@ import me.code4me.api.generated.model.DeactivateSessionPostResponse
 import me.code4me.api.generated.model.ErrorResponse
 import me.code4me.api.generated.model.InvalidOrExpiredAuthToken
 import me.code4me.api.generated.model.InvalidOrExpiredSessionToken
+import me.code4me.api.generated.model.Response404DeactivateSessionApiSessionDeactivatePut
+import me.code4me.api.generated.model.UserNotFoundError
 
 import com.squareup.moshi.Json
 
