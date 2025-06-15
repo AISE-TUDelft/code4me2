@@ -207,7 +207,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         val loadingTimer =
             Timer(300) { _ ->
                 val loadingText = loadingPatterns[patternIndex]
-                updateLastMessage(loadingText)
+                chatDisplayPanel.updateLastBubbleText(loadingText)
                 patternIndex = (patternIndex + 1) % loadingPatterns.size
             }
         loadingTimer.start()

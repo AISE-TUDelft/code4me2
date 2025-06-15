@@ -49,6 +49,7 @@ class ChatBubble(
 ) : JPanel() {
     private val editors = mutableListOf<Editor>()
     private var isDisposed = false
+    private var messagePane: JEditorPane? = null
 
     init {
         layout = BorderLayout()
@@ -110,6 +111,7 @@ class ChatBubble(
                 }
 
             val htmlPane = createStyledHtmlPane(html)
+            messagePane = htmlPane
             htmlPane.alignmentX = LEFT_ALIGNMENT
             container.add(htmlPane)
         }
@@ -454,5 +456,21 @@ class ChatBubble(
                 editor.colorsScheme = scheme as EditorColorsScheme
             }
         }
+    }
+
+    /**
+     * Updates the message text only, without changing the bubble structure.
+     * THis is used for the generating message, and prevents the flickierng.
+     */
+    fun updateMessageTextOnly(newMessage: String) {
+        if (isDisposed) return
+        val virtualFile = LightVirtualFile("chat.md", newMessage)
+        val html =
+            try {
+                MarkdownUtil.generateMarkdownHtml(virtualFile, newMessage, project)
+            } catch (e: Exception) {
+                "<html><body><pre>$newMessage</pre></body></html>"
+            }
+        messagePane?.text = html
     }
 }

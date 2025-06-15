@@ -206,4 +206,10 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         scrollPane.revalidate()
         scrollPane.repaint()
     }
+
+    fun updateLastBubbleText(newText: String) {
+        if (activeBubbles.isNotEmpty()) {
+            activeBubbles.last().updateMessageTextOnly(newText)
+        }
+    }
 }
