@@ -645,7 +645,7 @@ class AuthenticationSection : SettingsSection {
             } else {
                 Messages.showInfoMessage(
                     "A password reset email has been sent to $email. Please check your inbox and follow the instructions to reset your password.",
-                    "Password Reset Email Sent"
+                    "Password Reset Email Sent",
                 )
                 switchToLoginMode()
                 LOG.info("Password reset email requested for: $email")

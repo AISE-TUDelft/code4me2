@@ -6,8 +6,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.util.messages.MessageBusConnection
-import me.code4me.api.generated.model.UpdateUser
-import me.code4me.services.app.AppService
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.ConfigService
 import me.code4me.services.modules.manager.getModuleManager
@@ -15,7 +13,6 @@ import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.api.fromSerializableMap
-import me.code4me.utils.api.toSerializableMap
 import me.code4me.utils.notification.showLoginRequiredNotification
 import me.code4me.utils.notification.showTokenInvalidationNotification
 

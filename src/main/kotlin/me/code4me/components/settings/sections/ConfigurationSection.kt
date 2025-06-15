@@ -278,7 +278,6 @@ class ConfigurationSection : SettingsSection {
             // rebuild the ui
         }
 
-
         initializeFields()
         setupModuleTree()
         LOG.debug("ConfigurationSection initialized")

@@ -206,8 +206,8 @@ class AppService {
                     // after that make sure that the current state of the preferences is updated
                     updateUser(
                         UpdateUser(
-                            preference = getPrefState().toSerializableMap()
-                        )
+                            preference = getPrefState().toSerializableMap(),
+                        ),
                     )
                 } catch (e: Exception) {
                     thisLogger().error("Failed to initialize modules", e)
@@ -653,7 +653,7 @@ class AppService {
     @Throws(IOException::class, ClientException::class, ServerException::class)
     fun getCurrentUser(): GetUserGetResponse {
         try {
-            val response =  userApi.getUserFromAuthTokenApiUserGetGet()
+            val response = userApi.getUserFromAuthTokenApiUserGetGet()
             LOG.info("Current user retrieved successfully: ${response.user.email}")
             return response
         } catch (e: Exception) {
@@ -680,7 +680,6 @@ class AppService {
             return false
         }
     }
-
 
     // ============ User Verification Methods ============
 
