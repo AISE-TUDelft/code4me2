@@ -115,6 +115,14 @@ class InputPanel(
 
     fun getSelectedModel(): String? = inputControlsComponent.getSelectedModel()
 
+    fun setGeneratingState(isGenerating: Boolean) {
+        inputControlsComponent.setGeneratingState(isGenerating)
+    }
+
+    fun setOnStop(action: () -> Unit) {
+        inputControlsComponent.onStop = action
+    }
+
     val inputText: String get() = textInputComponent.text
 }
 

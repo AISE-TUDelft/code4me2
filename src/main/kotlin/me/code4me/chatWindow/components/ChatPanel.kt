@@ -8,6 +8,8 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import me.code4me.chatWindow.components.chatDisplayPanel.ChatDisplayPanel
 import me.code4me.chatWindow.components.historyPanel.HistoryPanel
@@ -43,6 +45,9 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private val viewManager = ChatViewManager()
     private val uiScope = CoroutineScope(Dispatchers.Default)
     private val aiScope = CoroutineScope(Dispatchers.IO)
+    private var aiJob: Job? = null
+    private var regenerateJob: Job? = null
+    private var loadingTimer: Timer? = null
 
     init {
         setupPanelLayout()
@@ -63,6 +68,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         sessionManager = ChatSessionManager(chatRepository)
 
         inputPanel = createInputPanel(project!!)
+        inputPanel.setOnStop { cancelGeneration() }
         chatDisplayPanel = ChatDisplayPanel(project!!)
         chatDisplayPanel.onRestore = {
             refreshChatDisplay()
@@ -189,6 +195,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             sessionManager!!.chatRepository.saveChat(sessionManager!!.currentSession)
             refreshChatDisplay()
         }
+        inputPanel.setGeneratingState(true)
 
         val selectedModel = inputPanel.getSelectedModel()
         appendMessage(USER_NAME, message)
@@ -204,42 +211,58 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         // Create a timer to update the loading indicator
         val loadingPatterns = arrayOf("Generating.", "Generating..", "Generating...")
         var patternIndex = 0
-        val loadingTimer =
-            Timer(300) { _ ->
+        loadingTimer?.stop() // stop any previous
+        loadingTimer =
+            Timer(300) {
                 val loadingText = loadingPatterns[patternIndex]
                 chatDisplayPanel.updateLastBubbleText(loadingText)
                 patternIndex = (patternIndex + 1) % loadingPatterns.size
             }
-        loadingTimer.start()
+        loadingTimer?.start()
 
         // Process AI response in background
-        aiScope.launch {
-            val aiResponse = processAIResponse(message, selectedModel)
+        aiJob =
+            aiScope.launch {
+                val aiResponse = processAIResponse(message, selectedModel)
 
-            // Update UI on main thread
-            ApplicationManager.getApplication().invokeLater {
-                // Stop the loading timer
-                loadingTimer.stop()
+                if (!isActive) return@launch
 
-                // Update title if needed
-                if (aiResponse.title.isNotBlank() && sessionManager?.currentSession?.title != aiResponse.title) {
-                    sessionManager?.currentSession?.title = aiResponse.title
-                    topBarPanel.updateTitle()
+                ApplicationManager.getApplication().invokeLater {
+                    loadingTimer?.stop()
+                    inputPanel.setGeneratingState(false)
+                    aiJob = null
+
+                    if (aiResponse.title.isNotBlank() && sessionManager?.currentSession?.title != aiResponse.title) {
+                        sessionManager?.currentSession?.title = aiResponse.title
+                        topBarPanel.updateTitle()
+                    }
+
+                    if (aiResponse.responses.isNotEmpty()) {
+                        updateLastMessage(aiResponse.responses.first())
+                        refreshChatDisplay()
+                        sessionManager?.chatRepository?.saveChat(sessionManager!!.currentSession)
+                    } else {
+                        updateLastMessage("No response received")
+                    }
+
+                    saveCurrentSession()
                 }
-
-                // Replace the loading message with the actual response
-                if (aiResponse.responses.isNotEmpty()) {
-                    updateLastMessage(aiResponse.responses.first())
-                    refreshChatDisplay()
-                    sessionManager?.chatRepository?.saveChat(sessionManager!!.currentSession)
-                } else {
-                    updateLastMessage("No response received")
-                }
-
-                // Save session after receiving response
-                saveCurrentSession()
             }
-        }
+    }
+
+    private fun cancelGeneration() {
+        aiJob?.cancel()
+        regenerateJob?.cancel()
+        aiJob = null
+        regenerateJob = null
+        loadingTimer?.stop()
+        loadingTimer = null
+
+        val cancelMsg = "This query request was cancelled by user."
+        inputPanel.setGeneratingState(false)
+        chatDisplayPanel.updateLastBubbleText(cancelMsg)
+        updateLastMessage(cancelMsg)
+        saveCurrentSession()
     }
 
     private suspend fun processAIResponse(
@@ -322,63 +345,68 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         loadModelsFromConfig()
     }
 
+    /**
+     * Regenerates the chat from a specific index. (This is used for the "Regenerate" action)
+     */
     private fun regenerateFromIndex(index: Int) {
         val messages = sessionManager?.currentSession?.messages ?: return
         if (index < 0 || index >= messages.size) return
 
         // Keep only messages up to the specified index (excluding the message at that index)
-        val retainedMessages = messages.subList(0, index).toList() // Copy the list
+        val retainedMessages = messages.subList(0, index).toList()
 
-        // Clear the current session messages and add only the retained ones
+        // Clear current messages and add retained ones
         sessionManager?.currentSession?.messages?.clear()
         sessionManager?.currentSession?.messages?.addAll(retainedMessages)
 
-        // **IMPORTANT: Save the truncated session to persistent storage immediately**
         saveCurrentSession()
-
-        // Refresh the display to show the truncated conversation
         refreshChatDisplay()
 
-        // Find the last user message to regenerate from
+        // Find last user message to regenerate from
         val lastUserMsg = retainedMessages.lastOrNull { it.first == USER_NAME }?.second ?: return
         val selectedModel = inputPanel.getSelectedModel()
 
-        // Add the new AI response placeholder
+        // Add loading message
         appendMessage(AI_NAME, "Generating.")
+        inputPanel.setGeneratingState(true)
 
-        // Create loading animation
+        // Start loading animation
         val loadingPatterns = arrayOf("Generating.", "Generating..", "Generating...")
         var patternIndex = 0
-        val loadingTimer =
+        loadingTimer?.stop()
+        loadingTimer =
             Timer(300) {
                 updateLastMessage(loadingPatterns[patternIndex])
                 patternIndex = (patternIndex + 1) % loadingPatterns.size
             }
-        loadingTimer.start()
+        loadingTimer?.start()
 
-        // Process AI response with only the retained messages as context
-        aiScope.launch {
-            val aiResponse = processAIResponse(lastUserMsg, selectedModel)
-            ApplicationManager.getApplication().invokeLater {
-                loadingTimer.stop()
+        // Launch AI coroutine
+        aiJob =
+            aiScope.launch {
+                val aiResponse = processAIResponse(lastUserMsg, selectedModel)
 
-                if (aiResponse.responses.isNotEmpty()) {
-                    updateLastMessage(aiResponse.responses.first())
-                    refreshChatDisplay()
-                } else {
-                    updateLastMessage("No response received")
+                if (!isActive) return@launch // Cancelled
+
+                ApplicationManager.getApplication().invokeLater {
+                    loadingTimer?.stop()
+                    inputPanel.setGeneratingState(false)
+                    aiJob = null
+
+                    if (aiResponse.responses.isNotEmpty()) {
+                        updateLastMessage(aiResponse.responses.first())
+                        refreshChatDisplay()
+                    } else {
+                        updateLastMessage("No response received")
+                    }
+
+                    if (aiResponse.title.isNotBlank()) {
+                        sessionManager?.currentSession?.title = aiResponse.title
+                        topBarPanel.updateTitle()
+                    }
+
+                    saveCurrentSession()
                 }
-                saveCurrentSession()
-
-                // Update title if provided
-                if (aiResponse.title.isNotBlank()) {
-                    sessionManager?.currentSession?.title = aiResponse.title
-                    topBarPanel.updateTitle()
-                }
-
-                // Save the session with the new AI response
-                saveCurrentSession()
             }
-        }
     }
 }
