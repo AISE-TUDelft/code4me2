@@ -437,7 +437,6 @@ class AuthSettings : BaseState() {
                     toolWindow?.contentManager?.contents?.forEach { content ->
                         val component = content.component
                         if (component is me.code4me.chatWindow.components.ChatPanel) {
-                            //TODO this doesn't update it live
                             component.resetAllChatsAfterLogout()
                         }
                     }
@@ -457,8 +456,6 @@ class AuthSettings : BaseState() {
                 LOG.warn("Failed to clear context cache for project: ${project.name}", e)
             }
         }
-        //TODO doesn't have an effect. fix (meant to be used to help chatpanel reset when user logs out or deletes account)
-//        propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, null)
     }
 
     /**

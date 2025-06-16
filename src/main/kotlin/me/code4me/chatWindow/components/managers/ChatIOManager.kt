@@ -16,6 +16,9 @@ import me.code4me.chatWindow.components.utils.TitleResponsePair
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.state.getAuthState
+import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.api.mapsTo
 import me.code4me.utils.record.Record
 import me.code4me.utils.record.aggregateByType
@@ -37,6 +40,24 @@ class ChatIOManager {
         previousMessages: List<Pair<String, String>> = emptyList(),
         project: Project,
     ): TitleResponsePair {
+        // make sure that the project is activated for the system and also that the user is authenticated
+        if (!getAuthState().isAuthenticated()) {
+            LOG.error("User is not authenticated. Cannot proceed with AI response generation.")
+            return TitleResponsePair(
+                "Error: User not authenticated",
+                emptyList(),
+            )
+        }
+
+        val tokService = getProjectTokenService(project)
+
+        if (tokService.getProjectToken() == null || (tokService.hasProjectToken() && !tokService.isActivated())) {
+            activateOrCreateProject(
+                project,
+                LOG,
+            )
+        }
+
         // Collect editor data within a read action
         val editorData =
             readAction {
@@ -113,7 +134,6 @@ class ChatIOManager {
             (listOf(systemPromptPair) + previousMessages).let {
                 ChatConverter.toApiMessages(it)
             }
-
 
         val contextMap = (aggregatedData[Record.Type.CONTEXT] ?: emptyMap()).toMutableMap()
         contextMap["context_files"] = selectedFiles

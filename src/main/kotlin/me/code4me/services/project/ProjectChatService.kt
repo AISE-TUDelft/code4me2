@@ -6,10 +6,10 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import me.code4me.api.generated.model.QueryChatMessageRole
 import me.code4me.chatWindow.components.managers.ChatSession
-import me.code4me.chatWindow.components.managers.ChatSessionManager
 import me.code4me.chatWindow.components.repository.ChatRepository
 import me.code4me.chatWindow.components.utils.ChatConverter
 import me.code4me.services.app.getAppService
@@ -29,6 +29,7 @@ class ProjectChatService(
     private val project: Project,
 ) : PersistentStateComponent<ProjectChatState>, ChatRepository {
     private var internalState = ProjectChatState()
+    private val LOG = thisLogger()
 
     override fun getState(): ProjectChatState = internalState
 
@@ -243,13 +244,29 @@ class ProjectChatService(
         internalState.chats[chatId] = chatData
     }
 
+    /**
+     * Completely clears all chats and forces persistence to disk.
+     * This method ensures that the XML file is properly cleared.
+     */
     fun clearAllChatsAndMemory() {
-        clearAllChats()
-        ChatSessionManager(this).let { manager ->
-            manager.getAllSessions().forEach {
-                manager.deleteSession(it)
-            }
+        LOG.info("Starting clearAllChatsAndMemory for project: ${project.name}")
+
+        // Clear the internal state completely
+        internalState.chats.clear()
+
+        // Create a new empty state to ensure clean persistence
+        internalState = ProjectChatState()
+
+        // Force the component to save the state immediately
+        try {
+            // This triggers the persistence mechanism to write the cleared state to disk
+            project.save()
+            LOG.info("Project state saved after clearing chats")
+        } catch (e: Exception) {
+            LOG.warn("Failed to save project state after clearing chats", e)
         }
+
+        LOG.info("Completed clearAllChatsAndMemory for project: ${project.name}")
     }
 }
 

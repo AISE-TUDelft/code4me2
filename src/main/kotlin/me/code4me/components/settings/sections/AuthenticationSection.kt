@@ -1,7 +1,9 @@
 package me.code4me.components.settings.sections
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
@@ -42,6 +44,7 @@ import javax.swing.JToggleButton
  * - Input validation and error handling
  * - Secure credential storage
  * - Reactive UI updates based on authentication state
+ * - Integration with ChatPanel overlay updates
  *
  * The section automatically integrates with the authentication state service
  * and triggers UI refreshes when authentication status changes.
@@ -252,15 +255,6 @@ class AuthenticationSection : SettingsSection {
                     requiresUIRefresh.set(true)
                 }
             }
-
-            init {
-                // Add item listener to update UI immediately when toggle changes
-                authModeToggle.addItemListener { _ ->
-                    updateToggleText()
-                    updateFormVisibility()
-                    requiresUIRefresh.set(true)
-                }
-            }
         }
 
     /**
@@ -310,7 +304,7 @@ class AuthenticationSection : SettingsSection {
 
     // ================= SERVICES =================
 
-    private val authState = service<AuthState>()
+    private val authState = service<AuthState>().state
     private val appService = service<AppService>()
 
     // ================= UI COMPONENTS =================
@@ -344,6 +338,30 @@ class AuthenticationSection : SettingsSection {
     init {
         updateFormVisibility()
         LOG.debug("AuthenticationSection initialized")
+    }
+
+    /**
+     * Updates ChatPanel overlay visibility across all open projects
+     */
+    private fun updateChatPanelOverlays() {
+        ApplicationManager.getApplication().invokeLater {
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                val toolWindow =
+                    com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+                        .getToolWindow("Code4Me") // change this if your toolwindow id is different
+
+                toolWindow?.contentManager?.contents?.forEach { content ->
+                    val component = content.component
+                    if (component is me.code4me.chatWindow.components.ChatPanel) {
+                        if (authState.isAuthenticated()) {
+                            component.onUserAuthenticated()
+                        } else {
+                            component.onUserLoggedOut()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -762,16 +780,19 @@ class AuthenticationSection : SettingsSection {
 
             if (token != null) {
                 // Store authentication data
-                authState.state.setToken(token)
-                authState.state.setUserEmail(email)
+                authState.setToken(token)
+                authState.setUserEmail(email)
 
                 if (isSignupMode) {
-                    authState.state.setUserName(fullNameField.text.trim())
+                    authState.setUserName(fullNameField.text.trim())
                 }
 
                 showSuccess("Authentication successful!")
                 clearAllFields()
                 appService.acquireSessionWithStoredToken()
+
+                // Update chat panel overlays immediately after successful auth
+                updateChatPanelOverlays()
             } else {
                 val errorMessage =
                     if (isSignupMode) {
@@ -796,16 +817,13 @@ class AuthenticationSection : SettingsSection {
     ): String? {
         return try {
             val response = appService.authenticateUser(email, password)
-            authState.state.setUserName(response.user.name.trim())
-            authState.state.setUserEmail(email)
-            authState.state.setVerified(response.user.verified)
+            authState.setUserName(response.user.name.trim())
+            authState.setUserEmail(email)
+            authState.setVerified(response.user.verified)
             return CookieAwareApiClient.cookieManager.cookieStore.cookies.firstOrNull {
                 it.name == "auth_token"
             }?.value
         } catch (e: Exception) {
-            print("Messeduppp")
-            print(e)
-            print("end")
             LOG.warn("Login request failed for email: $email", e)
             null
         }
@@ -827,7 +845,7 @@ class AuthenticationSection : SettingsSection {
                     password = password,
                 )
             val authenticatedUser = appService.authenticateUser(email, password)
-            authState.state.setUserName(
+            authState.setUserName(
                 authenticatedUser.user.name.trim(),
             )
             return CookieAwareApiClient.cookieManager.cookieStore.cookies.firstOrNull {
