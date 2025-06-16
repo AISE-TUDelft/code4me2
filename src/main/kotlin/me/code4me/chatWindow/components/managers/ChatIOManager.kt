@@ -23,6 +23,7 @@ import me.code4me.utils.api.mapsTo
 import me.code4me.utils.record.Record
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
+import java.io.File
 
 class ChatIOManager {
     val LOG = thisLogger()
@@ -136,7 +137,21 @@ class ChatIOManager {
             }
 
         val contextMap = (aggregatedData[Record.Type.CONTEXT] ?: emptyMap()).toMutableMap()
-        contextMap["context_files"] = selectedFiles
+
+        val basePath = project.basePath
+        val relativeFiles =
+            selectedFiles.mapNotNull { absolutePath ->
+                basePath?.let { bp ->
+                    if (absolutePath.startsWith(bp)) {
+                        absolutePath.removePrefix(bp).removePrefix(File.separator)
+                    } else {
+                        // Skip files outside project
+                        null
+                    }
+                }
+            }
+
+        contextMap["context_files"] = relativeFiles
         val context = contextMap.mapsTo(ContextData::class.java)
 
         val behavioralTelemetry =

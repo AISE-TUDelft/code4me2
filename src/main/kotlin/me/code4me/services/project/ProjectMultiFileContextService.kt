@@ -31,15 +31,16 @@ class ProjectMultiFileContextService(private val project: Project) {
 
     /**
      * Updates file content in the cache and returns diffs if any.
+     * @param relativePath The relative path from project root (e.g., "src/main/App.kt")
      */
     fun updateFileContent(
-        filePath: String,
+        relativePath: String,
         newText: String,
     ): List<FileContextChangeData> {
-        val cacheFile = getCacheFile(filePath)
+        val cacheFile = getCacheFile(relativePath)
 
         if (!cacheFile.exists()) {
-            savePathMapping(filePath)
+            savePathMapping(relativePath)
             return emptyList()
         }
 
@@ -50,16 +51,31 @@ class ProjectMultiFileContextService(private val project: Project) {
 
     /**
      * Writes a snapshot of the file content if one doesn't exist.
+     * @param relativePath The relative path from project root (e.g., "src/main/App.kt")
      */
     fun saveInitialSnapshotIfMissing(
-        filePath: String,
+        relativePath: String,
         newText: String,
     ) {
-        val cacheFile = getCacheFile(filePath)
+        val cacheFile = getCacheFile(relativePath)
         if (!cacheFile.exists()) {
+            cacheFile.parentFile.mkdirs()
             cacheFile.writeText(newText)
-            savePathMapping(filePath)
+            savePathMapping(relativePath)
         }
+    }
+
+    /**
+     * Writes content to cache.
+     * @param relativePath The relative path from project root (e.g., "src/main/App.kt")
+     */
+    fun writeCache(
+        relativePath: String,
+        newText: String,
+    ) {
+        val cacheFile = getCacheFile(relativePath)
+        cacheFile.parentFile.mkdirs()
+        cacheFile.writeText(newText)
     }
 
     fun getMappedPath(sanitized: String): String? {
@@ -74,20 +90,40 @@ class ProjectMultiFileContextService(private val project: Project) {
         return null
     }
 
-    private fun getCacheFile(filePath: String): File {
-        val name = sanitize(filePath)
-        return File(contextCacheDir, name)
+    private fun getCacheFile(relativePath: String): File {
+        val sanitizedName = sanitizeForFilename(relativePath)
+        return File(contextCacheDir, sanitizedName)
     }
 
+    /**
+     * Sanitizes a relative path to create a safe filename for caching.
+     * This flattens the directory structure into a single filename.
+     *
+     * Example: "src/main/java/App.kt" -> "src_s_main_s_java_s_App.kt"
+     */
+    private fun sanitizeForFilename(relativePath: String): String {
+        return relativePath
+            .replace("_", "__")
+            .replace(":", "_c_")
+            .replace("/", "_s_")
+            .replace("\\", "_s_")
+            .replace("<", "_lt_")
+            .replace(">", "_gt_")
+            .replace("\"", "_q_")
+            .replace("|", "_p_")
+            .replace("?", "_qm_")
+            .replace("*", "_a_")
+    }
+
+    /**
+     * Legacy sanitize method - keeping for backward compatibility with existing cache
+     */
     private fun sanitize(path: String): String {
-        return path
-            .replace("_", "__") // escape existing underscores
-            .replace(":", "_c_") // colon
-            .replace(File.separator, "_s_") // slash/backslash
+        return sanitizeForFilename(path)
     }
 
-    private fun savePathMapping(originalPath: String) {
-        val name = sanitize(originalPath)
+    private fun savePathMapping(relativePath: String) {
+        val sanitizedName = sanitizeForFilename(relativePath)
         val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(pathMapFile)
         val root = doc.documentElement
 
@@ -95,13 +131,13 @@ class ProjectMultiFileContextService(private val project: Project) {
         val existing = doc.getElementsByTagName("file")
         for (i in 0 until existing.length) {
             val el = existing.item(i) as Element
-            if (el.getAttribute("name") == name) return
+            if (el.getAttribute("name") == sanitizedName) return
         }
 
         val fileElement = doc.createElement("file")
-        fileElement.setAttribute("name", name)
+        fileElement.setAttribute("name", sanitizedName)
         val pathElement = doc.createElement("originalPath")
-        pathElement.textContent = originalPath
+        pathElement.textContent = relativePath // Store the original relative path
         fileElement.appendChild(pathElement)
         root.appendChild(fileElement)
 
@@ -126,7 +162,6 @@ class ProjectMultiFileContextService(private val project: Project) {
         transformer.transform(DOMSource(doc), StreamResult(file))
     }
 
-    // Todo see if it's worth the overhead of parsing XML every time
     fun removeMapping(sanitized: String) {
         val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(pathMapFile)
         val root = doc.documentElement
@@ -141,14 +176,6 @@ class ProjectMultiFileContextService(private val project: Project) {
         }
 
         saveXml(doc)
-    }
-
-    fun writeCache(
-        filePath: String,
-        newText: String,
-    ) {
-        val cacheFile = getCacheFile(filePath)
-        cacheFile.writeText(newText)
     }
 
     fun clearCache() {

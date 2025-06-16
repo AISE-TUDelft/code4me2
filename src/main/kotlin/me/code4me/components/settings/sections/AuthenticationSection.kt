@@ -348,7 +348,7 @@ class AuthenticationSection : SettingsSection {
             ProjectManager.getInstance().openProjects.forEach { project ->
                 val toolWindow =
                     com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
-                        .getToolWindow("Code4Me") // change this if your toolwindow id is different
+                        .getToolWindow("Code4Me")
 
                 toolWindow?.contentManager?.contents?.forEach { content ->
                     val component = content.component

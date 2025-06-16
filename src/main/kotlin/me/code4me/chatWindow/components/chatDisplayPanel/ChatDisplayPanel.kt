@@ -230,7 +230,7 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
 
     override fun addNotify() {
         super.addNotify()
-        onRestore?.invoke() // 👈 key line added here
+        onRestore?.invoke()
     }
 
     private fun isAtBottom(): Boolean {
