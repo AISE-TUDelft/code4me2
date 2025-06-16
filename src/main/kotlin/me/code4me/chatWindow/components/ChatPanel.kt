@@ -447,4 +447,24 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         inputPanel.hideCancelEditButton()
         chatDisplayPanel.hideEditOverlay()
     }
+
+    /**
+     * TODO this doesn't update it live
+     * Resets all chats and memory after user logout.
+     */
+    fun resetAllChatsAfterLogout() {
+        project?.let { proj ->
+            val chatService = getProjectChatService(proj)
+            chatService.clearAllChatsAndMemory()
+
+            sessionManager = ChatSessionManager(chatService)
+
+            // Recreate default session and clear UI
+            sessionManager?.createNewSession("New Chat")
+            chatDisplayPanel.updateContent(emptyList())
+            historyPanel.refresh()
+            topBarPanel.updateTitle()
+            resetToWelcome()
+        }
+    }
 }

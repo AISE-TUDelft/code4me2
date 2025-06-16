@@ -1,14 +1,15 @@
 package me.code4me.services.project
 
 import com.intellij.openapi.components.BaseState
+import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.SimplePersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import me.code4me.api.generated.model.QueryChatMessageRole
 import me.code4me.chatWindow.components.managers.ChatSession
+import me.code4me.chatWindow.components.managers.ChatSessionManager
 import me.code4me.chatWindow.components.repository.ChatRepository
 import me.code4me.chatWindow.components.utils.ChatConverter
 import me.code4me.services.app.getAppService
@@ -240,6 +241,15 @@ class ProjectChatService(
             }.toMutableList()
         chatData.lastUpdated = System.currentTimeMillis()
         internalState.chats[chatId] = chatData
+    }
+
+    fun clearAllChatsAndMemory() {
+        clearAllChats()
+        ChatSessionManager(this).let { manager ->
+            manager.getAllSessions().forEach {
+                manager.deleteSession(it)
+            }
+        }
     }
 }
 

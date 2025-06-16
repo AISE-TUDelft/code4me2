@@ -3,6 +3,7 @@ package me.code4me.services.state
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.credentialStore.generateServiceName
 import com.intellij.ide.passwordSafe.PasswordSafe
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.SimplePersistentStateComponent
@@ -15,6 +16,7 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import me.code4me.services.project.getProjectChatService
 import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.state.AuthState.Companion.getAuthToken
 import java.beans.PropertyChangeListener
@@ -414,6 +416,33 @@ class AuthSettings : BaseState() {
                 isVerified = false
                 propertyChangeSupport.firePropertyChange(IS_VERIFIED_PROPERTY, oldVerified, false)
             }
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                try {
+                    getProjectMultiFileContextService(project).clearCache()
+                    LOG.info("Cleared context cache for project: ${project.name}")
+
+                    val chatService = getProjectChatService(project)
+                    chatService.clearAllChatsAndMemory()
+                    LOG.info("Cleared all chat sessions (memory + disk) for project: ${project.name}")
+                } catch (e: Exception) {
+                    LOG.warn("Failed to fully clear chat data for project: ${project.name}", e)
+                }
+            }
+            ApplicationManager.getApplication().invokeLater {
+                ProjectManager.getInstance().openProjects.forEach { project ->
+                    val toolWindow =
+                        com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+                            .getToolWindow("Code4Me") // change this if your toolwindow id is different
+
+                    toolWindow?.contentManager?.contents?.forEach { content ->
+                        val component = content.component
+                        if (component is me.code4me.chatWindow.components.ChatPanel) {
+                            //TODO this doesn't update it live
+                            component.resetAllChatsAfterLogout()
+                        }
+                    }
+                }
+            }
 
             LOG.info("User authentication data cleared successfully")
         } catch (e: Exception) {
@@ -428,6 +457,8 @@ class AuthSettings : BaseState() {
                 LOG.warn("Failed to clear context cache for project: ${project.name}", e)
             }
         }
+        //TODO doesn't have an effect. fix (meant to be used to help chatpanel reset when user logs out or deletes account)
+//        propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, null)
     }
 
     /**
