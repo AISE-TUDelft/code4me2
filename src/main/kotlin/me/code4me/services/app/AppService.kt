@@ -713,7 +713,7 @@ class AppService {
         try {
             val response = userVerificationApi.checkVerificationApiUserVerifyCheckGet()
             LOG.info("User verification status retrieved successfully: $response")
-            return true
+            return response.userIsVerified
         } catch (e: Exception) {
             LOG.warn("Failed to check user verification status", e)
             return false
