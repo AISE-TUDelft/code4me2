@@ -20,6 +20,7 @@ import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.api.mapsTo
+import me.code4me.utils.notification.showErrorNotification
 import me.code4me.utils.record.Record
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
@@ -63,7 +64,7 @@ class ChatIOManager {
         val editorData =
             readAction {
                 // Get the current editor
-                val editor = FileEditorManager.getInstance(project).selectedTextEditor
+                var editor = FileEditorManager.getInstance(project).selectedTextEditor
 
                 if (editor != null) {
                     // Get the document from the editor
@@ -103,6 +104,12 @@ class ChatIOManager {
                         null
                     }
                 } else {
+                    // show the user a notification that no active editor was found
+                    project.showErrorNotification(
+                        "No active editor found",
+                        "Please open a file in the editor to use AI features.",
+                    )
+
                     null
                 }
             }
