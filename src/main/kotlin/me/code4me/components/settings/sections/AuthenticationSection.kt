@@ -773,7 +773,32 @@ class AuthenticationSection : SettingsSection {
             val token =
                 if (isSignupMode) {
                     val fullName = fullNameField.text.trim()
-                    performSignup(fullName, email, password)
+
+
+                    val confirmResult = Messages.showYesNoDialog(
+                        """
+    By signing up, you agree to the following:
+
+    • Your email and name will be stored securely
+    • Your coding activity will be processed to provide suggestions
+    • You can delete your account and data at any time
+    • We will never share your personal information with third parties
+    
+    For more details, please refer to our Privacy Policy here: https://code4me.me/privacy-policy
+
+    Do you want to continue with registration?
+    """.trimIndent(),
+                        "Confirm Registration",
+                        "Continue",
+                        "Cancel",
+                        Messages.getQuestionIcon()
+                    )
+
+                    if (confirmResult == Messages.YES) {
+                        performSignup(fullName, email, password)
+                    } else {
+                        null
+                    }
                 } else {
                     performLogin(email, password)
                 }
