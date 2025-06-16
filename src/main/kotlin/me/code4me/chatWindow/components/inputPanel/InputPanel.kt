@@ -115,6 +115,30 @@ class InputPanel(
 
     fun getSelectedModel(): String? = inputControlsComponent.getSelectedModel()
 
+    fun setGeneratingState(isGenerating: Boolean) {
+        inputControlsComponent.setGeneratingState(isGenerating)
+    }
+
+    fun setOnStop(action: () -> Unit) {
+        inputControlsComponent.onStop = action
+    }
+
+    fun setInputText(text: String) {
+        textInputComponent.setText(text)
+    }
+
+    fun showCancelEditButton(onCancel: () -> Unit) {
+        inputControlsComponent.showCancelEditButton(onCancel)
+    }
+
+    fun hideCancelEditButton() {
+        inputControlsComponent.hideCancelEditButton()
+    }
+
+    fun focusInputField() {
+        textInputComponent.focusInput()
+    }
+
     val inputText: String get() = textInputComponent.text
 }
 

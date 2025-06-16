@@ -139,12 +139,17 @@ class MultiFileContextRetrievalModule : PluginModule {
                                 if (filePath.startsWith(bp)) {
                                     filePath.removePrefix(bp).removePrefix(File.separator)
                                 } else {
-                                    filePath
+                                    // File is outside project, will be skipped
+                                    null
                                 }
-                            } ?: filePath
+                            }
 
-                        allPaths.add(relativePath)
-                        LOG.trace("Collected open editor path: $relativePath")
+                        if (relativePath != null) {
+                            allPaths.add(relativePath)
+                            LOG.trace("Collected open editor path: $relativePath")
+                        } else {
+                            LOG.trace("Skipped file outside project: $filePath")
+                        }
                     }
                 }
             }
@@ -165,17 +170,23 @@ class MultiFileContextRetrievalModule : PluginModule {
                             val sourceFile = resolved?.containingFile?.virtualFile
                             if (sourceFile != null && sourceFile.isValid) {
                                 val filePath = sourceFile.path
+
                                 val relativePath =
                                     basePath?.let { bp ->
                                         if (filePath.startsWith(bp)) {
                                             filePath.removePrefix(bp).removePrefix(File.separator)
                                         } else {
-                                            filePath
+                                            // File is outside project, will be skipped
+                                            null
                                         }
-                                    } ?: filePath
+                                    }
 
-                                allPaths.add(relativePath)
-                                LOG.trace("Collected referenced path: $relativePath")
+                                if (relativePath != null) {
+                                    allPaths.add(relativePath)
+                                    LOG.trace("Collected referenced path: $relativePath")
+                                } else {
+                                    LOG.trace("Skipped referenced file outside project: $filePath")
+                                }
                             }
                         }
                     },

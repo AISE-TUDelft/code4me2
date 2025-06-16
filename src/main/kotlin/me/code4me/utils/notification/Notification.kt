@@ -219,3 +219,18 @@ fun Project.showPreferenceSyncFailedNotification(
         includeDismissAction = true,
     )
 }
+
+fun Project.showErrorNotification(
+    title: String,
+    message: String,
+    includeSettingsAction: Boolean = false,
+    includeDismissAction: Boolean = true,
+) {
+    showAuthNotification(
+        title = title,
+        message = message,
+        type = NotificationType.ERROR,
+        includeSettingsAction = includeSettingsAction,
+        includeDismissAction = includeDismissAction,
+    )
+}

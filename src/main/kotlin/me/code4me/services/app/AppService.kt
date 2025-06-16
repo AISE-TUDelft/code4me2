@@ -747,10 +747,10 @@ class AppService {
      * This method sends a chat completion request to the Code4Me backend using the current
      * session and project tokens. The request contains all the history of the chat to ensure
      * completions are based on the latest state, even if the user has modified previous messages.
+     * It also processes multi-file context changes similar to inline completions.
      *
      * @param requestChatCompletion The chat completion request containing messages and configuration
-     * @param sessionToken The session token (optional, uses stored token if not provided)
-     * @param projectToken The project token (optional, uses stored token if not provided)
+     * @param project The current project context
      * @return [ChatHistoryResponse] containing the chat completion and updated history
      * @throws IOException If there's a network connectivity issue
      * @throws ClientException If the tokens are invalid or request fails (4xx errors)
@@ -758,28 +758,69 @@ class AppService {
      * @throws IllegalArgumentException If the requestChatCompletion parameter is invalid
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
-    fun requestChatCompletion(
+    suspend fun requestChatCompletion(
         requestChatCompletion: RequestChatCompletion,
         project: Project,
-    ): ChatHistoryResponse {
-        require(requestChatCompletion.messages.isNotEmpty()) { "Messages cannot be empty" }
+    ): ChatHistoryResponse =
+        withContext(Dispatchers.IO) {
+            require(requestChatCompletion.messages.isNotEmpty()) { "Messages cannot be empty" }
 
-        currentGenerationProject.set(project)
+            currentGenerationProject.set(project)
 
-        return try {
-            val response =
-                chatApi.requestChatCompletionApiChatRequestPost(
-                    requestChatCompletion = requestChatCompletion,
-                )
-            LOG.info("Chat completion requested successfully")
-            response
-        } catch (e: Exception) {
-            LOG.warn("Chat completion request failed", e)
-            throw e
-        } finally {
-            currentGenerationProject.set(null)
+            try {
+                val multiFileDiffs: MutableMap<String, List<FileContextChangeData>> = mutableMapOf()
+
+                val relativePaths = requestChatCompletion.context.contextFiles ?: emptyList()
+
+                val basePath = project.basePath
+                if (basePath != null && relativePaths.isNotEmpty()) {
+                    val contextService = getProjectMultiFileContextService(project)
+                    val changedFiles = mutableMapOf<String, String>()
+
+                    withContext(Dispatchers.Default) {
+                        for (relPath in relativePaths) {
+                            val fullPath = "$basePath${File.separator}$relPath".replace("/", File.separator)
+                            val virtualFile = LocalFileSystem.getInstance().findFileByPath(fullPath) ?: continue
+                            val newText =
+                                ApplicationManager.getApplication().runReadAction<String?> {
+                                    FileDocumentManager.getInstance().getDocument(virtualFile)?.text
+                                } ?: continue
+                            contextService.saveInitialSnapshotIfMissing(relPath, newText)
+                            val changes = contextService.updateFileContent(relPath, newText)
+
+                            if (changes.isNotEmpty()) {
+                                multiFileDiffs[relPath] = changes.map { it.toApiModel() }
+                                changedFiles[relPath] = newText
+                            }
+                        }
+                    }
+
+                    if (multiFileDiffs.isNotEmpty()) {
+                        val update = UpdateMultiFileContext(contextUpdates = multiFileDiffs)
+                        val sent = sendMultiFileContextUpdate(update)
+
+                        if (sent) {
+                            changedFiles.forEach { (relativePath, text) ->
+                                contextService.writeCache(relativePath, text)
+                            }
+                        } else {
+                            LOG.warn("Failed to send multi-file context updates for chat completion")
+                        }
+                    }
+                }
+                val response =
+                    chatApi.requestChatCompletionApiChatRequestPost(
+                        requestChatCompletion = requestChatCompletion,
+                    )
+                LOG.info("Chat completion requested successfully")
+                response
+            } catch (e: Exception) {
+                LOG.warn("Chat completion request failed", e)
+                throw e
+            } finally {
+                currentGenerationProject.set(null)
+            }
         }
-    }
 
     /**
      * Retrieves chat history for a specific page.
@@ -896,12 +937,12 @@ class AppService {
 
             val multiFileDiffs: MutableMap<String, List<FileContextChangeData>> = mutableMapOf()
 
-            val relativePaths =
-                (rawContext["multi_file_context.paths"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            val relativePaths = (rawContext["multi_file_context.paths"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
 
             val basePath = project.basePath ?: return@withContext null
             val contextService = getProjectMultiFileContextService(project)
             val changedFiles = mutableMapOf<String, String>()
+
             withContext(Dispatchers.Default) {
                 for (relPath in relativePaths) {
                     val fullPath = "$basePath${File.separator}$relPath".replace("/", File.separator)
@@ -910,12 +951,13 @@ class AppService {
                         ApplicationManager.getApplication().runReadAction<String?> {
                             FileDocumentManager.getInstance().getDocument(virtualFile)?.text
                         } ?: continue
-                    contextService.saveInitialSnapshotIfMissing(fullPath, newText)
 
-                    val changes = contextService.updateFileContent(fullPath, newText)
+                    contextService.saveInitialSnapshotIfMissing(relPath, newText)
+                    val changes = contextService.updateFileContent(relPath, newText)
+
                     if (changes.isNotEmpty()) {
                         multiFileDiffs[relPath] = changes.map { it.toApiModel() }
-                        changedFiles[fullPath] = newText
+                        changedFiles[relPath] = newText
                     }
                 }
             }
@@ -925,15 +967,11 @@ class AppService {
                 val sent = sendMultiFileContextUpdate(update)
 
                 if (sent) {
-                    // update local cache once the server confirms the update
-                    changedFiles.forEach { (path, text) ->
-                        contextService.writeCache(path, text)
+                    changedFiles.forEach { (relativePath, text) ->
+                        contextService.writeCache(relativePath, text)
                     }
-                } else {
-                    LOG.warn("Failed to send multi-file context updates")
                 }
             }
-
             rawContext["context_files"] = relativePaths
             val requestCompletion =
                 RequestCompletion(

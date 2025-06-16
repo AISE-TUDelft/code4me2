@@ -24,6 +24,21 @@ class InputControlsComponent(
     private val webToggleButton = createWebToggleButton()
     private val modelComboBox = ModelComboBox()
     private val sendButton = createSendButton()
+    private val stopButton = createStopButton()
+    private var onCancelEdit: (() -> Unit)? = null
+    private val leftPanel =
+        JPanel().apply {
+            background = this@InputControlsComponent.background
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+        }
+    private val rightPanel =
+        JPanel().apply {
+            background = this@InputControlsComponent.background
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+        }
+
+    /** Optional stop handler assigned externally */
+    var onStop: (() -> Unit)? = null
 
     init {
         setupLayout()
@@ -35,33 +50,21 @@ class InputControlsComponent(
      * on the left and the send button on the right.
      */
     private fun setupLayout() {
-        val leftPanel =
-            JPanel().apply {
-                background = this@InputControlsComponent.background
-                layout = BoxLayout(this, BoxLayout.X_AXIS)
+        leftPanel.apply {
+            add(addFileButton)
+            add(Box.createHorizontalStrut(8))
+            add(webToggleButton)
+            add(Box.createHorizontalStrut(4))
+            add(modelComboBox)
+            add(Box.createHorizontalGlue())
+        }
 
-                add(addFileButton)
-                add(Box.createHorizontalStrut(8))
-                add(webToggleButton)
-                add(Box.createHorizontalStrut(4))
-                add(modelComboBox)
-                add(Box.createHorizontalGlue())
-            }
-
-        val rightPanel =
-            JPanel().apply {
-                background = this@InputControlsComponent.background
-                layout = BoxLayout(this, BoxLayout.X_AXIS)
-                add(sendButton)
-            }
+        rightPanel.add(sendButton)
 
         add(leftPanel, BorderLayout.WEST)
         add(rightPanel, BorderLayout.EAST)
     }
 
-    /**
-     * Applies basic styling: background color and padding borders.
-     */
     private fun setupStyling() {
         background = JBColor.background()
         border =
@@ -77,6 +80,17 @@ class InputControlsComponent(
             tooltip = "Add file to context",
             action = onFileAdd,
         )
+
+    private var cancelEditButton =
+        JButton("Cancel").apply {
+            toolTipText = "Cancel editing"
+            isFocusPainted = false
+            isContentAreaFilled = false
+            isBorderPainted = true
+            isOpaque = false
+            foreground = JBColor.foreground()
+            addActionListener { onCancelEdit?.invoke() }
+        }
 
     private fun createWebToggleButton() =
         IconToggleButton(
@@ -98,9 +112,47 @@ class InputControlsComponent(
         )
     }
 
+    private fun createStopButton(): JButton {
+        val stopIcon = AllIcons.Process.Stop
+        return CleanIconButton(
+            defaultIcon = stopIcon,
+            hoverIcon = stopIcon,
+            clickIcon = stopIcon,
+            tooltip = "Stop generation",
+            action = { onStop?.invoke() },
+        )
+    }
+
+    fun showCancelEditButton(onCancel: () -> Unit) {
+        onCancelEdit = onCancel
+        cancelEditButton.isVisible = true
+        rightPanel.removeAll()
+        rightPanel.add(cancelEditButton)
+        rightPanel.add(Box.createHorizontalStrut(8))
+        rightPanel.add(sendButton)
+        rightPanel.revalidate()
+        rightPanel.repaint()
+    }
+
+    fun hideCancelEditButton() {
+        rightPanel.removeAll()
+        rightPanel.add(sendButton)
+        rightPanel.revalidate()
+        rightPanel.repaint()
+        cancelEditButton.isVisible = false
+        onCancelEdit = null
+    }
+
     fun getAddFileButton(): JButton = addFileButton
 
     fun updateModels(models: Array<String>) = modelComboBox.updateModels(models)
 
     fun getSelectedModel(): String? = modelComboBox.getSelectedModel()
+
+    fun setGeneratingState(isGenerating: Boolean) {
+        rightPanel.removeAll()
+        rightPanel.add(if (isGenerating) stopButton else sendButton)
+        rightPanel.revalidate()
+        rightPanel.repaint()
+    }
 }
