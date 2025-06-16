@@ -23,6 +23,7 @@ import groovy.lang.Tuple2
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.UpdateUser
+import me.code4me.components.settings.fields.FieldInfo
 import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
 import me.code4me.components.settings.fields.ModuleFloatPreferenceField
 import me.code4me.components.settings.fields.ModuleIntegerPreferenceField
@@ -113,7 +114,7 @@ class ConfigurationSection : SettingsSection {
      * Checkbox for controlling completion data storage.
      */
     private val storeContextField =
-        JBCheckBox("Store Completions").apply {
+        JBCheckBox("Completions").apply {
             toolTipText = "Enable storage of code completion data for analytics and improvements"
         }
 
@@ -131,7 +132,7 @@ class ConfigurationSection : SettingsSection {
      * Checkbox for controlling context data storage.
      */
     private val storeContextualTelemetryField =
-        JBCheckBox("Store contextual telemetry").apply {
+        JBCheckBox("Contextual telemetry").apply {
             toolTipText = "Enable storage of contextual telemetry data for enhanced completions"
         }
 
@@ -149,7 +150,7 @@ class ConfigurationSection : SettingsSection {
      * Checkbox for controlling context data storage.
      */
     private val storeBehavioralTelemetryField =
-        JBCheckBox("Store behavioral telemetry").apply {
+        JBCheckBox("Behavioral telemetry").apply {
             toolTipText = "Enable storage of code context data for enhanced completions"
         }
 
@@ -160,6 +161,55 @@ class ConfigurationSection : SettingsSection {
             override fun setStateValue(value: Boolean) {
                 storeBehavioralTelemetryField.isSelected = value
                 getPrefState().storeBehavioralTelemetry = value
+            }
+        }
+
+    /**
+     * Button for applying limited data collection preferences.
+     */
+    private val limitedDataCollectionButton =
+        JButton("Use Limited Data Collection").apply {
+            toolTipText = "Set all module preferences to use limited data collection values"
+            addActionListener {
+                // Apply limited default values to all preferences
+                PrefState.setAllPreferencesToLimitedDefaults()
+
+                // Update UI to reflect changes
+                updateModulePreferencesPanel()
+
+                // force a rebuild of the module tree
+                updateModuleTree()
+
+                // Show modal dialog indicating success
+                Messages.showInfoMessage(
+                    "All module preferences have been set to use limited data collection values.",
+                    "Limited Data Collection Applied"
+                )
+            }
+        }
+
+    private val limitedDataCollectionFieldSVF =
+        object : StateValueField<Boolean> {
+            override fun getFieldValue(): Boolean {
+                return false // This button does not have a field value
+            }
+
+            override fun setFieldValue(value: Boolean) {
+                // No-op, handled by button action listener
+            }
+
+            override fun getStateValue(): Boolean = false // Stateless action button
+
+            override fun setStateValue(value: Boolean) {
+                // No-op, handled by button action listener
+            }
+
+            override fun getFieldInfo(): MutableList<FieldInfo> {
+                return mutableListOf()
+            }
+
+            override fun getComponent(): JComponent {
+                return limitedDataCollectionButton
             }
         }
 
@@ -890,7 +940,7 @@ class ConfigurationSection : SettingsSection {
         val panel =
             JPanel(BorderLayout()).apply {
                 add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
-                add(textField, BorderLayout.EAST)
+                add(textField, BorderLayout.WEST)
             }
 
         return panel
@@ -1111,6 +1161,7 @@ class ConfigurationSection : SettingsSection {
                 storeContextFieldSVF,
                 storeContextualTelemetryFieldSVF,
                 storeBehavioralTelemetryFieldSVF,
+                limitedDataCollectionFieldSVF,
             ),
         )
 
@@ -1360,15 +1411,23 @@ class ConfigurationSection : SettingsSection {
                     border = JBUI.Borders.emptyBottom(5)
                 }
 
+            val storeSubtitle = JBLabel("Store: ").apply {
+                font = font.deriveFont(font.style or Font.ITALIC)
+                border = JBUI.Borders.emptyBottom(5)
+            }
+
             val optionsPanel =
-                JPanel(GridLayout(2, 1, 5, 5)).apply {
+                JPanel(GridLayout(1, 3, 5, 5)).apply {
                     add(storeContextField)
                     add(storeContextualTelemetryField)
                     add(storeBehavioralTelemetryField)
                 }
 
             add(configTitle, BorderLayout.NORTH)
+            add(storeSubtitle, BorderLayout.NORTH)
             add(optionsPanel, BorderLayout.CENTER)
+
+            add(limitedDataCollectionButton, BorderLayout.SOUTH)
         }
     }
 

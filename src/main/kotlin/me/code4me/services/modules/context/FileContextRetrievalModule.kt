@@ -52,7 +52,7 @@ class FileContextRetrievalModule : PluginModule {
         private val LOG = thisLogger()
 
         // Default configuration values
-        private const val DEFAULT_PREFIX_LENGTH = 256
+        private const val DEFAULT_PREFIX_LENGTH = 512
         private const val DEFAULT_SUFFIX_LENGTH = 256
 
         // Record key names following the new naming convention
@@ -198,6 +198,7 @@ class FileContextRetrievalModule : PluginModule {
                 key = PREF_PREFIX_LENGTH,
                 type = PreferenceType.INT,
                 defaultValue = DEFAULT_PREFIX_LENGTH.toString(),
+                limitedDefaultValue = "256",
                 displayName = "Prefix Length",
                 description =
                     "Number of characters to include before the cursor position. " +
@@ -207,6 +208,7 @@ class FileContextRetrievalModule : PluginModule {
                 key = PREF_SUFFIX_LENGTH,
                 type = PreferenceType.INT,
                 defaultValue = DEFAULT_SUFFIX_LENGTH.toString(),
+                limitedDefaultValue = "128",
                 displayName = "Suffix Length",
                 description =
                     "Number of characters to include after the cursor position. " +
@@ -216,6 +218,7 @@ class FileContextRetrievalModule : PluginModule {
                 key = PREF_INCLUDE_CONTENTS,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
+                limitedDefaultValue = "false",
                 displayName = "Include File Contents",
                 description =
                     "Include the complete file content in context data. " +
@@ -224,7 +227,9 @@ class FileContextRetrievalModule : PluginModule {
             Preference(
                 key = PREF_INCLUDE_PREFIX,
                 type = PreferenceType.BOOLEAN,
+
                 defaultValue = "true",
+                limitedDefaultValue = "true",
                 displayName = "Include Prefix",
                 description = "Include the text before the cursor position, up to the configured prefix length.",
             ),
@@ -232,6 +237,7 @@ class FileContextRetrievalModule : PluginModule {
                 key = PREF_INCLUDE_SUFFIX,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
+                limitedDefaultValue = "true",
                 displayName = "Include Suffix",
                 description = "Include the text after the cursor position, up to the configured suffix length.",
             ),
@@ -239,6 +245,7 @@ class FileContextRetrievalModule : PluginModule {
                 key = PREF_INCLUDE_FILENAME,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
+                limitedDefaultValue = "false",
                 displayName = "Include File Name",
                 description = "Include the name of the current file in context data.",
             ),

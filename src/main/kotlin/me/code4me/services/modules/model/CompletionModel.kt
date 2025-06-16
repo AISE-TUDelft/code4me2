@@ -25,6 +25,10 @@ class CompletionModel : PluginModule {
                     getConfig().getModelsConfiguration()?.getAvailableCompletionModels()?.joinToString(",") {
                         it.name
                     } ?: "default",
+                limitedDefaultValue =
+                    getConfig().getModelsConfiguration()?.getAvailableCompletionModels()?.joinToString(",") {
+                        it.name
+                    } ?: "default",
                 displayName = "Preferred Model",
                 description =
                     "Select your preferred chat model for inline completion. " +

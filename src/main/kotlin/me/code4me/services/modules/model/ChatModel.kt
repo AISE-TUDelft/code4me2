@@ -27,6 +27,10 @@ class ChatModel : PluginModule {
                     getConfig().getModelsConfiguration()?.getAvailableChatModels()?.joinToString(",") {
                         it.name
                     } ?: "default",
+                limitedDefaultValue =
+                    getConfig().getModelsConfiguration()?.getAvailableChatModels()?.joinToString(",") {
+                        it.name
+                    } ?: "default",
                 displayName = "Preferred Model",
                 description =
                     "Select your preferred chat model for chat. " +
@@ -36,6 +40,7 @@ class ChatModel : PluginModule {
                 key = SYSTEM_PROMPT_KEY,
                 type = PreferenceType.TEXT,
                 defaultValue = getConfig().getModelsConfiguration()?.systemPrompt ?: "You are a helpful assistant.",
+                limitedDefaultValue = getConfig().getModelsConfiguration()?.systemPrompt ?: "You are a helpful assistant.",
                 displayName = "System Prompt",
                 description =
                     "The system prompt to use for the chat model. " +

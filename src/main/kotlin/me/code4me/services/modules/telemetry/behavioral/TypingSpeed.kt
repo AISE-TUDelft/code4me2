@@ -216,6 +216,7 @@ class TypingSpeed : PluginModule {
                 key = PREF_WINDOW_SIZE,
                 type = PreferenceType.INT,
                 defaultValue = DEFAULT_WINDOW_SIZE.toString(),
+                limitedDefaultValue = "$DEFAULT_WINDOW_SIZE",
                 displayName = "Time Window Size (seconds)",
                 description =
                     "This determines the time window before the request that is taken into account " +

@@ -10,8 +10,12 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.util.xmlb.annotations.MapAnnotation
 import com.intellij.util.xmlb.annotations.Tag
+import me.code4me.api.generated.model.UpdateUser
+import me.code4me.services.app.getAppService
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.settings.Code4MeConfigurable
+import me.code4me.utils.api.toSerializableMap
 import me.code4me.utils.configuration.Preference
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
@@ -266,6 +270,82 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
                 LOG.error("Failed to get module preferences for: $moduleId", e)
                 emptyList()
             }
+        }
+
+        /**
+         * Sets all module preferences to their limited default values.
+         * This applies the limitedDefaultValue for each preference across all modules.
+         */
+        fun setAllPreferencesToLimitedDefaults() {
+            try {
+                val moduleManager = getModuleManager()
+                val state = getPrefState()
+                val allModules = moduleManager.getAvailableModules()
+                var preferencesUpdated = 0
+
+                allModules.forEach { module ->
+                    preferencesUpdated = setModulePreferencesToLimitedDefaultsRecursively(module, state, preferencesUpdated)
+                }
+
+                Code4MeConfigurable.atomicSettingsChanged.set(true)
+                // Save the updated state
+                getAppService().updateUser(
+                    UpdateUser(
+                        preference = state.toSerializableMap()
+                    )
+                )
+                LOG.info("Updated $preferencesUpdated preferences to limited default values")
+            } catch (e: Exception) {
+                LOG.error("Failed to set preferences to limited default values", e)
+            }
+        }
+
+        /**
+         * Recursively sets module preferences to their limited default values.
+         * This applies the limitedDefaultValue for each preference of the module and all its submodules.
+         *
+         * @param module The module to process
+         * @param state The preference state
+         * @param preferencesUpdated Counter for updated preferences
+         * @return Updated counter for preferences
+         */
+        private fun setModulePreferencesToLimitedDefaultsRecursively(
+            module: PluginModule,
+            state: PrefSettings,
+            preferencesUpdated: Int
+        ): Int {
+            var updatedCount = preferencesUpdated
+            val moduleId = module.getPreferenceId()
+            val preferences = module.getPreferenceList()
+
+            // Process the module's preferences
+            preferences.forEach { preference ->
+                if (preference.limitedDefaultValue.isNotBlank()) {
+                    val fullKey = "$moduleId.${preference.key}"
+                    val oldValue = state.moduleValues[fullKey]
+
+                    // Update to limited default value
+                    state.moduleValues[fullKey] = preference.limitedDefaultValue
+
+                    // Fire property change event
+                    state.propertyChangeSupport.firePropertyChange(fullKey, oldValue, preference.limitedDefaultValue)
+                    updatedCount++
+
+                    LOG.debug("Set preference to limited default: $fullKey = ${preference.limitedDefaultValue}")
+                }
+            }
+
+            // Process submodules recursively
+            try {
+                val submodules = module.getSubmodules()
+                submodules.forEach { submodule ->
+                    updatedCount = setModulePreferencesToLimitedDefaultsRecursively(submodule, state, updatedCount)
+                }
+            } catch (e: Exception) {
+                LOG.warn("Failed to process submodules for ${module.moduleName}: ${e.message}")
+            }
+
+            return updatedCount
         }
     }
 }
