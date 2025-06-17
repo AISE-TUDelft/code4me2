@@ -215,8 +215,6 @@ class ProjectMultiFileContextService(private val project: Project) {
         }
     }
 
-
-
     fun getMappedPath(sanitized: String): String? {
         val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(pathMapFile)
         val nodes = doc.getElementsByTagName("file")

@@ -163,23 +163,25 @@ class PluginStartupActivity : ProjectActivity {
                 if (!fileExists) {
                     LOG.info("File no longer exists, sending delete notification: $originalPath")
 
-                    val lineCount = try {
-                        cacheFile.useLines { it.count() }
-                    } catch (e: Exception) {
-                        LOG.warn("Failed to count lines in cache file for deletion: ${cacheFile.name}", e)
-                        continue
-                    }
+                    val lineCount =
+                        try {
+                            cacheFile.useLines { it.count() }
+                        } catch (e: Exception) {
+                            LOG.warn("Failed to count lines in cache file for deletion: ${cacheFile.name}", e)
+                            continue
+                        }
 
                     val endLine = maxOf(0, lineCount - 1)
 
-                    val diff = listOf(
-                        MultiFileContextRetrievalModule.FileContextChangeData(
-                            changeType = "delete",
-                            startLine = 0,
-                            endLine = endLine,
-                            newLines = emptyList(),
-                        ).toApiModel(),
-                    )
+                    val diff =
+                        listOf(
+                            MultiFileContextRetrievalModule.FileContextChangeData(
+                                changeType = "delete",
+                                startLine = 0,
+                                endLine = endLine,
+                                newLines = emptyList(),
+                            ).toApiModel(),
+                        )
 
                     val update = UpdateMultiFileContext(contextUpdates = mapOf(originalPath to diff))
 

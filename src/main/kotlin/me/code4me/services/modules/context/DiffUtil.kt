@@ -60,7 +60,7 @@ fun computeLineDiffs(
                 FileContextChangeData(
                     changeType = "insert",
                     startLine = 0,
-                    endLine = newLines.size - 1,
+                    endLine = newLines.size,
                     newLines = newLines,
                 ),
             )
@@ -70,7 +70,7 @@ fun computeLineDiffs(
                 FileContextChangeData(
                     changeType = "delete",
                     startLine = 0,
-                    endLine = oldLines.size - 1,
+                    endLine = oldLines.size,
                     newLines = emptyList(),
                 ),
             )
@@ -104,7 +104,7 @@ fun computeLineDiffs(
                 FileContextChangeData(
                     changeType = "delete",
                     startLine = oldStart,
-                    endLine = oldEnd - 1,
+                    endLine = oldEnd,
                     newLines = emptyList(),
                 ),
             )
@@ -126,7 +126,7 @@ fun computeLineDiffs(
                 FileContextChangeData(
                     changeType = "replace",
                     startLine = oldStart,
-                    endLine = oldEnd - 1,
+                    endLine = oldEnd,
                     newLines = newMiddle,
                 ),
             )
