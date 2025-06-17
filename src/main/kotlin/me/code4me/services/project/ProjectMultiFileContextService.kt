@@ -1,12 +1,15 @@
+// FIXED ProjectMultiFileContextService.kt with atomic cache updates to prevent race conditions
 package me.code4me.services.project
 
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import computeLineDiffs
 import me.code4me.services.modules.context.MultiFileContextRetrievalModule.FileContextChangeData
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.transform.OutputKeys
 import javax.xml.transform.TransformerFactory
@@ -19,6 +22,10 @@ fun getProjectMultiFileContextService(project: Project): ProjectMultiFileContext
 
 @Service(Service.Level.PROJECT)
 class ProjectMultiFileContextService(private val project: Project) {
+    companion object {
+        private val LOG = thisLogger()
+    }
+
     val contextCacheDir: File by lazy {
         File(project.basePath, ".idea/code4me/context_cache").also { it.mkdirs() }
     }
@@ -29,54 +36,186 @@ class ProjectMultiFileContextService(private val project: Project) {
         }
     }
 
-    /**
-     * Updates file content in the cache and returns diffs if any.
-     * @param relativePath The relative path from project root (e.g., "src/main/App.kt")
-     */
-    fun updateFileContent(
-        relativePath: String,
-        newText: String,
-    ): List<FileContextChangeData> {
-        val cacheFile = getCacheFile(relativePath)
+    // Thread-safe cache locks
+    private val cacheLocks = ConcurrentHashMap<String, Any>()
 
-        if (!cacheFile.exists()) {
-            savePathMapping(relativePath)
-            return emptyList()
-        }
+    // Store previous cache state for rollback capability
+    private val previousCacheState = ConcurrentHashMap<String, String>()
 
-        val oldText = cacheFile.readText()
-        val diffs = computeLineDiffs(oldText, newText)
-        return diffs
+    private fun getCacheLock(relativePath: String): Any {
+        return cacheLocks.getOrPut(relativePath) { Any() }
     }
 
     /**
-     * Writes a snapshot of the file content if one doesn't exist.
-     * @param relativePath The relative path from project root (e.g., "src/main/App.kt")
+     * Checks if a snapshot exists for the given relative path.
+     */
+    fun hasSnapshot(relativePath: String): Boolean {
+        synchronized(getCacheLock(relativePath)) {
+            val cacheFile = getCacheFile(relativePath)
+            val exists = cacheFile.exists()
+            LOG.debug("Snapshot check for $relativePath: $exists")
+            return exists
+        }
+    }
+
+    /**
+     * ATOMIC: Updates file content and cache in a single synchronized operation.
+     * This prevents race conditions from rapid typing.
+     */
+    fun updateFileContentAndCache(
+        relativePath: String,
+        newText: String,
+    ): List<FileContextChangeData> {
+        synchronized(getCacheLock(relativePath)) {
+            val cacheFile = getCacheFile(relativePath)
+
+            if (!cacheFile.exists()) {
+                LOG.debug("No cache file exists for $relativePath, returning empty diffs")
+                savePathMapping(relativePath)
+                return emptyList()
+            }
+
+            val oldText =
+                try {
+                    cacheFile.readText()
+                } catch (e: Exception) {
+                    LOG.warn("Failed to read cache file for $relativePath", e)
+                    return emptyList()
+                }
+
+            LOG.debug("Computing diffs for $relativePath: oldSize=${oldText.length}, newSize=${newText.length}")
+
+            val diffs = computeLineDiffs(oldText, newText)
+
+            if (diffs.isNotEmpty()) {
+                LOG.debug("Found ${diffs.size} diffs for $relativePath:")
+                diffs.forEach { diff ->
+                    LOG.debug("  ${diff.changeType}: ${diff.startLine}-${diff.endLine} (${diff.newLines.size} new lines)")
+                }
+
+                // CRITICAL: Store previous state for potential rollback
+                previousCacheState[relativePath] = oldText
+
+                // CRITICAL: Update cache IMMEDIATELY (optimistically)
+                try {
+                    writeCacheInternal(relativePath, newText)
+                    LOG.debug("Cache updated immediately for $relativePath")
+                } catch (e: Exception) {
+                    LOG.error("Failed to update cache immediately for $relativePath", e)
+                    // If cache update fails, don't return diffs
+                    return emptyList()
+                }
+            } else {
+                LOG.debug("No diffs found for $relativePath")
+            }
+
+            return diffs
+        }
+    }
+
+    /**
+     * Rollback the last cache update if server update failed.
+     */
+    fun rollbackLastUpdate(relativePath: String) {
+        synchronized(getCacheLock(relativePath)) {
+            val previousState = previousCacheState[relativePath]
+            if (previousState != null) {
+                try {
+                    writeCacheInternal(relativePath, previousState)
+                    previousCacheState.remove(relativePath)
+                    LOG.debug("Successfully rolled back cache for $relativePath")
+                } catch (e: Exception) {
+                    LOG.error("Failed to rollback cache for $relativePath", e)
+                }
+            } else {
+                LOG.warn("No previous state to rollback for $relativePath")
+            }
+        }
+    }
+
+    /**
+     * Thread-safe version of saveInitialSnapshotIfMissing.
      */
     fun saveInitialSnapshotIfMissing(
         relativePath: String,
         newText: String,
     ) {
-        val cacheFile = getCacheFile(relativePath)
-        if (!cacheFile.exists()) {
-            cacheFile.parentFile.mkdirs()
-            cacheFile.writeText(newText)
-            savePathMapping(relativePath)
+        synchronized(getCacheLock(relativePath)) {
+            val cacheFile = getCacheFile(relativePath)
+            if (!cacheFile.exists()) {
+                LOG.debug("Saving initial snapshot for $relativePath")
+                writeCacheInternal(relativePath, newText)
+                savePathMapping(relativePath)
+            } else {
+                LOG.debug("Snapshot already exists for $relativePath")
+            }
         }
     }
 
     /**
-     * Writes content to cache.
-     * @param relativePath The relative path from project root (e.g., "src/main/App.kt")
+     * Internal method for atomic cache writing
      */
-    fun writeCache(
+    private fun writeCacheInternal(
         relativePath: String,
         newText: String,
     ) {
         val cacheFile = getCacheFile(relativePath)
-        cacheFile.parentFile.mkdirs()
-        cacheFile.writeText(newText)
+        LOG.debug("Writing cache for $relativePath (${newText.length} chars)")
+
+        try {
+            cacheFile.parentFile.mkdirs()
+
+            // Write to temporary file first, then rename for atomic operation
+            val tempFile = File(cacheFile.parent, "${cacheFile.name}.tmp")
+            tempFile.writeText(newText)
+
+            // Atomic rename
+            if (cacheFile.exists()) {
+                cacheFile.delete()
+            }
+
+            val success = tempFile.renameTo(cacheFile)
+            if (success) {
+                LOG.debug("Cache written successfully for $relativePath")
+            } else {
+                LOG.error("Failed to rename temp file for $relativePath")
+                // Cleanup temp file if rename failed
+                tempFile.delete()
+            }
+        } catch (e: Exception) {
+            LOG.error("Failed to write cache for $relativePath", e)
+        }
     }
+
+    /**
+     * Completely resets the cache and forces fresh file sends.
+     */
+    fun resetCacheCompletely() {
+        try {
+            LOG.warn("RESETTING CACHE COMPLETELY - all files will be sent fresh")
+
+            // Clear all cache locks first
+            cacheLocks.clear()
+            previousCacheState.clear()
+
+            // Delete all cache files
+            contextCacheDir.listFiles()?.forEach { file ->
+                if (file.isFile) {
+                    val deleted = file.delete()
+                    LOG.debug("Deleted cache file: ${file.name} - success: $deleted")
+                }
+            }
+
+            // Recreate empty XML mapping file
+            saveEmptyXml(pathMapFile)
+
+            LOG.warn("Cache reset complete - next requests will send full files")
+        } catch (e: Exception) {
+            LOG.error("Failed to reset cache", e)
+        }
+    }
+
+
 
     fun getMappedPath(sanitized: String): String? {
         val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(pathMapFile)
@@ -97,9 +236,6 @@ class ProjectMultiFileContextService(private val project: Project) {
 
     /**
      * Sanitizes a relative path to create a safe filename for caching.
-     * This flattens the directory structure into a single filename.
-     *
-     * Example: "src/main/java/App.kt" -> "src_s_main_s_java_s_App.kt"
      */
     private fun sanitizeForFilename(relativePath: String): String {
         return relativePath
@@ -113,13 +249,6 @@ class ProjectMultiFileContextService(private val project: Project) {
             .replace("|", "_p_")
             .replace("?", "_qm_")
             .replace("*", "_a_")
-    }
-
-    /**
-     * Legacy sanitize method - keeping for backward compatibility with existing cache
-     */
-    private fun sanitize(path: String): String {
-        return sanitizeForFilename(path)
     }
 
     private fun savePathMapping(relativePath: String) {
@@ -137,10 +266,9 @@ class ProjectMultiFileContextService(private val project: Project) {
         val fileElement = doc.createElement("file")
         fileElement.setAttribute("name", sanitizedName)
         val pathElement = doc.createElement("originalPath")
-        pathElement.textContent = relativePath // Store the original relative path
+        pathElement.textContent = relativePath
         fileElement.appendChild(pathElement)
         root.appendChild(fileElement)
-
         saveXml(doc)
     }
 
@@ -166,7 +294,6 @@ class ProjectMultiFileContextService(private val project: Project) {
         val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(pathMapFile)
         val root = doc.documentElement
         val nodes = doc.getElementsByTagName("file")
-
         for (i in 0 until nodes.length) {
             val el = nodes.item(i) as Element
             if (el.getAttribute("name") == sanitized) {
@@ -174,12 +301,10 @@ class ProjectMultiFileContextService(private val project: Project) {
                 break
             }
         }
-
         saveXml(doc)
     }
 
     fun clearCache() {
-        contextCacheDir.listFiles()?.forEach { it.delete() }
-        saveEmptyXml(pathMapFile)
+        resetCacheCompletely()
     }
 }

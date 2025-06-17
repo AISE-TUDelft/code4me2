@@ -28,6 +28,7 @@ import me.code4me.api.generated.model.AuthenticateUserPostResponse
 import me.code4me.api.generated.model.BehavioralTelemetryData
 import me.code4me.api.generated.model.ChatHistoryResponse
 import me.code4me.api.generated.model.ChatHistoryResponsePage
+import me.code4me.api.generated.model.ContextChangeType
 import me.code4me.api.generated.model.ContextData
 import me.code4me.api.generated.model.ContextualTelemetryData
 import me.code4me.api.generated.model.CreateProject
@@ -763,59 +764,160 @@ class AppService {
         project: Project,
     ): ChatHistoryResponse =
         withContext(Dispatchers.IO) {
+            val callId = System.currentTimeMillis()
+            LOG.debug("=== CHAT COMPLETION CALL $callId START ===")
+
             require(requestChatCompletion.messages.isNotEmpty()) { "Messages cannot be empty" }
 
             currentGenerationProject.set(project)
 
             try {
                 val multiFileDiffs: MutableMap<String, List<FileContextChangeData>> = mutableMapOf()
-
                 val relativePaths = requestChatCompletion.context.contextFiles ?: emptyList()
+
+                LOG.debug("CALL $callId: Processing ${relativePaths.size} context files for chat completion")
 
                 val basePath = project.basePath
                 if (basePath != null && relativePaths.isNotEmpty()) {
                     val contextService = getProjectMultiFileContextService(project)
-                    val changedFiles = mutableMapOf<String, String>()
 
+                    // Process all context files atomically
                     withContext(Dispatchers.Default) {
                         for (relPath in relativePaths) {
-                            val fullPath = "$basePath${File.separator}$relPath".replace("/", File.separator)
-                            val virtualFile = LocalFileSystem.getInstance().findFileByPath(fullPath) ?: continue
-                            val newText =
-                                ApplicationManager.getApplication().runReadAction<String?> {
-                                    FileDocumentManager.getInstance().getDocument(virtualFile)?.text
-                                } ?: continue
-                            contextService.saveInitialSnapshotIfMissing(relPath, newText)
-                            val changes = contextService.updateFileContent(relPath, newText)
+                            LOG.debug("CALL $callId: Processing chat context file $relPath")
 
-                            if (changes.isNotEmpty()) {
-                                multiFileDiffs[relPath] = changes.map { it.toApiModel() }
-                                changedFiles[relPath] = newText
+                            try {
+                                val fullPath = "$basePath${File.separator}$relPath".replace("/", File.separator)
+                                val virtualFile = LocalFileSystem.getInstance().findFileByPath(fullPath)
+
+                                if (virtualFile?.isValid != true) {
+                                    LOG.warn("CALL $callId: Invalid virtual file for chat context path: $fullPath")
+                                    continue
+                                }
+
+                                val newText =
+                                    ApplicationManager.getApplication().runReadAction<String?> {
+                                        try {
+                                            FileDocumentManager.getInstance().getDocument(virtualFile)?.text
+                                        } catch (e: Exception) {
+                                            LOG.warn("CALL $callId: Failed to read document for chat context file: $fullPath", e)
+                                            null
+                                        }
+                                    }
+
+                                if (newText == null) {
+                                    LOG.warn("CALL $callId: Failed to read text content for chat context file: $fullPath")
+                                    continue
+                                }
+
+                                val hasSnapshot = contextService.hasSnapshot(relPath)
+                                LOG.debug(
+                                    "CALL $callId: Chat context file $relPath - hasSnapshot=$hasSnapshot, contentLength=${newText.length}",
+                                )
+
+                                if (!hasSnapshot) {
+                                    // First time: save initial snapshot and send full file as insert
+                                    contextService.saveInitialSnapshotIfMissing(relPath, newText)
+
+                                    if (newText.isNotEmpty()) {
+                                        val lines = newText.replace("\r\n", "\n").split("\n")
+                                        val fullFileChange =
+                                            FileContextChangeData(
+                                                changeType = ContextChangeType.insert,
+                                                startLine = 0,
+                                                endLine = maxOf(0, lines.size - 1),
+                                                newLines = lines,
+                                            )
+                                        multiFileDiffs[relPath] = listOf(fullFileChange)
+                                        LOG.debug(
+                                            "CALL $callId: First-time chat context file $relPath: sending INSERT 0-${lines.size - 1} (${lines.size} lines)",
+                                        )
+                                    }
+                                } else {
+                                    // Subsequent times: compute diffs and update cache atomically
+                                    val changes = contextService.updateFileContentAndCache(relPath, newText)
+
+                                    if (changes.isNotEmpty()) {
+                                        val apiChanges =
+                                            changes.map { change ->
+                                                try {
+                                                    change.toApiModel()
+                                                } catch (e: Exception) {
+                                                    LOG.warn(
+                                                        "CALL $callId: Failed to convert change to API model for chat context $relPath: $change",
+                                                        e,
+                                                    )
+                                                    FileContextChangeData(
+                                                        changeType = ContextChangeType.update,
+                                                        startLine = change.startLine,
+                                                        endLine = change.endLine,
+                                                        newLines = change.newLines,
+                                                    )
+                                                }
+                                            }
+
+                                        multiFileDiffs[relPath] = apiChanges
+
+                                        LOG.debug("CALL $callId: Changes for chat context file $relPath:")
+                                        changes.forEach { change ->
+                                            LOG.debug(
+                                                "CALL $callId:   ${change.changeType} ${change.startLine}-${change.endLine} (${change.newLines.size} lines)",
+                                            )
+                                        }
+                                    } else {
+                                        LOG.debug("CALL $callId: No changes detected for chat context file: $relPath")
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                LOG.error("CALL $callId: Error processing chat context file $relPath", e)
+                                continue
                             }
                         }
                     }
 
+                    // Send multi-file context updates if there are any changes
                     if (multiFileDiffs.isNotEmpty()) {
+                        LOG.debug("CALL $callId: Sending multi-file context updates for ${multiFileDiffs.size} chat context files")
+
+                        multiFileDiffs.forEach { (path, changes) ->
+                            LOG.debug("CALL $callId: Chat context file $path: ${changes.size} changes")
+                            changes.forEach { change ->
+                                LOG.debug(
+                                    "CALL $callId:   ${change.changeType}: ${change.startLine}-${change.endLine} (${change.newLines.size} lines)",
+                                )
+                            }
+                        }
+
                         val update = UpdateMultiFileContext(contextUpdates = multiFileDiffs)
                         val sent = sendMultiFileContextUpdate(update)
 
                         if (sent) {
-                            changedFiles.forEach { (relativePath, text) ->
-                                contextService.writeCache(relativePath, text)
-                            }
+                            LOG.debug("CALL $callId: Successfully sent chat context updates for ${multiFileDiffs.size} files")
                         } else {
-                            LOG.warn("Failed to send multi-file context updates for chat completion")
+                            LOG.warn("CALL $callId: Failed to send multi-file context updates for chat completion")
+                            // ROLLBACK: If server update failed, rollback the optimistic cache updates
+                            multiFileDiffs.keys.forEach { relPath ->
+                                try {
+                                    contextService.rollbackLastUpdate(relPath)
+                                    LOG.debug("CALL $callId: Rolled back cache for chat context file: $relPath")
+                                } catch (e: Exception) {
+                                    LOG.warn("CALL $callId: Failed to rollback cache for chat context $relPath", e)
+                                }
+                            }
                         }
+                    } else {
+                        LOG.debug("CALL $callId: No chat context file changes to send")
                     }
                 }
+
                 val response =
                     chatApi.requestChatCompletionApiChatRequestPost(
                         requestChatCompletion = requestChatCompletion,
                     )
-                LOG.info("Chat completion requested successfully")
+                LOG.debug("CALL $callId: Chat completion request successful")
                 response
             } catch (e: Exception) {
-                LOG.warn("Chat completion request failed", e)
+                LOG.warn("CALL $callId: Chat completion request failed", e)
                 throw e
             } finally {
                 currentGenerationProject.set(null)
@@ -924,9 +1026,12 @@ class AppService {
         stopSequences: List<String>? = null,
     ): ResponseCompletionResponseData? =
         withContext(Dispatchers.IO) {
+            val callId = System.currentTimeMillis()
+
             require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
 
             currentGenerationProject.set(project)
+
             val modelId =
                 getConfig().getModelsConfiguration()
                     ?.getModelIdByName(
@@ -934,46 +1039,151 @@ class AppService {
                     )
 
             val rawContext = aggregatedCollectedData[Record.Type.CONTEXT]?.toMutableMap() ?: error("Missing CONTEXT")
-            val context = rawContext.mapsTo<ContextData>(ContextData::class.java)
+            val relativePaths =
+                (rawContext["multi_file_context.paths"] as? List<*>)
+                    ?.mapNotNull { it?.toString() }
+                    ?.distinct()
+                    ?: emptyList()
 
-            val multiFileDiffs: MutableMap<String, List<FileContextChangeData>> = mutableMapOf()
+            // Get current file name to exclude it from multi-file updates
+            val currentFileName = rawContext["file_name"]?.toString() ?: ""
 
-            val relativePaths = (rawContext["multi_file_context.paths"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            if (relativePaths.isEmpty()) {
+                rawContext["context_files"] = emptyList<String>()
+            } else {
+                val basePath = project.basePath ?: return@withContext null
+                val contextService = getProjectMultiFileContextService(project)
+                val multiFileDiffs: MutableMap<String, List<FileContextChangeData>> = mutableMapOf()
 
-            val basePath = project.basePath ?: return@withContext null
-            val contextService = getProjectMultiFileContextService(project)
-            val changedFiles = mutableMapOf<String, String>()
+                val filesToProcess =
+                    relativePaths.filter { relPath ->
+                        val shouldProcess =
+                            relPath != currentFileName &&
+                                !relPath.endsWith("/$currentFileName") &&
+                                !relPath.endsWith("\\$currentFileName")
+                        shouldProcess
+                    }
 
-            withContext(Dispatchers.Default) {
-                for (relPath in relativePaths) {
-                    val fullPath = "$basePath${File.separator}$relPath".replace("/", File.separator)
-                    val virtualFile = LocalFileSystem.getInstance().findFileByPath(fullPath) ?: continue
-                    val newText =
-                        ApplicationManager.getApplication().runReadAction<String?> {
-                            FileDocumentManager.getInstance().getDocument(virtualFile)?.text
-                        } ?: continue
+                withContext(Dispatchers.Default) {
+                    for (relPath in filesToProcess) {
 
-                    contextService.saveInitialSnapshotIfMissing(relPath, newText)
-                    val changes = contextService.updateFileContent(relPath, newText)
+                        try {
+                            val fullPath = "$basePath${File.separator}$relPath".replace("/", File.separator)
+                            val virtualFile = LocalFileSystem.getInstance().findFileByPath(fullPath)
 
-                    if (changes.isNotEmpty()) {
-                        multiFileDiffs[relPath] = changes.map { it.toApiModel() }
-                        changedFiles[relPath] = newText
+                            if (virtualFile?.isValid != true) {
+                                continue
+                            }
+
+                            val newText =
+                                ApplicationManager.getApplication().runReadAction<String?> {
+                                    try {
+                                        FileDocumentManager.getInstance().getDocument(virtualFile)?.text
+                                    } catch (e: Exception) {
+                                        LOG.warn("CALL $callId: Failed to read document for file: $fullPath", e)
+                                        null
+                                    }
+                                }
+
+                            if (newText == null) {
+                                LOG.warn("CALL $callId: Failed to read text content for file: $fullPath")
+                                continue
+                            }
+
+                            val hasSnapshot = contextService.hasSnapshot(relPath)
+                            LOG.debug("CALL $callId: Context file $relPath - hasSnapshot=$hasSnapshot, contentLength=${newText.length}")
+
+                            if (!hasSnapshot) {
+                                contextService.saveInitialSnapshotIfMissing(relPath, newText)
+
+                                if (newText.isNotEmpty()) {
+                                    val lines = newText.replace("\r\n", "\n").split("\n")
+                                    val fullFileChange =
+                                        FileContextChangeData(
+                                            changeType = ContextChangeType.insert,
+                                            startLine = 0,
+                                            endLine = maxOf(0, lines.size - 1),
+                                            newLines = lines,
+                                        )
+                                    multiFileDiffs[relPath] = listOf(fullFileChange)
+                                    LOG.debug(
+                                        "CALL $callId: First-time context file $relPath: sending INSERT 0-${lines.size - 1} (${lines.size} lines)",
+                                    )
+                                }
+                            } else {
+                                val changes = contextService.updateFileContentAndCache(relPath, newText)
+
+                                if (changes.isNotEmpty()) {
+                                    val apiChanges =
+                                        changes.map { change ->
+                                            try {
+                                                change.toApiModel()
+                                            } catch (e: Exception) {
+                                                LOG.warn("CALL $callId: Failed to convert change to API model for $relPath: $change", e)
+                                                FileContextChangeData(
+                                                    changeType = ContextChangeType.update,
+                                                    startLine = change.startLine,
+                                                    endLine = change.endLine,
+                                                    newLines = change.newLines,
+                                                )
+                                            }
+                                        }
+
+                                    multiFileDiffs[relPath] = apiChanges
+
+                                    LOG.debug("CALL $callId: Changes for context file $relPath:")
+                                    changes.forEach { change ->
+                                        LOG.debug(
+                                            "CALL $callId:   ${change.changeType} ${change.startLine}-${change.endLine} (${change.newLines.size} lines)",
+                                        )
+                                    }
+                                } else {
+                                    LOG.debug("CALL $callId: No changes detected for context file: $relPath")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            LOG.error("CALL $callId: Error processing context file $relPath", e)
+                            continue
+                        }
                     }
                 }
-            }
 
-            if (multiFileDiffs.isNotEmpty()) {
-                val update = UpdateMultiFileContext(contextUpdates = multiFileDiffs)
-                val sent = sendMultiFileContextUpdate(update)
+                if (multiFileDiffs.isNotEmpty()) {
+                    LOG.debug("CALL $callId: Sending multi-file context updates for ${multiFileDiffs.size} context files")
 
-                if (sent) {
-                    changedFiles.forEach { (relativePath, text) ->
-                        contextService.writeCache(relativePath, text)
+                    multiFileDiffs.forEach { (path, changes) ->
+                        LOG.debug("CALL $callId: Context file $path: ${changes.size} changes")
+                        changes.forEach { change ->
+                            LOG.debug(
+                                "CALL $callId:   ${change.changeType}: ${change.startLine}-${change.endLine} (${change.newLines.size} lines)",
+                            )
+                        }
                     }
+
+                    val update = UpdateMultiFileContext(contextUpdates = multiFileDiffs)
+                    val sent = sendMultiFileContextUpdate(update)
+
+                    if (sent) {
+                        LOG.debug("CALL $callId: Successfully sent context updates for ${multiFileDiffs.size} files")
+                    } else {
+                        LOG.warn("CALL $callId: Failed to send multi-file context updates")
+                        multiFileDiffs.keys.forEach { relPath ->
+                            try {
+                                contextService.rollbackLastUpdate(relPath)
+                                LOG.debug("CALL $callId: Rolled back cache for context file: $relPath")
+                            } catch (e: Exception) {
+                                LOG.warn("CALL $callId: Failed to rollback cache for $relPath", e)
+                            }
+                        }
+                    }
+                } else {
+                    LOG.debug("CALL $callId: No context file changes to send")
                 }
+
+                // Include ALL original paths in context_files (both current and context files)
+                rawContext["context_files"] = relativePaths
             }
-            rawContext["context_files"] = relativePaths
+
             val requestCompletion =
                 RequestCompletion(
                     modelIds = listOfNotNull(modelId),
@@ -996,13 +1206,14 @@ class AppService {
 
             try {
                 val response = completionApi.requestCompletionApiCompletionRequestPost(requestCompletion)
-                LOG.debug("Inline completion request successful")
+                LOG.debug("CALL $callId: Inline completion request successful")
                 response.data
             } catch (e: Exception) {
-                LOG.warn("Failed to get inline completion", e)
+                LOG.warn("CALL $callId: Failed to get inline completion", e)
                 null
             } finally {
                 currentGenerationProject.set(null)
+                LOG.debug("=== INLINE COMPLETION CALL $callId END ===")
             }
         }
 

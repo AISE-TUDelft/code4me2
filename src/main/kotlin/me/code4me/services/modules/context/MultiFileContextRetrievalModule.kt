@@ -14,7 +14,6 @@ import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
 import me.code4me.utils.record.Record
 import me.code4me.utils.services.state.getBooleanPreference
-import java.io.File
 
 /**
  * Context module responsible for collecting contextual information from multiple files
@@ -126,30 +125,34 @@ class MultiFileContextRetrievalModule : PluginModule {
 
             val basePath = currentEditor.project?.basePath
 
-            // Collect file paths from all open editors (excluding the current one)
+            if (basePath == null) {
+                LOG.warn("No base path found for project, skipping multi-file context collection")
+                return emptyList()
+            }
+
+            val normalizedBasePath = basePath.replace('\\', '/').trimEnd('/')
+
             if (includeOpenEditors) {
                 for (editor in editors) {
                     if (editor == currentEditor) continue
 
                     val file = FileDocumentManager.getInstance().getFile(editor.document) ?: continue
                     if (file.isValid) {
-                        val filePath = file.path
+                        val filePath = file.path.replace('\\', '/')
+
                         val relativePath =
-                            basePath?.let { bp ->
-                                if (filePath.startsWith(bp)) {
-                                    filePath.removePrefix(bp).removePrefix(File.separator)
-                                } else {
-                                    // File is outside project, will be skipped
-                                    null
-                                }
+                            if (filePath.startsWith(normalizedBasePath)) {
+                                // Remove base path and leading separator
+                                val relative = filePath.removePrefix(normalizedBasePath).removePrefix("/")
+                                if (relative.isEmpty()) continue
+                                relative
+                            } else {
+                                LOG.trace("Skipped file outside project: $filePath")
+                                continue
                             }
 
-                        if (relativePath != null) {
-                            allPaths.add(relativePath)
-                            LOG.trace("Collected open editor path: $relativePath")
-                        } else {
-                            LOG.trace("Skipped file outside project: $filePath")
-                        }
+                        allPaths.add(relativePath)
+                        LOG.trace("Collected open editor path: $relativePath (from $filePath)")
                     }
                 }
             }
@@ -169,24 +172,21 @@ class MultiFileContextRetrievalModule : PluginModule {
                             val resolved = element.reference?.resolve()
                             val sourceFile = resolved?.containingFile?.virtualFile
                             if (sourceFile != null && sourceFile.isValid) {
-                                val filePath = sourceFile.path
+                                val filePath = sourceFile.path.replace('\\', '/')
 
                                 val relativePath =
-                                    basePath?.let { bp ->
-                                        if (filePath.startsWith(bp)) {
-                                            filePath.removePrefix(bp).removePrefix(File.separator)
-                                        } else {
-                                            // File is outside project, will be skipped
-                                            null
-                                        }
+                                    if (filePath.startsWith(normalizedBasePath)) {
+                                        val relative = filePath.removePrefix(normalizedBasePath).removePrefix("/")
+                                        if (relative.isEmpty()) return
+                                        relative
+                                    } else {
+                                        // File is outside project, skip it
+                                        LOG.trace("Skipped referenced file outside project: $filePath")
+                                        return
                                     }
 
-                                if (relativePath != null) {
-                                    allPaths.add(relativePath)
-                                    LOG.trace("Collected referenced path: $relativePath")
-                                } else {
-                                    LOG.trace("Skipped referenced file outside project: $filePath")
-                                }
+                                allPaths.add(relativePath)
+                                LOG.trace("Collected referenced path: $relativePath (from $filePath)")
                             }
                         }
                     },
@@ -194,9 +194,13 @@ class MultiFileContextRetrievalModule : PluginModule {
             }
 
             if (allPaths.isNotEmpty()) {
-                expanded[Record.key<List<String>>("$KEY_PREFIX_MULTI_FILE.paths")] = allPaths.toList()
+                val pathsList = allPaths.toList()
+                expanded[Record.key<List<String>>("$KEY_PREFIX_MULTI_FILE.paths")] = pathsList
+                LOG.debug("Successfully collected ${pathsList.size} unique paths: $pathsList")
+            } else {
+                LOG.debug("No file paths collected")
             }
-            LOG.debug("Successfully collected ${allPaths.size} unique paths")
+
             return if (expanded.isNotEmpty()) {
                 listOf(Record(type = Record.Type.CONTEXT, expanded = expanded))
             } else {
