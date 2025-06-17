@@ -333,6 +333,7 @@ class EditorContextRetrievalModule : PluginModule {
                 key = PREF_INCLUDE_LANGUAGE,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
+                limitedDefaultValue = "true",
                 displayName = "Include Language",
                 description =
                     "Include the programming language of the current file in context data. " +
@@ -342,6 +343,7 @@ class EditorContextRetrievalModule : PluginModule {
                 key = PREF_INCLUDE_FILEPATH,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
+                limitedDefaultValue = "false",
                 displayName = "Include File Path",
                 description =
                     "Include the full file path in context data. " +
@@ -351,6 +353,7 @@ class EditorContextRetrievalModule : PluginModule {
                 key = PREF_INCLUDE_CARET_OFFSET,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
+                limitedDefaultValue = "false",
                 displayName = "Include Caret Offset",
                 description =
                     "Include the caret's offset from the beginning of the document. " +
@@ -360,6 +363,7 @@ class EditorContextRetrievalModule : PluginModule {
                 key = PREF_INCLUDE_CARET_POSITION,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
+                limitedDefaultValue = "false",
                 displayName = "Include Caret Line and Column",
                 description =
                     "Include the line and column number of the caret position. " +
@@ -369,6 +373,7 @@ class EditorContextRetrievalModule : PluginModule {
                 key = PREF_INCLUDE_SELECTION_TEXT,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
+                limitedDefaultValue = "false",
                 displayName = "Include Selected Text",
                 description =
                     "Include currently selected text, if any, in context data. " +
@@ -378,6 +383,7 @@ class EditorContextRetrievalModule : PluginModule {
                 key = PREF_INCLUDE_LENGTH,
                 type = PreferenceType.BOOLEAN,
                 defaultValue = "true",
+                limitedDefaultValue = "false",
                 displayName = "Include File Length",
                 description =
                     "Include the total length of the file in characters. " +

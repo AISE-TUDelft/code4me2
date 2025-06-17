@@ -14,6 +14,7 @@ class CompletionModel : PluginModule {
     companion object {
         val LOG = thisLogger()
         private const val PREFERRED_MODEL_KEY = "preferredCompletionModel"
+        internal const val COMPLETION_INLINE_KEY = "getCompletionInline"
     }
 
     override fun getPreferenceList(): List<Preference> {
@@ -25,11 +26,25 @@ class CompletionModel : PluginModule {
                     getConfig().getModelsConfiguration()?.getAvailableCompletionModels()?.joinToString(",") {
                         it.name
                     } ?: "default",
+                limitedDefaultValue =
+                    getConfig().getModelsConfiguration()?.getAvailableCompletionModels()?.joinToString(",") {
+                        it.name
+                    } ?: "default",
                 displayName = "Preferred Model",
                 description =
                     "Select your preferred chat model for inline completion. " +
                         "This will be used to determine which model to use for generating responses.",
             ),
+            Preference(
+                key = COMPLETION_INLINE_KEY,
+                type = PreferenceType.BOOLEAN,
+                defaultValue = "true",
+                limitedDefaultValue = "true",
+                displayName = "Enable Inline Completion",
+                description =
+                    "Enable or disable inline completion feature. " +
+                        "When disabled, the plugin will only provide dropdown suggestions "
+            )
         )
     }
 
