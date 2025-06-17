@@ -25,6 +25,8 @@ import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
+import java.awt.event.KeyAdapter
+import java.awt.event.KeyEvent
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.BorderFactory
 import javax.swing.JButton
@@ -32,6 +34,16 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JToggleButton
+
+private fun JComponent.addEnterKeyListener(action: () -> Unit) {
+    addKeyListener(object : KeyAdapter() {
+        override fun keyPressed(e: KeyEvent) {
+            if (e.keyCode == KeyEvent.VK_ENTER) {
+                action()
+            }
+        }
+    })
+}
 
 /**
  * Settings section responsible for user authentication (login and signup).
@@ -133,17 +145,33 @@ class AuthenticationSection : SettingsSection {
     /**
      * Password input field with state management.
      */
+    /**
+     * Password input field with state management.
+     */
     private val passwordField =
         JBPasswordField().apply {
             columns = FIELD_COLUMNS
-            toolTipText = "Enter your password"
+            toolTipText = "Enter your password (8+ chars, uppercase, lowercase, digit, no spaces)"
             addFocusListener(
                 object : FocusAdapter() {
                     override fun focusLost(e: FocusEvent) {
                         val pwd = String(password)
-                        if (pwd.isNotEmpty() && pwd.length < 8) {
-                            background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
-                            putClientProperty("JComponent.outline", "error")
+                        val isSignupMode = authModeToggle.isSelected
+
+                        if (pwd.isNotEmpty()) {
+                            val isValid = if (isSignupMode) {
+                                pwd.length >= 8 && pwd.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$"))
+                            } else {
+                                pwd.length >= 8
+                            }
+
+                            if (!isValid) {
+                                background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
+                                putClientProperty("JComponent.outline", "error")
+                            } else {
+                                background = null
+                                putClientProperty("JComponent.outline", null)
+                            }
                         } else {
                             background = null
                             putClientProperty("JComponent.outline", null)
@@ -200,15 +228,23 @@ class AuthenticationSection : SettingsSection {
     private val confirmPasswordField =
         JBPasswordField().apply {
             columns = FIELD_COLUMNS
-            toolTipText = "Confirm your password"
+            toolTipText = "Confirm your password (must match requirements)"
             addFocusListener(
                 object : FocusAdapter() {
                     override fun focusLost(e: FocusEvent) {
                         val pwd = String(password)
                         val mainPwd = String(passwordField.password)
-                        if (pwd.isNotEmpty() && pwd != mainPwd) {
-                            background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
-                            putClientProperty("JComponent.outline", "error")
+                        if (pwd.isNotEmpty()) {
+                            val passwordsMatch = pwd == mainPwd
+                            val meetsRequirements = pwd.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$"))
+
+                            if (!passwordsMatch || !meetsRequirements) {
+                                background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
+                                putClientProperty("JComponent.outline", "error")
+                            } else {
+                                background = null
+                                putClientProperty("JComponent.outline", null)
+                            }
                         } else {
                             background = null
                             putClientProperty("JComponent.outline", null)
@@ -337,6 +373,13 @@ class AuthenticationSection : SettingsSection {
 
     init {
         updateFormVisibility()
+
+        // Add Enter key listeners to input fields
+        emailField.addEnterKeyListener { performAuthentication() }
+        passwordField.addEnterKeyListener { performAuthentication() }
+        fullNameField.addEnterKeyListener { performAuthentication() }
+        confirmPasswordField.addEnterKeyListener { performAuthentication() }
+
         LOG.debug("AuthenticationSection initialized")
     }
 
@@ -714,6 +757,12 @@ class AuthenticationSection : SettingsSection {
                 passwordField.requestFocus()
                 return false
             }
+            // Enhanced password validation for signup mode
+            isSignupMode && !password.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$")) -> {
+                showError("Password must contain at least one uppercase letter, one lowercase letter, one digit, and be at least 8 characters long with no spaces")
+                passwordField.requestFocus()
+                return false
+            }
         }
 
         if (isSignupMode) {
@@ -728,6 +777,12 @@ class AuthenticationSection : SettingsSection {
                 }
                 confirmPassword != password -> {
                     showError("Passwords do not match")
+                    confirmPasswordField.requestFocus()
+                    return false
+                }
+                // Also validate confirm password with same rules
+                !confirmPassword.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$")) -> {
+                    showError("Confirm password must match the password requirements")
                     confirmPasswordField.requestFocus()
                     return false
                 }
@@ -917,30 +972,6 @@ class AuthenticationSection : SettingsSection {
         fullNameField.text = ""
         confirmPasswordField.text = ""
         LOG.debug("All authentication fields cleared")
-    }
-
-    /**
-     * Handles Google login for existing users.
-     * TODO: Implement when Google OAuth is available.
-     */
-    fun handleGoogleLogin(
-        email: String,
-        token: String,
-    ) {
-        LOG.info("Google login requested for email: $email (not yet implemented)")
-        showError("Google authentication is not yet implemented")
-    }
-
-    /**
-     * Handles Google signup for new users.
-     * TODO: Implement when Google OAuth is available.
-     */
-    fun handleGoogleSignup(
-        email: String,
-        token: String,
-    ) {
-        LOG.info("Google signup requested for email: $email (not yet implemented)")
-        showError("Google authentication is not yet implemented")
     }
 }
 
