@@ -209,7 +209,9 @@ fun Project.showAuthSuccessNotification(
  */
 fun Project.showPreferenceSyncFailedNotification(
     title: String = "Preference Sync Failed",
-    message: String = "Failed to sync preferences to server. Your changes are saved locally and will be synced when connection is restored.",
+    message: String =
+        "Failed to sync preferences to server. " +
+            "Your changes are saved locally and will be synced when connection is restored.",
 ) {
     showAuthNotification(
         title = title,

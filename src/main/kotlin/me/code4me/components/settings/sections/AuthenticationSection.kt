@@ -662,7 +662,8 @@ class AuthenticationSection : SettingsSection {
                 showError("Failed to send password reset email. Please check your email address and try again.")
             } else {
                 Messages.showInfoMessage(
-                    "A password reset email has been sent to $email. Please check your inbox and follow the instructions to reset your password.",
+                    "A password reset email has been sent to $email. " +
+                        "Please check your inbox and follow the instructions to reset your password.",
                     "Password Reset Email Sent",
                 )
                 switchToLoginMode()
@@ -774,25 +775,25 @@ class AuthenticationSection : SettingsSection {
                 if (isSignupMode) {
                     val fullName = fullNameField.text.trim()
 
+                    val confirmResult =
+                        Messages.showYesNoDialog(
+                            """
+                            By signing up, you agree to the following:
 
-                    val confirmResult = Messages.showYesNoDialog(
-                        """
-    By signing up, you agree to the following:
+                            • Your email and name will be stored securely
+                            • Your coding activity will be processed to provide suggestions
+                            • You can delete your account and data at any time
+                            • We will never share your personal information with third parties
+                            
+                            For more details, please refer to our Privacy Policy here: https://code4me.me/privacy-policy
 
-    • Your email and name will be stored securely
-    • Your coding activity will be processed to provide suggestions
-    • You can delete your account and data at any time
-    • We will never share your personal information with third parties
-    
-    For more details, please refer to our Privacy Policy here: https://code4me.me/privacy-policy
-
-    Do you want to continue with registration?
-    """.trimIndent(),
-                        "Confirm Registration",
-                        "Continue",
-                        "Cancel",
-                        Messages.getQuestionIcon()
-                    )
+                            Do you want to continue with registration?
+                            """.trimIndent(),
+                            "Confirm Registration",
+                            "Continue",
+                            "Cancel",
+                            Messages.getQuestionIcon(),
+                        )
 
                     if (confirmResult == Messages.YES) {
                         performSignup(fullName, email, password)

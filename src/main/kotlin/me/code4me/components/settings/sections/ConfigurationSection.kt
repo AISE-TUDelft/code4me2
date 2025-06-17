@@ -183,7 +183,7 @@ class ConfigurationSection : SettingsSection {
                 // Show modal dialog indicating success
                 Messages.showInfoMessage(
                     "All module preferences have been set to use limited data collection values.",
-                    "Limited Data Collection Applied"
+                    "Limited Data Collection Applied",
                 )
             }
         }
@@ -1411,10 +1411,11 @@ class ConfigurationSection : SettingsSection {
                     border = JBUI.Borders.emptyBottom(5)
                 }
 
-            val storeSubtitle = JBLabel("Store: ").apply {
-                font = font.deriveFont(font.style or Font.ITALIC)
-                border = JBUI.Borders.emptyBottom(5)
-            }
+            val storeSubtitle =
+                JBLabel("Store: ").apply {
+                    font = font.deriveFont(font.style or Font.ITALIC)
+                    border = JBUI.Borders.emptyBottom(5)
+                }
 
             val optionsPanel =
                 JPanel(GridLayout(1, 3, 5, 5)).apply {

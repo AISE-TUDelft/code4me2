@@ -4,7 +4,9 @@ package me.code4me.services.modules.aggregators
 import com.intellij.codeInsight.inline.completion.InlineCompletionInsertEnvironment
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.codeInsight.inline.completion.elements.InlineCompletionElement
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -12,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.manager.ModuleManager
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.record.Record
@@ -223,17 +226,20 @@ abstract class BaseAggregator : PluginModule {
      * NOTE: if you ever need to wait for the return values or anything else,
      * consider using 'runBlocking' or other coroutine scopes
      */
+    @OptIn(DelicateCoroutinesApi::class)
     override fun afterInsertion(
         environment: InlineCompletionInsertEnvironment,
         elements: List<InlineCompletionElement>,
     ) {
         val submodules = getSubmodules()
-        submodules.forEach { module ->
-            GlobalScope.launch {
-                try {
-                    module.afterInsertion(environment, elements)
-                } catch (e: Exception) {
-                    LOG.error("Failed to run after insertion for module: ${module.moduleName}", e)
+        ApplicationManager.getApplication().runReadAction {
+            submodules.forEach { module ->
+                GlobalScope.launch {
+                    try {
+                        module.afterInsertion(environment, elements)
+                    } catch (e: Exception) {
+                        LOG.warn("After insertion failed for module: ${module.moduleName}", e)
+                    }
                 }
             }
         }

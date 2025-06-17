@@ -18,7 +18,6 @@ import me.code4me.services.modules.PluginModule
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
-import me.code4me.utils.configuration.PreferenceType
 import me.code4me.utils.record.Record
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -340,12 +339,14 @@ class ModuleManager : PluginModule {
         environment: InlineCompletionInsertEnvironment,
         elements: List<InlineCompletionElement>,
     ) {
-        modules.forEach { module ->
-            GlobalScope.launch {
-                try {
-                    module.afterInsertion(environment, elements)
-                } catch (e: Exception) {
-                    LOG.warn("After insertion failed for module: ${module.moduleName}", e)
+        ApplicationManager.getApplication().runReadAction {
+            modules.forEach { module ->
+                GlobalScope.launch {
+                    try {
+                        module.afterInsertion(environment, elements)
+                    } catch (e: Exception) {
+                        LOG.warn("After insertion failed for module: ${module.moduleName}", e)
+                    }
                 }
             }
         }

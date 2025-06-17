@@ -13,7 +13,8 @@ import me.code4me.chatWindow.components.managers.ChatSession
 import me.code4me.chatWindow.components.repository.ChatRepository
 import me.code4me.chatWindow.components.utils.ChatConverter
 import me.code4me.services.app.getAppService
-import java.util.*
+import java.util.Date
+import java.util.UUID
 
 /**
  * Project-specific service that stores chat conversations data.

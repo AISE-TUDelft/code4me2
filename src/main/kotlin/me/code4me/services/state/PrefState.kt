@@ -291,8 +291,8 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
                 // Save the updated state
                 getAppService().updateUser(
                     UpdateUser(
-                        preference = state.toSerializableMap()
-                    )
+                        preference = state.toSerializableMap(),
+                    ),
                 )
                 LOG.info("Updated $preferencesUpdated preferences to limited default values")
             } catch (e: Exception) {
@@ -312,7 +312,7 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
         private fun setModulePreferencesToLimitedDefaultsRecursively(
             module: PluginModule,
             state: PrefSettings,
-            preferencesUpdated: Int
+            preferencesUpdated: Int,
         ): Int {
             var updatedCount = preferencesUpdated
             val moduleId = module.getPreferenceId()

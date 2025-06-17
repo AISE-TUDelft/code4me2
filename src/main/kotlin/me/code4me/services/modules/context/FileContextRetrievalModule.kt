@@ -227,7 +227,6 @@ class FileContextRetrievalModule : PluginModule {
             Preference(
                 key = PREF_INCLUDE_PREFIX,
                 type = PreferenceType.BOOLEAN,
-
                 defaultValue = "true",
                 limitedDefaultValue = "true",
                 displayName = "Include Prefix",

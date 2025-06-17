@@ -921,6 +921,7 @@ class AppService {
     suspend fun getInlineCompletion(
         aggregatedCollectedData: Map<Record.Type, Map<String, Any>>,
         project: Project,
+        stopSequences: List<String>? = null,
     ): ResponseCompletionResponseData? =
         withContext(Dispatchers.IO) {
             require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
@@ -987,6 +988,10 @@ class AppService {
                             .mapsTo<ContextualTelemetryData>(
                                 ContextualTelemetryData::class.java,
                             ),
+                    storeContext = getPrefState().storeContext,
+                    storeContextualTelemetry = getPrefState().storeContextualTelemetry,
+                    storeBehavioralTelemetry = getPrefState().storeBehavioralTelemetry,
+                    stopSequences = stopSequences,
                 )
 
             try {
