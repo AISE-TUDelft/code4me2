@@ -26,10 +26,30 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JSeparator
 
+/**
+ * Renderer for creating UI components that display chat session history.
+ *
+ * Creates time-grouped sections of chat sessions with interactive elements
+ * for selecting and deleting sessions. Each session item shows the title,
+ * relative timestamp, and optional delete button with hover effects.
+ *
+ * @param onClick Callback invoked when a session item is clicked
+ * @param onDelete Optional callback for deleting sessions via trash icon
+ */
 class HistoryRenderer(
     private val onClick: (ChatSession) -> Unit,
     private val onDelete: ((ChatSession) -> Unit)? = null,
 ) {
+    /**
+     * Creates a time-grouped section of chat sessions with a header and separator.
+     *
+     * Builds a list of UI components starting with a styled section header,
+     * followed by individual session items, and ending with spacing.
+     *
+     * @param title The section title (e.g., "Today", "Yesterday", "Last 7 days")
+     * @param sessions List of chat sessions to display in this section
+     * @return List of JComponent elements ready for addition to a container
+     */
     fun createTimeSection(
         title: String,
         sessions: List<ChatSession>,
@@ -69,6 +89,16 @@ class HistoryRenderer(
         return components
     }
 
+    /**
+     * Creates an interactive UI item for a single chat session.
+     *
+     * Builds a panel containing the session title, relative timestamp,
+     * and delete button. Includes hover effects and click handling that
+     * distinguishes between session selection and deletion actions.
+     *
+     * @param session The chat session to create an item for
+     * @return JComponent representing the session item with all interactions
+     */
     private fun createSessionItem(session: ChatSession): JComponent {
         val itemHeight = 56
 
@@ -158,6 +188,16 @@ class HistoryRenderer(
         return panel
     }
 
+    /**
+     * Formats a date as a human-readable relative time string.
+     *
+     * Converts absolute timestamps into user-friendly relative descriptions
+     * such as "5m ago", "2h ago", "Yesterday 14:30", or "Jan 15" depending
+     * on how recent the date is compared to the current time.
+     *
+     * @param date The date to format
+     * @return Human-readable relative time string
+     */
     private fun formatRelativeTime(date: Date): String {
         val now = LocalDateTime.now()
         val sessionTime = date.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime()

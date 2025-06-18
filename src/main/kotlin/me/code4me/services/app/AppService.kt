@@ -1128,6 +1128,15 @@ class AppService {
             }
         }
 
+    /**
+     * Sends multi-file context updates to the server for AI context management.
+     *
+     * Transmits file change information to the Code4Me backend to maintain
+     * synchronized context across multiple files for improved completion accuracy.
+     *
+     * @param update The multi-file context update containing file changes
+     * @return True if the update was sent successfully, false otherwise
+     */
     fun sendMultiFileContextUpdate(update: UpdateMultiFileContext): Boolean {
         return try {
             multiFileContextApi.updateMultiFileContextApiCompletionMultiFileContextUpdatePost(update)

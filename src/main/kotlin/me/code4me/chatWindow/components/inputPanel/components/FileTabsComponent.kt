@@ -35,6 +35,9 @@ class FileTabsComponent(
         setupStyling()
     }
 
+    /**
+     * Configures the initial styling and layout properties for the tab container.
+     */
     private fun setupStyling() {
         background = JBColor.background()
         border = JBUI.Borders.emptyBottom(4)
@@ -191,7 +194,12 @@ class FileTabsComponent(
         repaint()
     }
 
-    // Override to trigger height recalculation when container is resized
+    /**
+     * Override to trigger height recalculation when container is resized.
+     *
+     * Monitors width changes and updates tab layout accordingly since
+     * width changes can affect how many tabs fit per row.
+     */
     override fun setBounds(
         x: Int,
         y: Int,
@@ -259,6 +267,9 @@ private class FileTab(
         g2.fillRoundRect(1, 1, width - 3, height - 3, arc - 2, arc - 2)
     }
 
+    /**
+     * Sets up the internal components (file name label and close button).
+     */
     private fun setupComponents() {
         val fileNameLabel = createFileNameLabel()
         val closeButton = createCloseButton()
@@ -267,6 +278,11 @@ private class FileTab(
         add(closeButton, BorderLayout.EAST)
     }
 
+    /**
+     * Creates the label displaying the file name and icon.
+     *
+     * @return Configured JLabel with file name, icon, and appropriate styling
+     */
     private fun createFileNameLabel() =
         JLabel(file.name, file.fileType.icon, JLabel.LEFT).apply {
             foreground = JBColor(Color(50, 60, 70), Color(220, 225, 230))
@@ -274,5 +290,10 @@ private class FileTab(
             border = JBUI.Borders.empty(0, 2)
         }
 
+    /**
+     * Creates the close button for removing this tab.
+     *
+     * @return Configured close button that triggers the onClose callback
+     */
     private fun createCloseButton() = IconToggleButton.CloseIconButton(onClick = { onClose(file) })
 }

@@ -40,6 +40,21 @@ import javax.swing.JWindow
 import javax.swing.ScrollPaneConstants
 import javax.swing.Timer
 
+/**
+ * Chat bubble component that displays messages in the Code4Me chat interface.
+ *
+ * Renders messages with support for markdown formatting, syntax-highlighted code blocks,
+ * and interactive elements like copy buttons and regenerate options. The bubble automatically
+ * styles itself differently for user and assistant messages.
+ *
+ * @param sender The name of the message sender (e.g., "You", "Code4Me V2")
+ * @param message The message content, supporting markdown and code blocks
+ * @param isUser Whether this message is from the user (affects styling and available actions)
+ * @param project The IntelliJ project for editor creation and file type detection
+ * @param onRegenerate Optional callback for regenerating assistant responses
+ * @param onEdit Optional callback for editing user messages
+ * @param showRegenerate Whether to show the regenerate button for assistant messages
+ */
 class ChatBubble(
     sender: String,
     message: String,
@@ -49,8 +64,20 @@ class ChatBubble(
     private val onEdit: (() -> Unit)? = null,
     private val showRegenerate: Boolean = true,
 ) : JPanel() {
+    /**
+     * List of IntelliJ editors created for code blocks within this bubble.
+     * Tracked for proper disposal to prevent memory leaks.
+     */
     private val editors = mutableListOf<Editor>()
+
+    /**
+     * Flag indicating whether this bubble has been disposed.
+     */
     private var isDisposed = false
+
+    /**
+     * The main message display pane for non-code content.
+     */
     private var messagePane: JEditorPane? = null
 
     init {
@@ -182,7 +209,8 @@ class ChatBubble(
     }
 
     /**
-     * Explicitly dispose all editors to prevent memory leaks
+     * Releases all IntelliJ editors created for code blocks to prevent memory leaks.
+     * Should be called when the bubble is no longer needed.
      */
     fun disposeEditors() {
         if (!isDisposed) {
@@ -202,7 +230,9 @@ class ChatBubble(
     }
 
     /**
-     * Fixes unclosed code blocks by adding closing ``` markers where needed.
+     * Ensures markdown code blocks are properly closed by adding missing closing markers.
+     * @param text The message text to fix
+     * @return Text with properly closed code blocks
      */
     private fun fixUnclosedCodeBlocks(text: String): String {
         val parts = text.split("```")
@@ -214,6 +244,11 @@ class ChatBubble(
         return text
     }
 
+    /**
+     * Extracts code blocks from markdown text using regex pattern matching.
+     * @param text The message text to parse
+     * @return List of detected code blocks with their positions
+     */
     private fun extractCodeBlocks(text: String): List<CodeBlock> {
         val codeBlocks = mutableListOf<CodeBlock>()
         val pattern = Pattern.compile("```(\\w+)?\\n([\\s\\S]*?)```", Pattern.MULTILINE)
@@ -230,6 +265,12 @@ class ChatBubble(
         return codeBlocks
     }
 
+    /**
+     * Renders a message that contains code blocks by separating text and code sections.
+     * @param container The parent container to add components to
+     * @param message The complete message text
+     * @param codeBlocks List of detected code blocks
+     */
     private fun renderMessageWithCodeBlocks(
         container: JPanel,
         message: String,
@@ -257,6 +298,11 @@ class ChatBubble(
         }
     }
 
+    /**
+     * Adds a text component with markdown rendering to the container.
+     * @param container The parent container
+     * @param text The text content to render
+     */
     private fun addTextComponent(
         container: JPanel,
         text: String,
@@ -282,6 +328,11 @@ class ChatBubble(
         container.add(htmlPane)
     }
 
+    /**
+     * Creates a syntax-highlighted code editor component for a code block.
+     * @param container The parent container
+     * @param codeBlock The code block data to render
+     */
     private fun addCodeComponent(
         container: JPanel,
         codeBlock: CodeBlock,
@@ -429,6 +480,11 @@ class ChatBubble(
         container.add(Box.createVerticalStrut(4))
     }
 
+    /**
+     * Creates a styled HTML pane for displaying rich text content.
+     * @param html The HTML content to display
+     * @return Configured JEditorPane for HTML rendering
+     */
     private fun createStyledHtmlPane(html: String): JEditorPane {
         return JEditorPane("text/html", html).apply {
             isOpaque = false
@@ -446,6 +502,13 @@ class ChatBubble(
         return Dimension(Int.MAX_VALUE, preferredSize.height)
     }
 
+    /**
+     * Data class representing a code block within a chat message.
+     * @param language The programming language of the code block
+     * @param code The actual code content
+     * @param start Start position in the original message text
+     * @param end End position in the original message text
+     */
     data class CodeBlock(
         val language: String,
         val code: String,
@@ -454,7 +517,9 @@ class ChatBubble(
     )
 
     /**
-     * Custom JPanel with rounded corners.
+     * Custom JPanel that renders with rounded corners for chat bubble styling.
+     * @param backgroundColor The background color for the panel
+     * @param cornerRadius The radius for rounded corners in pixels
      */
     class RoundedPanel(
         private val backgroundColor: Color,
@@ -477,6 +542,12 @@ class ChatBubble(
         }
     }
 
+    /**
+     * Maps programming language names to their corresponding file extensions.
+     * Uses both direct mapping and fuzzy matching with plugin configuration.
+     * @param language The language name from the code block
+     * @return The appropriate file extension for syntax highlighting
+     */
     private fun getExtensionForLanguage(language: String): String {
         // Create a mapping from language names to file extensions
         val languageToExtension =
@@ -591,6 +662,10 @@ class ChatBubble(
         return "txt"
     }
 
+    /**
+     * Resets editor color schemes to fix rendering issues.
+     * Called when theme changes or color issues are detected.
+     */
     fun forceResetEditorColors() {
         if (isDisposed) return
         for (editor in editors) {
@@ -602,8 +677,9 @@ class ChatBubble(
     }
 
     /**
-     * Updates the message text only, without changing the bubble structure.
-     * THis is used for the generating message, and prevents the flickierng.
+     * Updates only the message text content without rebuilding the entire bubble.
+     * Used for streaming message updates to prevent flickering during generation.
+     * @param newMessage The updated message content
      */
     fun updateMessageTextOnly(newMessage: String) {
         if (isDisposed) return

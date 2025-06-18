@@ -26,6 +26,9 @@ import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
 import java.io.File
 
+/**
+ * Manager for handling chat input and AI response
+ */
 class ChatIOManager {
     val LOG = thisLogger()
 

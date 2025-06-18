@@ -92,7 +92,7 @@ class FileContextRetrievalModule : PluginModule {
      * - **File Contents**: The complete text content of the current file
      * - **Prefix**: Text before the cursor up to the configured length
      * - **Suffix**: Text after the cursor up to the configured length
-     * - **File Name**: The name of the current file
+     * - **File Name**: The name (including the path) of the current file
      *
      * @param request The inline completion request containing editor context
      * @return List containing a single [Record] with collected context data,

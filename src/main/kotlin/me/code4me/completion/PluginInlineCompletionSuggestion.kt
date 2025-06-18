@@ -7,6 +7,16 @@ import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsI
 import me.code4me.services.config.getConfig
 import java.util.UUID
 
+/**
+ * Inline completion suggestion that wraps AI-generated completions from the Code4Me API.
+ *
+ * Converts API response data into IntelliJ's completion variant format, handling lazy
+ * initialization of variants, performance logging, and model name resolution from configuration.
+ *
+ * @param completionItem List of completion data from the API response
+ * @param requestId Unique identifier for tracking this completion request
+ * @param metaQueryId Optional query ID for linking to the original request
+ */
 class PluginInlineCompletionSuggestion(
     private val completionItem: List<ResponseCompletionResponseDataCompletionsInner>,
     private val requestId: Long,
