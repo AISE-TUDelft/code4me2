@@ -145,10 +145,18 @@ class FileContextRetrievalModule : PluginModule {
             // Collect file name if enabled
             if (getBooleanPreference(moduleId, PREF_INCLUDE_FILENAME, true)) {
                 val virtualFile = request.file.virtualFile
-                if (virtualFile != null) {
+                val project = request.editor.project
+                if (virtualFile != null && project != null) {
+                    val projectPath = project.basePath
+                    val relativePath =
+                        if (projectPath != null && virtualFile.path.startsWith(projectPath)) {
+                            virtualFile.path.removePrefix(projectPath).removePrefix("/")
+                        } else {
+                            virtualFile.name
+                        }
                     val fileNameKey = Record.key<String>(KEY_FILE_NAME)
-                    expanded[fileNameKey] = virtualFile.name
-                    LOG.trace("Collected file name: ${virtualFile.name}")
+                    expanded[fileNameKey] = relativePath
+                    LOG.trace("Collected relative file path: $relativePath")
                 } else {
                     LOG.warn("Virtual file not available for file name collection")
                 }
