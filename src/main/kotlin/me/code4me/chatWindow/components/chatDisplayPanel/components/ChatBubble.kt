@@ -15,6 +15,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.TextTransferable
+import me.code4me.services.config.getConfig
 import org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil
 import java.awt.BorderLayout
 import java.awt.Color
@@ -275,6 +276,10 @@ class ChatBubble(
 
         val ext = getExtensionForLanguage(codeBlock.language)
         val fileType = FileTypeManager.getInstance().getFileTypeByExtension(ext)
+
+        // Debug logging
+        println("Language: '${codeBlock.language}' -> Extension: '$ext' -> FileType: ${fileType.name} (${fileType.defaultExtension})")
+
         val virtualFile = LightVirtualFile("code.$ext", fileType, codeBlock.code)
         val document = EditorFactory.getInstance().createDocument(codeBlock.code)
 
@@ -458,19 +463,118 @@ class ChatBubble(
         }
     }
 
-    // TODO change once config has all file names?
     private fun getExtensionForLanguage(language: String): String {
-        return when (language.lowercase()) {
-            "python", "py" -> "py"
-            "java" -> "java"
-            "kotlin", "kt" -> "kt"
-            "js", "javascript" -> "js"
-            "ts", "typescript" -> "ts"
-            "html" -> "html"
-            "css" -> "css"
-            "json" -> "json"
-            else -> "txt"
+        // Create a mapping from language names to file extensions
+        val languageToExtension =
+            mapOf(
+                "java" to "java",
+                "kotlin" to "kt",
+                "python" to "py",
+                "javascript" to "js",
+                "typescript" to "ts",
+                "shell script" to "sh",
+                "bash" to "sh",
+                "sh" to "sh",
+                "c#" to "cs",
+                "c++" to "cpp",
+                "c/c++" to "cpp",
+                "cpp" to "cpp",
+                "c" to "c",
+                "go" to "go",
+                "rust" to "rs",
+                "php" to "php",
+                "ruby" to "rb",
+                "swift" to "swift",
+                "scala" to "scala",
+                "groovy" to "groovy",
+                "html" to "html",
+                "css" to "css",
+                "scss" to "scss",
+                "sass" to "sass",
+                "less" to "less",
+                "xml" to "xml",
+                "json" to "json",
+                "yaml" to "yml",
+                "yml" to "yml",
+                "toml" to "toml",
+                "ini" to "ini",
+                "markdown" to "md",
+                "md" to "md",
+                "sql" to "sql",
+                "dockerfile" to "dockerfile",
+                "makefile" to "makefile",
+                "gradle" to "gradle",
+                "properties" to "properties",
+                "vuejs" to "vue",
+                "vue" to "vue",
+                "jsx" to "jsx",
+                "tsx" to "tsx",
+                "dart" to "dart",
+                "r" to "r",
+                "matlab" to "m",
+                "perl" to "pl",
+                "lua" to "lua",
+                "powershell" to "ps1",
+                "batch" to "bat",
+                "vb" to "vb",
+                "f#" to "fs",
+                "clojure" to "clj",
+                "haskell" to "hs",
+                "erlang" to "erl",
+                "elixir" to "ex",
+                "coffeescript" to "coffee",
+                "tex" to "tex",
+                "latex" to "tex",
+                "asm" to "asm",
+                "assembly" to "asm",
+            )
+
+        // First try direct mapping with the provided language
+        val normalizedLanguage = language.lowercase().trim()
+        languageToExtension[normalizedLanguage]?.let { return it }
+
+        // If direct mapping fails, try fuzzy matching against config
+        val languagesConfig = getConfig().getLanguagesConfig() ?: return "txt"
+        val langId = languagesConfig.getLanguageIdFuzzy(language)
+
+        // Find the language name from config
+        val configLanguageName =
+            languagesConfig.languageMap.entries
+                .find { it.value == langId }?.key?.lowercase()?.trim()
+
+        if (configLanguageName != null) {
+            languageToExtension[configLanguageName]?.let { return it }
+
+            // Try some additional mappings for config language names
+            when {
+                configLanguageName.contains("java") -> return "java"
+                configLanguageName.contains("kotlin") -> return "kt"
+                configLanguageName.contains("python") -> return "py"
+                configLanguageName.contains("javascript") -> return "js"
+                configLanguageName.contains("typescript") -> return "ts"
+                configLanguageName.contains("shell") -> return "sh"
+                configLanguageName.contains("c#") -> return "cs"
+                configLanguageName.contains("c++") || configLanguageName.contains("c/c++") -> return "cpp"
+                configLanguageName.contains("go") && !configLanguageName.contains("django") -> return "go"
+                configLanguageName.contains("html") -> return "html"
+                configLanguageName.contains("css") -> return "css"
+                configLanguageName.contains("json") -> return "json"
+                configLanguageName.contains("xml") -> return "xml"
+                configLanguageName.contains("yaml") -> return "yml"
+                configLanguageName.contains("sql") -> return "sql"
+                configLanguageName.contains("markdown") -> return "md"
+                configLanguageName.contains("dockerfile") -> return "dockerfile"
+                configLanguageName.contains("vue") -> return "vue"
+                configLanguageName.contains("groovy") -> return "groovy"
+                configLanguageName.contains("scala") -> return "scala"
+                configLanguageName.contains("swift") -> return "swift"
+                configLanguageName.contains("rust") -> return "rs"
+                configLanguageName.contains("php") -> return "php"
+                configLanguageName.contains("ruby") -> return "rb"
+            }
         }
+
+        return "txt"
     }
 
     fun forceResetEditorColors() {

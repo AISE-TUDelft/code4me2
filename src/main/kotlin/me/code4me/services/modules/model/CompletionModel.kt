@@ -43,8 +43,8 @@ class CompletionModel : PluginModule {
                 displayName = "Enable Inline Completion",
                 description =
                     "Enable or disable inline completion feature. " +
-                        "When disabled, the plugin will only provide dropdown suggestions "
-            )
+                        "When disabled, the plugin will only provide dropdown suggestions ",
+            ),
         )
     }
 

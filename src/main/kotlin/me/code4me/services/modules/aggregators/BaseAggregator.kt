@@ -14,7 +14,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.modules.manager.ModuleManager
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.record.Record
