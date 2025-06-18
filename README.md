@@ -3,9 +3,9 @@
 [![Plugin Version](https://img.shields.io/badge/version-0.0.1-blue.svg)](https://github.com/AISE-TUDelft/code4me2)
 [![IntelliJ Platform](https://img.shields.io/badge/IntelliJ-2024.2+-orange.svg)](https://plugins.jetbrains.com/docs/intellij/build-number-ranges.html)
 [![Kotlin](https://img.shields.io/badge/Kotlin-JVM-purple.svg)](https://kotlinlang.org/)
-
+<!-- Plugin description -->
 An intelligent code completion and chat assistant plugin for IntelliJ-based IDEs, powered by capable AI models. Code4Me V2 enhances your development workflow with context-aware completions and conversational programming assistance through a sophisticated modular architecture.
-
+<!-- Plugin description end -->
 ## 🎯 Project Overview
 
 Code4Me V2 is an AI-powered code completion platform developed for the **AISE laboratory at TU Delft**. The IntelliJ plugin serves as the primary interface for researchers and developers, providing real-time AI-assisted coding with comprehensive telemetry collection for academic research.
