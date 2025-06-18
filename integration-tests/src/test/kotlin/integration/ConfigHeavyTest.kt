@@ -9,22 +9,11 @@ import me.code4me.services.modules.manager.getModuleManager
  * It should be completed whenever config file can be loaded from server and can be injected easily
  */
 class ConfigHeavyTest : HeavyPlatformTestCase() {
-    override fun setUp() {
-        // Test with a full config file
-        System.setProperty("plugin.conf.path", "src/test/testData/full-plugin.conf")
-        super.setUp()
-    }
-
-    override fun tearDown() {
-        // Additional teardown for config initialization tests if required
-        System.clearProperty("plugin.conf.path")
-        super.tearDown()
-    }
 
     fun testModuleInitializationFromConfig() {
         val config = getConfig()
         assertNotNull("Config should not be null. Check if the config file exists and is valid.", config)
-        val moduleManager = getModuleManager(project)
+        val moduleManager = getModuleManager()
 
         val initializedModuleIds = moduleManager.getEnabledModuleIds()
 

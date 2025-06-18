@@ -36,7 +36,7 @@ class ModulesLightTest : BasePlatformTestCase() {
     }
 
     fun testModuleManagerWithActiveModules() {
-        val moduleManager = ModuleManager(project)
+        val moduleManager = ModuleManager()
         val modules = listOf(TypingSpeed(), BaseBehavioralTelemetryAggregator())
 
         moduleManager.storeModules(modules)
@@ -57,7 +57,7 @@ class ModulesLightTest : BasePlatformTestCase() {
     }
 
     fun testModuleManagerWithAggregator() {
-        val moduleManager = ModuleManager(project)
+        val moduleManager = ModuleManager()
         val aggregator = BaseBehavioralTelemetryAggregator()
 
         moduleManager.storeModules(listOf(aggregator))

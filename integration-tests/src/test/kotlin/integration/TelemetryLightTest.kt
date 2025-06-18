@@ -61,7 +61,7 @@ class TelemetryLightTest : BasePlatformTestCase() {
                 endOffset = endOffset,
             )
 
-        val result = getModuleManager(project).collectData(request)
+        val result = getModuleManager().collectData(request)
 
         Assertions.assertNotNull(result, "collectData should not return null")
         Assertions.assertTrue(
@@ -120,7 +120,7 @@ class TelemetryLightTest : BasePlatformTestCase() {
             )
 
         // Call collectData
-        val result = getModuleManager(project).collectData(request)
+        val result = getModuleManager().collectData(request)
 
         // Verify that the results don't contain typing speed data
         Assertions.assertNotNull(result, "collectData should not return null")
@@ -196,7 +196,7 @@ class TelemetryLightTest : BasePlatformTestCase() {
         PrefState.Companion.disableModule(fileContextModuleId)
 
         // Call collectData
-        val result = getModuleManager(project).collectData(request)
+        val result = getModuleManager().collectData(request)
         Assertions.assertNotNull(result, "collectData should not return null")
 
         // Define keys for all FileContextRetrievalModule data points
@@ -230,7 +230,7 @@ class TelemetryLightTest : BasePlatformTestCase() {
         PrefState.Companion.setPreferenceValue(fileContextModuleId, "context.include.suffix", "false")
 
         // Call collectData again
-        val secondResult = getModuleManager(project).collectData(request)
+        val secondResult = getModuleManager().collectData(request)
         Assertions.assertNotNull(secondResult, "collectData should not return null after re-enabling the module")
 
         // Find the CONTEXT record
