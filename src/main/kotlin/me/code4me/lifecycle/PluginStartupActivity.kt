@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.util.messages.MessageBusConnection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -111,51 +112,102 @@ class PluginStartupActivity : ProjectActivity {
         val basePath = project.basePath ?: return
 
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
-            LOG.info("Cache validation coroutine started")
+            LOG.info("Cache validation coroutine started for project: $basePath")
             while (isActive) {
-                // TODO choose a better interval, potentially use a config value
+                // TODO make this eveery 5 minutes or so
                 delay(TimeUnit.MINUTES.toMillis(1))
 
-                val cacheDir = contextService.contextCacheDir
-                val cachedFiles = cacheDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".xml") } ?: continue
-
-                for (cacheFile in cachedFiles) {
-                    val sanitizedName = cacheFile.name
-                    val originalPath = contextService.getMappedPath(sanitizedName)
-
-                    if (originalPath == null) {
-                        continue
-                    }
-                    val actualFile = File(originalPath)
-
-                    LOG.info("Checking file existence: $originalPath — exists=${actualFile.exists()}")
-
-                    if (!actualFile.exists()) {
-                        val lines = cacheFile.readLines()
-                        val diff =
-                            listOf(
-                                MultiFileContextRetrievalModule.FileContextChangeData(
-                                    changeType = "delete",
-                                    startLine = 0,
-                                    endLine = lines.size,
-                                    newLines = emptyList(),
-                                ).toApiModel(),
-                            )
-
-                        val relativePath = originalPath.removePrefix(basePath).removePrefix(File.separator)
-                        val update = UpdateMultiFileContext(contextUpdates = mapOf(relativePath to diff))
-                        LOG.info("File deleted, sending update: $relativePath")
-
-                        try {
-                            appService.sendMultiFileContextUpdate(update)
-                            cacheFile.delete()
-                            // TODO check if it's worth it to remove the mapping (optimization)
-                            contextService.removeMapping(cacheFile.name)
-                        } catch (e: Exception) {
-                            thisLogger().warn("Failed to send delete diff for missing file: $relativePath", e)
-                        }
-                    }
+                try {
+                    validateCache(contextService, appService, basePath)
+                } catch (e: Exception) {
+                    LOG.warn("Error during cache validation", e)
                 }
+            }
+        }
+    }
+
+    private suspend fun validateCache(
+        contextService: me.code4me.services.project.ProjectMultiFileContextService,
+        appService: me.code4me.services.app.AppService,
+        basePath: String,
+    ) {
+        val cacheDir = contextService.contextCacheDir
+        val cachedFiles = cacheDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".xml") } ?: return
+
+        LOG.debug("Validating ${cachedFiles.size} cached files")
+
+        for (cacheFile in cachedFiles) {
+            try {
+                val sanitizedName = cacheFile.name
+                val originalPath = contextService.getMappedPath(sanitizedName)
+
+                if (originalPath == null) {
+                    LOG.debug("No mapping found for cached file: $sanitizedName")
+                    continue
+                }
+
+                // Construct proper absolute path
+                val absolutePath = File(basePath, originalPath).canonicalPath
+                val actualFile = File(absolutePath)
+
+                // Also check using IntelliJ's VFS for better accuracy
+                val virtualFile = LocalFileSystem.getInstance().findFileByPath(absolutePath)
+                val fileExists = actualFile.exists() && virtualFile?.isValid == true
+
+                LOG.debug("Checking file: $originalPath")
+                LOG.debug("  Absolute path: $absolutePath")
+                LOG.debug("  File exists: ${actualFile.exists()}")
+                LOG.debug("  Virtual file valid: ${virtualFile?.isValid}")
+                LOG.debug("  Overall exists: $fileExists")
+
+                if (!fileExists) {
+                    LOG.info("File no longer exists, sending delete notification: $originalPath")
+
+                    val lineCount =
+                        try {
+                            cacheFile.useLines { it.count() }
+                        } catch (e: Exception) {
+                            LOG.warn("Failed to count lines in cache file for deletion: ${cacheFile.name}", e)
+                            continue
+                        }
+
+                    val endLine = maxOf(0, lineCount - 1)
+
+                    val diff =
+                        listOf(
+                            MultiFileContextRetrievalModule.FileContextChangeData(
+                                changeType = "delete",
+                                startLine = 0,
+                                endLine = endLine,
+                                newLines = emptyList(),
+                            ).toApiModel(),
+                        )
+
+                    val update = UpdateMultiFileContext(contextUpdates = mapOf(originalPath to diff))
+
+                    try {
+                        val success = appService.sendMultiFileContextUpdate(update)
+                        if (success) {
+                            // Only cleanup local cache if server update was successful
+                            val deleted = cacheFile.delete()
+                            if (deleted) {
+                                contextService.removeMapping(sanitizedName)
+                                LOG.info("Successfully sent delete notification and cleaned up cache for: $originalPath")
+                            } else {
+                                LOG.warn("Server update successful but failed to delete local cache file: ${cacheFile.name}")
+                            }
+                        } else {
+                            LOG.warn("Failed to send delete notification for: $originalPath - will retry next cycle")
+                        }
+                    } catch (e: Exception) {
+                        LOG.warn("Exception while sending delete notification for: $originalPath - will retry next cycle", e)
+                    }
+                } else {
+                    LOG.debug("File still exists: $originalPath")
+                }
+            } catch (e: Exception) {
+                LOG.warn("Error validating cached file: ${cacheFile.name}", e)
+                continue
             }
         }
     }
