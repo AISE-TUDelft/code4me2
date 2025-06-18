@@ -11,10 +11,14 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import me.code4me.services.app.AppService
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.modules.model.CompletionModel
 import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.state.getAuthState
+import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
+import me.code4me.utils.services.state.getBooleanPreference
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
@@ -40,7 +44,7 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
         val requestId = request.requestId
 
         // get the module manager given the editor
-        val moduleManager = getModuleManager(request.editor.project!!)
+        val moduleManager = getModuleManager()
         val aggregatedCollectedData =
             moduleManager
                 .collectData(request)
@@ -76,6 +80,12 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
         get() = InlineCompletionProviderID("Code4Me V2")
 
     override fun isEnabled(event: InlineCompletionEvent): Boolean {
-        return true
+        val isAuthenticated = getAuthState().isAuthenticated()
+        val wantsInlineCompletions = getBooleanPreference(
+            "CompletionModel",
+            CompletionModel.Companion.COMPLETION_INLINE_KEY,
+            true
+        )
+        return isAuthenticated && wantsInlineCompletions
     }
 }

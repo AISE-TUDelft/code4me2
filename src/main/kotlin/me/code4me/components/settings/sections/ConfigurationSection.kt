@@ -1,7 +1,10 @@
 package me.code4me.components.settings.sections
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
@@ -20,6 +23,7 @@ import groovy.lang.Tuple2
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.UpdateUser
+import me.code4me.components.settings.fields.FieldInfo
 import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
 import me.code4me.components.settings.fields.ModuleFloatPreferenceField
 import me.code4me.components.settings.fields.ModuleIntegerPreferenceField
@@ -29,11 +33,15 @@ import me.code4me.components.settings.fields.ModuleTextPreferenceField
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.app.AppService
+import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
+import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.project.getProjectChatService
+import me.code4me.services.state.AuthState
 import me.code4me.services.state.PrefState
-import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
+import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceType
 import java.awt.BorderLayout
@@ -75,6 +83,7 @@ import javax.swing.tree.TreeSelectionModel
  * - Module-specific preference configuration
  * - Dynamic form generation based on preference types
  * - Dependency validation for module enablement/disablement
+ * - Integration with ChatPanel overlay updates
  *
  * The section is only displayed when the user is authenticated and provides
  * a rich interface for customizing the plugin behavior.
@@ -104,27 +113,9 @@ class ConfigurationSection : SettingsSection {
     /**
      * Checkbox for controlling completion data storage.
      */
-    private val storeCompletionField =
-        JBCheckBox("Store Completions").apply {
-            toolTipText = "Enable storage of code completion data for analytics and improvements"
-        }
-
-    private val storeCompletionFieldSVF =
-        object : ToggleButtonField(storeCompletionField) {
-            override fun getStateValue(): Boolean = getPrefState().storeCompletions
-
-            override fun setStateValue(value: Boolean) {
-                storeCompletionField.isSelected = value
-                getPrefState().storeCompletions = value
-            }
-        }
-
-    /**
-     * Checkbox for controlling context data storage.
-     */
     private val storeContextField =
-        JBCheckBox("Store Context").apply {
-            toolTipText = "Enable storage of code context data for enhanced completions"
+        JBCheckBox("Completions").apply {
+            toolTipText = "Enable storage of code completion data for analytics and improvements"
         }
 
     private val storeContextFieldSVF =
@@ -134,6 +125,91 @@ class ConfigurationSection : SettingsSection {
             override fun setStateValue(value: Boolean) {
                 storeContextField.isSelected = value
                 getPrefState().storeContext = value
+            }
+        }
+
+    /**
+     * Checkbox for controlling context data storage.
+     */
+    private val storeContextualTelemetryField =
+        JBCheckBox("Contextual telemetry").apply {
+            toolTipText = "Enable storage of contextual telemetry data for enhanced completions"
+        }
+
+    private val storeContextualTelemetryFieldSVF =
+        object : ToggleButtonField(storeContextualTelemetryField) {
+            override fun getStateValue(): Boolean = getPrefState().storeContextualTelemetry
+
+            override fun setStateValue(value: Boolean) {
+                storeContextualTelemetryField.isSelected = value
+                getPrefState().storeContextualTelemetry = value
+            }
+        }
+
+    /**
+     * Checkbox for controlling context data storage.
+     */
+    private val storeBehavioralTelemetryField =
+        JBCheckBox("Behavioral telemetry").apply {
+            toolTipText = "Enable storage of code context data for enhanced completions"
+        }
+
+    private val storeBehavioralTelemetryFieldSVF =
+        object : ToggleButtonField(storeBehavioralTelemetryField) {
+            override fun getStateValue(): Boolean = getPrefState().storeBehavioralTelemetry
+
+            override fun setStateValue(value: Boolean) {
+                storeBehavioralTelemetryField.isSelected = value
+                getPrefState().storeBehavioralTelemetry = value
+            }
+        }
+
+    /**
+     * Button for applying limited data collection preferences.
+     */
+    private val limitedDataCollectionButton =
+        JButton("Use Limited Data Collection").apply {
+            toolTipText = "Set all module preferences to use limited data collection values"
+            addActionListener {
+                // Apply limited default values to all preferences
+                PrefState.setAllPreferencesToLimitedDefaults()
+
+                // Update UI to reflect changes
+                updateModulePreferencesPanel()
+
+                // force a rebuild of the module tree
+                updateModuleTree()
+
+                // Show modal dialog indicating success
+                Messages.showInfoMessage(
+                    "All module preferences have been set to use limited data collection values.",
+                    "Limited Data Collection Applied",
+                )
+            }
+        }
+
+    private val limitedDataCollectionFieldSVF =
+        object : StateValueField<Boolean> {
+            override fun getFieldValue(): Boolean {
+                return false // This button does not have a field value
+            }
+
+            override fun setFieldValue(value: Boolean) {
+                // No-op, handled by button action listener
+            }
+
+            override fun getStateValue(): Boolean = false // Stateless action button
+
+            override fun setStateValue(value: Boolean) {
+                // No-op, handled by button action listener
+            }
+
+            override fun getFieldInfo(): MutableList<FieldInfo> {
+                return mutableListOf()
+            }
+
+            override fun getComponent(): JComponent {
+                return limitedDataCollectionButton
             }
         }
 
@@ -236,12 +312,58 @@ class ConfigurationSection : SettingsSection {
 
     // ================= SERVICES =================
 
-    private val authState = getAuthState()
+    private val authState = service<AuthState>().state
 
     init {
-        initializeFields()
-        setupModuleTree()
-        LOG.debug("ConfigurationSection initialized")
+        if (!authState.isAuthenticated()) {
+            LOG.warn("ConfigurationSection initialized without authentication")
+            authState.clearUserData()
+        } else {
+            try {
+                val currentUser = getAppService().getCurrentUser()
+                authState.setUserName(currentUser.user.name)
+                authState.setUserEmail(currentUser.user.email)
+                authState.setVerified(currentUser.user.verified)
+                // if there is a preference and it was updated more than 1 minute ago, load it
+                if (currentUser.user.preference != null &&
+                    (System.currentTimeMillis() - getPrefState().lastUpdatedTimeStamp) > 60_000
+                ) {
+                    getPrefState().fromSerializableMap(currentUser.user.preference!!)
+                }
+            } catch (e: Exception) {
+                // remove user data if fetching fails
+                authState.clearUserData()
+                // rebuild the ui
+            }
+
+            initializeFields()
+            setupModuleTree()
+            LOG.debug("ConfigurationSection initialized")
+        }
+    }
+
+    /**
+     * Updates ChatPanel overlay visibility across all open projects
+     */
+    private fun updateChatPanelOverlays() {
+        ApplicationManager.getApplication().invokeLater {
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                val toolWindow =
+                    com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+                        .getToolWindow("Code4Me")
+
+                toolWindow?.contentManager?.contents?.forEach { content ->
+                    val component = content.component
+                    if (component is me.code4me.chatWindow.components.ChatPanel) {
+                        if (authState.isAuthenticated()) {
+                            component.onUserAuthenticated()
+                        } else {
+                            component.onUserLoggedOut()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -249,8 +371,9 @@ class ConfigurationSection : SettingsSection {
      */
     private fun initializeFields() {
         val prefState = getPrefState()
-        storeCompletionField.isSelected = prefState.storeCompletions
         storeContextField.isSelected = prefState.storeContext
+        storeContextualTelemetryField.isSelected = prefState.storeContextualTelemetry
+        storeBehavioralTelemetryField.isSelected = prefState.storeBehavioralTelemetry
     }
 
     /**
@@ -282,7 +405,7 @@ class ConfigurationSection : SettingsSection {
         val rootNode = DefaultMutableTreeNode("Modules")
 
         try {
-            val modules = PrefState.getAvailableModules()
+            val modules = getModuleManager().getAvailableModules()
             LOG.debug("Loading ${modules.size} modules into tree")
 
             modules.forEach { module ->
@@ -817,7 +940,7 @@ class ConfigurationSection : SettingsSection {
         val panel =
             JPanel(BorderLayout()).apply {
                 add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
-                add(textField, BorderLayout.EAST)
+                add(textField, BorderLayout.WEST)
             }
 
         return panel
@@ -1020,172 +1143,6 @@ class ConfigurationSection : SettingsSection {
     }
 
     /**
-     * Sets up numeric input validation for integer fields.
-     */
-    private fun setupNumericValidation(
-        textField: JBTextField,
-        warningLabel: JBLabel,
-        type: PreferenceType,
-    ) {
-        val document = textField.document as PlainDocument
-        document.documentFilter =
-            object : DocumentFilter() {
-                override fun insertString(
-                    fb: FilterBypass,
-                    offset: Int,
-                    string: String?,
-                    attr: AttributeSet?,
-                ) {
-                    if (string?.matches(Regex("-?\\d*")) == true || string?.isEmpty() == true) {
-                        super.insertString(fb, offset, string, attr)
-                        warningLabel.isVisible = false
-                    }
-                }
-
-                override fun replace(
-                    fb: FilterBypass,
-                    offset: Int,
-                    length: Int,
-                    text: String?,
-                    attrs: AttributeSet?,
-                ) {
-                    if (text?.matches(Regex("-?\\d*")) == true || text?.isEmpty() == true) {
-                        super.replace(fb, offset, length, text, attrs)
-                        warningLabel.isVisible = false
-                    }
-                }
-
-                override fun remove(
-                    fb: FilterBypass,
-                    offset: Int,
-                    length: Int,
-                ) {
-                    super.remove(fb, offset, length)
-                    warningLabel.isVisible = false
-                }
-            }
-
-        textField.addFocusListener(
-            object : java.awt.event.FocusAdapter() {
-                override fun focusLost(e: java.awt.event.FocusEvent?) {
-                    validateNumericInput(textField, warningLabel, type)
-                }
-            },
-        )
-    }
-
-    /**
-     * Sets up decimal input validation for floating-point fields.
-     */
-    private fun setupDecimalValidation(
-        textField: JBTextField,
-        warningLabel: JBLabel,
-        type: PreferenceType,
-    ) {
-        val document = textField.document as PlainDocument
-        document.documentFilter =
-            object : DocumentFilter() {
-                override fun insertString(
-                    fb: FilterBypass,
-                    offset: Int,
-                    string: String?,
-                    attr: AttributeSet?,
-                ) {
-                    if (string?.matches(Regex("-?\\d*\\.?\\d*")) == true || string?.isEmpty() == true) {
-                        super.insertString(fb, offset, string, attr)
-                        warningLabel.isVisible = false
-                    }
-                }
-
-                override fun replace(
-                    fb: FilterBypass,
-                    offset: Int,
-                    length: Int,
-                    text: String?,
-                    attrs: AttributeSet?,
-                ) {
-                    if (text?.matches(Regex("-?\\d*\\.?\\d*")) == true || text?.isEmpty() == true) {
-                        super.replace(fb, offset, length, text, attrs)
-                        warningLabel.isVisible = false
-                    }
-                }
-
-                override fun remove(
-                    fb: FilterBypass,
-                    offset: Int,
-                    length: Int,
-                ) {
-                    super.remove(fb, offset, length)
-                    warningLabel.isVisible = false
-                }
-            }
-
-        textField.addFocusListener(
-            object : java.awt.event.FocusAdapter() {
-                override fun focusLost(e: java.awt.event.FocusEvent?) {
-                    validateDecimalInput(textField, warningLabel, type)
-                }
-            },
-        )
-    }
-
-    /**
-     * Validates numeric input and shows appropriate error messages.
-     */
-    private fun validateNumericInput(
-        textField: JBTextField,
-        warningLabel: JBLabel,
-        type: PreferenceType,
-    ) {
-        val text = textField.text
-        if (text.isEmpty()) {
-            warningLabel.isVisible = false
-            return
-        }
-
-        try {
-            when (type) {
-                PreferenceType.INT -> text.toInt()
-                PreferenceType.LONG -> text.toLong()
-                else -> return
-            }
-            warningLabel.isVisible = false
-        } catch (_: NumberFormatException) {
-            val typeName = if (type == PreferenceType.INT) "integer" else "long"
-            warningLabel.text = "Invalid $typeName value"
-            warningLabel.isVisible = true
-        }
-    }
-
-    /**
-     * Validates decimal input and shows appropriate error messages.
-     */
-    private fun validateDecimalInput(
-        textField: JBTextField,
-        warningLabel: JBLabel,
-        type: PreferenceType,
-    ) {
-        val text = textField.text
-        if (text.isEmpty()) {
-            warningLabel.isVisible = false
-            return
-        }
-
-        try {
-            when (type) {
-                PreferenceType.DOUBLE -> text.toDouble()
-                PreferenceType.FLOAT -> text.toFloat()
-                else -> return
-            }
-            warningLabel.isVisible = false
-        } catch (_: NumberFormatException) {
-            val typeName = if (type == PreferenceType.DOUBLE) "decimal" else "float"
-            warningLabel.text = "Invalid $typeName value"
-            warningLabel.isVisible = true
-        }
-    }
-
-    /**
      * Shows a message when no module is selected.
      */
     private fun showNoSelectionMessage() {
@@ -1201,8 +1158,10 @@ class ConfigurationSection : SettingsSection {
         // Register application preference fields
         stateValueFields.addAll(
             listOf(
-                storeCompletionFieldSVF,
                 storeContextFieldSVF,
+                storeContextualTelemetryFieldSVF,
+                storeBehavioralTelemetryFieldSVF,
+                limitedDataCollectionFieldSVF,
             ),
         )
 
@@ -1425,7 +1384,137 @@ class ConfigurationSection : SettingsSection {
     }
 
     /**
-     * Dialog for modifying user profile information.
+     * Creates the main configuration panel with preferences and modules.
+     */
+    private fun createConfigurationPanel(): JPanel {
+        return JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.emptyTop(SECTION_SPACING)
+
+            // Application preferences
+            val appPrefsPanel = createApplicationPreferencesPanel()
+            add(appPrefsPanel, BorderLayout.NORTH)
+
+            // Module management
+            val modulePanel = createModuleManagementPanel()
+            add(modulePanel, BorderLayout.CENTER)
+        }
+    }
+
+    /**
+     * Creates the application-wide preferences panel.
+     */
+    private fun createApplicationPreferencesPanel(): JPanel {
+        return JPanel(BorderLayout()).apply {
+            val configTitle =
+                JBLabel("Application Preferences").apply {
+                    font = font.deriveFont(font.style or Font.BOLD)
+                    border = JBUI.Borders.emptyBottom(5)
+                }
+
+            val storeSubtitle =
+                JBLabel("Store: ").apply {
+                    font = font.deriveFont(font.style or Font.ITALIC)
+                    border = JBUI.Borders.emptyBottom(5)
+                }
+
+            val optionsPanel =
+                JPanel(GridLayout(1, 3, 5, 5)).apply {
+                    add(storeContextField)
+                    add(storeContextualTelemetryField)
+                    add(storeBehavioralTelemetryField)
+                }
+
+            add(configTitle, BorderLayout.NORTH)
+            add(storeSubtitle, BorderLayout.NORTH)
+            add(optionsPanel, BorderLayout.CENTER)
+
+            add(limitedDataCollectionButton, BorderLayout.SOUTH)
+        }
+    }
+
+    /**
+     * Creates the module management panel with tree and preferences.
+     */
+    private fun createModuleManagementPanel(): JPanel {
+        return JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.emptyTop(SECTION_SPACING)
+
+            add(moduleTitleLabel, BorderLayout.NORTH)
+
+            val moduleContent =
+                JPanel(GridBagLayout()).apply {
+                    border = JBUI.Borders.emptyTop(5)
+
+                    val gbc =
+                        GridBagConstraints().apply {
+                            fill = GridBagConstraints.BOTH
+                            weightx = 0.4
+                            weighty = 1.0
+                            gridx = 0
+                            gridy = 0
+                        }
+
+                    // Module tree with scroll pane
+                    val treeScrollPane =
+                        JBScrollPane(moduleTree).apply {
+                            preferredSize = Dimension(MODULE_TREE_WIDTH, MODULE_TREE_HEIGHT)
+                            minimumSize = Dimension(MIN_MODULE_TREE_WIDTH, MIN_MODULE_TREE_HEIGHT)
+                            border = BorderFactory.createEtchedBorder()
+                        }
+                    add(treeScrollPane, gbc)
+
+                    // Module preferences panel
+                    gbc.gridx = 1
+                    gbc.weightx = 0.6
+
+                    modulePreferencesPanel.layout = GridLayout(0, 2, 5, 5)
+
+                    val preferencesScrollPane =
+                        JBScrollPane(modulePreferencesPanel).apply {
+                            border = JBUI.Borders.emptyLeft(10)
+                            preferredSize = Dimension(PREFERENCES_PANEL_WIDTH, MODULE_TREE_HEIGHT)
+                            minimumSize = Dimension(MIN_PREFERENCES_PANEL_WIDTH, MIN_MODULE_TREE_HEIGHT)
+                            horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
+                            verticalScrollBarPolicy = JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+                        }
+                    add(preferencesScrollPane, gbc)
+                }
+
+            add(moduleContent, BorderLayout.CENTER)
+        }
+    }
+
+    /**
+     * Handles user sign out operation with immediate chat panel updates.
+     */
+    private fun handleSignOut() {
+        try {
+            // First clear user data synchronously to ensure it completes
+            authState.clearUserData()
+            LOG.info("User data cleared successfully during sign out")
+
+            // Then deactivate session
+            appService.deactivateSession()
+
+            // Update chat panel overlays immediately after sign out
+            updateChatPanelOverlays()
+
+            Messages.showInfoMessage(
+                "You have been signed out successfully.",
+                "Sign Out Complete",
+            )
+            LOG.info("User signed out successfully")
+        } catch (e: Exception) {
+            LOG.error("Failed to sign out user", e)
+            Messages.showErrorDialog(
+                "An error occurred while signing out. Please try again.",
+                "Sign Out Error",
+            )
+        }
+    }
+
+    /**
+     * Dialog for modifying user profile information with chat panel integration.
      */
     private inner class UserModificationDialog(private val authState: me.code4me.services.state.AuthSettings) : DialogWrapper(true) {
         private val nameField = JBTextField(authState.getUserName() ?: "")
@@ -1523,8 +1612,29 @@ class ConfigurationSection : SettingsSection {
 
                 if (confirmResult == Messages.YES) {
                     try {
+                        // Clear chat data explicitly for all projects before account deletion
+                        ProjectManager.getInstance().openProjects.forEach { project ->
+                            try {
+                                val chatService = getProjectChatService(project)
+                                chatService.clearAllChatsAndMemory()
+
+                                // Force persistence of the cleared state
+                                com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
+                                    project.save()
+                                }
+
+                                LOG.info("Cleared all chat sessions for project: ${project.name}")
+                            } catch (e: Exception) {
+                                throw e
+                                // ProcessCanceledException cannot be not thrown
+                            }
+                        }
+
                         // Pass the checkbox state to determine if user data should be deleted
                         appService.deleteUser(willDeleteData)
+
+                        // Clear local data immediately after account deletion
+                        authState.clearUserData()
 
                         val successMessage =
                             if (willDeleteData) {
@@ -1538,15 +1648,18 @@ class ConfigurationSection : SettingsSection {
                             "Account Deleted",
                         )
 
+                        // Update chat panel overlays immediately after account deletion
+                        updateChatPanelOverlays()
+
                         close(OK_EXIT_CODE)
                     } catch (e: Exception) {
-                        LOG.error("Failed to delete user account with deleteData=$willDeleteData", e)
-
                         val errorMessage =
                             when (e) {
                                 is ClientException -> "Failed to delete account. Please check your authentication."
                                 is ServerException -> "Server error occurred during account deletion. Please try again later."
                                 is IOException -> "Network error occurred. Please check your connection."
+                                is ProcessCanceledException -> throw e
+                                // ProcessCanceledException cannot be not thrown
                                 else -> "An error occurred while deleting your account: ${e.message}"
                             }
 
@@ -1612,117 +1725,5 @@ class ConfigurationSection : SettingsSection {
         fun getNewPassword(): String = String(newPasswordField.password)
 
         fun getNewEmail(): String = emailField.text.trim()
-    }
-
-    /**
-     * Creates the main configuration panel with preferences and modules.
-     */
-    private fun createConfigurationPanel(): JPanel {
-        return JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.emptyTop(SECTION_SPACING)
-
-            // Application preferences
-            val appPrefsPanel = createApplicationPreferencesPanel()
-            add(appPrefsPanel, BorderLayout.NORTH)
-
-            // Module management
-            val modulePanel = createModuleManagementPanel()
-            add(modulePanel, BorderLayout.CENTER)
-        }
-    }
-
-    /**
-     * Creates the application-wide preferences panel.
-     */
-    private fun createApplicationPreferencesPanel(): JPanel {
-        return JPanel(BorderLayout()).apply {
-            val configTitle =
-                JBLabel("Application Preferences").apply {
-                    font = font.deriveFont(font.style or Font.BOLD)
-                    border = JBUI.Borders.emptyBottom(5)
-                }
-
-            val optionsPanel =
-                JPanel(GridLayout(2, 1, 5, 5)).apply {
-                    add(storeCompletionField)
-                    add(storeContextField)
-                }
-
-            add(configTitle, BorderLayout.NORTH)
-            add(optionsPanel, BorderLayout.CENTER)
-        }
-    }
-
-    /**
-     * Creates the module management panel with tree and preferences.
-     */
-    private fun createModuleManagementPanel(): JPanel {
-        return JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.emptyTop(SECTION_SPACING)
-
-            add(moduleTitleLabel, BorderLayout.NORTH)
-
-            val moduleContent =
-                JPanel(GridBagLayout()).apply {
-                    border = JBUI.Borders.emptyTop(5)
-
-                    val gbc =
-                        GridBagConstraints().apply {
-                            fill = GridBagConstraints.BOTH
-                            weightx = 0.4
-                            weighty = 1.0
-                            gridx = 0
-                            gridy = 0
-                        }
-
-                    // Module tree with scroll pane
-                    val treeScrollPane =
-                        JBScrollPane(moduleTree).apply {
-                            preferredSize = Dimension(MODULE_TREE_WIDTH, MODULE_TREE_HEIGHT)
-                            minimumSize = Dimension(MIN_MODULE_TREE_WIDTH, MIN_MODULE_TREE_HEIGHT)
-                            border = BorderFactory.createEtchedBorder()
-                        }
-                    add(treeScrollPane, gbc)
-
-                    // Module preferences panel
-                    gbc.gridx = 1
-                    gbc.weightx = 0.6
-
-                    modulePreferencesPanel.layout = GridLayout(0, 2, 5, 5)
-
-                    val preferencesScrollPane =
-                        JBScrollPane(modulePreferencesPanel).apply {
-                            border = JBUI.Borders.emptyLeft(10)
-                            preferredSize = Dimension(PREFERENCES_PANEL_WIDTH, MODULE_TREE_HEIGHT)
-                            minimumSize = Dimension(MIN_PREFERENCES_PANEL_WIDTH, MIN_MODULE_TREE_HEIGHT)
-                            horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
-                            verticalScrollBarPolicy = JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-                        }
-                    add(preferencesScrollPane, gbc)
-                }
-
-            add(moduleContent, BorderLayout.CENTER)
-        }
-    }
-
-    /**
-     * Handles user sign out operation.
-     */
-    private fun handleSignOut() {
-        try {
-            authState.clearUserData()
-            appService.deactivateSession()
-            Messages.showInfoMessage(
-                "You have been signed out successfully.",
-                "Sign Out Complete",
-            )
-            LOG.info("User signed out successfully")
-        } catch (e: Exception) {
-            LOG.error("Failed to sign out user", e)
-            Messages.showErrorDialog(
-                "An error occurred while signing out. Please try again.",
-                "Sign Out Error",
-            )
-        }
     }
 }

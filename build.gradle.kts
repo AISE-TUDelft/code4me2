@@ -12,6 +12,7 @@ plugins {
     alias(libs.plugins.kover) // Gradle Kover Plugin
     alias(libs.plugins.dokka) // Gradle Dokka Plugin for documentation
     alias(libs.plugins.ktlint) // Gradle Ktlint Plugin for Kotlin code style
+    jacoco // JaCoCo Plugin for code coverage
 }
 
 group = providers.gradleProperty("pluginGroup").get()
@@ -41,10 +42,10 @@ dependencies {
     implementation("com.google.api-client:google-api-client:2.2.0")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.8.1")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.8.1")
-    implementation("com.google.oauth-client:google-oauth-client-jetty:1.34.1")
-    implementation("com.google.auth:google-auth-library-oauth2-http:1.20.0")
-    implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
-    implementation("com.squareup.moshi:moshi-adapters:1.15.1")
+    implementation("com.google.oauth-client:google-oauth-client-jetty:1.34.1") // Google OAuth Client Library
+    implementation("com.google.auth:google-auth-library-oauth2-http:1.20.0") // Google Auth Library
+    implementation("com.squareup.moshi:moshi-kotlin:1.15.1") // Moshi library for JSON parsing
+    implementation("com.squareup.moshi:moshi-adapters:1.15.1") // Moshi adapters for additional types
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
     testImplementation("org.mockito:mockito-core:5.18.0")
@@ -152,6 +153,11 @@ kover {
     }
 }
 
+// Configure JaCoCo Plugin
+jacoco {
+    toolVersion = "0.8.11"
+}
+
 ktlint {
     version = "1.1.1"
     verbose = true
@@ -184,6 +190,60 @@ tasks {
         testLogging {
             events("passed", "skipped", "failed")
         }
+        finalizedBy(jacocoTestReport) // Generate JaCoCo report after tests
+    }
+
+    jacocoTestReport {
+        dependsOn(test) // Ensure tests run before generating report
+        reports {
+            xml.required.set(true)
+            html.required.set(true)
+            csv.required.set(false)
+        }
+
+        // Exclude generated code from coverage reports
+        classDirectories.setFrom(
+            files(
+                classDirectories.files.map {
+                    fileTree(it) {
+                        exclude(
+                            "**/generated/**",
+                            "**/integration/**",
+                        )
+                    }
+                },
+            ),
+        )
+    }
+
+    jacocoTestCoverageVerification {
+        dependsOn(jacocoTestReport)
+        violationRules {
+            rule {
+                limit {
+                    minimum = "0.60".toBigDecimal() // 60% minimum coverage
+                }
+            }
+        }
+
+        // Exclude generated code from coverage verification
+        classDirectories.setFrom(
+            files(
+                classDirectories.files.map {
+                    fileTree(it) {
+                        exclude(
+                            "**/generated/**",
+                            "**/integration/**",
+                        )
+                    }
+                },
+            ),
+        )
+    }
+
+    // Make check task depend on JaCoCo test report generation
+    check {
+        dependsOn(jacocoTestReport)
     }
 
     val dokkaHtml by getting(org.jetbrains.dokka.gradle.DokkaTask::class) {

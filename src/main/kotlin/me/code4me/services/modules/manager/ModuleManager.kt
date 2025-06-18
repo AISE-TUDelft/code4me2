@@ -7,7 +7,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.project.Project
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -19,18 +18,16 @@ import me.code4me.services.modules.PluginModule
 import me.code4me.services.state.PrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
-import me.code4me.utils.configuration.PreferenceType
 import me.code4me.utils.record.Record
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Retrieves the ModuleManager service instance for the given project.
  *
- * @param project The IntelliJ project instance
  * @return The ModuleManager service for the project
  */
-fun getModuleManager(project: Project): ModuleManager {
-    return project.service<ModuleManager>()
+fun getModuleManager(): ModuleManager {
+    return service<ModuleManager>()
 }
 
 /**
@@ -46,11 +43,10 @@ fun getModuleManager(project: Project): ModuleManager {
  * This service operates at the project level, ensuring each IntelliJ project
  * has its own isolated module management context.
  *
- * @param project The IntelliJ project this manager is associated with
  * @since 1.0.0
  */
-@Service(Service.Level.PROJECT)
-class ModuleManager(private val project: Project) : PluginModule {
+@Service
+class ModuleManager : PluginModule {
     companion object {
         private val LOG = thisLogger()
     }
@@ -343,48 +339,21 @@ class ModuleManager(private val project: Project) : PluginModule {
         environment: InlineCompletionInsertEnvironment,
         elements: List<InlineCompletionElement>,
     ) {
-        modules.forEach { module ->
-            GlobalScope.launch {
-                try {
-                    module.afterInsertion(environment, elements)
-                } catch (e: Exception) {
-                    LOG.warn("After insertion failed for module: ${module.moduleName}", e)
+        ApplicationManager.getApplication().runReadAction {
+            modules.forEach { module ->
+                GlobalScope.launch {
+                    try {
+                        module.afterInsertion(environment, elements)
+                    } catch (e: Exception) {
+                        LOG.warn("After insertion failed for module: ${module.moduleName}", e)
+                    }
                 }
             }
         }
     }
 
     override fun getPreferenceList(): List<Preference> {
-        return listOf(
-            Preference(
-                key = "useAI",
-                type = PreferenceType.BOOLEAN,
-                defaultValue = "true",
-                displayName = "Use AI Completion",
-                description = "Enable AI-powered code completion suggestions",
-            ),
-            Preference(
-                key = "maxSuggestions",
-                type = PreferenceType.STRING,
-                defaultValue = "5",
-                displayName = "Max Suggestions",
-                description = "Maximum number of completion suggestions to display",
-            ),
-            Preference(
-                key = "minConfidence",
-                type = PreferenceType.DOUBLE,
-                defaultValue = "0.85",
-                displayName = "Minimum Confidence",
-                description = "Minimum confidence threshold for displaying suggestions (0.0 to 1.0)",
-            ),
-            Preference(
-                key = "requestTimeout",
-                type = PreferenceType.INT,
-                defaultValue = "5000",
-                displayName = "Request Timeout",
-                description = "Maximum time in milliseconds to wait for completion responses",
-            ),
-        )
+        return listOf()
     }
 
     override fun getPreferenceClass(): PreferenceClass {

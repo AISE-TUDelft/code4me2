@@ -44,6 +44,8 @@
                 displayName="Code4Me V2"
                 id="me.code4me.settings.Code4MeConfigurable"
         />
-    </extensions>
 
+        <!-- Service registration for ChatWindowStateService -->
+        <projectService serviceImplementation="me.code4me.chatWindow.components.persistence.ChatWindowStateService"/>
+    </extensions>
 </idea-plugin>

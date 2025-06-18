@@ -3,6 +3,7 @@ package me.code4me.chatWindow.components.chatDisplayPanel.components
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.ide.CopyPasteManager
@@ -19,6 +20,7 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -42,8 +44,13 @@ class ChatBubble(
     message: String,
     isUser: Boolean,
     private val project: Project,
+    private val onRegenerate: (() -> Unit)? = null,
+    private val onEdit: (() -> Unit)? = null,
+    private val showRegenerate: Boolean = true,
 ) : JPanel() {
     private val editors = mutableListOf<Editor>()
+    private var isDisposed = false
+    private var messagePane: JEditorPane? = null
 
     init {
         layout = BorderLayout()
@@ -60,14 +67,13 @@ class ChatBubble(
 
         val senderPanel =
             JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                layout = BorderLayout()
                 isOpaque = false
                 alignmentX = LEFT_ALIGNMENT
             }
 
         val iconPath: String? =
             when (sender) {
-                // TODO improve when other languages are supported
                 "You" -> "/icons/user_dark.svg"
                 "Code4Me V2" -> "/icons/pluginIcon_chatSize.svg"
                 else -> null
@@ -85,8 +91,33 @@ class ChatBubble(
                 font = Font("SansSerif", Font.BOLD, 12)
             }
 
-        senderPanel.add(iconLabel)
-        senderPanel.add(senderLabel)
+        val leftPanel =
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                isOpaque = false
+                add(iconLabel)
+                add(senderLabel)
+            }
+
+        senderPanel.add(leftPanel, BorderLayout.WEST)
+
+        if (isUser && onEdit != null) {
+            val editButton =
+                JButton("✎").apply {
+                    toolTipText = "Edit this message"
+                    font = Font("SansSerif", Font.PLAIN, 11)
+                    foreground = Color.LIGHT_GRAY
+                    isFocusPainted = false
+                    isContentAreaFilled = false
+                    isBorderPainted = false
+                    isOpaque = false
+                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    border = JBUI.Borders.empty()
+                }
+            editButton.addActionListener { onEdit.invoke() }
+
+            senderPanel.add(editButton, BorderLayout.EAST)
+        }
 
         container.add(senderPanel)
         container.add(Box.createVerticalStrut(4))
@@ -105,8 +136,39 @@ class ChatBubble(
                 }
 
             val htmlPane = createStyledHtmlPane(html)
+            messagePane = htmlPane
             htmlPane.alignmentX = LEFT_ALIGNMENT
             container.add(htmlPane)
+        }
+        if (!isUser && onRegenerate != null && showRegenerate) {
+            container.add(Box.createVerticalStrut(8))
+
+            val regenerateButton =
+                JButton("↻").apply {
+                    toolTipText = "Regenerate this response"
+                    font = Font("SansSerif", Font.PLAIN, 12)
+                    foreground = Color.WHITE
+                    isFocusPainted = false
+                    isContentAreaFilled = false
+                    isBorderPainted = false
+                    isOpaque = false
+                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                }
+
+            regenerateButton.addActionListener {
+                onRegenerate.invoke()
+            }
+
+            val buttonWrapper =
+                JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
+                    isOpaque = false
+                    alignmentX = LEFT_ALIGNMENT
+                    preferredSize = Dimension(container.maximumSize.width, regenerateButton.preferredSize.height)
+                    maximumSize = Dimension(Int.MAX_VALUE, regenerateButton.preferredSize.height)
+                    add(regenerateButton)
+                }
+
+            container.add(buttonWrapper)
         }
 
         add(container, BorderLayout.CENTER)
@@ -114,10 +176,27 @@ class ChatBubble(
 
     override fun removeNotify() {
         super.removeNotify()
-        editors.forEach {
-            EditorFactory.getInstance().releaseEditor(it)
+        disposeEditors()
+    }
+
+    /**
+     * Explicitly dispose all editors to prevent memory leaks
+     */
+    fun disposeEditors() {
+        if (!isDisposed) {
+            editors.forEach { editor ->
+                try {
+                    if (!editor.isDisposed) {
+                        EditorFactory.getInstance().releaseEditor(editor)
+                    }
+                } catch (e: Exception) {
+                    // Log but don't throw to avoid cascade failures
+                    println("Error disposing editor: ${e.message}")
+                }
+            }
+            editors.clear()
+            isDisposed = true
         }
-        editors.clear()
     }
 
     private fun extractCodeBlocks(text: String): List<CodeBlock> {
@@ -192,14 +271,19 @@ class ChatBubble(
         container: JPanel,
         codeBlock: CodeBlock,
     ) {
-        val fileType =
-            FileTypeManager.getInstance().getFileTypeByExtension(codeBlock.language)
+        if (isDisposed) return
 
-        val virtualFile = LightVirtualFile("code.${codeBlock.language}", fileType, codeBlock.code)
+        val ext = getExtensionForLanguage(codeBlock.language)
+        val fileType = FileTypeManager.getInstance().getFileTypeByExtension(ext)
+        val virtualFile = LightVirtualFile("code.$ext", fileType, codeBlock.code)
         val document = EditorFactory.getInstance().createDocument(codeBlock.code)
 
         val editor = EditorFactory.getInstance().createEditor(document, project, virtualFile, true) as EditorEx
         editors.add(editor)
+
+        // Force refresh the color scheme to prevent green background issue
+        val scheme = EditorColorsManager.getInstance().globalScheme.clone()
+        editor.colorsScheme = scheme as EditorColorsScheme
 
         editor.settings.apply {
             isLineNumbersShown = true
@@ -214,9 +298,6 @@ class ChatBubble(
         // Disable the editor's internal scrollbars
         editor.scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
         editor.scrollPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        editor.colorsScheme = scheme
 
         val lineCount = codeBlock.code.lines().size
         val lineHeight = editor.lineHeight
@@ -375,5 +456,46 @@ class ChatBubble(
 
             g2.dispose()
         }
+    }
+
+    // TODO change once config has all file names?
+    private fun getExtensionForLanguage(language: String): String {
+        return when (language.lowercase()) {
+            "python", "py" -> "py"
+            "java" -> "java"
+            "kotlin", "kt" -> "kt"
+            "js", "javascript" -> "js"
+            "ts", "typescript" -> "ts"
+            "html" -> "html"
+            "css" -> "css"
+            "json" -> "json"
+            else -> "txt"
+        }
+    }
+
+    fun forceResetEditorColors() {
+        if (isDisposed) return
+        for (editor in editors) {
+            if (editor is EditorEx && !editor.isDisposed) {
+                val scheme = EditorColorsManager.getInstance().globalScheme.clone()
+                editor.colorsScheme = scheme as EditorColorsScheme
+            }
+        }
+    }
+
+    /**
+     * Updates the message text only, without changing the bubble structure.
+     * THis is used for the generating message, and prevents the flickierng.
+     */
+    fun updateMessageTextOnly(newMessage: String) {
+        if (isDisposed) return
+        val virtualFile = LightVirtualFile("chat.md", newMessage)
+        val html =
+            try {
+                MarkdownUtil.generateMarkdownHtml(virtualFile, newMessage, project)
+            } catch (e: Exception) {
+                "<html><body><pre>$newMessage</pre></body></html>"
+            }
+        messagePane?.text = html
     }
 }

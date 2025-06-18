@@ -41,6 +41,8 @@ data class Preference(
     var type: PreferenceType = PreferenceType.STRING,
     @Attribute("defaultValue")
     var defaultValue: String = "",
+    @Attribute("limitedDefaultValue")
+    var limitedDefaultValue: String = "",
     @Attribute("displayName")
     var displayName: String = "",
     @Attribute("description")

@@ -34,6 +34,18 @@ public fun activateOrCreateProject(
             ),
             project,
         )
+        // After creating the project, check if the project token is set
+        // and if set activate the project
+        if (projectTokenService.getProjectToken() != null) {
+            getAppService().activateProject(
+                ActivateProject(
+                    projectId = UUID.fromString(projectTokenService.getProjectToken()!!),
+                ),
+            )
+            projectTokenService.setActivated(true)
+        } else {
+            logger.warn("Project token is still null after creation, activation skipped.")
+        }
         if (projectTokenService.hasProjectToken()) {
             logger.info("Project created and token acquired successfully.")
         } else {

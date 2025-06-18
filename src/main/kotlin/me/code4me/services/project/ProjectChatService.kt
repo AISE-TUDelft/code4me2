@@ -1,6 +1,12 @@
 package me.code4me.services.project
 
-import com.intellij.openapi.components.*
+import com.intellij.openapi.components.BaseState
+import com.intellij.openapi.components.PersistentStateComponent
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
+import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import me.code4me.api.generated.model.QueryChatMessageRole
 import me.code4me.chatWindow.components.managers.ChatSession
@@ -22,16 +28,25 @@ import java.util.UUID
 )
 class ProjectChatService(
     private val project: Project,
-) : SimplePersistentStateComponent<ProjectChatState>(ProjectChatState()), ChatRepository {
-    // ChatRepository interface implementation
-    override fun getChatSession(chatId: String): ChatSession? {
-        val chatData = state.chats[chatId] ?: return null
+) : PersistentStateComponent<ProjectChatState>, ChatRepository {
+    private var internalState = ProjectChatState()
+    private val LOG = thisLogger()
 
+    override fun getState(): ProjectChatState = internalState
+
+    override fun loadState(state: ProjectChatState) {
+        internalState = state
+    }
+
+    override fun getChatSession(chatId: String): ChatSession? {
+        val chatData = internalState.chats[chatId] ?: return null
         val messages =
-            chatData.messages.map {
-                val role = QueryChatMessageRole.decode(it.role) ?: QueryChatMessageRole.user
-                ChatConverter.roleToSender(role) to it.content!!
-            }
+            chatData.messages
+                .filter { it.content != null }
+                .map {
+                    val role = QueryChatMessageRole.decode(it.role) ?: QueryChatMessageRole.user
+                    ChatConverter.roleToSender(role) to it.content!!
+                }
 
         return ChatSession(
             id = chatId,
@@ -42,7 +57,7 @@ class ProjectChatService(
     }
 
     override fun getAllChatSessions(): List<ChatSession> {
-        return state.chats.keys.mapNotNull { getChatSession(it) }
+        return internalState.chats.keys.mapNotNull { getChatSession(it) }
             .sortedByDescending { it.lastUpdated }
     }
 
@@ -52,22 +67,22 @@ class ProjectChatService(
                 ChatMessage(ChatConverter.senderToRole(sender).value, content)
             }
 
-        val chatData = state.chats.getOrPut(chatSession.id) { ChatData() }
+        val chatData = internalState.chats.getOrPut(chatSession.id) { ChatData() }
         chatData.title = chatSession.title
         chatData.lastUpdated = chatSession.lastUpdated.time
         chatData.messages = messages.toMutableList()
+
+        internalState.chats[chatSession.id] = chatData // Force reassignment
+        println("Saving chat ${chatSession.id} with ${chatSession.messages.size} messages")
     }
 
     override fun deleteChat(
         chatId: String,
         deleteFromServer: Boolean,
     ) {
-        state.chats.remove(chatId)
+        internalState.chats.remove(chatId)
         if (deleteFromServer) {
-            getAppService().deleteChat(
-                UUID.fromString(chatId),
-                project = project,
-            )
+            getAppService().deleteChat(UUID.fromString(chatId), project)
         }
     }
 
@@ -77,20 +92,23 @@ class ProjectChatService(
         content: String,
     ) {
         val chatData =
-            state.chats.getOrPut(chatId) {
+            internalState.chats.getOrPut(chatId) {
                 ChatData().apply {
                     title = "Chat $chatId"
                     lastUpdated = System.currentTimeMillis()
                 }
             }
-        chatData.messages.add(ChatMessage(role.value, content))
+        chatData.messages = (chatData.messages + ChatMessage(role.value, content)).toMutableList()
         chatData.lastUpdated = System.currentTimeMillis()
+        internalState.chats[chatId] = chatData
+
+        getChatSession(chatId)?.let { saveChat(it) }
     }
 
     override fun getMessages(chatId: String): List<Pair<QueryChatMessageRole, String>> {
-        return state.chats[chatId]?.messages?.map {
+        return internalState.chats[chatId]?.messages?.map {
             val role = QueryChatMessageRole.decode(it.role) ?: QueryChatMessageRole.user
-            Pair(role, it.content!!)
+            role to it.content!!
         } ?: emptyList()
     }
 
@@ -103,94 +121,83 @@ class ProjectChatService(
         chatId: String,
         newTitle: String,
     ) {
-        val chatData = state.chats[chatId] ?: return
+        val chatData = internalState.chats[chatId] ?: return
         chatData.title = newTitle
         chatData.lastUpdated = System.currentTimeMillis()
+        internalState.chats[chatId] = chatData
     }
 
     /**
      * Gets the title of a specific chat
      */
-    fun getChatTitle(chatId: String): String? {
-        return state.chats[chatId]?.title
-    }
+    fun getChatTitle(chatId: String): String? = internalState.chats[chatId]?.title
 
     /**
      * Gets the last updated timestamp of a specific chat
      */
-    fun getLastUpdated(chatId: String): Date? {
-        return state.chats[chatId]?.lastUpdated?.let { Date(it) }
-    }
+    fun getLastUpdated(chatId: String): Date? = internalState.chats[chatId]?.lastUpdated?.let { Date(it) }
 
     /**
      * Updates the last modified timestamp for a chat
      */
     fun updateLastModified(chatId: String) {
-        state.chats[chatId]?.lastUpdated = System.currentTimeMillis()
+        val chatData = internalState.chats[chatId] ?: return
+        chatData.lastUpdated = System.currentTimeMillis()
+        internalState.chats[chatId] = chatData
     }
-
     // Existing utility methods (updated to work with new structure)
 
     /**
      * Gets all chat IDs
      */
-    fun getAllChatIds(): Set<String> {
-        return state.chats.keys.toSet()
-    }
+    fun getAllChatIds(): Set<String> = internalState.chats.keys
 
     /**
      * Checks if a chat exists
      */
-    fun hasChatId(chatId: String): Boolean {
-        return state.chats.containsKey(chatId)
-    }
+    fun hasChatId(chatId: String): Boolean = internalState.chats.containsKey(chatId)
 
     /**
      * Gets the number of messages in a specific chat
      */
-    fun getMessageCount(chatId: String): Int {
-        return state.chats[chatId]?.messages?.size ?: 0
-    }
+    fun getMessageCount(chatId: String): Int = internalState.chats[chatId]?.messages?.size ?: 0
 
     /**
      * Clears all messages for a specific chat but keeps metadata
      */
     fun clearChat(chatId: String) {
-        state.chats[chatId]?.let { chatData ->
-            chatData.messages.clear()
-            chatData.lastUpdated = System.currentTimeMillis()
-        }
+        val chatData = internalState.chats[chatId] ?: return
+        chatData.messages = mutableListOf()
+        chatData.lastUpdated = System.currentTimeMillis()
+        internalState.chats[chatId] = chatData
     }
 
     /**
      * Clears all chats
      */
     fun clearAllChats() {
-        state.chats.clear()
+        internalState.chats.clear()
     }
 
     /**
      * Gets the last message from a specific chat
      */
     fun getLastMessage(chatId: String): Pair<QueryChatMessageRole, String>? {
-        val messages = state.chats[chatId]?.messages
-        return if (messages.isNullOrEmpty()) {
-            null
-        } else {
-            val lastMessage = messages.last()
-            val role = QueryChatMessageRole.decode(lastMessage.role) ?: QueryChatMessageRole.user
-            Pair(role, lastMessage.content!!)
-        }
+        val messages = internalState.chats[chatId]?.messages ?: return null
+        if (messages.isEmpty()) return null
+        val last = messages.last()
+        val role = QueryChatMessageRole.decode(last.role) ?: QueryChatMessageRole.user
+        return role to last.content!!
     }
 
     /**
      * Gets all messages for all chats
      */
     fun getAllChats(): Map<String, List<Pair<QueryChatMessageRole, String>>> {
-        return state.chats.mapValues { (_, chatData) ->
+        return internalState.chats.mapValues { (_, chatData) ->
             chatData.messages.map {
                 val role = QueryChatMessageRole.decode(it.role) ?: QueryChatMessageRole.user
-                Pair(role, it.content!!)
+                role to it.content!!
             }
         }
     }
@@ -203,16 +210,17 @@ class ProjectChatService(
         messages: List<Pair<QueryChatMessageRole, String>>,
     ) {
         val chatData =
-            state.chats.getOrPut(chatId) {
+            internalState.chats.getOrPut(chatId) {
                 ChatData().apply {
                     title = "Chat $chatId"
                     lastUpdated = System.currentTimeMillis()
                 }
             }
         messages.forEach { (role, content) ->
-            chatData.messages.add(ChatMessage(role.value, content))
+            chatData.messages = (chatData.messages + ChatMessage(role.value, content)).toMutableList()
         }
         chatData.lastUpdated = System.currentTimeMillis()
+        internalState.chats[chatId] = chatData
     }
 
     /**
@@ -223,7 +231,7 @@ class ProjectChatService(
         messages: List<Pair<QueryChatMessageRole, String>>,
     ) {
         val chatData =
-            state.chats.getOrPut(chatId) {
+            internalState.chats.getOrPut(chatId) {
                 ChatData().apply {
                     title = "Chat $chatId"
                     lastUpdated = System.currentTimeMillis()
@@ -234,6 +242,32 @@ class ProjectChatService(
                 ChatMessage(role.value, content)
             }.toMutableList()
         chatData.lastUpdated = System.currentTimeMillis()
+        internalState.chats[chatId] = chatData
+    }
+
+    /**
+     * Completely clears all chats and forces persistence to disk.
+     * This method ensures that the XML file is properly cleared.
+     */
+    fun clearAllChatsAndMemory() {
+        LOG.info("Starting clearAllChatsAndMemory for project: ${project.name}")
+
+        // Clear the internal state completely
+        internalState.chats.clear()
+
+        // Create a new empty state to ensure clean persistence
+        internalState = ProjectChatState()
+
+        // Force the component to save the state immediately
+        try {
+            // This triggers the persistence mechanism to write the cleared state to disk
+            project.save()
+            LOG.info("Project state saved after clearing chats")
+        } catch (e: Exception) {
+            LOG.warn("Failed to save project state after clearing chats", e)
+        }
+
+        LOG.info("Completed clearAllChatsAndMemory for project: ${project.name}")
     }
 }
 

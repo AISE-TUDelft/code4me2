@@ -18,10 +18,10 @@ fun getConfig(): ConfigService {
 }
 
 /**
- * Service for managing module configuration from HOCON config file.
+ * Service for managing module configuration from HOCON config file or string.
  *
  * This service is responsible for:
- * - Loading module configurations from the plugin.conf file
+ * - Loading module configurations from the plugin.conf file or a provided configuration string
  * - Parsing module categories and their properties
  * - Maintaining a list of available modules
  * - Instantiating module classes dynamically
@@ -33,31 +33,10 @@ fun getConfig(): ConfigService {
 @Service
 class ConfigService {
     /**
-     * The parsed configuration from the plugin.conf file.
+     * The parsed configuration from either the plugin.conf resource file or provided configuration string.
      * Automatically resolved to handle any includes or substitutions.
-     *
-     * If the system property "plugin.conf.path" is set, it will load the configuration
-     * from that file path instead of the resource.
      */
-    private val config: Config = loadConfiguration()
-
-    /**
-     * Loads the configuration from either a custom path specified by the system property
-     * "plugin.conf.path" or from the default resource.
-     *
-     * @return The loaded configuration
-     */
-    private fun loadConfiguration(): Config {
-        val customPath = System.getProperty("plugin.conf.path")
-        return if (customPath != null) {
-            ConfigFactory.parseFile(java.io.File(customPath)).resolve()
-        } else {
-            ConfigFactory.parseResources(
-                this.javaClass.classLoader,
-                "plugin.conf",
-            ).resolve()
-        }
-    }
+    private val config: Config
 
     /**
      * List of available modules parsed from the configuration.
@@ -112,10 +91,25 @@ class ConfigService {
     }
 
     /**
-     * Initializes the service by parsing the entire configuration file.
-     * Called automatically when the service is first accessed.
+     * Primary constructor that initializes the service with a configuration string.
+     *
+     * @param configString The HOCON configuration string to parse
      */
-    init {
+    constructor(configString: String) {
+        config = ConfigFactory.parseString(configString).resolve()
+        parseConfiguration()
+    }
+
+    /**
+     * Default constructor that loads configuration from the plugin.conf resource file.
+     * Used when the service is created through IntelliJ's service framework.
+     */
+    constructor() {
+        config =
+            ConfigFactory.parseResources(
+                this.javaClass.classLoader,
+                "plugin.conf",
+            ).resolve()
         parseConfiguration()
     }
 
@@ -567,5 +561,14 @@ class ConfigService {
          * @return The ConfigService instance managed by IntelliJ's service framework
          */
         fun getInstance(): ConfigService = service()
+
+        /**
+         * Creates a new ConfigService instance with the provided configuration string.
+         * This bypasses the IntelliJ service framework and allows for custom configuration.
+         *
+         * @param configString The HOCON configuration string to parse
+         * @return A new ConfigService instance initialized with the provided configuration
+         */
+        fun fromConfigString(configString: String): ConfigService = ConfigService(configString)
     }
 }

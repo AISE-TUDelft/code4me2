@@ -3,6 +3,7 @@ package me.code4me.services.state
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.credentialStore.generateServiceName
 import com.intellij.ide.passwordSafe.PasswordSafe
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.SimplePersistentStateComponent
@@ -10,10 +11,13 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.project.ProjectManager
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import me.code4me.services.project.getProjectChatService
+import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.state.AuthState.Companion.getAuthToken
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
@@ -409,13 +413,48 @@ class AuthSettings : BaseState() {
 
             if (oldVerified != null) {
                 AuthState.removeSecureData(IS_VERIFIED_PROPERTY)
-                isVerified = null
+                isVerified = false
                 propertyChangeSupport.firePropertyChange(IS_VERIFIED_PROPERTY, oldVerified, false)
+            }
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                try {
+                    getProjectMultiFileContextService(project).clearCache()
+                    LOG.info("Cleared context cache for project: ${project.name}")
+
+                    val chatService = getProjectChatService(project)
+                    chatService.clearAllChatsAndMemory()
+                    LOG.info("Cleared all chat sessions (memory + disk) for project: ${project.name}")
+                } catch (e: Exception) {
+                    LOG.warn("Failed to fully clear chat data for project: ${project.name}", e)
+                }
+            }
+            ApplicationManager.getApplication().invokeLater {
+                ProjectManager.getInstance().openProjects.forEach { project ->
+                    val toolWindow =
+                        com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+                            .getToolWindow("Code4Me")
+
+                    toolWindow?.contentManager?.contents?.forEach { content ->
+                        val component = content.component
+                        if (component is me.code4me.chatWindow.components.ChatPanel) {
+                            component.resetAllChatsAfterLogout()
+                        }
+                    }
+                }
             }
 
             LOG.info("User authentication data cleared successfully")
         } catch (e: Exception) {
             LOG.error("Failed to clear user data completely", e)
+        }
+        // Clear multi-file context cache for all open projects upon user logout
+        ProjectManager.getInstance().openProjects.forEach { project ->
+            try {
+                getProjectMultiFileContextService(project).clearCache()
+                LOG.info("Cleared context cache for project: ${project.name}")
+            } catch (e: Exception) {
+                LOG.warn("Failed to clear context cache for project: ${project.name}", e)
+            }
         }
     }
 

@@ -1,8 +1,17 @@
 package me.code4me.settings
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.NlsContexts
+import me.code4me.api.generated.model.UpdateUser
 import me.code4me.components.settings.Code4MeConfigurableComponent
+import me.code4me.services.app.getAppService
+import me.code4me.services.state.getPrefState
+import me.code4me.utils.api.toSerializableMap
+import me.code4me.utils.notification.showPreferenceSyncFailedNotification
+import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JComponent
 
 /**
@@ -22,6 +31,13 @@ import javax.swing.JComponent
  * @see Code4MeConfigurableComponent
  */
 class Code4MeConfigurable : Configurable {
+    private val appService = getAppService()
+    private val LOG = thisLogger()
+
+    companion object {
+        val atomicSettingsChanged = AtomicReference(false)
+    }
+
     /**
      * The main UI component that handles all settings interactions.
      * Lazily initialized when [createComponent] is called.
@@ -73,6 +89,7 @@ class Code4MeConfigurable : Configurable {
      */
     override fun apply() {
         code4MeConfigurableComponent?.save()
+        atomicSettingsChanged.set(true)
     }
 
     /**
@@ -92,7 +109,33 @@ class Code4MeConfigurable : Configurable {
      * by disposing of the component and setting the reference to null.
      */
     override fun disposeUIResources() {
-        code4MeConfigurableComponent?.dispose()
-        code4MeConfigurableComponent = null
+        if (atomicSettingsChanged.get()) {
+            // Trigger server-side preference update
+            ApplicationManager.getApplication().executeOnPooledThread {
+                updatePreferencesOnServer()
+            }
+            atomicSettingsChanged.set(false)
+        }
+        super.disposeUIResources()
+    }
+
+    private fun updatePreferencesOnServer() {
+        try {
+            val prefState = getPrefState()
+            val preferences = prefState.toSerializableMap()
+
+            val updateUser =
+                UpdateUser(
+                    preference = preferences,
+                )
+
+            appService.updateUser(updateUser)
+            LOG.info("User preferences updated on server successfully")
+        } catch (e: Exception) {
+            LOG.error("Failed to update user preferences on server", e)
+
+            // Use the dedicated notification function
+            ProjectManager.getInstance().openProjects.firstOrNull()?.showPreferenceSyncFailedNotification()
+        }
     }
 }

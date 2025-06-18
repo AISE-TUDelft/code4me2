@@ -14,9 +14,12 @@ import com.intellij.util.ProcessingContext
 import me.code4me.chatWindow.components.chatDisplayPanel.components.ChatBubble
 import me.code4me.services.app.getAppService
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.modules.model.CompletionModel
+import me.code4me.services.state.getAuthState
 import me.code4me.utils.completion.prioritize
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
+import me.code4me.utils.services.state.getBooleanPreference
 
 class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
     companion object {
@@ -30,6 +33,22 @@ class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
         context: ProcessingContext,
         results: CompletionResultSet,
     ) {
+        // check if the user is authenticated and if inline completions are enabled
+        val isAuthenticated = getAuthState().isAuthenticated()
+        if (!isAuthenticated) {
+            LOG.warn("User is not authenticated. Cannot provide inline completions.")
+            return
+        }
+        val wantsInlineCompletions = getBooleanPreference(
+            "CompletionModel",
+            CompletionModel.Companion.COMPLETION_INLINE_KEY,
+            false
+        )
+        if(wantsInlineCompletions) {
+            LOG.warn("Inline completions are disabled in preferences. Skipping completion provider.")
+            return
+        }
+
         try {
             runBlockingCancellable {
                 // Get the project from parameters
@@ -61,7 +80,7 @@ class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
                             )
 
                         // Get the module manager for the current project
-                        val moduleManager = getModuleManager(project)
+                        val moduleManager = getModuleManager()
 
                         // Collect data from all registered modules
                         moduleManager.collectData(mockRequest)
@@ -77,7 +96,11 @@ class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
                 // Call AppService to get inline completion
                 val completionResponse =
                     getAppService()
-                        .getInlineCompletion(aggregatedData, project)
+                        .getInlineCompletion(
+                            aggregatedData,
+                            project,
+                            listOf("\n")) // Stop sequences can be adjusted as needed)
+                // inline completions for dropdown suggestions should be single line, so we can use "\n" as a stop sequence
 
                 // Process the response and add completions to results
                 if (completionResponse != null) {

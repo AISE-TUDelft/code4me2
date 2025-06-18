@@ -1,13 +1,20 @@
 package me.code4me.services.app
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.vfs.LocalFileSystem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.ChatApi
 import me.code4me.api.generated.api.CompletionApi
 import me.code4me.api.generated.api.DeactivateSessionApi
+import me.code4me.api.generated.api.MultiFileContextApi
 import me.code4me.api.generated.api.ProjectApi
 import me.code4me.api.generated.api.SessionApi
 import me.code4me.api.generated.api.UserApi
@@ -21,6 +28,7 @@ import me.code4me.api.generated.model.AuthenticateUserPostResponse
 import me.code4me.api.generated.model.BehavioralTelemetryData
 import me.code4me.api.generated.model.ChatHistoryResponse
 import me.code4me.api.generated.model.ChatHistoryResponsePage
+import me.code4me.api.generated.model.ContextChangeType
 import me.code4me.api.generated.model.ContextData
 import me.code4me.api.generated.model.ContextualTelemetryData
 import me.code4me.api.generated.model.CreateProject
@@ -28,20 +36,31 @@ import me.code4me.api.generated.model.CreateProjectPostResponse
 import me.code4me.api.generated.model.CreateUserPostResponse
 import me.code4me.api.generated.model.DeleteChatSuccessResponse
 import me.code4me.api.generated.model.FeedbackCompletion
+import me.code4me.api.generated.model.FileContextChangeData
+import me.code4me.api.generated.model.GetUserGetResponse
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestChatCompletion
 import me.code4me.api.generated.model.RequestCompletion
 import me.code4me.api.generated.model.ResponseCompletionResponseData
+import me.code4me.api.generated.model.UpdateMultiFileContext
 import me.code4me.api.generated.model.UpdateUser
 import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
+import me.code4me.services.config.ConfigService
 import me.code4me.services.config.getConfig
+import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.getAuthState
+import me.code4me.services.state.getPrefState
+import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.api.mapsTo
+import me.code4me.utils.api.toSerializableMap
 import me.code4me.utils.record.Record
+import toApiModel
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -102,6 +121,10 @@ class AppService {
     private val userVerificationApi = UserVerificationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val deactivateSessionApi =
         DeactivateSessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val multiFileContextApi =
+        MultiFileContextApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private val fileSnapshotCache = mutableMapOf<String, String>()
+    val fileHashes = mutableMapOf<String, Int>()
 
     // Chat API with extended timeout configuration
     private val chatApi = ChatApi(apiBaseUrl, chatHttpClient)
@@ -169,8 +192,56 @@ class AppService {
 
         return try {
             val response = authApi.authenticateUserApiUserAuthenticatePost(userToAuthenticate)
+
+            if (!response.user.preference.isNullOrEmpty()) {
+                LOG.info("User preferences found, updating preference state")
+                getPrefState().fromSerializableMap(response.user.preference!!)
+            } else {
+                LOG.info("No user preferences found, using default preference state")
+            }
+
+            val configService = ConfigService.fromConfigString(response.config)
+            val instantiatedModules = configService.instantiateModules()
+            LOG.info("Modules instantiated successfully: ${instantiatedModules.size} modules")
+
+            // Get the ModuleManager for this project
+            val moduleManager = getModuleManager()
+            // Store the instantiated modules in the ModuleManager
+            moduleManager.storeModules(instantiatedModules)
+
+            // Initialize all enabled modules
+            moduleManager.initializeModules()
+            thisLogger().info("Modules initialized successfully.")
+
+            // Execute module initialization on a background thread to avoid blocking the UI
+            ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    // after that make sure that the current state of the preferences is updated
+                    updateUser(
+                        UpdateUser(
+                            preference = getPrefState().toSerializableMap(),
+                        ),
+                    )
+                } catch (e: Exception) {
+                    thisLogger().error("Failed to initialize modules", e)
+                }
+            }
+
+            // for all of the open projects, we need to set their project token service activated to false
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                // get the project token service for the project
+                val projectTokenService = getProjectTokenService(project)
+                // set the activated state to false
+                projectTokenService.setActivated(false)
+            }
+
+            // the reason this is moved so far down is because there is a change listener
+            // on the auth state values (so the token, user name, and email)
+            // that will update the UI components when the values change
+            // and we want to make sure that the modules are initialized before we store the auth state
             storeAuthenticationResponse(response)
             LOG.info("User authenticated successfully: $email")
+
             response
         } catch (e: Exception) {
             LOG.warn("Authentication failed for user: $email", e)
@@ -347,7 +418,6 @@ class AppService {
         try {
             val response = deactivateSessionApi.deactivateSessionApiSessionDeactivatePut()
             LOG.info("Session deactivated successfully: ${response.message}")
-            clearLocalSession() // Optional: clear local cookies/state after deactivation
         } catch (e: Exception) {
             LOG.warn("Failed to deactivate session", e)
             throw e
@@ -535,24 +605,19 @@ class AppService {
     }
 
     /**
-     * Logs out the current user by clearing the local session.
-     *
-     * This method clears all locally stored authentication data including cookies and auth state.
-     * The user will need to authenticate again to access protected resources.
-     */
-    fun logout() {
-        clearLocalSession()
-        deactivateSession()
-        LOG.info("User logged out successfully")
-    }
-
-    /**
      * Clears all local session data including cookies and authentication state.
      * This is a utility method used by both logout and deleteUser operations.
      */
     private fun clearLocalSession() {
         CookieAwareApiClient.clearCookies()
-        getAuthState().clearUserData()
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                getAuthState().clearUserData()
+                LOG.info("User data cleared successfully during sign out")
+            } catch (e: Exception) {
+                LOG.error("Failed to clear user data during sign out", e)
+            }
+        }
     }
 
     // Add this new method to replace the existing updateUserName method
@@ -605,6 +670,45 @@ class AppService {
         }
     }
 
+    /**
+     * Retrieves the currently authenticated user using the stored auth token.
+     *
+     * @return GetUserGetResponse containing the current user's information
+     * @throws IOException If there's a network connectivity issue
+     * @throws ClientException If the request fails due to client-side issues (4xx errors)
+     * @throws ServerException If the server encounters an internal error (5xx errors)
+     */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun getCurrentUser(): GetUserGetResponse {
+        try {
+            val response = userApi.getUserFromAuthTokenApiUserGetGet()
+            LOG.info("Current user retrieved successfully: ${response.user.email}")
+            return response
+        } catch (e: Exception) {
+            LOG.warn("Failed to retrieve current user", e)
+            throw e
+        }
+    }
+
+    /**
+     * request a reset of the user's password.
+     * This method sends a password reset request to the Code4Me backend.
+     *
+     * @return true if the request was successful, false otherwise
+     */
+    fun requestPasswordReset(email: String): Boolean {
+        require(email.isNotBlank()) { "Email cannot be blank" }
+
+        try {
+            val response = userApi.requestPasswordResetApiUserResetPasswordRequestPost(email)
+            LOG.info("Password reset requested successfully for user: $email")
+            return true
+        } catch (e: Exception) {
+            LOG.warn("Failed to request password reset for user: $email", e)
+            return false
+        }
+    }
+
     // ============ User Verification Methods ============
 
     fun isUserVerified(): Boolean {
@@ -612,7 +716,7 @@ class AppService {
         try {
             val response = userVerificationApi.checkVerificationApiUserVerifyCheckGet()
             LOG.info("User verification status retrieved successfully: $response")
-            return true
+            return response.userIsVerified
         } catch (e: Exception) {
             LOG.warn("Failed to check user verification status", e)
             return false
@@ -624,16 +728,11 @@ class AppService {
         try {
             val response = userVerificationApi.resendVerificationEmailApiUserVerifyResendPost()
             LOG.info("Verification email resent successfully")
-            if (response == null) {
-                LOG.warn("No response received when resending verification email")
-                return false
-            } else {
-                response.toString().contains("true", ignoreCase = true).also { isSuccess ->
-                    if (isSuccess) {
-                        LOG.info("Verification email sent successfully")
-                    } else {
-                        LOG.warn("Failed to send verification email")
-                    }
+            response.toString().contains("true", ignoreCase = true).also { isSuccess ->
+                if (isSuccess) {
+                    LOG.info("Verification email sent successfully")
+                } else {
+                    LOG.warn("Failed to send verification email")
                 }
             }
             return true
@@ -651,10 +750,10 @@ class AppService {
      * This method sends a chat completion request to the Code4Me backend using the current
      * session and project tokens. The request contains all the history of the chat to ensure
      * completions are based on the latest state, even if the user has modified previous messages.
+     * It also processes multi-file context changes similar to inline completions.
      *
      * @param requestChatCompletion The chat completion request containing messages and configuration
-     * @param sessionToken The session token (optional, uses stored token if not provided)
-     * @param projectToken The project token (optional, uses stored token if not provided)
+     * @param project The current project context
      * @return [ChatHistoryResponse] containing the chat completion and updated history
      * @throws IOException If there's a network connectivity issue
      * @throws ClientException If the tokens are invalid or request fails (4xx errors)
@@ -662,28 +761,96 @@ class AppService {
      * @throws IllegalArgumentException If the requestChatCompletion parameter is invalid
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
-    fun requestChatCompletion(
+    suspend fun requestChatCompletion(
         requestChatCompletion: RequestChatCompletion,
         project: Project,
-    ): ChatHistoryResponse {
-        require(requestChatCompletion.messages.isNotEmpty()) { "Messages cannot be empty" }
+    ): ChatHistoryResponse =
+        withContext(Dispatchers.IO) {
+            require(requestChatCompletion.messages.isNotEmpty()) { "Messages cannot be empty" }
 
-        currentGenerationProject.set(project)
+            currentGenerationProject.set(project)
 
-        return try {
-            val response =
-                chatApi.requestChatCompletionApiChatRequestPost(
-                    requestChatCompletion = requestChatCompletion,
-                )
-            LOG.info("Chat completion requested successfully")
-            response
-        } catch (e: Exception) {
-            LOG.warn("Chat completion request failed", e)
-            throw e
-        } finally {
-            currentGenerationProject.set(null)
+            try {
+                val multiFileDiffs: MutableMap<String, List<FileContextChangeData>> = mutableMapOf()
+                val relativePaths = requestChatCompletion.context.contextFiles ?: emptyList()
+
+                val basePath = project.basePath
+                if (basePath != null && relativePaths.isNotEmpty()) {
+                    val contextService = getProjectMultiFileContextService(project)
+
+                    withContext(Dispatchers.Default) {
+                        for (relPath in relativePaths) {
+                            try {
+                                val fullPath = "$basePath${File.separator}$relPath".replace("/", File.separator)
+                                val virtualFile = LocalFileSystem.getInstance().findFileByPath(fullPath)
+
+                                if (virtualFile?.isValid != true) continue
+
+                                val newText =
+                                    ApplicationManager.getApplication().runReadAction<String?> {
+                                        FileDocumentManager.getInstance().getDocument(virtualFile)?.text
+                                    } ?: continue
+
+                                val hasSnapshot = contextService.hasSnapshot(relPath)
+
+                                if (!hasSnapshot) {
+                                    contextService.saveInitialSnapshotIfMissing(relPath, newText)
+                                    if (newText.isNotEmpty()) {
+                                        val lines = newText.replace("\r\n", "\n").split("\n")
+                                        multiFileDiffs[relPath] =
+                                            listOf(
+                                                FileContextChangeData(
+                                                    changeType = ContextChangeType.insert,
+                                                    startLine = 0,
+                                                    endLine = maxOf(0, lines.size - 1),
+                                                    newLines = lines,
+                                                ),
+                                            )
+                                    }
+                                } else {
+                                    val changes = contextService.updateFileContentAndCache(relPath, newText)
+                                    if (changes.isNotEmpty()) {
+                                        multiFileDiffs[relPath] =
+                                            changes.map {
+                                                try {
+                                                    it.toApiModel()
+                                                } catch (_: Exception) {
+                                                    FileContextChangeData(
+                                                        changeType = ContextChangeType.update,
+                                                        startLine = it.startLine,
+                                                        endLine = it.endLine,
+                                                        newLines = it.newLines,
+                                                    )
+                                                }
+                                            }
+                                    }
+                                }
+                            } catch (_: Exception) {
+                                continue
+                            }
+                        }
+                    }
+
+                    if (multiFileDiffs.isNotEmpty()) {
+                        val sent = sendMultiFileContextUpdate(UpdateMultiFileContext(contextUpdates = multiFileDiffs))
+                        if (!sent) {
+                            multiFileDiffs.keys.forEach {
+                                try {
+                                    contextService.rollbackLastUpdate(it)
+                                } catch (_: Exception) {
+                                }
+                            }
+                        }
+                    }
+                }
+
+                chatApi.requestChatCompletionApiChatRequestPost(requestChatCompletion)
+            } catch (e: Exception) {
+                throw e
+            } finally {
+                currentGenerationProject.set(null)
+            }
         }
-    }
 
     /**
      * Retrieves chat history for a specific page.
@@ -781,48 +948,196 @@ class AppService {
      * @see Record.Type.BEHAVIORAL_TELEMETRY
      * @see Record.type.CONTEXTUAL_TELEMETRY
      */
-    fun getInlineCompletion(
+    suspend fun getInlineCompletion(
         aggregatedCollectedData: Map<Record.Type, Map<String, Any>>,
         project: Project,
-    ): ResponseCompletionResponseData? {
-        require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
+        stopSequences: List<String>? = null,
+    ): ResponseCompletionResponseData? =
+        withContext(Dispatchers.IO) {
+            require(aggregatedCollectedData.isNotEmpty()) { "Aggregated data cannot be empty" }
 
-        // set the current project for generation
-        currentGenerationProject.set(project)
+            currentGenerationProject.set(project)
 
-        // model selection
-        val modelId =
-            getConfig().getModelsConfiguration()
-                ?.getModelIdByName(aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default")
+            val modelId =
+                getConfig().getModelsConfiguration()
+                    ?.getModelIdByName(
+                        aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default",
+                    )
 
-        val requestCompletion =
-            RequestCompletion(
-                modelIds = listOfNotNull(modelId),
-                context =
-                    (aggregatedCollectedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
-                        ContextData::class.java,
-                    ),
-                behavioralTelemetry =
-                    (aggregatedCollectedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
-                        .mapsTo<BehavioralTelemetryData>(
-                            BehavioralTelemetryData::class.java,
-                        ),
-                contextualTelemetry =
-                    (aggregatedCollectedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
-                        .mapsTo<ContextualTelemetryData>(
-                            ContextualTelemetryData::class.java,
-                        ),
-            )
+            val rawContext = aggregatedCollectedData[Record.Type.CONTEXT]?.toMutableMap() ?: error("Missing CONTEXT")
+            val relativePaths =
+                (rawContext["multi_file_context.paths"] as? List<*>)
+                    ?.mapNotNull { it?.toString() }
+                    ?.distinct()
+                    ?: emptyList()
 
+            // Get current file name to exclude it from multi-file updates
+            val currentFileName = rawContext["file_name"]?.toString() ?: ""
+
+            if (relativePaths.isEmpty()) {
+                rawContext["context_files"] = emptyList<String>()
+            } else {
+                val basePath = project.basePath ?: return@withContext null
+                val contextService = getProjectMultiFileContextService(project)
+                val multiFileDiffs: MutableMap<String, List<FileContextChangeData>> = mutableMapOf()
+
+                val filesToProcess =
+                    relativePaths.filter { relPath ->
+                        relPath != currentFileName &&
+                            !relPath.endsWith("/$currentFileName") &&
+                            !relPath.endsWith("\\$currentFileName")
+                    }
+
+                withContext(Dispatchers.Default) {
+                    for (relPath in filesToProcess) {
+                        try {
+                            val fullPath = "$basePath${File.separator}$relPath".replace("/", File.separator)
+                            val virtualFile = LocalFileSystem.getInstance().findFileByPath(fullPath)
+
+                            if (virtualFile?.isValid != true) {
+                                continue
+                            }
+
+                            val newText =
+                                ApplicationManager.getApplication().runReadAction<String?> {
+                                    try {
+                                        FileDocumentManager.getInstance().getDocument(virtualFile)?.text
+                                    } catch (e: Exception) {
+                                        LOG.warn("Failed to read document for file: $fullPath", e)
+                                        null
+                                    }
+                                }
+
+                            if (newText == null) {
+                                LOG.warn("Failed to read text content for file: $fullPath")
+                                continue
+                            }
+
+                            val hasSnapshot = contextService.hasSnapshot(relPath)
+                            LOG.debug("Context file $relPath - hasSnapshot=$hasSnapshot, contentLength=${newText.length}")
+
+                            if (!hasSnapshot) {
+                                contextService.saveInitialSnapshotIfMissing(relPath, newText)
+                                if (newText.isNotEmpty()) {
+                                    val lines = newText.replace("\r\n", "\n").split("\n")
+                                    val fullFileChange =
+                                        FileContextChangeData(
+                                            changeType = ContextChangeType.insert,
+                                            startLine = 0,
+                                            endLine = maxOf(0, lines.size - 1),
+                                            newLines = lines,
+                                        )
+                                    multiFileDiffs[relPath] = listOf(fullFileChange)
+                                    LOG.debug("First-time context file $relPath: sending INSERT 0-${lines.size - 1} (${lines.size} lines)")
+                                }
+                            } else {
+                                val changes = contextService.updateFileContentAndCache(relPath, newText)
+                                if (changes.isNotEmpty()) {
+                                    val apiChanges =
+                                        changes.map { change ->
+                                            try {
+                                                change.toApiModel()
+                                            } catch (e: Exception) {
+                                                LOG.warn("Failed to convert change to API model for $relPath: $change", e)
+                                                FileContextChangeData(
+                                                    changeType = ContextChangeType.update,
+                                                    startLine = change.startLine,
+                                                    endLine = change.endLine,
+                                                    newLines = change.newLines,
+                                                )
+                                            }
+                                        }
+                                    multiFileDiffs[relPath] = apiChanges
+                                    LOG.debug("Changes for context file $relPath:")
+                                    changes.forEach { change ->
+                                        LOG.debug(
+                                            "   ${change.changeType} ${change.startLine}-${change.endLine} (${change.newLines.size} lines)",
+                                        )
+                                    }
+                                } else {
+                                    LOG.debug("No changes detected for context file: $relPath")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            LOG.error("Error processing context file $relPath", e)
+                            continue
+                        }
+                    }
+                }
+
+                if (multiFileDiffs.isNotEmpty()) {
+                    LOG.debug("Sending multi-file context updates for ${multiFileDiffs.size} context files")
+                    multiFileDiffs.forEach { (path, changes) ->
+                        LOG.debug("Context file $path: ${changes.size} changes")
+                        changes.forEach { change ->
+                            LOG.debug("   ${change.changeType}: ${change.startLine}-${change.endLine} (${change.newLines.size} lines)")
+                        }
+                    }
+
+                    val update = UpdateMultiFileContext(contextUpdates = multiFileDiffs)
+                    val sent = sendMultiFileContextUpdate(update)
+                    if (sent) {
+                        LOG.debug("Successfully sent context updates for ${multiFileDiffs.size} files")
+                    } else {
+                        LOG.warn("Failed to send multi-file context updates")
+                        multiFileDiffs.keys.forEach { relPath ->
+                            try {
+                                contextService.rollbackLastUpdate(relPath)
+                                LOG.debug("Rolled back cache for context file: $relPath")
+                            } catch (e: Exception) {
+                                LOG.warn("Failed to rollback cache for $relPath", e)
+                            }
+                        }
+                    }
+                } else {
+                    LOG.debug("No context file changes to send")
+                }
+
+                // Include ALL original paths in context_files (both current and context files)
+                rawContext["context_files"] = relativePaths
+            }
+
+            val requestCompletion =
+                RequestCompletion(
+                    modelIds = listOfNotNull(modelId),
+                    context = rawContext.mapsTo(ContextData::class.java),
+                    behavioralTelemetry =
+                        (
+                            aggregatedCollectedData[Record.Type.BEHAVIORAL_TELEMETRY]
+                                ?: emptyMap()
+                        ).mapsTo<BehavioralTelemetryData>(BehavioralTelemetryData::class.java),
+                    contextualTelemetry =
+                        (aggregatedCollectedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
+                            .mapsTo<ContextualTelemetryData>(
+                                ContextualTelemetryData::class.java,
+                            ),
+                    storeContext = getPrefState().storeContext,
+                    storeContextualTelemetry = getPrefState().storeContextualTelemetry,
+                    storeBehavioralTelemetry = getPrefState().storeBehavioralTelemetry,
+                    stopSequences = stopSequences,
+                )
+
+            try {
+                val response = completionApi.requestCompletionApiCompletionRequestPost(requestCompletion)
+                LOG.debug("Inline completion request successful")
+                response.data
+            } catch (e: Exception) {
+                LOG.warn("Failed to get inline completion", e)
+                null
+            } finally {
+                currentGenerationProject.set(null)
+                LOG.debug("Inline completion request finished")
+            }
+        }
+
+    fun sendMultiFileContextUpdate(update: UpdateMultiFileContext): Boolean {
         return try {
-            val response = completionApi.requestCompletionApiCompletionRequestPost(requestCompletion)
-            LOG.debug("Inline completion request successful")
-            response.data
+            multiFileContextApi.updateMultiFileContextApiCompletionMultiFileContextUpdatePost(update)
+            LOG.debug("Multi-file context update sent successfully.")
+            true
         } catch (e: Exception) {
-            LOG.warn("Failed to get inline completion", e)
-            null
-        } finally {
-            currentGenerationProject.set(null)
+            LOG.warn("Failed to send multi-file context update", e)
+            false
         }
     }
 

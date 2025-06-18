@@ -16,10 +16,15 @@ import me.code4me.chatWindow.components.utils.TitleResponsePair
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.state.getAuthState
+import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.api.mapsTo
+import me.code4me.utils.notification.showErrorNotification
 import me.code4me.utils.record.Record
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
+import java.io.File
 
 class ChatIOManager {
     val LOG = thisLogger()
@@ -37,11 +42,29 @@ class ChatIOManager {
         previousMessages: List<Pair<String, String>> = emptyList(),
         project: Project,
     ): TitleResponsePair {
+        // make sure that the project is activated for the system and also that the user is authenticated
+        if (!getAuthState().isAuthenticated()) {
+            LOG.error("User is not authenticated. Cannot proceed with AI response generation.")
+            return TitleResponsePair(
+                "Error: User not authenticated",
+                emptyList(),
+            )
+        }
+
+        val tokService = getProjectTokenService(project)
+
+        if (tokService.getProjectToken() == null || (tokService.hasProjectToken() && !tokService.isActivated())) {
+            activateOrCreateProject(
+                project,
+                LOG,
+            )
+        }
+
         // Collect editor data within a read action
         val editorData =
             readAction {
                 // Get the current editor
-                val editor = FileEditorManager.getInstance(project).selectedTextEditor
+                var editor = FileEditorManager.getInstance(project).selectedTextEditor
 
                 if (editor != null) {
                     // Get the document from the editor
@@ -70,7 +93,7 @@ class ChatIOManager {
                             )
 
                         // Get the module manager for the current project
-                        val moduleManager = getModuleManager(project)
+                        val moduleManager = getModuleManager()
 
                         // Collect data from all registered modules
                         val collectedData = moduleManager.collectData(mockRequest)
@@ -81,6 +104,12 @@ class ChatIOManager {
                         null
                     }
                 } else {
+                    // show the user a notification that no active editor was found
+                    project.showErrorNotification(
+                        "No active editor found",
+                        "Please open a file in the editor to use AI features.",
+                    )
+
                     null
                 }
             }
@@ -114,10 +143,24 @@ class ChatIOManager {
                 ChatConverter.toApiMessages(it)
             }
 
-        val context =
-            (aggregatedData[Record.Type.CONTEXT] ?: emptyMap()).mapsTo<ContextData>(
-                ContextData::class.java,
-            )
+        val contextMap = (aggregatedData[Record.Type.CONTEXT] ?: emptyMap()).toMutableMap()
+
+        val basePath = project.basePath
+        val relativeFiles =
+            selectedFiles.mapNotNull { absolutePath ->
+                basePath?.let { bp ->
+                    if (absolutePath.startsWith(bp)) {
+                        absolutePath.removePrefix(bp).removePrefix(File.separator)
+                    } else {
+                        // Skip files outside project
+                        null
+                    }
+                }
+            }
+
+        contextMap["context_files"] = relativeFiles
+        val context = contextMap.mapsTo(ContextData::class.java)
+
         val behavioralTelemetry =
             (aggregatedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
                 .mapsTo<BehavioralTelemetryData>(

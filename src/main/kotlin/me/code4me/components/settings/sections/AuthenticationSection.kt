@@ -1,7 +1,9 @@
 package me.code4me.components.settings.sections
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
@@ -23,6 +25,8 @@ import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
+import java.awt.event.KeyAdapter
+import java.awt.event.KeyEvent
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.BorderFactory
 import javax.swing.JButton
@@ -31,6 +35,16 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JToggleButton
 
+private fun JComponent.addEnterKeyListener(action: () -> Unit) {
+    addKeyListener(object : KeyAdapter() {
+        override fun keyPressed(e: KeyEvent) {
+            if (e.keyCode == KeyEvent.VK_ENTER) {
+                action()
+            }
+        }
+    })
+}
+
 /**
  * Settings section responsible for user authentication (login and signup).
  *
@@ -38,9 +52,11 @@ import javax.swing.JToggleButton
  * - Credential-based authentication (email/password)
  * - Google OAuth authentication (future feature)
  * - Dynamic form switching between login and signup modes
+ * - Password reset functionality
  * - Input validation and error handling
  * - Secure credential storage
  * - Reactive UI updates based on authentication state
+ * - Integration with ChatPanel overlay updates
  *
  * The section automatically integrates with the authentication state service
  * and triggers UI refreshes when authentication status changes.
@@ -66,6 +82,9 @@ class AuthenticationSection : SettingsSection {
 
         /** New user registration */
         SIGNUP,
+
+        /** Password reset mode */
+        FORGOT_PASSWORD,
     }
 
     /**
@@ -83,6 +102,11 @@ class AuthenticationSection : SettingsSection {
      * Flag indicating whether the UI needs to be refreshed due to authentication state changes.
      */
     val requiresUIRefresh = AtomicBoolean(false)
+
+    /**
+     * Current authentication mode
+     */
+    private var currentAuthMode = AuthMode.LOGIN
 
     // ================= UI FIELDS =================
 
@@ -121,17 +145,33 @@ class AuthenticationSection : SettingsSection {
     /**
      * Password input field with state management.
      */
+    /**
+     * Password input field with state management.
+     */
     private val passwordField =
         JBPasswordField().apply {
             columns = FIELD_COLUMNS
-            toolTipText = "Enter your password"
+            toolTipText = "Enter your password (8+ chars, uppercase, lowercase, digit, no spaces)"
             addFocusListener(
                 object : FocusAdapter() {
                     override fun focusLost(e: FocusEvent) {
                         val pwd = String(password)
-                        if (pwd.isNotEmpty() && pwd.length < 8) {
-                            background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
-                            putClientProperty("JComponent.outline", "error")
+                        val isSignupMode = authModeToggle.isSelected
+
+                        if (pwd.isNotEmpty()) {
+                            val isValid = if (isSignupMode) {
+                                pwd.length >= 8 && pwd.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$"))
+                            } else {
+                                pwd.length >= 8
+                            }
+
+                            if (!isValid) {
+                                background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
+                                putClientProperty("JComponent.outline", "error")
+                            } else {
+                                background = null
+                                putClientProperty("JComponent.outline", null)
+                            }
                         } else {
                             background = null
                             putClientProperty("JComponent.outline", null)
@@ -188,15 +228,23 @@ class AuthenticationSection : SettingsSection {
     private val confirmPasswordField =
         JBPasswordField().apply {
             columns = FIELD_COLUMNS
-            toolTipText = "Confirm your password"
+            toolTipText = "Confirm your password (must match requirements)"
             addFocusListener(
                 object : FocusAdapter() {
                     override fun focusLost(e: FocusEvent) {
                         val pwd = String(password)
                         val mainPwd = String(passwordField.password)
-                        if (pwd.isNotEmpty() && pwd != mainPwd) {
-                            background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
-                            putClientProperty("JComponent.outline", "error")
+                        if (pwd.isNotEmpty()) {
+                            val passwordsMatch = pwd == mainPwd
+                            val meetsRequirements = pwd.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$"))
+
+                            if (!passwordsMatch || !meetsRequirements) {
+                                background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
+                                putClientProperty("JComponent.outline", "error")
+                            } else {
+                                background = null
+                                putClientProperty("JComponent.outline", null)
+                            }
                         } else {
                             background = null
                             putClientProperty("JComponent.outline", null)
@@ -243,24 +291,41 @@ class AuthenticationSection : SettingsSection {
                     requiresUIRefresh.set(true)
                 }
             }
-
-            init {
-                // Add item listener to update UI immediately when toggle changes
-                authModeToggle.addItemListener { _ ->
-                    updateToggleText()
-                    updateFormVisibility()
-                    requiresUIRefresh.set(true)
-                }
-            }
         }
 
     /**
-     * Authentication action button (Login/Sign Up).
+     * Authentication action button (Login/Sign Up/Reset Password).
      */
     private val authButton =
         JButton("Login").apply {
             toolTipText = "Click to authenticate"
             addActionListener { performAuthentication() }
+        }
+
+    /**
+     * Forgot password link button.
+     */
+    private val forgotPasswordButton =
+        JButton("Forgot Password?").apply {
+            toolTipText = "Reset your password via email"
+            isBorderPainted = false
+            isContentAreaFilled = false
+            isFocusPainted = false
+            foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
+            addActionListener { switchToForgotPasswordMode() }
+        }
+
+    /**
+     * Back to login button (shown in forgot password mode).
+     */
+    private val backToLoginButton =
+        JButton("Back to Login").apply {
+            toolTipText = "Return to login form"
+            isBorderPainted = false
+            isContentAreaFilled = false
+            isFocusPainted = false
+            foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
+            addActionListener { switchToLoginMode() }
         }
 
     /**
@@ -275,13 +340,14 @@ class AuthenticationSection : SettingsSection {
 
     // ================= SERVICES =================
 
-    private val authState = service<AuthState>()
+    private val authState = service<AuthState>().state
     private val appService = service<AppService>()
 
     // ================= UI COMPONENTS =================
 
     private val fullNameLabel = JLabel("Full name:")
     private val confirmPasswordLabel = JLabel("Confirm password:")
+    private val passwordLabel = JLabel("Password:")
 
     private val credentialsTitleLabel =
         JBLabel("Credential-based Authentication").apply {
@@ -307,7 +373,38 @@ class AuthenticationSection : SettingsSection {
 
     init {
         updateFormVisibility()
+
+        // Add Enter key listeners to input fields
+        emailField.addEnterKeyListener { performAuthentication() }
+        passwordField.addEnterKeyListener { performAuthentication() }
+        fullNameField.addEnterKeyListener { performAuthentication() }
+        confirmPasswordField.addEnterKeyListener { performAuthentication() }
+
         LOG.debug("AuthenticationSection initialized")
+    }
+
+    /**
+     * Updates ChatPanel overlay visibility across all open projects
+     */
+    private fun updateChatPanelOverlays() {
+        ApplicationManager.getApplication().invokeLater {
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                val toolWindow =
+                    com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+                        .getToolWindow("Code4Me")
+
+                toolWindow?.contentManager?.contents?.forEach { content ->
+                    val component = content.component
+                    if (component is me.code4me.chatWindow.components.ChatPanel) {
+                        if (authState.isAuthenticated()) {
+                            component.onUserAuthenticated()
+                        } else {
+                            component.onUserLoggedOut()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -315,7 +412,7 @@ class AuthenticationSection : SettingsSection {
      */
     private fun updateToggleText() {
         val isSignupMode = authModeToggle.isSelected
-        authModeToggle.text = if (isSignupMode) "Sign Up Mode" else "Login Mode"
+        authModeToggle.text = if (isSignupMode) "Login Mode" else "Sign Up Mode"
 
         // Set toggle button appearance based on mode
         authModeToggle.background =
@@ -342,18 +439,83 @@ class AuthenticationSection : SettingsSection {
      * Updates form field visibility based on current authentication mode.
      */
     private fun updateFormVisibility() {
-        val isSignupMode = authModeToggle.isSelected
+        when (currentAuthMode) {
+            AuthMode.LOGIN -> {
+                val isSignupMode = authModeToggle.isSelected
 
-        fullNameField.isVisible = isSignupMode
-        confirmPasswordField.isVisible = isSignupMode
-        fullNameLabel.isVisible = isSignupMode
-        confirmPasswordLabel.isVisible = isSignupMode
+                // Show/hide toggle and related elements
+                authModeToggle.isVisible = true
+                modeHelpLabel.isVisible = true
 
-        LOG.debug("Form visibility updated: Signup mode = $isSignupMode")
+                // Show/hide fields based on signup mode
+                fullNameField.isVisible = isSignupMode
+                confirmPasswordField.isVisible = isSignupMode
+                fullNameLabel.isVisible = isSignupMode
+                confirmPasswordLabel.isVisible = isSignupMode
+
+                // Show password field and forgot password link
+                passwordField.isVisible = true
+                passwordLabel.isVisible = true
+                forgotPasswordButton.isVisible = !isSignupMode
+                backToLoginButton.isVisible = false
+
+                // Update button text
+                authButton.text = if (isSignupMode) "Sign Up" else "Login"
+            }
+
+            AuthMode.SIGNUP -> {
+                // Same as LOGIN mode when toggle is selected
+                passwordLabel.isVisible = true
+                updateFormVisibility()
+            }
+
+            AuthMode.FORGOT_PASSWORD -> {
+                // Hide toggle and signup-specific elements
+                authModeToggle.isVisible = false
+                modeHelpLabel.isVisible = false
+                fullNameField.isVisible = false
+                confirmPasswordField.isVisible = false
+                fullNameLabel.isVisible = false
+                confirmPasswordLabel.isVisible = false
+
+                // Hide password field, label and forgot password link
+                passwordField.isVisible = false
+                passwordLabel.isVisible = false
+
+                forgotPasswordButton.isVisible = false
+                backToLoginButton.isVisible = true
+
+                // Update button text
+                authButton.text = "Send Reset Email"
+            }
+        }
+
+        LOG.debug("Form visibility updated: Current mode = $currentAuthMode")
 
         // just to ensure the UI refreshes correctly
         requiresUIRefresh.set(true)
-        updateToggleText()
+        if (currentAuthMode != AuthMode.FORGOT_PASSWORD) {
+            updateToggleText()
+        }
+    }
+
+    /**
+     * Switches to forgot password mode.
+     */
+    private fun switchToForgotPasswordMode() {
+        currentAuthMode = AuthMode.FORGOT_PASSWORD
+        updateFormVisibility()
+        LOG.debug("Switched to forgot password mode")
+    }
+
+    /**
+     * Switches back to login mode.
+     */
+    private fun switchToLoginMode() {
+        currentAuthMode = AuthMode.LOGIN
+        authModeToggle.isSelected = false // Reset to login mode
+        updateFormVisibility()
+        LOG.debug("Switched back to login mode")
     }
 
     override fun applyTo(
@@ -450,7 +612,7 @@ class AuthenticationSection : SettingsSection {
             // Password field
             gbc.gridx = 0
             gbc.gridy = 4
-            formPanel.add(JLabel("Password:"), gbc)
+            formPanel.add(passwordLabel, gbc)
             gbc.gridx = 1
             formPanel.add(passwordField, gbc)
 
@@ -461,10 +623,24 @@ class AuthenticationSection : SettingsSection {
             gbc.gridx = 1
             formPanel.add(confirmPasswordField, gbc)
 
+            // Forgot password link (login only)
+            gbc.gridx = 1
+            gbc.gridy = 6
+            gbc.gridwidth = 1
+            gbc.anchor = GridBagConstraints.EAST
+            formPanel.add(forgotPasswordButton, gbc)
+
+            // Back to login link (forgot password only)
+            gbc.gridx = 1
+            gbc.gridy = 6
+            gbc.anchor = GridBagConstraints.EAST
+            formPanel.add(backToLoginButton, gbc)
+
             // Auth button
             gbc.gridx = 0
-            gbc.gridy = 6
+            gbc.gridy = 7
             gbc.gridwidth = 2
+            gbc.anchor = GridBagConstraints.WEST
             formPanel.add(authButton, gbc)
 
             add(formPanel, BorderLayout.CENTER)
@@ -505,10 +681,40 @@ class AuthenticationSection : SettingsSection {
         clearFieldErrors()
 
         try {
-            handleCredentialsAuth()
+            when (currentAuthMode) {
+                AuthMode.FORGOT_PASSWORD -> handleForgotPassword()
+                else -> handleCredentialsAuth()
+            }
         } catch (e: Exception) {
             LOG.error("Authentication process failed", e)
             showError("Authentication failed due to an unexpected error")
+        }
+    }
+
+    /**
+     * Handles forgot password request.
+     */
+    private fun handleForgotPassword() {
+        val email = emailField.text.trim()
+
+        try {
+            val success = appService.requestPasswordReset(email)
+
+            // Show success message
+            if (!success) {
+                showError("Failed to send password reset email. Please check your email address and try again.")
+            } else {
+                Messages.showInfoMessage(
+                    "A password reset email has been sent to $email. " +
+                        "Please check your inbox and follow the instructions to reset your password.",
+                    "Password Reset Email Sent",
+                )
+                switchToLoginMode()
+                LOG.info("Password reset email requested for: $email")
+            }
+        } catch (e: Exception) {
+            LOG.error("Failed to send password reset email", e)
+            showError("Failed to send password reset email. Please try again later.")
         }
     }
 
@@ -517,8 +723,6 @@ class AuthenticationSection : SettingsSection {
      */
     private fun validateInput(): Boolean {
         val email = emailField.text.trim()
-        val password = String(passwordField.password)
-        val isSignupMode = authModeToggle.isSelected
 
         when {
             email.isBlank() -> {
@@ -531,6 +735,18 @@ class AuthenticationSection : SettingsSection {
                 emailField.requestFocus()
                 return false
             }
+        }
+
+        // For forgot password mode, only email validation is needed
+        if (currentAuthMode == AuthMode.FORGOT_PASSWORD) {
+            return true
+        }
+
+        // For login/signup modes, validate password and other fields
+        val password = String(passwordField.password)
+        val isSignupMode = authModeToggle.isSelected
+
+        when {
             password.isBlank() -> {
                 showError("Password is required")
                 passwordField.requestFocus()
@@ -538,6 +754,12 @@ class AuthenticationSection : SettingsSection {
             }
             password.length < 8 -> {
                 showError("Password must be at least 8 characters long")
+                passwordField.requestFocus()
+                return false
+            }
+            // Enhanced password validation for signup mode
+            isSignupMode && !password.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$")) -> {
+                showError("Password must contain at least one uppercase letter, one lowercase letter, one digit, and be at least 8 characters long with no spaces")
                 passwordField.requestFocus()
                 return false
             }
@@ -555,6 +777,12 @@ class AuthenticationSection : SettingsSection {
                 }
                 confirmPassword != password -> {
                     showError("Passwords do not match")
+                    confirmPasswordField.requestFocus()
+                    return false
+                }
+                // Also validate confirm password with same rules
+                !confirmPassword.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$")) -> {
+                    showError("Confirm password must match the password requirements")
                     confirmPasswordField.requestFocus()
                     return false
                 }
@@ -601,23 +829,51 @@ class AuthenticationSection : SettingsSection {
             val token =
                 if (isSignupMode) {
                     val fullName = fullNameField.text.trim()
-                    performSignup(fullName, email, password)
+
+                    val confirmResult =
+                        Messages.showYesNoDialog(
+                            """
+                            By signing up, you agree to the following:
+
+                            • Your email and name will be stored securely
+                            • Your coding activity will be processed to provide suggestions
+                            • You can delete your account and data at any time
+                            • We will never share your personal information with third parties
+                            
+                            For more details, please refer to our Privacy Policy here: https://code4me.me/privacy-policy
+
+                            Do you want to continue with registration?
+                            """.trimIndent(),
+                            "Confirm Registration",
+                            "Continue",
+                            "Cancel",
+                            Messages.getQuestionIcon(),
+                        )
+
+                    if (confirmResult == Messages.YES) {
+                        performSignup(fullName, email, password)
+                    } else {
+                        null
+                    }
                 } else {
                     performLogin(email, password)
                 }
 
             if (token != null) {
                 // Store authentication data
-                authState.state.setToken(token)
-                authState.state.setUserEmail(email)
+                authState.setToken(token)
+                authState.setUserEmail(email)
 
                 if (isSignupMode) {
-                    authState.state.setUserName(fullNameField.text.trim())
+                    authState.setUserName(fullNameField.text.trim())
                 }
 
                 showSuccess("Authentication successful!")
                 clearAllFields()
                 appService.acquireSessionWithStoredToken()
+
+                // Update chat panel overlays immediately after successful auth
+                updateChatPanelOverlays()
             } else {
                 val errorMessage =
                     if (isSignupMode) {
@@ -642,16 +898,13 @@ class AuthenticationSection : SettingsSection {
     ): String? {
         return try {
             val response = appService.authenticateUser(email, password)
-            authState.state.setUserName(response.user.name.trim())
-            authState.state.setUserEmail(email)
-            authState.state.setVerified(response.user.verified)
+            authState.setUserName(response.user.name.trim())
+            authState.setUserEmail(email)
+            authState.setVerified(response.user.verified)
             return CookieAwareApiClient.cookieManager.cookieStore.cookies.firstOrNull {
                 it.name == "auth_token"
             }?.value
         } catch (e: Exception) {
-            print("Messeduppp")
-            print(e)
-            print("end")
             LOG.warn("Login request failed for email: $email", e)
             null
         }
@@ -673,7 +926,7 @@ class AuthenticationSection : SettingsSection {
                     password = password,
                 )
             val authenticatedUser = appService.authenticateUser(email, password)
-            authState.state.setUserName(
+            authState.setUserName(
                 authenticatedUser.user.name.trim(),
             )
             return CookieAwareApiClient.cookieManager.cookieStore.cookies.firstOrNull {
@@ -719,30 +972,6 @@ class AuthenticationSection : SettingsSection {
         fullNameField.text = ""
         confirmPasswordField.text = ""
         LOG.debug("All authentication fields cleared")
-    }
-
-    /**
-     * Handles Google login for existing users.
-     * TODO: Implement when Google OAuth is available.
-     */
-    fun handleGoogleLogin(
-        email: String,
-        token: String,
-    ) {
-        LOG.info("Google login requested for email: $email (not yet implemented)")
-        showError("Google authentication is not yet implemented")
-    }
-
-    /**
-     * Handles Google signup for new users.
-     * TODO: Implement when Google OAuth is available.
-     */
-    fun handleGoogleSignup(
-        email: String,
-        token: String,
-    ) {
-        LOG.info("Google signup requested for email: $email (not yet implemented)")
-        showError("Google authentication is not yet implemented")
     }
 }
 

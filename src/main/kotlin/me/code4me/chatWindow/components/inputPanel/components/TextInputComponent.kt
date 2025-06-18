@@ -117,7 +117,7 @@ class TextInputComponent(
             "insert-newline",
             object : AbstractAction() {
                 override fun actionPerformed(e: ActionEvent?) {
-                    textArea.append("\n")
+                    textArea.insert("\n", textArea.caretPosition)
                 }
             },
         )
@@ -223,5 +223,15 @@ class TextInputComponent(
         textArea.text = ""
         textArea.caretPosition = 0
         updateHeight()
+    }
+
+    fun setText(value: String) {
+        textArea.text = value
+        textArea.caretPosition = value.length
+    }
+
+    fun focusInput() {
+        textArea.requestFocusInWindow()
+        textArea.caretPosition = textArea.text.length
     }
 }
