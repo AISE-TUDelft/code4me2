@@ -3,9 +3,7 @@ package me.code4me.completion
 import junit.framework.TestCase.assertTrue
 import org.junit.jupiter.api.Test
 
-
 class PluginCompletionProviderTest {
-
     @Test
     fun testTest() {
         // Implement your test logic here
@@ -13,4 +11,3 @@ class PluginCompletionProviderTest {
         assertTrue(true) // Replace with actual assertions
     }
 }
-

@@ -4,7 +4,6 @@ import junit.framework.TestCase.assertTrue
 import org.junit.jupiter.api.Test
 
 class PluginInlineCompletionInsertHandlerTest {
-
     @Test
     fun testTest() {
         // Implement your test logic here

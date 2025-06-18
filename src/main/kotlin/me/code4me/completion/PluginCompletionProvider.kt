@@ -39,12 +39,13 @@ class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
             LOG.warn("User is not authenticated. Cannot provide inline completions.")
             return
         }
-        val wantsInlineCompletions = getBooleanPreference(
-            "CompletionModel",
-            CompletionModel.Companion.COMPLETION_INLINE_KEY,
-            false
-        )
-        if(wantsInlineCompletions) {
+        val wantsInlineCompletions =
+            getBooleanPreference(
+                "CompletionModel",
+                CompletionModel.Companion.COMPLETION_INLINE_KEY,
+                false,
+            )
+        if (wantsInlineCompletions) {
             LOG.warn("Inline completions are disabled in preferences. Skipping completion provider.")
             return
         }
@@ -99,7 +100,8 @@ class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
                         .getInlineCompletion(
                             aggregatedData,
                             project,
-                            listOf("\n")) // Stop sequences can be adjusted as needed)
+                            listOf("\n"),
+                        ) // Stop sequences can be adjusted as needed)
                 // inline completions for dropdown suggestions should be single line, so we can use "\n" as a stop sequence
 
                 // Process the response and add completions to results

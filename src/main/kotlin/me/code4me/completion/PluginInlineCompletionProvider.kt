@@ -14,7 +14,6 @@ import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.modules.model.CompletionModel
 import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.getAuthState
-import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
@@ -81,11 +80,12 @@ class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
 
     override fun isEnabled(event: InlineCompletionEvent): Boolean {
         val isAuthenticated = getAuthState().isAuthenticated()
-        val wantsInlineCompletions = getBooleanPreference(
-            "CompletionModel",
-            CompletionModel.Companion.COMPLETION_INLINE_KEY,
-            true
-        )
+        val wantsInlineCompletions =
+            getBooleanPreference(
+                "CompletionModel",
+                CompletionModel.Companion.COMPLETION_INLINE_KEY,
+                true,
+            )
         return isAuthenticated && wantsInlineCompletions
     }
 }

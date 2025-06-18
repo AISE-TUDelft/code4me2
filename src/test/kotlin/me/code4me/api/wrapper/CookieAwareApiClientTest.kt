@@ -1,30 +1,28 @@
 package me.code4me.api.wrapper
 
- import com.intellij.openapi.project.Project
- import me.code4me.services.app.AppService
- import me.code4me.services.project.ProjectTokenService
- import me.code4me.services.state.AuthState
- import me.code4me.services.app.getAppService
- import me.code4me.services.project.getProjectTokenService
- import me.code4me.services.state.getAuthState
- import okhttp3.*
- import okhttp3.MediaType.Companion.toMediaType
- import okhttp3.ResponseBody.Companion.toResponseBody
- import org.junit.jupiter.api.Assertions
- import org.junit.jupiter.api.AfterEach
- import org.junit.jupiter.api.BeforeEach
- import org.junit.jupiter.api.DisplayName
- import org.junit.jupiter.api.Nested
- import org.junit.jupiter.api.Test
- import io.mockk.*
- import me.code4me.services.state.AuthSettings
- import okhttp3.RequestBody.Companion.toRequestBody
- import java.net.URI
- import java.util.concurrent.atomic.AtomicReference
+import com.intellij.openapi.project.Project
+import io.mockk.*
+import me.code4me.services.app.AppService
+import me.code4me.services.app.getAppService
+import me.code4me.services.project.ProjectTokenService
+import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.state.AuthSettings
+import me.code4me.services.state.getAuthState
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.ResponseBody.Companion.toResponseBody
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+import java.net.URI
+import java.util.concurrent.atomic.AtomicReference
 
- @DisplayName("CookieAwareApiClient Test Suite")
- class CookieAwareApiClientTest {
-
+@DisplayName("CookieAwareApiClient Test Suite")
+class CookieAwareApiClientTest {
     private lateinit var mockAuthState: AuthSettings
     private lateinit var mockAppService: AppService
     private lateinit var mockProjectTokenService: ProjectTokenService
@@ -39,7 +37,7 @@ package me.code4me.api.wrapper
     @BeforeEach
     fun setUp() {
         // Create mockProjectTokenService
-        mockAuthState = mockk<AuthSettings>()  // Mock AuthSettings, not AuthState
+        mockAuthState = mockk<AuthSettings>() // Mock AuthSettings, not AuthState
         mockAppService = mockk()
         mockProjectTokenService = mockk()
         mockCall = mockk()
@@ -54,7 +52,7 @@ package me.code4me.api.wrapper
         mockkStatic("me.code4me.services.project.ProjectTokenServiceKt")
 
         // Setup default mock behaviors
-        every { getAuthState() } returns mockAuthState  // Return AuthSettings mock
+        every { getAuthState() } returns mockAuthState // Return AuthSettings mock
         every { getAppService() } returns mockAppService
     }
 
@@ -148,11 +146,12 @@ package me.code4me.api.wrapper
         @Test
         @DisplayName("Should handle different base URLs")
         fun shouldHandleDifferentBaseUrls() {
-            val urls = listOf(
-                "https://api.example.com",
-                "http://localhost:8080",
-                "https://staging.api.example.com/v1"
-            )
+            val urls =
+                listOf(
+                    "https://api.example.com",
+                    "http://localhost:8080",
+                    "https://staging.api.example.com/v1",
+                )
 
             urls.forEach { url ->
                 val client = CookieAwareApiClient(url)
@@ -191,17 +190,19 @@ package me.code4me.api.wrapper
         @Test
         @DisplayName("Should handle empty cookie headers")
         fun shouldHandleEmptyCookieHeaders() {
-            val request = Request.Builder()
-                .url("https://example.com/api")
-                .build()
+            val request =
+                Request.Builder()
+                    .url("https://example.com/api")
+                    .build()
 
-            val response = Response.Builder()
-                .request(request)
-                .protocol(Protocol.HTTP_1_1)
-                .code(200)
-                .message("OK")
-                .body("".toResponseBody("text/plain".toMediaType()))
-                .build()
+            val response =
+                Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("".toResponseBody("text/plain".toMediaType()))
+                    .build()
 
             val cookies = response.headers("Set-Cookie")
             Assertions.assertEquals(0, cookies.size)
@@ -210,19 +211,21 @@ package me.code4me.api.wrapper
         @Test
         @DisplayName("Should handle malformed cookie headers gracefully")
         fun shouldHandleMalformedCookieHeadersGracefully() {
-            val request = Request.Builder()
-                .url("https://example.com/api")
-                .build()
+            val request =
+                Request.Builder()
+                    .url("https://example.com/api")
+                    .build()
 
-            val response = Response.Builder()
-                .request(request)
-                .protocol(Protocol.HTTP_1_1)
-                .code(200)
-                .message("OK")
-                // Use a valid but unusual cookie format to avoid parse error
-                .header("Set-Cookie", "malformed_cookie=; Path=/")
-                .body("".toResponseBody("text/plain".toMediaType()))
-                .build()
+            val response =
+                Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    // Use a valid but unusual cookie format to avoid parse error
+                    .header("Set-Cookie", "malformed_cookie=; Path=/")
+                    .body("".toResponseBody("text/plain".toMediaType()))
+                    .build()
 
             val cookies = response.headers("Set-Cookie")
             Assertions.assertEquals(1, cookies.size)
@@ -260,9 +263,10 @@ package me.code4me.api.wrapper
 
             cookieManager.cookieStore.add(testUri, testCookie)
 
-            val request = Request.Builder()
-                .url("https://example.com/api")
-                .build()
+            val request =
+                Request.Builder()
+                    .url("https://example.com/api")
+                    .build()
 
             val cookies = cookieManager.cookieStore.get(testUri)
             val cookieHeader = cookies.joinToString("; ") { "${it.name}=${it.value}" }
@@ -275,9 +279,10 @@ package me.code4me.api.wrapper
         fun shouldHandleRequestsWithoutExistingCookies() {
             CookieAwareApiClient.clearCookies()
 
-            val request = Request.Builder()
-                .url("https://example.com/api")
-                .build()
+            val request =
+                Request.Builder()
+                    .url("https://example.com/api")
+                    .build()
 
             val cookieManager = CookieAwareApiClient.cookieManager
             val cookies = cookieManager.cookieStore.get(URI("https://example.com"))
@@ -309,12 +314,13 @@ package me.code4me.api.wrapper
         @Test
         @DisplayName("Should preserve original request properties")
         fun shouldPreserveOriginalRequestProperties() {
-            val originalRequest = Request.Builder()
-                .url("https://example.com/api")
-                .header("Authorization", "Bearer token")
-                .header("Content-Type", "application/json")
-                .post("{}".toRequestBody("application/json".toMediaType()))
-                .build()
+            val originalRequest =
+                Request.Builder()
+                    .url("https://example.com/api")
+                    .header("Authorization", "Bearer token")
+                    .header("Content-Type", "application/json")
+                    .post("{}".toRequestBody("application/json".toMediaType()))
+                    .build()
 
             Assertions.assertEquals("https://example.com/api", originalRequest.url.toString())
             Assertions.assertEquals("Bearer token", originalRequest.header("Authorization"))
@@ -413,10 +419,13 @@ package me.code4me.api.wrapper
             every { mockProjectTokenService.getProjectToken() } returns testProjectToken
 
             // Simulate project token addition logic
-            val projectToken = if (mockAppService.currentGenerationProject.get() != null) {
-                val service = getProjectTokenService(mockAppService.currentGenerationProject.get()!!)
-                service.getProjectToken()
-            } else null
+            val projectToken =
+                if (mockAppService.currentGenerationProject.get() != null) {
+                    val service = getProjectTokenService(mockAppService.currentGenerationProject.get()!!)
+                    service.getProjectToken()
+                } else {
+                    null
+                }
 
             Assertions.assertEquals(testProjectToken, projectToken)
         }
@@ -427,10 +436,13 @@ package me.code4me.api.wrapper
             val currentProjectRef = AtomicReference<Project?>(null)
             every { mockAppService.currentGenerationProject } returns currentProjectRef
 
-            val projectToken = if (mockAppService.currentGenerationProject.get() != null) {
-                val service = getProjectTokenService(mockAppService.currentGenerationProject.get()!!)
-                service.getProjectToken()
-            } else null
+            val projectToken =
+                if (mockAppService.currentGenerationProject.get() != null) {
+                    val service = getProjectTokenService(mockAppService.currentGenerationProject.get()!!)
+                    service.getProjectToken()
+                } else {
+                    null
+                }
 
             Assertions.assertNull(projectToken)
         }
@@ -445,10 +457,13 @@ package me.code4me.api.wrapper
             every { getProjectTokenService(mockProject) } returns mockProjectTokenService
             every { mockProjectTokenService.getProjectToken() } returns null
 
-            val projectToken = if (mockAppService.currentGenerationProject.get() != null) {
-                val service = getProjectTokenService(mockAppService.currentGenerationProject.get()!!)
-                service.getProjectToken()
-            } else null
+            val projectToken =
+                if (mockAppService.currentGenerationProject.get() != null) {
+                    val service = getProjectTokenService(mockAppService.currentGenerationProject.get()!!)
+                    service.getProjectToken()
+                } else {
+                    null
+                }
 
             Assertions.assertNull(projectToken)
         }
@@ -465,13 +480,18 @@ package me.code4me.api.wrapper
             every { mockProjectTokenService.getProjectToken() } returns testProjectToken
 
             // Simulate cookie combination
-            val combinedCookies = if (mockAppService.currentGenerationProject.get() != null) {
-                val service = getProjectTokenService(mockAppService.currentGenerationProject.get()!!)
-                val projectToken = service.getProjectToken()
-                if (projectToken != null) {
-                    "$existingCookies; project_token=$projectToken"
-                } else existingCookies
-            } else existingCookies
+            val combinedCookies =
+                if (mockAppService.currentGenerationProject.get() != null) {
+                    val service = getProjectTokenService(mockAppService.currentGenerationProject.get()!!)
+                    val projectToken = service.getProjectToken()
+                    if (projectToken != null) {
+                        "$existingCookies; project_token=$projectToken"
+                    } else {
+                        existingCookies
+                    }
+                } else {
+                    existingCookies
+                }
 
             Assertions.assertEquals("session=abc123; user_id=456; project_token=$testProjectToken", combinedCookies)
         }
@@ -696,10 +716,13 @@ package me.code4me.api.wrapper
             Assertions.assertEquals(testAuthToken, CookieAwareApiClient.getAuthToken())
 
             // Verify project token would be added to request
-            val projectToken = if (mockAppService.currentGenerationProject.get() != null) {
-                val service = getProjectTokenService(mockAppService.currentGenerationProject.get()!!)
-                service.getProjectToken()
-            } else null
+            val projectToken =
+                if (mockAppService.currentGenerationProject.get() != null) {
+                    val service = getProjectTokenService(mockAppService.currentGenerationProject.get()!!)
+                    service.getProjectToken()
+                } else {
+                    null
+                }
 
             Assertions.assertEquals(testProjectToken, projectToken)
         }
@@ -881,4 +904,4 @@ package me.code4me.api.wrapper
             }
         }
     }
- }
+}

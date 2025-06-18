@@ -1,11 +1,10 @@
 package me.code4me.actions
 
 import com.intellij.codeInsight.inline.completion.InlineCompletion
-import com.intellij.codeInsight.inline.completion.InlineCompletionEvent
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.Presentation
-import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.CaretModel
 import com.intellij.openapi.editor.Editor
@@ -86,4 +85,3 @@ class TriggerInlineCompletionActionTest {
         assert(presentation.isEnabledAndVisible)
     }
 }
-

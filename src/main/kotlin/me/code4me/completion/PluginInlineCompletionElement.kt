@@ -13,7 +13,7 @@ class PluginInlineCompletionElement(
     private var originalCompletion: String = text,
     private var presentedAt: MutableSet<OffsetDateTime> = mutableSetOf(),
     private var timesUpdated: Int = 0,
-    internal val metaQueryId: UUID?,
+    val metaQueryId: UUID?,
 ) : InlineCompletionElement {
     override fun toPresentable(): InlineCompletionElement.Presentable {
         presentedAt.add(OffsetDateTime.now())
