@@ -3,28 +3,26 @@ package me.code4me.services.modules.context
 import computeLineDiffs
 import me.code4me.api.generated.model.ContextChangeType
 import me.code4me.services.modules.context.MultiFileContextRetrievalModule.FileContextChangeData
-import me.code4me.api.generated.model.FileContextChangeData as ApiChangeData
-import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
 import toApiModel
 
 class DiffUtilTest {
-
     @Nested
     @DisplayName("toApiModel Extension Function Tests")
     inner class ToApiModelTests {
-
         @Test
         @DisplayName("Should convert insert change type correctly")
         fun shouldConvertInsertChangeTypeCorrectly() {
-            val internalData = FileContextChangeData(
-                changeType = "insert",
-                startLine = 1,
-                endLine = 3,
-                newLines = listOf("line1", "line2")
-            )
+            val internalData =
+                FileContextChangeData(
+                    changeType = "insert",
+                    startLine = 1,
+                    endLine = 3,
+                    newLines = listOf("line1", "line2"),
+                )
 
             val result = internalData.toApiModel()
 
@@ -37,12 +35,13 @@ class DiffUtilTest {
         @Test
         @DisplayName("Should convert delete change type to remove")
         fun shouldConvertDeleteChangeTypeToRemove() {
-            val internalData = FileContextChangeData(
-                changeType = "delete",
-                startLine = 5,
-                endLine = 10,
-                newLines = emptyList()
-            )
+            val internalData =
+                FileContextChangeData(
+                    changeType = "delete",
+                    startLine = 5,
+                    endLine = 10,
+                    newLines = emptyList(),
+                )
 
             val result = internalData.toApiModel()
 
@@ -55,12 +54,13 @@ class DiffUtilTest {
         @Test
         @DisplayName("Should convert replace change type to update")
         fun shouldConvertReplaceChangeTypeToUpdate() {
-            val internalData = FileContextChangeData(
-                changeType = "replace",
-                startLine = 2,
-                endLine = 4,
-                newLines = listOf("new line")
-            )
+            val internalData =
+                FileContextChangeData(
+                    changeType = "replace",
+                    startLine = 2,
+                    endLine = 4,
+                    newLines = listOf("new line"),
+                )
 
             val result = internalData.toApiModel()
 
@@ -70,12 +70,13 @@ class DiffUtilTest {
         @Test
         @DisplayName("Should convert update change type correctly")
         fun shouldConvertUpdateChangeTypeCorrectly() {
-            val internalData = FileContextChangeData(
-                changeType = "update",
-                startLine = 0,
-                endLine = 1,
-                newLines = listOf("updated line")
-            )
+            val internalData =
+                FileContextChangeData(
+                    changeType = "update",
+                    startLine = 0,
+                    endLine = 1,
+                    newLines = listOf("updated line"),
+                )
 
             val result = internalData.toApiModel()
 
@@ -85,22 +86,24 @@ class DiffUtilTest {
         @Test
         @DisplayName("Should handle case insensitive change types")
         fun shouldHandleCaseInsensitiveChangeTypes() {
-            val testCases = listOf(
-                "INSERT" to ContextChangeType.insert,
-                "Insert" to ContextChangeType.insert,
-                "DELETE" to ContextChangeType.remove,
-                "Delete" to ContextChangeType.remove,
-                "REPLACE" to ContextChangeType.update,
-                "Replace" to ContextChangeType.update
-            )
+            val testCases =
+                listOf(
+                    "INSERT" to ContextChangeType.insert,
+                    "Insert" to ContextChangeType.insert,
+                    "DELETE" to ContextChangeType.remove,
+                    "Delete" to ContextChangeType.remove,
+                    "REPLACE" to ContextChangeType.update,
+                    "Replace" to ContextChangeType.update,
+                )
 
             testCases.forEach { (input, expected) ->
-                val internalData = FileContextChangeData(
-                    changeType = input,
-                    startLine = 0,
-                    endLine = 1,
-                    newLines = emptyList()
-                )
+                val internalData =
+                    FileContextChangeData(
+                        changeType = input,
+                        startLine = 0,
+                        endLine = 1,
+                        newLines = emptyList(),
+                    )
 
                 val result = internalData.toApiModel()
 
@@ -114,12 +117,13 @@ class DiffUtilTest {
             val unknownTypes = listOf("unknown", "modify", "change", "")
 
             unknownTypes.forEach { unknownType ->
-                val internalData = FileContextChangeData(
-                    changeType = unknownType,
-                    startLine = 0,
-                    endLine = 1,
-                    newLines = emptyList()
-                )
+                val internalData =
+                    FileContextChangeData(
+                        changeType = unknownType,
+                        startLine = 0,
+                        endLine = 1,
+                        newLines = emptyList(),
+                    )
 
                 val result = internalData.toApiModel()
 
@@ -131,7 +135,6 @@ class DiffUtilTest {
     @Nested
     @DisplayName("computeLineDiffs Function Tests")
     inner class ComputeLineDiffsTests {
-
         @Test
         @DisplayName("Should return empty list for identical texts")
         fun shouldReturnEmptyListForIdenticalTexts() {
@@ -386,7 +389,6 @@ class DiffUtilTest {
     @Nested
     @DisplayName("Edge Cases and Error Handling")
     inner class EdgeCasesTests {
-
         @Test
         @DisplayName("Should handle null-like empty strings")
         fun shouldHandleNullLikeEmptyStrings() {
@@ -446,7 +448,6 @@ class DiffUtilTest {
     @Nested
     @DisplayName("Integration Tests")
     inner class IntegrationTests {
-
         @Test
         @DisplayName("Should work correctly with toApiModel conversion")
         fun shouldWorkCorrectlyWithToApiModelConversion() {
@@ -467,13 +468,14 @@ class DiffUtilTest {
         @Test
         @DisplayName("Should maintain consistency across multiple operations")
         fun shouldMaintainConsistencyAcrossMultipleOperations() {
-            val texts = listOf(
-                "",
-                "single",
-                "line1\nline2",
-                "line1\nline2\nline3",
-                "a\nb\nc\nd\ne"
-            )
+            val texts =
+                listOf(
+                    "",
+                    "single",
+                    "line1\nline2",
+                    "line1\nline2\nline3",
+                    "a\nb\nc\nd\ne",
+                )
 
             // Test all combinations
             for (oldText in texts) {
@@ -492,8 +494,10 @@ class DiffUtilTest {
                         assertTrue(change.startLine >= 0, "Start line should be non-negative")
                         assertTrue(change.endLine >= change.startLine, "End line should be >= start line")
                         assertNotNull(change.newLines, "New lines should not be null")
-                        assertTrue(change.changeType in listOf("insert", "delete", "replace"),
-                            "Change type should be valid")
+                        assertTrue(
+                            change.changeType in listOf("insert", "delete", "replace"),
+                            "Change type should be valid",
+                        )
                     }
                 }
             }

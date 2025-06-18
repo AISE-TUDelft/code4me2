@@ -64,6 +64,7 @@ dependencies {
 
         testFramework(TestFrameworkType.Platform)
     }
+    testImplementation(kotlin("test"))
 }
 
 // Configure IntelliJ Platform Gradle Plugin
