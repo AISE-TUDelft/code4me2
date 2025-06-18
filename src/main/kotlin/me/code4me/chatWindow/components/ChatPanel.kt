@@ -41,6 +41,7 @@ import javax.swing.JPanel
 import javax.swing.OverlayLayout
 import javax.swing.SwingConstants
 import javax.swing.Timer
+
 /**
  * Main chat panel component that orchestrates the entire chat interface.
  *
@@ -96,6 +97,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         loadModelsFromConfig()
         updateAuthOverlayVisibility()
     }
+
     /**
      * Creates the authentication overlay that blocks chat functionality when user is not signed in.
      *
@@ -234,6 +236,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private fun setupAuthStateListener() {
         authState.addPropertyChangeListener(TOKEN_PROPERTY, authStateListener)
     }
+
     /**
      * Updates the visibility and functionality of the authentication overlay.
      *
@@ -292,6 +295,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         authOverlayPanel.revalidate()
         authOverlayPanel.repaint()
     }
+
     /**
      * Initializes and arranges all major UI components with proper layout management.
      *
@@ -456,6 +460,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         }
         refreshChatDisplay()
     }
+
     /**
      * Processes user message submission and initiates AI response generation.
      *
@@ -557,6 +562,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         updateLastMessage(cancelMsg)
         saveCurrentSession()
     }
+
     /**
      * Processes AI response using the IO manager with current context and settings.
      *
@@ -722,6 +728,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                 }
             }
     }
+
     /**
      * Enters edit mode for modifying a previously sent user message.
      *
@@ -744,6 +751,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         }
         chatDisplayPanel.showEditOverlay()
     }
+
     /**
      * Exits edit mode and returns to normal chat operation.
      *

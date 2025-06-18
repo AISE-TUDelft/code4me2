@@ -147,9 +147,6 @@ class AuthenticationSection : SettingsSection {
     /**
      * Password input field with state management.
      */
-    /**
-     * Password input field with state management.
-     */
     private val passwordField =
         JBPasswordField().apply {
             columns = FIELD_COLUMNS
@@ -763,7 +760,8 @@ class AuthenticationSection : SettingsSection {
             // Enhanced password validation for signup mode
             isSignupMode && !password.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$")) -> {
                 showError(
-                    "Password must contain at least one uppercase letter, one lowercase letter, one digit, and be at least 8 characters long with no spaces",
+                    "Password must contain at least one uppercase letter, one lowercase letter, one digit," +
+                        " and be at least 8 characters long with no spaces",
                 )
                 passwordField.requestFocus()
                 return false

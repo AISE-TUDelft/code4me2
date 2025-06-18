@@ -51,6 +51,7 @@ class ModelComboBox : ComboBox<String>() {
         border = null
         setRenderer(TransparentRenderer())
     }
+
     /**
      * Configures automatic resizing behavior triggered by selection changes.
      * Sets up action listener to resize when different items are selected.

@@ -40,7 +40,6 @@ class HistoryRenderer(
     private val onClick: (ChatSession) -> Unit,
     private val onDelete: ((ChatSession) -> Unit)? = null,
 ) {
-
     /**
      * Creates a time-grouped section of chat sessions with a header and separator.
      *

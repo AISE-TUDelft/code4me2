@@ -81,7 +81,6 @@ class InputControlsComponent(
      */
     var onStop: (() -> Unit)? = null
 
-
     init {
         setupLayout()
         setupStyling()
@@ -106,6 +105,7 @@ class InputControlsComponent(
         add(leftPanel, BorderLayout.WEST)
         add(rightPanel, BorderLayout.EAST)
     }
+
     /**
      * Configures the component's background, border, and padding.
      */
@@ -185,6 +185,7 @@ class InputControlsComponent(
         rightPanel.revalidate()
         rightPanel.repaint()
     }
+
     /**
      * Hides the cancel edit button and returns to normal layout.
      *
@@ -204,6 +205,7 @@ class InputControlsComponent(
     fun updateModels(models: Array<String>) = modelComboBox.updateModels(models)
 
     fun getSelectedModel(): String? = modelComboBox.getSelectedModel()
+
     /**
      * Switches between send and stop buttons based on generation state.
      *

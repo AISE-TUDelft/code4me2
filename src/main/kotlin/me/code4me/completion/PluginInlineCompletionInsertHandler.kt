@@ -5,6 +5,7 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionInsertEnvironm
 import com.intellij.codeInsight.inline.completion.InlineCompletionInsertHandler
 import com.intellij.codeInsight.inline.completion.elements.InlineCompletionElement
 import me.code4me.services.modules.manager.getModuleManager
+
 /**
  * Custom insertion handler for Code4Me inline completions that extends default behavior with telemetry.
  *

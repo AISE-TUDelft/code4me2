@@ -20,6 +20,7 @@ import me.code4me.utils.completion.prioritize
 import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
 import me.code4me.utils.services.state.getBooleanPreference
+
 /**
  * Completion provider that generates AI-powered code suggestions for IntelliJ's dropdown completion.
  *

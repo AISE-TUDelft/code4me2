@@ -3,6 +3,7 @@ package me.code4me.completion
 import com.intellij.codeInsight.completion.CompletionContributor
 import com.intellij.codeInsight.completion.CompletionType
 import com.intellij.patterns.PlatformPatterns
+
 /**
  * Completion contributor that integrates Code4Me's AI-powered code completion with IntelliJ's completion system.
  *

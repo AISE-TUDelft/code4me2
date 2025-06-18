@@ -40,7 +40,6 @@ class InputPanel(
     onFileClose: (VirtualFile) -> Unit,
     onFileSelected: (VirtualFile) -> Unit,
 ) : JBPanel<InputPanel>(BorderLayout()) {
-
     /**
      * Text input component with auto-resizing functionality.
      */
@@ -272,7 +271,6 @@ class RoundedBorder(
     private val thickness: Int = 2,
     private val arc: Int = 16,
 ) : AbstractBorder() {
-
     /**
      * Paints the rounded border around the component.
      *

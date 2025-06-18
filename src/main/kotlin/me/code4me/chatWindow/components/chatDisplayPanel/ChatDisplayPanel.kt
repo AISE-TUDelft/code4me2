@@ -33,7 +33,6 @@ import javax.swing.Timer
  * @param project The IntelliJ project context for creating editors and file types
  */
 class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>(BorderLayout()) {
-
     /**
      * Main container for chat bubbles using vertical box layout.
      */

@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit
  */
 class PluginStartupActivity : ProjectActivity {
     private val LOG = thisLogger()
+
     /**
      * Main startup execution that orchestrates plugin initialization for the project.
      *
@@ -54,6 +55,7 @@ class PluginStartupActivity : ProjectActivity {
         connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
         thisLogger().info("ProjectCloseListener registered successfully.")
     }
+
     /**
      * Manages authentication validation and complete plugin initialization flow.
      *
@@ -148,6 +150,7 @@ class PluginStartupActivity : ProjectActivity {
             }
         }
     }
+
     /**
      * Validates cached files against the filesystem and manages server synchronization.
      *

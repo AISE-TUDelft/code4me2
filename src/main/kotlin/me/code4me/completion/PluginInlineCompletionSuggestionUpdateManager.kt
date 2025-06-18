@@ -3,6 +3,7 @@ package me.code4me.completion
 import com.intellij.codeInsight.inline.completion.InlineCompletionEvent
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionSuggestionUpdateManager
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionVariant
+
 /**
  * Custom suggestion update manager for Code4Me inline completions with future extensibility.
  *

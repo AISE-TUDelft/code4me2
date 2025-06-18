@@ -12,7 +12,6 @@ import com.intellij.openapi.diagnostic.Logger
  * Provides a keyboard shortcut (Ctrl+Alt+Shift+9) to force completion generation.
  */
 class TriggerInlineCompletionAction : AnAction() {
-
     /**
      * Logger for tracking completion trigger events.
      */

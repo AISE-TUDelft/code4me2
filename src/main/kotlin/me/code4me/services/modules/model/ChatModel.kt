@@ -10,6 +10,7 @@ import me.code4me.utils.configuration.PreferenceType
 import me.code4me.utils.record.Record
 import me.code4me.utils.services.state.getListPreference
 import me.code4me.utils.services.state.getTextualPreference
+
 /**
  * Plugin module for managing chat model preferences and configuration.
  *
@@ -23,6 +24,7 @@ class ChatModel : PluginModule {
         private const val PREFERRED_MODEL_KEY = "preferredChatModel"
         private const val SYSTEM_PROMPT_KEY = "systemPrompt"
     }
+
     /**
      * Defines the list of configurable preferences for chat model behavior.
      *
@@ -62,12 +64,14 @@ class ChatModel : PluginModule {
             ),
         )
     }
+
     override fun getPreferenceClass(): PreferenceClass {
         return PreferenceClass.MODEL
     }
 
     override val moduleName: String
         get() = "ChatModel"
+
     /**
      * Collects model-related configuration data for AI completion requests.
      *

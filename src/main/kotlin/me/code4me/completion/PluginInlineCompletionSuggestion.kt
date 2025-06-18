@@ -6,6 +6,7 @@ import com.intellij.openapi.diagnostic.Logger
 import me.code4me.api.generated.model.ResponseCompletionResponseDataCompletionsInner
 import me.code4me.services.config.getConfig
 import java.util.UUID
+
 /**
  * Inline completion suggestion that wraps AI-generated completions from the Code4Me API.
  *

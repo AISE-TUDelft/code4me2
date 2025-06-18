@@ -16,7 +16,6 @@ import javax.swing.Icon
 import javax.swing.JButton
 import javax.swing.JToggleButton
 
-
 /**
  * Reusable icon button with circular hover effects.
  *
@@ -47,6 +46,7 @@ class IconButton(
         addActionListener { action() }
         setupHoverEffect()
     }
+
     /**
      * Configures mouse listeners for hover state tracking.
      */
@@ -65,6 +65,7 @@ class IconButton(
             },
         )
     }
+
     /**
      * Custom painting to draw circular hover background when needed.
      */

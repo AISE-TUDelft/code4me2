@@ -39,6 +39,7 @@ import javax.swing.JPanel
 import javax.swing.JWindow
 import javax.swing.ScrollPaneConstants
 import javax.swing.Timer
+
 /**
  * Chat bubble component that displays messages in the Code4Me chat interface.
  *
@@ -63,7 +64,6 @@ class ChatBubble(
     private val onEdit: (() -> Unit)? = null,
     private val showRegenerate: Boolean = true,
 ) : JPanel() {
-
     /**
      * List of IntelliJ editors created for code blocks within this bubble.
      * Tracked for proper disposal to prevent memory leaks.

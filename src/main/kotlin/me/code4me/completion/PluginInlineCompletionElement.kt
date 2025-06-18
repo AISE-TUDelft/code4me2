@@ -4,6 +4,7 @@ import com.intellij.codeInsight.inline.completion.elements.InlineCompletionEleme
 import com.intellij.codeInsight.inline.completion.elements.InlineCompletionGrayTextElement
 import java.time.OffsetDateTime
 import java.util.UUID
+
 /**
  * Inline completion element that represents a single AI-generated code suggestion with tracking metadata.
  *

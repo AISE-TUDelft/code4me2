@@ -6,6 +6,7 @@ import com.intellij.openapi.util.UserDataHolderBase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import java.util.UUID
+
 /**
  * Inline completion variant that wraps a single AI-generated completion for IntelliJ display.
  *

@@ -20,6 +20,7 @@ class ChatWindowFactory : ToolWindowFactory {
             "Don't forget to remove all non-needed sample code files with their corresponding registration entries in `plugin.xml`.",
         )
     }
+
     /**
      * Creates the chat tool window content by instantiating and adding the main ChatPanel.
      *

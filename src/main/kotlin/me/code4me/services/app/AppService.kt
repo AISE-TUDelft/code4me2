@@ -1127,6 +1127,7 @@ class AppService {
                 LOG.debug("Inline completion request finished")
             }
         }
+
     /**
      * Sends multi-file context updates to the server for AI context management.
      *

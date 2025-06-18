@@ -9,6 +9,7 @@ import me.code4me.utils.configuration.PreferenceClass
 import me.code4me.utils.configuration.PreferenceType
 import me.code4me.utils.record.Record
 import me.code4me.utils.services.state.getListPreference
+
 /**
  * Plugin module for managing code completion model preferences and settings.
  *
@@ -23,6 +24,7 @@ class CompletionModel : PluginModule {
         private const val PREFERRED_MODEL_KEY = "preferredCompletionModel"
         internal const val COMPLETION_INLINE_KEY = "getCompletionInline"
     }
+
     /**
      * Defines the list of configurable preferences for completion model behavior.
      *
@@ -69,6 +71,7 @@ class CompletionModel : PluginModule {
 
     override val moduleName: String
         get() = "CompletionModel"
+
     /**
      * Collects completion model configuration data for AI completion requests.
      *

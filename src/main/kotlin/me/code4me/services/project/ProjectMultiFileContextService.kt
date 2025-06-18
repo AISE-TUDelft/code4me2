@@ -18,6 +18,7 @@ import javax.xml.transform.stream.StreamResult
 fun getProjectMultiFileContextService(project: Project): ProjectMultiFileContextService {
     return project.getService(ProjectMultiFileContextService::class.java)
 }
+
 /**
  * Project-level service for managing multi-file context caching and synchronization.
  *
@@ -273,6 +274,7 @@ class ProjectMultiFileContextService(private val project: Project) {
             .replace("?", "_qm_")
             .replace("*", "_a_")
     }
+
     /**
      * Saves the mapping between sanitized filename and original relative path to XML.
      */

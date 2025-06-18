@@ -21,6 +21,7 @@ import me.code4me.utils.services.state.getBooleanPreference
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
+
 /**
  * Primary provider for AI-powered inline code completions that appear as gray text while typing.
  *

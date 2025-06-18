@@ -1,6 +1,7 @@
 package me.code4me.components.settings.fields
 
 import javax.swing.JComponent
+
 /**
  * Interface for settings fields that manage both UI component values and persistent state.
  *

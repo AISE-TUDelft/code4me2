@@ -45,7 +45,6 @@ class TextInputComponent(
      */
     private val scrollPane = createScrollPane()
 
-
     companion object {
         private const val MIN_HEIGHT = 44
         private const val MAX_HEIGHT = 500
@@ -53,6 +52,7 @@ class TextInputComponent(
     }
 
     val text: String get() = textArea.text
+
     /**
      * Callback invoked when the input gains focus.
      */
@@ -69,6 +69,7 @@ class TextInputComponent(
         setupDocumentListener()
         SwingUtilities.invokeLater { updateHeight() }
     }
+
     /**
      * Creates the main text area with placeholder text and focus handling.
      *
@@ -109,6 +110,7 @@ class TextInputComponent(
                 },
             )
         }
+
     /**
      * Creates the scroll pane container for the text area.
      *
@@ -132,6 +134,7 @@ class TextInputComponent(
         isOpaque = true
         add(scrollPane, BorderLayout.CENTER)
     }
+
     /**
      * Configures keyboard shortcuts for sending messages and inserting newlines.
      *
@@ -163,6 +166,7 @@ class TextInputComponent(
             },
         )
     }
+
     /**
      * Adds document listener to trigger height updates when text content changes.
      *
@@ -197,6 +201,7 @@ class TextInputComponent(
         val containerWidth = parent?.width ?: 0
         return if (containerWidth > 32) containerWidth - 32 else 400
     }
+
     /**
      * Counts the number of visual lines needed to display the given text.
      *
@@ -286,6 +291,7 @@ class TextInputComponent(
         textArea.text = value
         textArea.caretPosition = value.length
     }
+
     /**
      * Requests focus for the input area and positions cursor at the end.
      *
