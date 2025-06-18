@@ -19,7 +19,7 @@ class FullConfigTest : HeavyPlatformTestCase() {
     fun testModuleInitializationFromConfig() {
         val config = getConfig()
         assertNotNull("Config should not be null. Check if the config file exists and is valid.", config)
-        val moduleManager = getModuleManager(project)
+        val moduleManager = getModuleManager()
 
         val initializedModuleIds = moduleManager.getEnabledModuleIds()
 
