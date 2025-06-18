@@ -123,17 +123,18 @@ class ChatBubble(
         container.add(senderPanel)
         container.add(Box.createVerticalStrut(4))
 
-        val codeBlocks = extractCodeBlocks(message)
+        val fixedMessage = fixUnclosedCodeBlocks(message)
+        val codeBlocks = extractCodeBlocks(fixedMessage)
 
         if (codeBlocks.isNotEmpty()) {
-            renderMessageWithCodeBlocks(container, message, codeBlocks)
+            renderMessageWithCodeBlocks(container, fixedMessage, codeBlocks)
         } else {
-            val virtualFile = LightVirtualFile("chat.md", message)
+            val virtualFile = LightVirtualFile("chat.md", fixedMessage)
             val html =
                 try {
-                    MarkdownUtil.generateMarkdownHtml(virtualFile, message, project)
+                    MarkdownUtil.generateMarkdownHtml(virtualFile, fixedMessage, project)
                 } catch (e: Exception) {
-                    "<html><body><pre>$message</pre></body></html>"
+                    "<html><body><pre>$fixedMessage</pre></body></html>"
                 }
 
             val htmlPane = createStyledHtmlPane(html)
@@ -198,6 +199,19 @@ class ChatBubble(
             editors.clear()
             isDisposed = true
         }
+    }
+
+    /**
+     * Fixes unclosed code blocks by adding closing ``` markers where needed.
+     */
+    private fun fixUnclosedCodeBlocks(text: String): String {
+        val parts = text.split("```")
+
+        if (parts.size % 2 == 0) {
+            return text + "\n```"
+        }
+
+        return text
     }
 
     private fun extractCodeBlocks(text: String): List<CodeBlock> {
@@ -593,12 +607,13 @@ class ChatBubble(
      */
     fun updateMessageTextOnly(newMessage: String) {
         if (isDisposed) return
-        val virtualFile = LightVirtualFile("chat.md", newMessage)
+        val fixedMessage = fixUnclosedCodeBlocks(newMessage)
+        val virtualFile = LightVirtualFile("chat.md", fixedMessage)
         val html =
             try {
-                MarkdownUtil.generateMarkdownHtml(virtualFile, newMessage, project)
+                MarkdownUtil.generateMarkdownHtml(virtualFile, fixedMessage, project)
             } catch (e: Exception) {
-                "<html><body><pre>$newMessage</pre></body></html>"
+                "<html><body><pre>$fixedMessage</pre></body></html>"
             }
         messagePane?.text = html
     }
