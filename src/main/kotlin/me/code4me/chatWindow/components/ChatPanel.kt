@@ -41,7 +41,14 @@ import javax.swing.JPanel
 import javax.swing.OverlayLayout
 import javax.swing.SwingConstants
 import javax.swing.Timer
-
+/**
+ * Main chat panel component that orchestrates the entire chat interface.
+ *
+ * Manages chat sessions, handles user authentication, coordinates between input/output
+ * components, and provides the primary interface for AI-powered conversations. Includes
+ * authentication overlay, message editing, regeneration capabilities, and persistent
+ * session management.
+ */
 class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     companion object {
         private const val USER_NAME = "You"
@@ -89,7 +96,14 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         loadModelsFromConfig()
         updateAuthOverlayVisibility()
     }
-
+    /**
+     * Creates the authentication overlay that blocks chat functionality when user is not signed in.
+     *
+     * Provides a semi-transparent overlay with sign-in instructions and a button to open
+     * settings. Consumes all mouse events to prevent interaction with underlying components.
+     *
+     * @return Configured overlay panel with authentication UI
+     */
     private fun createAuthOverlay(): JPanel {
         return object : JPanel(BorderLayout()) {
             override fun contains(
@@ -220,7 +234,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private fun setupAuthStateListener() {
         authState.addPropertyChangeListener(TOKEN_PROPERTY, authStateListener)
     }
-
+    /**
+     * Updates the visibility and functionality of the authentication overlay.
+     *
+     * Shows overlay when user is not authenticated and clears all chat data for security.
+     * Enables/disables chat components based on authentication state and forces UI refresh.
+     */
     private fun updateAuthOverlayVisibility() {
         val isAuthenticated = authState.isAuthenticated()
         authOverlayPanel.isVisible = !isAuthenticated
@@ -273,7 +292,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         authOverlayPanel.revalidate()
         authOverlayPanel.repaint()
     }
-
+    /**
+     * Initializes and arranges all major UI components with proper layout management.
+     *
+     * Sets up the project context, creates all panels (input, display, history, top bar),
+     * configures the view manager, and creates the layered structure with authentication overlay.
+     */
     private fun setupPanelLayout() {
         border = JBUI.Borders.empty()
         project = ProjectManager.getInstance().openProjects.firstOrNull()
@@ -432,7 +456,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         }
         refreshChatDisplay()
     }
-
+    /**
+     * Processes user message submission and initiates AI response generation.
+     *
+     * Handles authentication checks, edit mode completion, message appending,
+     * session management, and asynchronous AI response processing with loading indicators.
+     */
     private fun sendMessage() {
         // Check authentication before allowing message sending
         if (!authState.isAuthenticated()) {
@@ -528,7 +557,13 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         updateLastMessage(cancelMsg)
         saveCurrentSession()
     }
-
+    /**
+     * Processes AI response using the IO manager with current context and settings.
+     *
+     * @param query The user's message/query text
+     * @param selectedModel The selected AI model for processing
+     * @return AI response with generated content and metadata
+     */
     private suspend fun processAIResponse(
         query: String,
         selectedModel: String?,
@@ -612,7 +647,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     /**
-     * Regenerates the chat from a specific index. (This is used for the "Regenerate" action)
+     * Regenerates AI response from a specific message index.
+     *
+     * Truncates conversation history to the specified index, finds the last user message,
+     * and requests a new AI response. Used for the "Regenerate" action on AI messages.
+     *
+     * @param index The message index to regenerate from
      */
     private fun regenerateFromIndex(index: Int) {
         // Check authentication before allowing regeneration
@@ -682,7 +722,15 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                 }
             }
     }
-
+    /**
+     * Enters edit mode for modifying a previously sent user message.
+     *
+     * Sets up the input field with the original message text, shows edit controls,
+     * and displays overlay to indicate edit mode is active.
+     *
+     * @param index The message index being edited
+     * @param originalText The original message text to edit
+     */
     private fun enterEditMode(
         index: Int,
         originalText: String,
@@ -696,7 +744,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         }
         chatDisplayPanel.showEditOverlay()
     }
-
+    /**
+     * Exits edit mode and returns to normal chat operation.
+     *
+     * Clears edit state, hides edit controls and overlay, and resets input field.
+     */
     private fun exitEditMode() {
         editIndex = null
         isEditing = false
@@ -706,7 +758,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     /**
-     * Resets all chats and memory after user logout and updates overlay visibility.
+     * Performs complete chat data cleanup after user logout for security.
+     *
+     * Immediately clears all UI content, deletes all sessions, resets state service,
+     * creates new session manager, and forces multiple UI refreshes to ensure
+     * no chat data remains visible after logout.
      */
     fun resetAllChatsAfterLogout() {
         project?.let { proj: Project ->

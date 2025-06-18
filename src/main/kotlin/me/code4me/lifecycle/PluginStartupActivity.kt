@@ -38,7 +38,14 @@ import java.util.concurrent.TimeUnit
  */
 class PluginStartupActivity : ProjectActivity {
     private val LOG = thisLogger()
-
+    /**
+     * Main startup execution that orchestrates plugin initialization for the project.
+     *
+     * Handles authentication flow, session management, and registers project close
+     * listeners for proper cleanup when projects are closed.
+     *
+     * @param project The IntelliJ project being initialized
+     */
     override suspend fun execute(project: Project) {
         // Handle authentication and session acquisition
         handleAuthenticationAndSession(project)
@@ -47,7 +54,15 @@ class PluginStartupActivity : ProjectActivity {
         connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
         thisLogger().info("ProjectCloseListener registered successfully.")
     }
-
+    /**
+     * Manages authentication validation and complete plugin initialization flow.
+     *
+     * Validates stored auth tokens, synchronizes user preferences, initializes modules
+     * from server configuration, acquires sessions, and handles token invalidation
+     * scenarios with appropriate user notifications and cleanup.
+     *
+     * @param project The project context for initialization
+     */
     private fun handleAuthenticationAndSession(project: Project) {
         val authState = getAuthState()
         val authToken = authState.getToken()
@@ -106,6 +121,15 @@ class PluginStartupActivity : ProjectActivity {
         thisLogger().info("ProjectCloseListener registered successfully.")
     }
 
+    /**
+     * Starts background cache validation coroutine for multi-file context management.
+     *
+     * Launches a periodic validation process that checks cached files against the
+     * actual filesystem and sends deletion notifications to the server when files
+     * are no longer present locally.
+     *
+     * @param project The project whose file cache should be validated
+     */
     private fun startCacheValidation(project: Project) {
         val contextService = getProjectMultiFileContextService(project)
         val appService = getAppService()
@@ -114,8 +138,7 @@ class PluginStartupActivity : ProjectActivity {
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             LOG.info("Cache validation coroutine started for project: $basePath")
             while (isActive) {
-                // TODO make this eveery 5 minutes or so
-                delay(TimeUnit.MINUTES.toMillis(1))
+                delay(TimeUnit.MINUTES.toMillis(5))
 
                 try {
                     validateCache(contextService, appService, basePath)
@@ -125,7 +148,17 @@ class PluginStartupActivity : ProjectActivity {
             }
         }
     }
-
+    /**
+     * Validates cached files against the filesystem and manages server synchronization.
+     *
+     * Checks each cached file to determine if the original file still exists,
+     * and sends deletion notifications to the server for files that have been
+     * removed locally. Cleans up local cache only after successful server updates.
+     *
+     * @param contextService Service for managing project file context cache
+     * @param appService Service for communicating with the Code4Me server
+     * @param basePath Base path of the project for resolving relative file paths
+     */
     private suspend fun validateCache(
         contextService: me.code4me.services.project.ProjectMultiFileContextService,
         appService: me.code4me.services.app.AppService,

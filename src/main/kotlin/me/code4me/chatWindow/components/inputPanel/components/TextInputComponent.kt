@@ -23,13 +23,28 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Component responsible for text input with auto-resizing functionality
+ * Text input component with automatic height adjustment based on content.
+ *
+ * Provides a multi-line text area that automatically resizes its height as the user
+ * types, with support for placeholder text, Enter/Shift+Enter key handling, and
+ * focus events. The component grows vertically to accommodate content while
+ * maintaining minimum and maximum height constraints.
+ *
+ * @param onSend Callback invoked when Enter key is pressed (without Shift)
  */
 class TextInputComponent(
     private val onSend: () -> Unit,
 ) : JBPanel<TextInputComponent>(BorderLayout()) {
+    /**
+     * The main text area for user input with placeholder and focus handling.
+     */
     private val textArea = createTextArea()
+
+    /**
+     * Scroll pane wrapping the text area for overflow handling.
+     */
     private val scrollPane = createScrollPane()
+
 
     companion object {
         private const val MIN_HEIGHT = 44
@@ -38,7 +53,14 @@ class TextInputComponent(
     }
 
     val text: String get() = textArea.text
+    /**
+     * Callback invoked when the input gains focus.
+     */
     var onFocus: (() -> Unit)? = null
+
+    /**
+     * Callback invoked when the input loses focus.
+     */
     var onBlur: (() -> Unit)? = null
 
     init {
@@ -47,7 +69,14 @@ class TextInputComponent(
         setupDocumentListener()
         SwingUtilities.invokeLater { updateHeight() }
     }
-
+    /**
+     * Creates the main text area with placeholder text and focus handling.
+     *
+     * Configures word wrapping, styling, and focus listeners that manage
+     * placeholder text display and color changes.
+     *
+     * @return Configured JTextArea with all event handlers
+     */
     private fun createTextArea() =
         JTextArea().apply {
             val placeholder = "Ask Code4Me V2!"
@@ -80,7 +109,14 @@ class TextInputComponent(
                 },
             )
         }
-
+    /**
+     * Creates the scroll pane container for the text area.
+     *
+     * Configures transparent styling and scroll policies for vertical
+     * scrolling when content exceeds the maximum height.
+     *
+     * @return Configured JBScrollPane wrapping the text area
+     */
     private fun createScrollPane() =
         JBScrollPane(textArea).apply {
             border = null
@@ -96,7 +132,12 @@ class TextInputComponent(
         isOpaque = true
         add(scrollPane, BorderLayout.CENTER)
     }
-
+    /**
+     * Configures keyboard shortcuts for sending messages and inserting newlines.
+     *
+     * Maps Enter to send action and Shift+Enter to newline insertion,
+     * providing intuitive chat-like input behavior.
+     */
     private fun setupKeyBindings() {
         val inputMap = textArea.inputMap
         val actionMap = textArea.actionMap
@@ -122,7 +163,12 @@ class TextInputComponent(
             },
         )
     }
-
+    /**
+     * Adds document listener to trigger height updates when text content changes.
+     *
+     * Monitors all text modifications (insertions, deletions, changes) to
+     * automatically adjust the component height as needed.
+     */
     private fun setupDocumentListener() {
         textArea.document.addDocumentListener(
             object : DocumentListener {
@@ -151,6 +197,17 @@ class TextInputComponent(
         val containerWidth = parent?.width ?: 0
         return if (containerWidth > 32) containerWidth - 32 else 400
     }
+    /**
+     * Counts the number of visual lines needed to display the given text.
+     *
+     * Considers word wrapping by measuring text width against available space
+     * and calculating how many lines each paragraph will occupy when wrapped.
+     *
+     * @param text The text content to measure
+     * @param metrics Font metrics for width calculations
+     * @param width Available width for text layout
+     * @return Total number of visual lines needed
+     */
 
     private fun calculateLineCount(
         text: String,
@@ -229,7 +286,12 @@ class TextInputComponent(
         textArea.text = value
         textArea.caretPosition = value.length
     }
-
+    /**
+     * Requests focus for the input area and positions cursor at the end.
+     *
+     * Brings keyboard focus to the text area and moves the cursor to
+     * the end of any existing content for immediate typing.
+     */
     fun focusInput() {
         textArea.requestFocusInWindow()
         textArea.caretPosition = textArea.text.length

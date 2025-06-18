@@ -3,7 +3,7 @@ package me.code4me.components.settings.fields
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
 
-/*
+/**
 * This class is used to represent a field that contains a password.
 * It extends the JBPasswordField class and implements the TextualStateValueField interface.
 * It provides methods to get and set the state of the field, as well as to get and set the value of the field.

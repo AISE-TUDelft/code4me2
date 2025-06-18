@@ -16,8 +16,16 @@ import javax.swing.Icon
 import javax.swing.JButton
 import javax.swing.JToggleButton
 
+
 /**
- * Reusable icon button with hover effects
+ * Reusable icon button with circular hover effects.
+ *
+ * A 26x26 icon button that displays a circular gray background when hovered.
+ * Designed for toolbar and panel actions with consistent styling across the plugin.
+ *
+ * @param icon The icon to display on the button
+ * @param tooltip The tooltip text shown on hover
+ * @param action Callback invoked when the button is clicked
  */
 class IconButton(
     icon: Icon,
@@ -39,7 +47,9 @@ class IconButton(
         addActionListener { action() }
         setupHoverEffect()
     }
-
+    /**
+     * Configures mouse listeners for hover state tracking.
+     */
     private fun setupHoverEffect() {
         addMouseListener(
             object : MouseAdapter() {
@@ -55,7 +65,9 @@ class IconButton(
             },
         )
     }
-
+    /**
+     * Custom painting to draw circular hover background when needed.
+     */
     override fun paintComponent(g: Graphics) {
         val g2 = g.create() as Graphics2D
 

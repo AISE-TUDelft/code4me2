@@ -1,4 +1,3 @@
-// FIXED ProjectMultiFileContextService.kt with atomic cache updates to prevent race conditions
 package me.code4me.services.project
 
 import com.intellij.openapi.components.Service
@@ -19,7 +18,16 @@ import javax.xml.transform.stream.StreamResult
 fun getProjectMultiFileContextService(project: Project): ProjectMultiFileContextService {
     return project.getService(ProjectMultiFileContextService::class.java)
 }
-
+/**
+ * Project-level service for managing multi-file context caching and synchronization.
+ *
+ * Provides thread-safe file content caching with diff computation, rollback capabilities,
+ * and atomic operations to support AI completion systems that require multi-file context.
+ * Manages file snapshots, computes line-based differences, and handles cache invalidation
+ * with proper cleanup and error recovery.
+ *
+ * @param project The IntelliJ project this service is associated with
+ */
 @Service(Service.Level.PROJECT)
 class ProjectMultiFileContextService(private val project: Project) {
     companion object {
@@ -59,8 +67,15 @@ class ProjectMultiFileContextService(private val project: Project) {
     }
 
     /**
-     * ATOMIC: Updates file content and cache in a single synchronized operation.
-     * This prevents race conditions from rapid typing.
+     * Atomically updates file content and cache while computing line-based differences.
+     *
+     * This method prevents race conditions from rapid typing by synchronizing the entire
+     * operation. It computes diffs between old and new content, optimistically updates
+     * the cache, and stores previous state for potential rollback if server updates fail.
+     *
+     * @param relativePath The relative path of the file being updated
+     * @param newText The new file content
+     * @return List of FileContextChangeData objects representing the computed differences
      */
     fun updateFileContentAndCache(
         relativePath: String,
@@ -134,7 +149,14 @@ class ProjectMultiFileContextService(private val project: Project) {
     }
 
     /**
-     * Thread-safe version of saveInitialSnapshotIfMissing.
+     * Thread-safe method to save initial file snapshot if none exists.
+     *
+     * Creates the first cached version of a file when it's initially added
+     * to the multi-file context. Ensures thread safety and avoids duplicate
+     * snapshot creation.
+     *
+     * @param relativePath The relative path of the file
+     * @param newText The initial file content to cache
      */
     fun saveInitialSnapshotIfMissing(
         relativePath: String,
@@ -153,7 +175,10 @@ class ProjectMultiFileContextService(private val project: Project) {
     }
 
     /**
-     * Internal method for atomic cache writing
+     * Internal method for atomic cache file writing with temporary file strategy.
+     *
+     * Uses a temporary file and atomic rename to prevent corrupted cache files
+     * during concurrent operations or system interruptions.
      */
     private fun writeCacheInternal(
         relativePath: String,
@@ -248,7 +273,9 @@ class ProjectMultiFileContextService(private val project: Project) {
             .replace("?", "_qm_")
             .replace("*", "_a_")
     }
-
+    /**
+     * Saves the mapping between sanitized filename and original relative path to XML.
+     */
     private fun savePathMapping(relativePath: String) {
         val sanitizedName = sanitizeForFilename(relativePath)
         val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(pathMapFile)

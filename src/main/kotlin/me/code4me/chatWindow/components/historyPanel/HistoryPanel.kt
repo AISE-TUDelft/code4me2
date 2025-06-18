@@ -34,8 +34,17 @@ class HistoryPanel(
     private val sessionManager: ChatSessionManager,
     private val onSessionSelected: () -> Unit,
 ) : JBPanel<HistoryPanel>(BorderLayout()) {
+    /**
+     * Scrollable container for the session list content.
+     */
     private val scrollPane: JBScrollPane
+    /**
+     * Main container panel for session list items using vertical box layout.
+     */
     private val contentPanel: JBPanel<*>
+    /**
+     * Renderer component for creating session UI elements with click and delete handlers.
+     */
     private val renderer =
         HistoryRenderer(
             onClick = { session ->

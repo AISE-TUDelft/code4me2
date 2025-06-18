@@ -10,14 +10,28 @@ import me.code4me.utils.configuration.PreferenceType
 import me.code4me.utils.record.Record
 import me.code4me.utils.services.state.getListPreference
 import me.code4me.utils.services.state.getTextualPreference
-
+/**
+ * Plugin module for managing chat model preferences and configuration.
+ *
+ * Handles user preferences for chat model selection and system prompt configuration,
+ * providing model-related data for AI chat interactions. Integrates with the plugin's
+ * preference system to allow users to customize their chat experience through settings.
+ */
 class ChatModel : PluginModule {
     companion object {
         val LOG = thisLogger()
         private const val PREFERRED_MODEL_KEY = "preferredChatModel"
         private const val SYSTEM_PROMPT_KEY = "systemPrompt"
     }
-
+    /**
+     * Defines the list of configurable preferences for chat model behavior.
+     *
+     * Creates preferences for model selection and system prompt customization,
+     * with default values sourced from the plugin configuration. Users can
+     * modify these preferences through the settings interface.
+     *
+     * @return List of Preference objects defining chat model configuration options
+     */
     override fun getPreferenceList(): List<Preference> {
         return listOf(
             Preference(
@@ -48,14 +62,22 @@ class ChatModel : PluginModule {
             ),
         )
     }
-
     override fun getPreferenceClass(): PreferenceClass {
         return PreferenceClass.MODEL
     }
 
     override val moduleName: String
         get() = "ChatModel"
-
+    /**
+     * Collects model-related configuration data for AI completion requests.
+     *
+     * Extracts the user's preferred chat model and system prompt settings from
+     * the preference store and packages them into a Record for use by the AI
+     * completion system. Only includes preferences that have been explicitly set.
+     *
+     * @param request The inline completion request context (not used by this module)
+     * @return List containing a single MODEL-type Record with chat configuration data
+     */
     override fun collectData(request: InlineCompletionRequest): List<Record> {
         val expanded = mutableMapOf<Record.EntryKey, Any>()
         if (getListPreference(getPreferenceId(), PREFERRED_MODEL_KEY, "").isNotBlank()) {

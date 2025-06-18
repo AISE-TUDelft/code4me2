@@ -21,7 +21,13 @@ import me.code4me.utils.services.state.getBooleanPreference
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
-
+/**
+ * Primary provider for AI-powered inline code completions that appear as gray text while typing.
+ *
+ * Implements IntelliJ's debounced completion system to generate context-aware code suggestions
+ * using Code4Me's AI models. Integrates with the module system for data collection, handles
+ * authentication and project token management, and provides performance monitoring.
+ */
 class PluginInlineCompletionProvider : DebouncedInlineCompletionProvider() {
     val logger = Logger.getInstance("inlineCompletion")
     private val pluginInsertHandle = PluginInlineCompletionInsertHandler()

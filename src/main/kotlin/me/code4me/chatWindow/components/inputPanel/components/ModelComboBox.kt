@@ -51,7 +51,10 @@ class ModelComboBox : ComboBox<String>() {
         border = null
         setRenderer(TransparentRenderer())
     }
-
+    /**
+     * Configures automatic resizing behavior triggered by selection changes.
+     * Sets up action listener to resize when different items are selected.
+     */
     private fun setupAutoResize() {
         addActionListener {
             SwingUtilities.invokeLater { resizeToFitContent() }
@@ -124,6 +127,12 @@ class ModelComboBox : ComboBox<String>() {
         return selectedItem?.toString()?.takeIf { it != "Loading models..." && it != "No models available" }
     }
 
+    /**
+     * Custom cell renderer that provides transparent backgrounds for dropdown items.
+     *
+     * Extends DefaultListCellRenderer to remove background colors and opacity
+     * for seamless integration with the parent component's styling.
+     */
     private class TransparentRenderer : DefaultListCellRenderer() {
         override fun getListCellRendererComponent(
             list: JList<*>,

@@ -6,6 +6,9 @@ import me.code4me.chatWindow.components.utils.ChatConverter
 import java.util.Date
 import java.util.UUID
 
+/**
+ * Represents a chat session with a unique ID, title, messages, and last updated timestamp.
+ */
 data class ChatSession(
     val id: String = UUID.randomUUID().toString(),
     var title: String = "New Chat",
@@ -13,6 +16,9 @@ data class ChatSession(
     var lastUpdated: Date = Date(),
 )
 
+/**
+ * Manages chat sessions by interacting with the ChatRepository.
+ */
 class ChatSessionManager(val chatRepository: ChatRepository) {
     // Keep a cache of active sessions
     private val activeSessions = mutableMapOf<String, ChatSession>()
