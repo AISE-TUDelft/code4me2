@@ -61,21 +61,82 @@ class ChatIOManager {
         }
 
         // Collect editor data within a read action
+
         val editorData =
             readAction {
-                // Get the current editor
                 var editor = FileEditorManager.getInstance(project).selectedTextEditor
 
                 if (editor != null) {
-                    // Get the document from the editor
                     val document = editor.document
+                    val virtualFile = editor.virtualFile
 
-                    // Get the PsiFile from the editor's virtual file
-                    val psiFile = PsiManager.getInstance(project).findFile(editor.virtualFile)
+                    // Check if file is empty or has minimal content
+                    val isEmpty = document.textLength == 0
+                    val isMinimalContent = document.textLength < 10
 
-                    // Only proceed if we have a valid PsiFile
-                    if (psiFile != null) {
-                        // Create a mock InlineCompletionRequest
+                    val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
+
+                    if (isEmpty || psiFile == null) {
+                        LOG.info("Handling empty or problematic file: ${virtualFile?.name}")
+
+                        if (psiFile != null) {
+                            val mockRequest =
+                                InlineCompletionRequest(
+                                    event =
+                                        InlineCompletionEvent.DirectCall(
+                                            editor = editor,
+                                            caret = editor.caretModel.primaryCaret,
+                                            context = null,
+                                        ),
+                                    file = psiFile,
+                                    editor = editor,
+                                    document = document,
+                                    startOffset = 0,
+                                    endOffset = 0,
+                                    lookupElement = null,
+                                )
+
+                            val moduleManager = getModuleManager()
+
+                            try {
+                                val collectedData = moduleManager.collectData(mockRequest)
+
+                                // If no meaningful data was collected, create minimal context
+                                if (collectedData.isEmpty() ||
+                                    collectedData.none { it.type == Record.Type.CONTEXT }
+                                ) {
+                                    // Create minimal context record for empty files
+                                    val minimalContext =
+                                        Record(Record.Type.CONTEXT).apply {
+                                            put(Record.key<String>("file_name"), virtualFile?.name ?: "untitled")
+                                            put(Record.key<String>("file_path"), virtualFile?.path ?: "")
+                                            put(Record.key<String>("prefix"), "")
+                                            put(Record.key<String>("suffix"), "")
+                                            put(Record.key<Boolean>("is_empty_file"), true)
+                                        }
+
+                                    return@readAction listOf(minimalContext)
+                                }
+
+                                return@readAction collectedData
+                            } catch (e: Exception) {
+                                LOG.warn("Failed to collect data for empty file, using fallback", e)
+                            }
+                        }
+
+                        // Fallback for null PsiFile or failed module collection
+                        val fallbackContext =
+                            Record(Record.Type.CONTEXT).apply {
+                                put(Record.key<String>("file_name"), virtualFile?.name ?: "untitled")
+                                put(Record.key<String>("file_path"), virtualFile?.path ?: "")
+                                put(Record.key<String>("prefix"), "")
+                                put(Record.key<String>("suffix"), "")
+                                put(Record.key<Boolean>("is_empty_file"), true)
+                            }
+
+                        return@readAction listOf(fallbackContext)
+                    } else {
+                        // Normal processing for non-empty files
                         val mockRequest =
                             InlineCompletionRequest(
                                 event =
@@ -92,24 +153,14 @@ class ChatIOManager {
                                 lookupElement = null,
                             )
 
-                        // Get the module manager for the current project
                         val moduleManager = getModuleManager()
-
-                        // Collect data from all registered modules
-                        val collectedData = moduleManager.collectData(mockRequest)
-
-                        // Return the collected data
-                        collectedData
-                    } else {
-                        null
+                        moduleManager.collectData(mockRequest)
                     }
                 } else {
-                    // show the user a notification that no active editor was found
                     project.showErrorNotification(
                         "No active editor found",
                         "Please open a file in the editor to use AI features.",
                     )
-
                     null
                 }
             }
@@ -162,16 +213,18 @@ class ChatIOManager {
         val context = contextMap.mapsTo(ContextData::class.java)
 
         val behavioralTelemetry =
-            (aggregatedData[Record.Type.BEHAVIORAL_TELEMETRY] ?: emptyMap())
-                .mapsTo<BehavioralTelemetryData>(
-                    BehavioralTelemetryData::class.java,
-                )
-        val contextualTelemetry =
-            (aggregatedData[Record.Type.CONTEXTUAL_TELEMETRY] ?: emptyMap())
-                .mapsTo<ContextualTelemetryData>(
-                    ContextualTelemetryData::class.java,
-                )
+            sanitizeNumericValues(
+                aggregatedData[Record.Type.BEHAVIORAL_TELEMETRY]?.toMap() ?: emptyMap(),
+            ).mapsTo<BehavioralTelemetryData>(
+                BehavioralTelemetryData::class.java,
+            )
 
+        val contextualTelemetry =
+            sanitizeNumericValues(
+                aggregatedData[Record.Type.CONTEXTUAL_TELEMETRY]?.toMap() ?: emptyMap(),
+            ).mapsTo<ContextualTelemetryData>(
+                ContextualTelemetryData::class.java,
+            )
         // create the request necessary for the AppService
         val request =
             RequestChatCompletion(
@@ -200,6 +253,60 @@ class ChatIOManager {
             )
         } else {
             TitleResponsePair(newChatTitle, emptyList())
+        }
+    }
+
+    /**
+     * Sanitizes a map by replacing NaN and infinite values with safe defaults
+     */
+    private fun sanitizeNumericValues(data: Map<String, Any>): Map<String, Any> {
+        return data.mapValues { (_, value) ->
+            when (value) {
+                is Double -> {
+                    when {
+                        value.isNaN() -> 0.0
+                        value.isInfinite() -> if (value > 0) Double.MAX_VALUE else -Double.MAX_VALUE
+                        else -> value
+                    }
+                }
+                is Float -> {
+                    when {
+                        value.isNaN() -> 0.0f
+                        value.isInfinite() -> if (value > 0) Float.MAX_VALUE else -Float.MAX_VALUE
+                        else -> value
+                    }
+                }
+                is Map<*, *> -> {
+                    @Suppress("UNCHECKED_CAST")
+                    sanitizeNumericValues(value as Map<String, Any>)
+                }
+                is List<*> -> {
+                    value.map { item ->
+                        when (item) {
+                            is Map<*, *> -> {
+                                @Suppress("UNCHECKED_CAST")
+                                sanitizeNumericValues(item as Map<String, Any>)
+                            }
+                            is Double -> {
+                                when {
+                                    item.isNaN() -> 0.0
+                                    item.isInfinite() -> if (item > 0) Double.MAX_VALUE else -Double.MAX_VALUE
+                                    else -> item
+                                }
+                            }
+                            is Float -> {
+                                when {
+                                    item.isNaN() -> 0.0f
+                                    item.isInfinite() -> if (item > 0) Float.MAX_VALUE else -Float.MAX_VALUE
+                                    else -> item
+                                }
+                            }
+                            else -> item
+                        }
+                    }
+                }
+                else -> value
+            }
         }
     }
 }
