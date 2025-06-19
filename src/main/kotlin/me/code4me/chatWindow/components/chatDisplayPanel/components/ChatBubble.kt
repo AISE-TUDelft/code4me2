@@ -15,6 +15,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.TextTransferable
+import me.code4me.services.config.getConfig
 import org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil
 import java.awt.BorderLayout
 import java.awt.Color
@@ -39,6 +40,21 @@ import javax.swing.JWindow
 import javax.swing.ScrollPaneConstants
 import javax.swing.Timer
 
+/**
+ * Chat bubble component that displays messages in the Code4Me chat interface.
+ *
+ * Renders messages with support for markdown formatting, syntax-highlighted code blocks,
+ * and interactive elements like copy buttons and regenerate options. The bubble automatically
+ * styles itself differently for user and assistant messages.
+ *
+ * @param sender The name of the message sender (e.g., "You", "Code4Me V2")
+ * @param message The message content, supporting markdown and code blocks
+ * @param isUser Whether this message is from the user (affects styling and available actions)
+ * @param project The IntelliJ project for editor creation and file type detection
+ * @param onRegenerate Optional callback for regenerating assistant responses
+ * @param onEdit Optional callback for editing user messages
+ * @param showRegenerate Whether to show the regenerate button for assistant messages
+ */
 class ChatBubble(
     sender: String,
     message: String,
@@ -48,8 +64,20 @@ class ChatBubble(
     private val onEdit: (() -> Unit)? = null,
     private val showRegenerate: Boolean = true,
 ) : JPanel() {
+    /**
+     * List of IntelliJ editors created for code blocks within this bubble.
+     * Tracked for proper disposal to prevent memory leaks.
+     */
     private val editors = mutableListOf<Editor>()
+
+    /**
+     * Flag indicating whether this bubble has been disposed.
+     */
     private var isDisposed = false
+
+    /**
+     * The main message display pane for non-code content.
+     */
     private var messagePane: JEditorPane? = null
 
     init {
@@ -122,17 +150,18 @@ class ChatBubble(
         container.add(senderPanel)
         container.add(Box.createVerticalStrut(4))
 
-        val codeBlocks = extractCodeBlocks(message)
+        val fixedMessage = fixUnclosedCodeBlocks(message)
+        val codeBlocks = extractCodeBlocks(fixedMessage)
 
         if (codeBlocks.isNotEmpty()) {
-            renderMessageWithCodeBlocks(container, message, codeBlocks)
+            renderMessageWithCodeBlocks(container, fixedMessage, codeBlocks)
         } else {
-            val virtualFile = LightVirtualFile("chat.md", message)
+            val virtualFile = LightVirtualFile("chat.md", fixedMessage)
             val html =
                 try {
-                    MarkdownUtil.generateMarkdownHtml(virtualFile, message, project)
+                    MarkdownUtil.generateMarkdownHtml(virtualFile, fixedMessage, project)
                 } catch (e: Exception) {
-                    "<html><body><pre>$message</pre></body></html>"
+                    "<html><body><pre>$fixedMessage</pre></body></html>"
                 }
 
             val htmlPane = createStyledHtmlPane(html)
@@ -180,7 +209,8 @@ class ChatBubble(
     }
 
     /**
-     * Explicitly dispose all editors to prevent memory leaks
+     * Releases all IntelliJ editors created for code blocks to prevent memory leaks.
+     * Should be called when the bubble is no longer needed.
      */
     fun disposeEditors() {
         if (!isDisposed) {
@@ -199,6 +229,26 @@ class ChatBubble(
         }
     }
 
+    /**
+     * Ensures markdown code blocks are properly closed by adding missing closing markers.
+     * @param text The message text to fix
+     * @return Text with properly closed code blocks
+     */
+    private fun fixUnclosedCodeBlocks(text: String): String {
+        val parts = text.split("```")
+
+        if (parts.size % 2 == 0) {
+            return text + "\n```"
+        }
+
+        return text
+    }
+
+    /**
+     * Extracts code blocks from markdown text using regex pattern matching.
+     * @param text The message text to parse
+     * @return List of detected code blocks with their positions
+     */
     private fun extractCodeBlocks(text: String): List<CodeBlock> {
         val codeBlocks = mutableListOf<CodeBlock>()
         val pattern = Pattern.compile("```(\\w+)?\\n([\\s\\S]*?)```", Pattern.MULTILINE)
@@ -215,6 +265,12 @@ class ChatBubble(
         return codeBlocks
     }
 
+    /**
+     * Renders a message that contains code blocks by separating text and code sections.
+     * @param container The parent container to add components to
+     * @param message The complete message text
+     * @param codeBlocks List of detected code blocks
+     */
     private fun renderMessageWithCodeBlocks(
         container: JPanel,
         message: String,
@@ -242,6 +298,11 @@ class ChatBubble(
         }
     }
 
+    /**
+     * Adds a text component with markdown rendering to the container.
+     * @param container The parent container
+     * @param text The text content to render
+     */
     private fun addTextComponent(
         container: JPanel,
         text: String,
@@ -267,6 +328,11 @@ class ChatBubble(
         container.add(htmlPane)
     }
 
+    /**
+     * Creates a syntax-highlighted code editor component for a code block.
+     * @param container The parent container
+     * @param codeBlock The code block data to render
+     */
     private fun addCodeComponent(
         container: JPanel,
         codeBlock: CodeBlock,
@@ -275,6 +341,10 @@ class ChatBubble(
 
         val ext = getExtensionForLanguage(codeBlock.language)
         val fileType = FileTypeManager.getInstance().getFileTypeByExtension(ext)
+
+        // Debug logging
+        println("Language: '${codeBlock.language}' -> Extension: '$ext' -> FileType: ${fileType.name} (${fileType.defaultExtension})")
+
         val virtualFile = LightVirtualFile("code.$ext", fileType, codeBlock.code)
         val document = EditorFactory.getInstance().createDocument(codeBlock.code)
 
@@ -410,6 +480,11 @@ class ChatBubble(
         container.add(Box.createVerticalStrut(4))
     }
 
+    /**
+     * Creates a styled HTML pane for displaying rich text content.
+     * @param html The HTML content to display
+     * @return Configured JEditorPane for HTML rendering
+     */
     private fun createStyledHtmlPane(html: String): JEditorPane {
         return JEditorPane("text/html", html).apply {
             isOpaque = false
@@ -427,6 +502,13 @@ class ChatBubble(
         return Dimension(Int.MAX_VALUE, preferredSize.height)
     }
 
+    /**
+     * Data class representing a code block within a chat message.
+     * @param language The programming language of the code block
+     * @param code The actual code content
+     * @param start Start position in the original message text
+     * @param end End position in the original message text
+     */
     data class CodeBlock(
         val language: String,
         val code: String,
@@ -435,7 +517,9 @@ class ChatBubble(
     )
 
     /**
-     * Custom JPanel with rounded corners.
+     * Custom JPanel that renders with rounded corners for chat bubble styling.
+     * @param backgroundColor The background color for the panel
+     * @param cornerRadius The radius for rounded corners in pixels
      */
     class RoundedPanel(
         private val backgroundColor: Color,
@@ -458,21 +542,130 @@ class ChatBubble(
         }
     }
 
-    // TODO change once config has all file names?
+    /**
+     * Maps programming language names to their corresponding file extensions.
+     * Uses both direct mapping and fuzzy matching with plugin configuration.
+     * @param language The language name from the code block
+     * @return The appropriate file extension for syntax highlighting
+     */
     private fun getExtensionForLanguage(language: String): String {
-        return when (language.lowercase()) {
-            "python", "py" -> "py"
-            "java" -> "java"
-            "kotlin", "kt" -> "kt"
-            "js", "javascript" -> "js"
-            "ts", "typescript" -> "ts"
-            "html" -> "html"
-            "css" -> "css"
-            "json" -> "json"
-            else -> "txt"
+        // Create a mapping from language names to file extensions
+        val languageToExtension =
+            mapOf(
+                "java" to "java",
+                "kotlin" to "kt",
+                "python" to "py",
+                "javascript" to "js",
+                "typescript" to "ts",
+                "shell script" to "sh",
+                "bash" to "sh",
+                "sh" to "sh",
+                "c#" to "cs",
+                "c++" to "cpp",
+                "c/c++" to "cpp",
+                "cpp" to "cpp",
+                "c" to "c",
+                "go" to "go",
+                "rust" to "rs",
+                "php" to "php",
+                "ruby" to "rb",
+                "swift" to "swift",
+                "scala" to "scala",
+                "groovy" to "groovy",
+                "html" to "html",
+                "css" to "css",
+                "scss" to "scss",
+                "sass" to "sass",
+                "less" to "less",
+                "xml" to "xml",
+                "json" to "json",
+                "yaml" to "yml",
+                "yml" to "yml",
+                "toml" to "toml",
+                "ini" to "ini",
+                "markdown" to "md",
+                "md" to "md",
+                "sql" to "sql",
+                "dockerfile" to "dockerfile",
+                "makefile" to "makefile",
+                "gradle" to "gradle",
+                "properties" to "properties",
+                "vuejs" to "vue",
+                "vue" to "vue",
+                "jsx" to "jsx",
+                "tsx" to "tsx",
+                "dart" to "dart",
+                "r" to "r",
+                "matlab" to "m",
+                "perl" to "pl",
+                "lua" to "lua",
+                "powershell" to "ps1",
+                "batch" to "bat",
+                "vb" to "vb",
+                "f#" to "fs",
+                "clojure" to "clj",
+                "haskell" to "hs",
+                "erlang" to "erl",
+                "elixir" to "ex",
+                "coffeescript" to "coffee",
+                "tex" to "tex",
+                "latex" to "tex",
+                "asm" to "asm",
+                "assembly" to "asm",
+            )
+
+        // First try direct mapping with the provided language
+        val normalizedLanguage = language.lowercase().trim()
+        languageToExtension[normalizedLanguage]?.let { return it }
+
+        // If direct mapping fails, try fuzzy matching against config
+        val languagesConfig = getConfig().getLanguagesConfig() ?: return "txt"
+        val langId = languagesConfig.getLanguageIdFuzzy(language)
+
+        // Find the language name from config
+        val configLanguageName =
+            languagesConfig.languageMap.entries
+                .find { it.value == langId }?.key?.lowercase()?.trim()
+
+        if (configLanguageName != null) {
+            languageToExtension[configLanguageName]?.let { return it }
+
+            // Try some additional mappings for config language names
+            when {
+                configLanguageName.contains("java") -> return "java"
+                configLanguageName.contains("kotlin") -> return "kt"
+                configLanguageName.contains("python") -> return "py"
+                configLanguageName.contains("javascript") -> return "js"
+                configLanguageName.contains("typescript") -> return "ts"
+                configLanguageName.contains("shell") -> return "sh"
+                configLanguageName.contains("c#") -> return "cs"
+                configLanguageName.contains("c++") || configLanguageName.contains("c/c++") -> return "cpp"
+                configLanguageName.contains("go") && !configLanguageName.contains("django") -> return "go"
+                configLanguageName.contains("html") -> return "html"
+                configLanguageName.contains("css") -> return "css"
+                configLanguageName.contains("json") -> return "json"
+                configLanguageName.contains("xml") -> return "xml"
+                configLanguageName.contains("yaml") -> return "yml"
+                configLanguageName.contains("sql") -> return "sql"
+                configLanguageName.contains("markdown") -> return "md"
+                configLanguageName.contains("dockerfile") -> return "dockerfile"
+                configLanguageName.contains("vue") -> return "vue"
+                configLanguageName.contains("groovy") -> return "groovy"
+                configLanguageName.contains("scala") -> return "scala"
+                configLanguageName.contains("swift") -> return "swift"
+                configLanguageName.contains("rust") -> return "rs"
+                configLanguageName.contains("php") -> return "php"
+                configLanguageName.contains("ruby") -> return "rb"
+            }
         }
+
+        return "txt"
     }
 
+    /**
+     * Resets editor color schemes to fix rendering issues.
+     * Called when theme changes or color issues are detected.
+     */
     fun forceResetEditorColors() {
         if (isDisposed) return
         for (editor in editors) {
@@ -484,17 +677,19 @@ class ChatBubble(
     }
 
     /**
-     * Updates the message text only, without changing the bubble structure.
-     * THis is used for the generating message, and prevents the flickierng.
+     * Updates only the message text content without rebuilding the entire bubble.
+     * Used for streaming message updates to prevent flickering during generation.
+     * @param newMessage The updated message content
      */
     fun updateMessageTextOnly(newMessage: String) {
         if (isDisposed) return
-        val virtualFile = LightVirtualFile("chat.md", newMessage)
+        val fixedMessage = fixUnclosedCodeBlocks(newMessage)
+        val virtualFile = LightVirtualFile("chat.md", fixedMessage)
         val html =
             try {
-                MarkdownUtil.generateMarkdownHtml(virtualFile, newMessage, project)
+                MarkdownUtil.generateMarkdownHtml(virtualFile, fixedMessage, project)
             } catch (e: Exception) {
-                "<html><body><pre>$newMessage</pre></body></html>"
+                "<html><body><pre>$fixedMessage</pre></body></html>"
             }
         messagePane?.text = html
     }

@@ -7,9 +7,20 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.diagnostic.Logger
 
+/**
+ * Action that manually triggers inline code completion for the Code4Me plugin.
+ * Provides a keyboard shortcut (Ctrl+Alt+Shift+9) to force completion generation.
+ */
 class TriggerInlineCompletionAction : AnAction() {
+    /**
+     * Logger for tracking completion trigger events.
+     */
     private val logger = Logger.getInstance("TriggerInlineCompletionAction")
 
+    /**
+     * Triggers inline completion at the current cursor position.
+     * Gets the editor and project from the action event and invokes the completion handler.
+     */
     override fun actionPerformed(e: AnActionEvent) {
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val project = e.getData(CommonDataKeys.PROJECT) ?: return
@@ -33,6 +44,10 @@ class TriggerInlineCompletionAction : AnAction() {
         }
     }
 
+    /**
+     * Updates the action's enabled state.
+     * The action is only enabled when both an editor and project are available.
+     */
     override fun update(e: AnActionEvent) {
         val editor = e.getData(CommonDataKeys.EDITOR)
         val project = e.getData(CommonDataKeys.PROJECT)

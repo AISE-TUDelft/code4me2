@@ -7,6 +7,17 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import java.util.UUID
 
+/**
+ * Inline completion variant that wraps a single AI-generated completion for IntelliJ display.
+ *
+ * Converts Code4Me completion data into IntelliJ's completion variant format, creating
+ * the appropriate completion element with tracking metadata for telemetry and analytics.
+ *
+ * @param completionText The AI-generated completion text to display
+ * @param requestId Unique identifier for tracking this completion request
+ * @param completionModel Name of the AI model that generated this completion
+ * @param metaQueryId Optional query ID for linking to the original request
+ */
 class PluginInlineCompletionVariant(
     private val completionText: String,
     private val requestId: Long,

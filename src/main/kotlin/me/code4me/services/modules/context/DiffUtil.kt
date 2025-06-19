@@ -1,9 +1,16 @@
-// BLOCK-AWARE DiffUtil.kt - Detects section deletions and handles them as single operations
 import me.code4me.api.generated.model.ContextChangeType
 import me.code4me.services.modules.context.MultiFileContextRetrievalModule.FileContextChangeData
 import me.code4me.api.generated.model.FileContextChangeData as ApiChangeData
 import me.code4me.services.modules.context.MultiFileContextRetrievalModule.FileContextChangeData as InternalChangeData
 
+/**
+ * Converts internal file context change data to the API model format.
+ *
+ * Maps internal change type strings to the corresponding API enum values and
+ * creates an API-compatible change data object for transmission to the server.
+ *
+ * @return ApiChangeData object ready for API transmission
+ */
 fun InternalChangeData.toApiModel(): ApiChangeData {
     val apiChangeType =
         when (this.changeType.lowercase()) {
@@ -23,7 +30,16 @@ fun InternalChangeData.toApiModel(): ApiChangeData {
 }
 
 /**
- * Block-aware diff that detects section deletions and handles them cleanly.
+ * Computes line-based differences between two text strings with block-aware change detection.
+ *
+ * Analyzes two text versions to identify insertions, deletions, and replacements at the line level.
+ * Uses boundary matching to minimize the change scope and handles complete file operations
+ * (empty to content, content to empty) as special cases. The algorithm finds matching lines
+ * at the beginning and end to isolate the actual changed region.
+ *
+ * @param oldText The original text content
+ * @param newText The updated text content
+ * @return List of FileContextChangeData objects describing the changes, or empty list if no changes
  */
 fun computeLineDiffs(
     oldText: String,
@@ -137,7 +153,14 @@ fun computeLineDiffs(
 }
 
 /**
- * Find how many lines match at the beginning
+ * Finds how many lines match at the beginning of both text versions.
+ *
+ * Compares lines from the start of both lists until a mismatch is found,
+ * helping to identify the unchanged prefix that can be excluded from diffs.
+ *
+ * @param oldLines Lines from the original text
+ * @param newLines Lines from the updated text
+ * @return Number of matching lines at the beginning
  */
 private fun findFrontMatches(
     oldLines: List<String>,
@@ -154,7 +177,16 @@ private fun findFrontMatches(
 }
 
 /**
- * Find how many lines match at the end
+ * Finds how many lines match at the end of both text versions.
+ *
+ * Compares lines from the end of both lists working backwards until a mismatch
+ * is found, helping to identify the unchanged suffix that can be excluded from diffs.
+ * Takes into account the front matches to avoid double-counting overlapping regions.
+ *
+ * @param oldLines Lines from the original text
+ * @param newLines Lines from the updated text
+ * @param frontMatches Number of lines already matched from the beginning
+ * @return Number of matching lines at the end
  */
 private fun findBackMatches(
     oldLines: List<String>,

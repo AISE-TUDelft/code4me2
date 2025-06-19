@@ -21,6 +21,13 @@ import me.code4me.utils.record.aggregateByType
 import me.code4me.utils.record.toMap
 import me.code4me.utils.services.state.getBooleanPreference
 
+/**
+ * Completion provider that generates AI-powered code suggestions for IntelliJ's dropdown completion.
+ *
+ * Integrates with Code4Me's module system to collect contextual data and generate completions
+ * using the configured AI models. Provides fallback behavior for authentication and error cases.
+ * Completions appear in the standard completion dropdown with custom icons and insertion handling.
+ */
 class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
     companion object {
         private val CHAT_ICON = IconLoader.getIcon("/icons/pluginIcon_chatSize.svg", ChatBubble::class.java)
@@ -28,6 +35,17 @@ class PluginCompletionProvider : CompletionProvider<CompletionParameters>() {
 
     private val LOG = thisLogger()
 
+    /**
+     * Generates and adds AI-powered code completions to the completion result set.
+     *
+     * Performs authentication and preference checks, collects contextual data through
+     * the module system, requests completions from the AI service, and creates
+     * lookup elements with custom presentation and insertion handling.
+     *
+     * @param parameters Completion context including file, editor, and cursor position
+     * @param context Processing context for the completion request
+     * @param results Result set to add generated completions to
+     */
     override fun addCompletions(
         parameters: CompletionParameters,
         context: ProcessingContext,

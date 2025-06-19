@@ -8,6 +8,14 @@ import me.code4me.services.app.getAppService
 import me.code4me.services.project.getProjectTokenService
 import java.util.UUID
 
+/**
+ * Activates an existing project if a project token is available; otherwise, creates a new project
+ * and activates it if a token becomes available after creation. Logs relevant information and warnings
+ * during the activation or creation process.
+ *
+ * @param project The project instance to be activated or created.
+ * @param logger The logger instance used for logging process details, warnings, or errors.
+ */
 public fun activateOrCreateProject(
     project: Project,
     logger: Logger,

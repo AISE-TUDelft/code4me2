@@ -23,7 +23,19 @@ import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 
+/**
+ * Main panel for displaying chat messages in the Code4Me chat window.
+ *
+ * Manages a scrollable list of chat bubbles with support for auto-scrolling,
+ * edit mode overlay, and proper cleanup of resources. Handles both user and
+ * assistant messages with appropriate styling and interactive elements.
+ *
+ * @param project The IntelliJ project context for creating editors and file types
+ */
 class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>(BorderLayout()) {
+    /**
+     * Main container for chat bubbles using vertical box layout.
+     */
     private val contentPanel =
         JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -31,12 +43,19 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
             alignmentX = LEFT_ALIGNMENT
         }
 
+    /**
+     * Wrapper panel that contains the content panel for proper layout management.
+     */
     private val wrapperPanel =
         JPanel(BorderLayout()).apply {
             background = Gray._43
             add(contentPanel, BorderLayout.NORTH)
         }
 
+    /**
+     * Overlay panel displayed during edit mode to block interaction with chat.
+     * Shows a semi-transparent overlay with instructions to exit edit mode.
+     */
     private val editOverlayPanel =
         object : JPanel(BorderLayout()) {
             override fun contains(
@@ -66,6 +85,10 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
                 },
             )
         }
+
+    /**
+     * Scrollable container for the chat content with vertical scrolling enabled.
+     */
     private val scrollPane =
         JBScrollPane(wrapperPanel).apply {
             verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS
@@ -75,14 +98,34 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
             viewport.background = Gray._43
         }
 
+    /**
+     * Tracks whether the user has manually scrolled up from the bottom.
+     */
     private var userScrolledUp = false
+
+    /**
+     * Flag indicating whether content is currently being updated.
+     */
     private var isUpdatingContent = false
+
+    /**
+     * List of currently active chat bubbles for proper cleanup.
+     */
     private val activeBubbles = mutableListOf<ChatBubble>()
 
+    /**
+     * Callback for regenerating responses from a specific message index.
+     */
     var onRegenerateFromIndex: ((Int) -> Unit)? = null
+
+    /**
+     * Callback for editing user messages at a specific index.
+     */
     var onEditUserMessage: ((index: Int, text: String) -> Unit)? = null
 
-    /** Callback invoked when the panel is restored (e.g., minimized → maximized). */
+    /**
+     * Callback invoked when the panel is restored (e.g., minimized → maximized).
+     */
     var onRestore: (() -> Unit)? = null
 
     init {
@@ -95,14 +138,14 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
                 alignmentY = TOP_ALIGNMENT
             }
 
-// Set both to fill parent
+        // Set both to fill parent
         scrollPane.alignmentX = LEFT_ALIGNMENT
         scrollPane.alignmentY = TOP_ALIGNMENT
 
         editOverlayPanel.alignmentX = LEFT_ALIGNMENT
         editOverlayPanel.alignmentY = TOP_ALIGNMENT
 
-// Force overlay panel to match scrollPane size later
+        // Force overlay panel to match scrollPane size later
         editOverlayPanel.addComponentListener(
             object : java.awt.event.ComponentAdapter() {
                 override fun componentResized(e: java.awt.event.ComponentEvent?) {
@@ -124,6 +167,10 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         cleanupBubbles()
     }
 
+    /**
+     * Properly disposes all active chat bubbles to prevent memory leaks.
+     * Called when the panel is being removed or destroyed.
+     */
     private fun cleanupBubbles() {
         activeBubbles.forEach { bubble ->
             try {
@@ -135,6 +182,12 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         activeBubbles.clear()
     }
 
+    /**
+     * Updates the chat display with a new list of messages.
+     * Recreates all chat bubbles and handles auto-scrolling behavior.
+     *
+     * @param messages List of sender-message pairs to display
+     */
     fun updateContent(messages: List<Pair<String, String>>) {
         val shouldAutoScroll = !userScrolledUp || isAtBottom()
 
@@ -197,6 +250,10 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         }
     }
 
+    /**
+     * Forces a complete refresh of all chat bubbles and their content.
+     * Used when themes change or editor colors need to be reset.
+     */
     fun forceRefresh() {
         SwingUtilities.invokeLater {
             for (component in contentPanel.components) {
@@ -213,6 +270,11 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         }
     }
 
+    /**
+     * Creates a centered label for displaying welcome messages or status text.
+     * @param text The text to display in the label
+     * @return A panel containing the centered label with appropriate styling
+     */
     private fun makeCenteredLabel(text: String): JPanel {
         val label = JLabel(text)
         label.foreground = Gray._220
@@ -233,11 +295,19 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         onRestore?.invoke()
     }
 
+    /**
+     * Checks if the scroll pane is currently scrolled to the bottom.
+     * @return True if at or near the bottom of the scroll area
+     */
     private fun isAtBottom(): Boolean {
         val scrollBar = scrollPane.verticalScrollBar
         return scrollBar.value >= scrollBar.maximum - scrollBar.visibleAmount - 10
     }
 
+    /**
+     * Scrolls the chat display to the bottom.
+     * @param resetUserScrollFlag Whether to reset the user scroll tracking flag
+     */
     private fun scrollToBottom(resetUserScrollFlag: Boolean = true) {
         SwingUtilities.invokeLater {
             isUpdatingContent = true
@@ -250,7 +320,10 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         }
     }
 
-    // New method for when user explicitly sends a message
+    /**
+     * Scrolls to bottom when user explicitly sends a message.
+     * Resets scroll tracking and ensures the new message is visible.
+     */
     fun scrollToBottomOnUserAction() {
         userScrolledUp = false
         Timer(50) {
@@ -273,18 +346,30 @@ class ChatDisplayPanel(private val project: Project) : JBPanel<ChatDisplayPanel>
         scrollPane.repaint()
     }
 
+    /**
+     * Updates the text of the last message bubble without rebuilding it.
+     * Used for streaming message updates during response generation.
+     *
+     * @param newText The updated message text
+     */
     fun updateLastBubbleText(newText: String) {
         if (activeBubbles.isNotEmpty()) {
             activeBubbles.last().updateMessageTextOnly(newText)
         }
     }
 
+    /**
+     * Shows the edit mode overlay to block interaction with the chat.
+     */
     fun showEditOverlay() {
         editOverlayPanel.isVisible = true
         editOverlayPanel.revalidate()
         editOverlayPanel.repaint()
     }
 
+    /**
+     * Hides the edit mode overlay to restore normal chat interaction.
+     */
     fun hideEditOverlay() {
         editOverlayPanel.isVisible = false
         editOverlayPanel.revalidate()

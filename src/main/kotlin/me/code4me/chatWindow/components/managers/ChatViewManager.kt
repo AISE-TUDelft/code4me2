@@ -4,6 +4,9 @@ import java.awt.CardLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 
+/**
+ * Manages the chat and history views using a CardLayout.
+ */
 class ChatViewManager(
     private val chatViewName: String = "chat",
     private val historyViewName: String = "history",

@@ -13,31 +13,72 @@ import javax.swing.JButton
 import javax.swing.JPanel
 
 /**
- * Component containing the bottom control buttons and model selector
+ * Component containing the bottom control buttons and model selector for chat input.
+ *
+ * Provides controls for adding files, toggling web search, selecting models, and sending
+ * messages. Dynamically switches between send/stop buttons and can show cancel edit
+ * functionality when in edit mode.
+ *
+ * @param onWebToggle Callback invoked when web search toggle state changes
+ * @param onFileAdd Callback invoked when add file button is clicked
+ * @param onSend Callback invoked when send button is clicked
  */
 class InputControlsComponent(
     private val onWebToggle: (Boolean) -> Unit,
     private val onFileAdd: () -> Unit,
     private val onSend: () -> Unit,
 ) : JBPanel<InputControlsComponent>(BorderLayout()) {
+    /**
+     * Button for adding files to the chat context.
+     */
     private val addFileButton = createAddFileButton()
+
+    /**
+     * Toggle button for enabling/disabling web search functionality.
+     */
     private val webToggleButton = createWebToggleButton()
+
+    /**
+     * Dropdown for selecting AI model for responses.
+     */
     private val modelComboBox = ModelComboBox()
+
+    /**
+     * Button for sending chat messages.
+     */
     private val sendButton = createSendButton()
+
+    /**
+     * Button for stopping ongoing generation.
+     */
     private val stopButton = createStopButton()
+
+    /**
+     * Callback for canceling edit mode, set when edit mode is active.
+     */
     private var onCancelEdit: (() -> Unit)? = null
+
+    /**
+     * Left panel containing file, web toggle, and model selection controls.
+     */
     private val leftPanel =
         JPanel().apply {
             background = this@InputControlsComponent.background
             layout = BoxLayout(this, BoxLayout.X_AXIS)
         }
+
+    /**
+     * Right panel containing send/stop and optional cancel edit buttons.
+     */
     private val rightPanel =
         JPanel().apply {
             background = this@InputControlsComponent.background
             layout = BoxLayout(this, BoxLayout.X_AXIS)
         }
 
-    /** Optional stop handler assigned externally */
+    /**
+     * Optional stop handler assigned externally for stopping generation.
+     */
     var onStop: (() -> Unit)? = null
 
     init {
@@ -65,6 +106,9 @@ class InputControlsComponent(
         add(rightPanel, BorderLayout.EAST)
     }
 
+    /**
+     * Configures the component's background, border, and padding.
+     */
     private fun setupStyling() {
         background = JBColor.background()
         border =
@@ -123,6 +167,14 @@ class InputControlsComponent(
         )
     }
 
+    /**
+     * Shows the cancel edit button and configures edit mode layout.
+     *
+     * Adds a cancel button next to the send button for canceling message edits.
+     * The cancel button appears between other controls and the send button.
+     *
+     * @param onCancel Callback invoked when cancel edit button is clicked
+     */
     fun showCancelEditButton(onCancel: () -> Unit) {
         onCancelEdit = onCancel
         cancelEditButton.isVisible = true
@@ -134,6 +186,11 @@ class InputControlsComponent(
         rightPanel.repaint()
     }
 
+    /**
+     * Hides the cancel edit button and returns to normal layout.
+     *
+     * Removes the cancel button and resets the right panel to show only the send button.
+     */
     fun hideCancelEditButton() {
         rightPanel.removeAll()
         rightPanel.add(sendButton)
@@ -149,6 +206,13 @@ class InputControlsComponent(
 
     fun getSelectedModel(): String? = modelComboBox.getSelectedModel()
 
+    /**
+     * Switches between send and stop buttons based on generation state.
+     *
+     * Shows stop button during generation and send button when ready for input.
+     *
+     * @param isGenerating Whether response generation is currently active
+     */
     fun setGeneratingState(isGenerating: Boolean) {
         rightPanel.removeAll()
         rightPanel.add(if (isGenerating) stopButton else sendButton)

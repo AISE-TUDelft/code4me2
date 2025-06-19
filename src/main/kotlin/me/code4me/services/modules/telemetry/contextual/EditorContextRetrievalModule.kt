@@ -70,7 +70,7 @@ class EditorContextRetrievalModule : PluginModule {
         private val LOG = thisLogger()
 
         // Record key names using standardized naming conventions
-        private const val KEY_CONTEXT_LANGUAGE = "context.language"
+        private const val KEY_CONTEXT_LANGUAGE = "language_id"
         private const val KEY_CONTEXT_FILE_PATH = "context.file.path"
         private const val KEY_CONTEXT_CARET_OFFSET = "context.caret.offset"
         private const val KEY_RELATIVE_DOCUMENT_POSITION = "relative_document_position"
@@ -237,9 +237,6 @@ class EditorContextRetrievalModule : PluginModule {
                         // or via the dropdown menu or even via the chat.
                     }
                 }
-
-            val languageId = Record.Companion.key<Int>("language_id")
-            expanded[languageId] = 1
 
             // Collect selected text if preferences allow and text is selected
             if (PrefState.Companion.getPreferenceValue(
