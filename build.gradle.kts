@@ -27,7 +27,7 @@ kotlin {
 repositories {
     mavenCentral()
 
-    // IntelliJ Platform Gradle Plugin Repositories Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-repositories-extension.html
+    // IntelliJ Platform Gradle Plugin Repositories Extension
     intellijPlatform {
         defaultRepositories()
     }
@@ -42,15 +42,15 @@ dependencies {
     implementation("com.google.api-client:google-api-client:2.2.0")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.8.1")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.8.1")
-    implementation("com.google.oauth-client:google-oauth-client-jetty:1.34.1")
-    implementation("com.google.auth:google-auth-library-oauth2-http:1.20.0")
-    implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
-    implementation("com.squareup.moshi:moshi-adapters:1.15.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+    implementation("com.google.oauth-client:google-oauth-client-jetty:1.34.1") // Google OAuth Client Library
+    implementation("com.google.auth:google-auth-library-oauth2-http:1.20.0") // Google Auth Library
+    implementation("com.squareup.moshi:moshi-kotlin:1.15.1") // Moshi library for JSON parsing
+    implementation("com.squareup.moshi:moshi-adapters:1.15.1") // Moshi adapters for additional types
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
     testImplementation("org.mockito:mockito-core:5.18.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    testImplementation("io.mockk:mockk:1.14.2")
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension
     intellijPlatform {
@@ -64,6 +64,7 @@ dependencies {
 
         testFramework(TestFrameworkType.Platform)
     }
+    testImplementation(kotlin("test"))
 }
 
 // Configure IntelliJ Platform Gradle Plugin
