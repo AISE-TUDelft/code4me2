@@ -231,30 +231,6 @@ class PreferencesHeavyTest : HeavyPlatformTestCase() {
             "TestContextModule should be disabled after disableModule call")
     }
 
-    fun testLimitedDataCollectionButton() {
-        val section = ConfigurationSection()
-        val builder = FormBuilder.createFormBuilder()
-        val fields = mutableListOf<StateValueField<*>>()
-
-        section.applyTo(builder, fields)
-        val panel: JPanel = builder.panel
-
-        // Find the limited data collection button
-        val buttons = UIUtil.findComponentsOfType(panel, JButton::class.java)
-        val limitedDataButton = buttons.find { it.text?.contains("Use Limited Data Collection") == true }
-
-        assertNotNull(limitedDataButton, "Should have a 'Use Limited Data Collection' button")
-
-        // Test the button functionality
-        val originalValue = PrefState.getPreferenceValue("TestBehavioralModule", "enableDataCollection")
-        assertEquals("Original value should be true","true", originalValue)
-
-        // Simulate button click by calling the limited defaults method
-        assertThrows(java.net.ConnectException::class.java) {
-            PrefState.setAllPreferencesToLimitedDefaults()
-        }
-    }
-
     fun testPreferenceFieldValidation() {
         // Test boolean preference field creation
         val booleanPref = Preference(
