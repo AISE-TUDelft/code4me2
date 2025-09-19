@@ -3,6 +3,7 @@ package me.code4me.settings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.NlsContexts
 import me.code4me.api.generated.model.UpdateUser
@@ -30,9 +31,11 @@ import javax.swing.JComponent
  * @since 1.0.0
  * @see Code4MeConfigurableComponent
  */
-class Code4MeConfigurable : Configurable {
+class Code4MeConfigurable : SearchableConfigurable {
     private val appService = getAppService()
     private val LOG = thisLogger()
+
+    override fun getId(): String = "me.code4me.settings.Code4MeConfigurable"
 
     companion object {
         val atomicSettingsChanged = AtomicReference(false)
