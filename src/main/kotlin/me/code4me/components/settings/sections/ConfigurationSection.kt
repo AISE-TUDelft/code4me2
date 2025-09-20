@@ -4,24 +4,18 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.options.ex.Settings
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
-import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import me.code4me.api.generated.infrastructure.ClientException
-import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.components.settings.fields.FieldInfo
 import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
 import me.code4me.components.settings.fields.ModuleFloatPreferenceField
@@ -36,7 +30,6 @@ import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.manager.getModuleManager
-import me.code4me.services.project.getProjectChatService
 import me.code4me.services.state.AuthState
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getPrefState
@@ -51,7 +44,6 @@ import java.awt.Font
 import java.awt.GridLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import java.io.IOException
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
@@ -322,24 +314,36 @@ class ConfigurationSection(
                                 val moduleId = userObject.getPreferenceId()
                                 val prefState = getPrefState()
 
-                                checkbox.isOpaque = false
-                                checkbox.isSelected = prefState.enabledModules.contains(moduleId)
-
-                                val (canBeDisabled, _) = checkModuleCanBeDisabled(userObject)
-                                checkbox.isEnabled = canBeDisabled
+                                val isTopLevelNode = value.parent?.parent == null
 
                                 val label =
                                     JLabel(userObject.moduleName).apply {
-                                        if (selected) {
+                                        if (selected && !isTopLevelNode) {
                                             foreground = JBColor.WHITE
                                             background = JBColor(0x0078D7, 0x4B6EAF)
                                             isOpaque = true
                                         }
-                                        toolTipText = "Click to configure ${userObject.moduleName}"
+                                        toolTipText =
+                                            if (isTopLevelNode) {
+                                                "Click to expand or collapse" // More accurate tooltip
+                                            } else {
+                                                "Click checkbox to enable/disable, click name to configure ${userObject.moduleName}"
+                                            }
                                     }
 
-                                panel.add(checkbox, BorderLayout.WEST)
-                                panel.add(label, BorderLayout.CENTER)
+                                if (isTopLevelNode) {
+                                    panel.add(label, BorderLayout.WEST)
+                                } else {
+                                    checkbox.isOpaque = false
+                                    checkbox.isSelected = prefState.enabledModules.contains(moduleId)
+
+                                    val (canBeDisabled, _) = checkModuleCanBeDisabled(userObject)
+                                    checkbox.isEnabled = canBeDisabled
+
+                                    panel.add(checkbox, BorderLayout.WEST)
+                                    panel.add(label, BorderLayout.CENTER)
+                                }
+
                                 return panel
                             }
                         }
@@ -348,7 +352,6 @@ class ConfigurationSection(
                     }
                 }
         }
-
 
     /**
      * Panel for displaying module-specific preferences.
@@ -494,7 +497,18 @@ class ConfigurationSection(
         updateModuleTree()
 
         // Add selection listener for dynamic preference panel updates
-        moduleTree.addTreeSelectionListener { updateModulePreferencesPanel() }
+        moduleTree.addTreeSelectionListener {
+            val selectedNode = moduleTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+            if (selectedNode != null) {
+                val isTopLevelNode = selectedNode.parent?.parent == null
+
+                if (!isTopLevelNode) {
+                    updateModulePreferencesPanel()
+                }
+            } else {
+                updateModulePreferencesPanel()
+            }
+        }
 
         moduleTree.addMouseListener(
             object : MouseAdapter() {
@@ -504,16 +518,72 @@ class ConfigurationSection(
 
                     if (node.userObject !is PluginModule) return
 
-                    val rowBounds = moduleTree.getPathBounds(path) ?: return
+                    val isTopLevelNode = node.parent?.parent == null
 
+                    if (isTopLevelNode) {
+                        // previous selection for preference tab to stay the same
+                        val currentSelection = moduleTree.selectionPath
+
+                        if (moduleTree.isExpanded(path)) {
+                            moduleTree.collapsePath(path)
+                        } else {
+                            moduleTree.expandPath(path)
+                        }
+
+                        moduleTree.selectionPath = currentSelection
+                        return
+                    }
+
+                    val rowBounds = moduleTree.getPathBounds(path) ?: return
                     val checkboxWidth = 30 // Approximate checkbox width
                     if (e.x - rowBounds.x <= checkboxWidth) {
                         handleModuleToggle(node)
+                    } else {
+                        moduleTree.selectionPath = path
                     }
                 }
             },
         )
         expandAllTreeNodes()
+        updateModulePreferencesPanel()
+    }
+
+    /**
+     * Updates the module preferences panel based on current selection.
+     */
+    private fun updateModulePreferencesPanel() {
+        modulePreferencesPanel.removeAll()
+        modulePreferenceFields.clear()
+
+        val selectedNode = moduleTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+        val selectedModule = selectedNode?.userObject as? PluginModule
+
+        if (selectedModule != null) {
+            val isTopLevelNode = selectedNode.parent?.parent == null
+
+            if (isTopLevelNode) {
+                showNoSelectionMessage()
+            } else {
+                buildModulePreferencesUI(selectedModule)
+            }
+        } else {
+            showNoSelectionMessage()
+        }
+
+        modulePreferencesPanel.revalidate()
+        modulePreferencesPanel.repaint()
+    }
+
+    /**
+     * Shows a message when no valid module is selected.
+     */
+    private fun showNoSelectionMessage() {
+        modulePreferencesPanel.add(
+            JLabel("Select a module to manage preferences").apply {
+                foreground = JBColor.GRAY
+                font = font.deriveFont(Font.ITALIC)
+            },
+        )
     }
 
     private fun handleModuleToggle(node: DefaultMutableTreeNode) {
@@ -555,8 +625,19 @@ class ConfigurationSection(
      * Expands all nodes in the module tree.
      */
     private fun expandAllTreeNodes() {
-        for (i in 0 until moduleTree.rowCount) {
-            moduleTree.expandRow(i)
+        val root = moduleTreeModel.root as DefaultMutableTreeNode
+        expandAllNodesRecursively(root)
+    }
+
+    private fun expandAllNodesRecursively(node: DefaultMutableTreeNode) {
+        if (node.childCount > 0) {
+            val path = TreePath(node.path)
+            moduleTree.expandPath(path)
+
+            for (i in 0 until node.childCount) {
+                val child = node.getChildAt(i) as DefaultMutableTreeNode
+                expandAllNodesRecursively(child)
+            }
         }
     }
 
@@ -646,26 +727,6 @@ class ConfigurationSection(
             findModuleNodeById(moduleId, child)?.let { return it }
         }
         return null
-    }
-
-    /**
-     * Updates the module preferences panel based on current selection.
-     */
-    private fun updateModulePreferencesPanel() {
-        modulePreferencesPanel.removeAll()
-        modulePreferenceFields.clear()
-
-        val selectedNode = moduleTree.lastSelectedPathComponent as? DefaultMutableTreeNode
-        val selectedModule = selectedNode?.userObject as? PluginModule
-
-        if (selectedModule != null) {
-            buildModulePreferencesUI(selectedModule)
-        } else {
-            showNoSelectionMessage()
-        }
-
-        modulePreferencesPanel.revalidate()
-        modulePreferencesPanel.repaint()
     }
 
     /**
@@ -1201,15 +1262,6 @@ class ConfigurationSection(
         return panel
     }
 
-    /**
-     * Shows a message when no module is selected.
-     */
-    private fun showNoSelectionMessage() {
-        modulePreferencesPanel.add(
-            JLabel("Select a module from the tree to view and configure its preferences"),
-        )
-    }
-
     override fun applyTo(
         builder: FormBuilder,
         stateValueFields: MutableList<StateValueField<*>>,
@@ -1427,219 +1479,5 @@ class ConfigurationSection(
                 "Sign Out Error",
             )
         }
-    }
-
-    /**
-     * Dialog for modifying user profile information with chat panel integration.
-     */
-    private inner class UserModificationDialog(private val authState: me.code4me.services.state.AuthSettings) : DialogWrapper(true) {
-        private val nameField = JBTextField(authState.getUserName() ?: "")
-        private val emailField = JBTextField(authState.getUserEmail() ?: "")
-        private val oldPasswordField = JBPasswordField()
-        private val newPasswordField = JBPasswordField()
-        private val confirmPasswordField = JBPasswordField()
-        private val deleteDataCheckbox = JBCheckBox("Also delete my data")
-
-        init {
-            title = "Modify Profile"
-            init()
-        }
-
-        override fun createCenterPanel(): JComponent {
-            val dialogPanel = JPanel()
-            dialogPanel.layout = BoxLayout(dialogPanel, BoxLayout.Y_AXIS)
-            dialogPanel.border = JBUI.Borders.empty(10)
-
-            // Name change section
-            val namePanel = JPanel(BorderLayout())
-            namePanel.border = JBUI.Borders.emptyBottom(10)
-            namePanel.add(JLabel("New Name:"), BorderLayout.WEST)
-            namePanel.add(nameField, BorderLayout.CENTER)
-            dialogPanel.add(namePanel)
-
-            // Email change section
-            val emailPanel = JPanel(BorderLayout())
-            emailPanel.border = JBUI.Borders.emptyBottom(10)
-            emailPanel.add(JLabel("New Email:"), BorderLayout.WEST)
-            emailPanel.add(emailField, BorderLayout.CENTER)
-            dialogPanel.add(emailPanel)
-
-            // Password change section
-            val passwordPanel = JPanel()
-            passwordPanel.layout = BoxLayout(passwordPanel, BoxLayout.Y_AXIS)
-            passwordPanel.border = JBUI.Borders.emptyBottom(10)
-
-            val oldPasswordPanel = JPanel(BorderLayout())
-            oldPasswordPanel.add(JLabel("Current Password:"), BorderLayout.WEST)
-            oldPasswordPanel.add(oldPasswordField, BorderLayout.CENTER)
-
-            val newPasswordPanel = JPanel(BorderLayout())
-            newPasswordPanel.add(JLabel("New Password:"), BorderLayout.WEST)
-            newPasswordPanel.add(newPasswordField, BorderLayout.CENTER)
-
-            val confirmPasswordPanel = JPanel(BorderLayout())
-            confirmPasswordPanel.add(JLabel("Confirm Password:"), BorderLayout.WEST)
-            confirmPasswordPanel.add(confirmPasswordField, BorderLayout.CENTER)
-
-            passwordPanel.add(oldPasswordPanel)
-            passwordPanel.add(Box.createVerticalStrut(5))
-            passwordPanel.add(newPasswordPanel)
-            passwordPanel.add(Box.createVerticalStrut(5))
-            passwordPanel.add(confirmPasswordPanel)
-
-            val passwordNote = JLabel("Leave password fields empty if you don't want to change your password")
-            passwordNote.foreground = JBColor.GRAY
-            passwordPanel.add(passwordNote)
-
-            dialogPanel.add(passwordPanel)
-
-            // Account deletion section
-            val deletePanel = JPanel(BorderLayout())
-            deletePanel.border = JBUI.Borders.emptyTop(10)
-
-            val deleteButton = JButton("Delete Account")
-            deleteButton.foreground = JBColor.RED
-
-            deleteDataCheckbox.toolTipText = "If checked, all your data will be permanently deleted"
-
-            val deleteOptionsPanel = JPanel(BorderLayout())
-            deleteOptionsPanel.add(deleteDataCheckbox, BorderLayout.WEST)
-            deleteOptionsPanel.add(deleteButton, BorderLayout.EAST)
-
-            deleteButton.addActionListener {
-                val willDeleteData = deleteDataCheckbox.isSelected
-
-                val confirmMessage =
-                    if (willDeleteData) {
-                        "Are you sure you want to delete your account AND all your data? " +
-                            "This action cannot be undone and will permanently remove all your information from our servers."
-                    } else {
-                        "Are you sure you want to delete your account? This action cannot be undone."
-                    }
-
-                val confirmResult =
-                    Messages.showYesNoDialog(
-                        confirmMessage,
-                        "Confirm Account Deletion",
-                        "Delete Account",
-                        "Cancel",
-                        Messages.getWarningIcon(),
-                    )
-
-                if (confirmResult == Messages.YES) {
-                    try {
-                        // Clear chat data explicitly for all projects before account deletion
-                        ProjectManager.getInstance().openProjects.forEach { project ->
-                            try {
-                                val chatService = getProjectChatService(project)
-                                chatService.clearAllChatsAndMemory()
-
-                                // Force persistence of the cleared state
-                                com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
-                                    project.save()
-                                }
-
-                                LOG.info("Cleared all chat sessions for project: ${project.name}")
-                            } catch (e: Exception) {
-                                throw e
-                                // ProcessCanceledException cannot be not thrown
-                            }
-                        }
-
-                        // Pass the checkbox state to determine if user data should be deleted
-                        appService.deleteUser(willDeleteData)
-
-                        // Clear local data immediately after account deletion
-                        authState.clearUserData()
-
-                        val successMessage =
-                            if (willDeleteData) {
-                                "Your account and all associated data have been deleted successfully."
-                            } else {
-                                "Your account has been deleted successfully."
-                            }
-
-                        Messages.showInfoMessage(
-                            successMessage,
-                            "Account Deleted",
-                        )
-
-                        // Update chat panel overlays immediately after account deletion
-                        updateChatPanelOverlays()
-
-                        close(OK_EXIT_CODE)
-                    } catch (e: Exception) {
-                        val errorMessage =
-                            when (e) {
-                                is ClientException -> "Failed to delete account. Please check your authentication."
-                                is ServerException -> "Server error occurred during account deletion. Please try again later."
-                                is IOException -> "Network error occurred. Please check your connection."
-                                is ProcessCanceledException -> throw e
-                                // ProcessCanceledException cannot be not thrown
-                                else -> "An error occurred while deleting your account: ${e.message}"
-                            }
-
-                        Messages.showErrorDialog(
-                            errorMessage,
-                            "Delete Account Error",
-                        )
-                    }
-                }
-            }
-
-            deletePanel.add(deleteOptionsPanel, BorderLayout.CENTER)
-            dialogPanel.add(deletePanel)
-
-            return dialogPanel
-        }
-
-        override fun doValidate(): ValidationInfo? {
-            val newPassword = String(newPasswordField.password)
-            val confirmPassword = String(confirmPasswordField.password)
-
-            // If user wants to change password, validate password fields
-            if (newPassword.isNotEmpty() || confirmPassword.isNotEmpty()) {
-                if (String(oldPasswordField.password).isEmpty()) {
-                    return ValidationInfo("Current password is required to change password", oldPasswordField)
-                }
-
-                if (newPassword.isEmpty()) {
-                    return ValidationInfo("New password cannot be empty", newPasswordField)
-                }
-
-                if (newPassword != confirmPassword) {
-                    return ValidationInfo("Passwords do not match", confirmPasswordField)
-                }
-
-                // check that the password is at least 8 characters long and conforms to the regex
-                if (newPassword.length < 8 && !newPassword.matches(Regex("^(?=.[A-Z])(?=.[a-z])(?=.*\\d)\\S{8,}$"))) {
-                    return ValidationInfo("Password must be at least 8 characters long", newPasswordField)
-                }
-            }
-
-            // Check if at least one field has been modified
-            val nameChanged = nameField.text.trim() != (authState.getUserName() ?: "")
-            val emailChanged = emailField.text.trim() != (authState.getUserEmail() ?: "")
-            val passwordChanged = newPassword.isNotEmpty()
-
-            if (!nameChanged && !emailChanged && !passwordChanged) {
-                return ValidationInfo("Please make at least one change to update your profile")
-            }
-
-            return null
-        }
-
-        override fun doOKAction() {
-            refreshUserInfoPanel()
-            super.doOKAction()
-        }
-
-        fun getNewName(): String = nameField.text.trim()
-
-        fun getOldPassword(): String = String(oldPasswordField.password)
-
-        fun getNewPassword(): String = String(newPasswordField.password)
-
-        fun getNewEmail(): String = emailField.text.trim()
     }
 }
