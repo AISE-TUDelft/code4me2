@@ -72,12 +72,7 @@ class ConfigurationConfigurable : SearchableConfigurable {
                 try {
                     val builder = FormBuilder.createFormBuilder()
                     val configSection =
-                        ConfigurationSection(
-                            onOpenUserSection = {
-                                com.intellij.openapi.options.ShowSettingsUtil.getInstance()
-                                    .showSettingsDialog(null, UserConfigurable::class.java)
-                            },
-                        )
+                        ConfigurationSection()
                     configSection.applyTo(builder, fieldStates)
                     panel.add(builder.panel, BorderLayout.CENTER)
                 } catch (e: Exception) {

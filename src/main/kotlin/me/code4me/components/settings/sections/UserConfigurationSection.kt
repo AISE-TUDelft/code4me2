@@ -72,6 +72,10 @@ class UserSection(
         private const val BUTTON_HEIGHT = 32
     }
 
+    private var userNameLabelRef: JLabel? = null
+    private var userEmailLabelRef: JLabel? = null
+    private var verificationCardRef: JPanel? = null
+
     // Button styling enum
     private enum class ButtonType { PRIMARY, SECONDARY, DANGER }
 
@@ -331,6 +335,9 @@ class UserSection(
                     alignmentX = LEFT_ALIGNMENT
                 }
 
+            userNameLabelRef = nameLabel
+            userEmailLabelRef = emailLabel
+
             add(nameLabel)
             add(Box.createVerticalStrut(4))
             add(emailLabel)
@@ -345,12 +352,15 @@ class UserSection(
             createCard("Verification Status") {
                 JPanel(BorderLayout()).apply {
                     background = JBColor.background()
-                    // Content will be updated dynamically
                 }
             }
 
+        verificationCardRef = verificationCard
         updateVerificationContent(verificationCard)
         return verificationCard
+    }
+    private fun refreshVerificationUI() {
+        verificationCardRef?.let { updateVerificationContent(it) }
     }
 
     /**
@@ -450,17 +460,17 @@ class UserSection(
                 JPanel(GridLayout(1, 2, 12, 0)).apply {
                     background = JBColor.background()
 
-                    val modifyButton = createStyledButton("Edit Profile", ButtonType.PRIMARY)
-                    modifyButton.toolTipText = "Change your profile information"
-                    modifyButton.addActionListener {
-                        showUserModificationDialog()
-                    }
+                    val modifyButton =
+                        createStyledButton("Edit Profile", ButtonType.PRIMARY).apply {
+                            toolTipText = "Change your profile information"
+                            addActionListener { showProfileEditDialog() }
+                        }
 
-                    val changePasswordButton = createStyledButton("Change Password", ButtonType.SECONDARY)
-                    changePasswordButton.toolTipText = "Update your account password"
-                    changePasswordButton.addActionListener {
-                        showUserModificationDialog()
-                    }
+                    val changePasswordButton =
+                        createStyledButton("Change Password", ButtonType.SECONDARY).apply {
+                            toolTipText = "Update your account password"
+                            addActionListener { showPasswordChangeDialog() }
+                        }
 
                     add(modifyButton)
                     add(changePasswordButton)
@@ -495,63 +505,205 @@ class UserSection(
         return panel
     }
 
-    /**
-     * Shows a dialog for modifying user profile information.
-     */
-    private fun showUserModificationDialog() {
-        val dialog = UserModificationDialog(authState)
+    private fun refreshUserInfoUI() {
+        userNameLabelRef?.text = authState.getUserName() ?: "Unknown User"
+        userEmailLabelRef?.text = authState.getUserEmail() ?: "Unknown Email"
+        userNameLabelRef?.parent?.revalidate()
+        userNameLabelRef?.parent?.repaint()
+    }
 
-        if (dialog.showAndGet()) {
-            val newName = dialog.getNewName()
-            val oldPassword = dialog.getOldPassword()
-            val newPassword = dialog.getNewPassword()
-            val newEmail = dialog.getNewEmail()
+    private inner class ProfileEditDialog(
+        private val authState: me.code4me.services.state.AuthSettings,
+    ) : DialogWrapper(true) {
+        private val nameField = JBTextField(authState.getUserName() ?: "")
+        private val emailField = JBTextField(authState.getUserEmail() ?: "")
 
-            try {
-                // Build UpdateUser object with only non-empty fields
-                val updateUser =
-                    UpdateUser(
-                        name = if (newName.isNotBlank() && newName != authState.getUserName()) newName else null,
-                        email = if (newEmail.isNotBlank() && newEmail != authState.getUserEmail()) newEmail else null,
-                        previousPassword = oldPassword.ifBlank { null },
-                        password = newPassword.ifBlank { null },
-                    )
+        init {
+            title = "Edit Profile"
+            init()
+        }
 
-                // Check if at least one field is being updated
-                val hasUpdates = listOf(updateUser.name, updateUser.email, updateUser.password).any { it != null }
+        override fun createCenterPanel(): JComponent {
+            val panel = JPanel()
+            panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+            panel.border = JBUI.Borders.empty(10)
 
-                if (hasUpdates) {
-                    appService.updateUser(updateUser)
-
-                    // Update local state if name or email changed
-                    updateUser.name?.let { authState.setUserName(it) }
-                    updateUser.email?.let { authState.setUserEmail(it) }
-
-                    Messages.showInfoMessage(
-                        "Your profile has been updated successfully.",
-                        "Profile Updated",
-                    )
-                } else {
-                    Messages.showInfoMessage(
-                        "No changes were made to your profile.",
-                        "No Updates",
-                    )
+            val namePanel =
+                JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.emptyBottom(10)
+                    add(JLabel("New Name:"), BorderLayout.WEST)
+                    add(nameField, BorderLayout.CENTER)
                 }
-            } catch (e: Exception) {
-                LOG.error("Failed to update user profile", e)
-                val errorMessage =
-                    when (e) {
-                        is ClientException -> "Invalid input or authentication failed. Please check your current password."
-                        is ServerException -> "Server error occurred. Please try again later."
-                        is IOException -> "Network error occurred. Please check your connection."
-                        else -> "An unexpected error occurred: ${e.message}"
-                    }
 
-                Messages.showErrorDialog(
-                    errorMessage,
-                    "Profile Update Error",
-                )
+            val emailPanel =
+                JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.emptyBottom(10)
+                    add(JLabel("New Email:"), BorderLayout.WEST)
+                    add(emailField, BorderLayout.CENTER)
+                }
+
+            panel.add(namePanel)
+            panel.add(emailPanel)
+            return panel
+        }
+
+        override fun doValidate(): ValidationInfo? {
+            val nameChanged = nameField.text.trim() != (authState.getUserName() ?: "")
+            val emailChanged = emailField.text.trim() != (authState.getUserEmail() ?: "")
+
+            if (!nameChanged && !emailChanged) {
+                return ValidationInfo("Please change at least one field to update your profile")
             }
+
+            // Basic email sanity check (optional, server still validates)
+            if (emailChanged && !emailField.text.contains("@")) {
+                return ValidationInfo("Please enter a valid email address", emailField)
+            }
+
+            return null
+        }
+
+        fun getNewName(): String = nameField.text.trim()
+
+        fun getNewEmail(): String = emailField.text.trim()
+    }
+
+    private inner class PasswordChangeDialog : DialogWrapper(true) {
+        private val oldPasswordField = JBPasswordField()
+        private val newPasswordField = JBPasswordField()
+        private val confirmPasswordField = JBPasswordField()
+
+        init {
+            title = "Change Password"
+            init()
+        }
+
+        override fun createCenterPanel(): JComponent {
+            val dialogPanel = JPanel()
+            dialogPanel.layout = BoxLayout(dialogPanel, BoxLayout.Y_AXIS)
+            dialogPanel.border = JBUI.Borders.empty(10)
+
+            fun row(
+                label: String,
+                field: JComponent,
+            ) = JPanel(BorderLayout()).apply {
+                border = JBUI.Borders.emptyBottom(8)
+                add(JLabel(label), BorderLayout.WEST)
+                add(field, BorderLayout.CENTER)
+            }
+
+            dialogPanel.add(row("Current Password:", oldPasswordField))
+            dialogPanel.add(row("New Password:", newPasswordField))
+            dialogPanel.add(row("Confirm Password:", confirmPasswordField))
+
+            val note = JLabel("Password must be at least 8 characters, include upper, lower, and a digit.")
+            note.foreground = JBColor.GRAY
+            dialogPanel.add(note)
+
+            return dialogPanel
+        }
+
+        override fun doValidate(): ValidationInfo? {
+            val oldPwd = String(oldPasswordField.password)
+            val newPwd = String(newPasswordField.password)
+            val confirm = String(confirmPasswordField.password)
+
+            if (oldPwd.isBlank()) return ValidationInfo("Current password is required", oldPasswordField)
+            if (newPwd.isBlank()) return ValidationInfo("New password cannot be empty", newPasswordField)
+            if (newPwd != confirm) return ValidationInfo("Passwords do not match", confirmPasswordField)
+
+            // strong password check (note: use OR not AND)
+            if (!(newPwd.length >= 8 && newPwd.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$")))) {
+                return ValidationInfo("Password must be 8+ chars with upper, lower, and a digit", newPasswordField)
+            }
+
+            return null
+        }
+
+        fun getOldPassword(): String = String(oldPasswordField.password)
+
+        fun getNewPassword(): String = String(newPasswordField.password)
+    }
+
+    private fun showProfileEditDialog() {
+        val dialog = ProfileEditDialog(authState)
+        if (!dialog.showAndGet()) return
+
+        val newName = dialog.getNewName()
+        val newEmail = dialog.getNewEmail()
+
+        try {
+            val updateUser =
+                UpdateUser(
+                    name = if (newName.isNotBlank() && newName != authState.getUserName()) newName else null,
+                    email = if (newEmail.isNotBlank() && newEmail != authState.getUserEmail()) newEmail else null,
+                    previousPassword = null,
+                    password = null,
+                )
+
+            val hasUpdates = listOf(updateUser.name, updateUser.email).any { it != null }
+            if (!hasUpdates) {
+                Messages.showInfoMessage("No changes were made to your profile.", "No Updates")
+                return
+            }
+
+            appService.updateUser(updateUser)
+
+            updateUser.name?.let { authState.setUserName(it) }
+            updateUser.email?.let { authState.setUserEmail(it) }
+
+            refreshUserInfoUI()
+            refreshVerificationUI()
+
+            Messages.showInfoMessage("Your profile has been updated successfully.", "Profile Updated")
+        } catch (e: Exception) {
+            LOG.error("Failed to update user profile", e)
+            val errorMessage =
+                when (e) {
+                    is ClientException -> "Invalid input or authentication failed."
+                    is ServerException -> "Server error occurred. Please try again later."
+                    is IOException -> "Network error occurred. Please check your connection."
+                    else -> "An unexpected error occurred: ${e.message}"
+                }
+            Messages.showErrorDialog(errorMessage, "Profile Update Error")
+        }
+    }
+
+
+
+    private fun showPasswordChangeDialog() {
+        val dialog = PasswordChangeDialog()
+        if (!dialog.showAndGet()) return
+
+        val oldPassword = dialog.getOldPassword()
+        val newPassword = dialog.getNewPassword()
+
+        try {
+            val updateUser =
+                UpdateUser(
+                    name = null,
+                    email = null,
+                    previousPassword = oldPassword.ifBlank { null },
+                    password = newPassword.ifBlank { null },
+                )
+
+            if (updateUser.password == null || updateUser.previousPassword == null) {
+                Messages.showInfoMessage("No password change requested.", "No Updates")
+                return
+            }
+
+            appService.updateUser(updateUser)
+            Messages.showInfoMessage("Your password has been updated successfully.", "Password Updated")
+        } catch (e: Exception) {
+            LOG.error("Failed to update password", e)
+            val errorMessage =
+                when (e) {
+                    is ClientException -> "Invalid password or authentication failed. Please check your current password."
+                    is ServerException -> "Server error occurred. Please try again later."
+                    is IOException -> "Network error occurred. Please check your connection."
+                    else -> "An unexpected error occurred: ${e.message}"
+                }
+            Messages.showErrorDialog(errorMessage, "Password Update Error")
         }
     }
 

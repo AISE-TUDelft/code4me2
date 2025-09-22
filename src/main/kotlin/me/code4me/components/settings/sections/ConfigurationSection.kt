@@ -83,26 +83,26 @@ import javax.swing.tree.TreeSelectionModel
  *
  * @since 1.0.0
  */
-class ConfigurationSection(
-    private val onOpenUserSection: (() -> Unit)? = null,
-) : SettingsSection {
-    private val manageProfileButton =
+class ConfigurationSection() : SettingsSection {
+    val manageProfileButton =
         JButton("Manage Profile").apply {
+            toolTipText = "Open Code4Me → User settings"
+            putClientProperty("JButton.buttonType", "link")
+            isContentAreaFilled = false
+            isBorderPainted = false
+            isFocusPainted = false
             addActionListener {
-                val dc = DataManager.getInstance().getDataContext(this)
-                val settings = dc.getData(Settings.KEY)
+                val dc = com.intellij.ide.DataManager.getInstance().getDataContext(this)
+                val settings = dc.getData(com.intellij.openapi.options.ex.Settings.KEY)
                 if (settings != null) {
-                    // Find the existing UserConfigurable instance in the open Settings dialog
                     val userCfg = settings.find(UserConfigurable::class.java)
                     if (userCfg != null) {
-                        settings.select(userCfg) // ✅ pass the Configurable instance
+                        settings.select(userCfg)
                     } else {
-                        // Fallback if not found in current dialog
                         com.intellij.openapi.options.ShowSettingsUtil.getInstance()
                             .showSettingsDialog(null, UserConfigurable::class.java)
                     }
                 } else {
-                    // No Settings dialog open: open a new one
                     com.intellij.openapi.options.ShowSettingsUtil.getInstance()
                         .showSettingsDialog(null, UserConfigurable::class.java)
                 }
@@ -1338,7 +1338,7 @@ class ConfigurationSection(
             val titlePanel =
                 JPanel(BorderLayout()).apply {
                     val titleLabel =
-                        JBLabel("Settings").apply {
+                        JBLabel("Configuration Settings").apply {
                             font = font.deriveFont(font.style or Font.BOLD)
                         }
                     add(titleLabel, BorderLayout.WEST)
