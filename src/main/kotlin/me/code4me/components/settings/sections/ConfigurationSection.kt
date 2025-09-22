@@ -52,7 +52,6 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JScrollPane
-import javax.swing.JSeparator
 import javax.swing.JSplitPane
 import javax.swing.JTree
 import javax.swing.Timer
@@ -66,7 +65,6 @@ import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
 import javax.swing.tree.TreeSelectionModel
-import kotlin.invoke
 
 /**
  * Settings section for authenticated users to manage application configuration.
@@ -500,11 +498,7 @@ class ConfigurationSection(
         moduleTree.addTreeSelectionListener {
             val selectedNode = moduleTree.lastSelectedPathComponent as? DefaultMutableTreeNode
             if (selectedNode != null) {
-                val isTopLevelNode = selectedNode.parent?.parent == null
-
-                if (!isTopLevelNode) {
-                    updateModulePreferencesPanel()
-                }
+                updateModulePreferencesPanel()
             } else {
                 updateModulePreferencesPanel()
             }
@@ -521,16 +515,8 @@ class ConfigurationSection(
                     val isTopLevelNode = node.parent?.parent == null
 
                     if (isTopLevelNode) {
-                        // previous selection for preference tab to stay the same
-                        val currentSelection = moduleTree.selectionPath
+                        moduleTree.selectionPath = path
 
-                        if (moduleTree.isExpanded(path)) {
-                            moduleTree.collapsePath(path)
-                        } else {
-                            moduleTree.expandPath(path)
-                        }
-
-                        moduleTree.selectionPath = currentSelection
                         return
                     }
 
@@ -559,19 +545,95 @@ class ConfigurationSection(
         val selectedModule = selectedNode?.userObject as? PluginModule
 
         if (selectedModule != null) {
-            val isTopLevelNode = selectedNode.parent?.parent == null
-
-            if (isTopLevelNode) {
-                showNoSelectionMessage()
-            } else {
-                buildModulePreferencesUI(selectedModule)
-            }
+            buildModulePreferencesUI(selectedModule)
         } else {
             showNoSelectionMessage()
         }
 
         modulePreferencesPanel.revalidate()
         modulePreferencesPanel.repaint()
+    }
+
+    /**
+     * Builds the preferences UI for the selected module.
+     */
+    private fun buildModulePreferencesUI(module: PluginModule) {
+        addModuleHeader(module)
+        addModuleDescription(module)
+        addModuleStatus(module)
+
+        val preferences = PrefState.getModulePreferences(module.getPreferenceId())
+        if (preferences.isNotEmpty()) {
+            addModulePreferences(module)
+        }
+
+        modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
+    }
+
+    /**
+     * Adds module description to the preferences panel.
+     */
+    private fun addModuleDescription(module: PluginModule) {
+        val descriptionText =
+            try {
+                val cfg = getConfig()
+                val top = cfg.getAvailableModules()
+                val all = top + top.flatMap { it.submodules }
+
+                val runtimeId = module.getPreferenceId()
+                val runtimeClass = module.javaClass.name
+                val runtimeName = module.moduleName
+
+                val mc =
+                    all.firstOrNull {
+                        it.id == runtimeId || it.className == runtimeClass || it.name == runtimeName
+                    }
+                mc?.description ?: ""
+            } catch (_: Exception) {
+                ""
+            }
+
+        if (descriptionText.isBlank()) return
+
+        val descriptionArea =
+            JBTextArea(descriptionText).apply {
+                isEditable = false
+                lineWrap = true
+                wrapStyleWord = true
+                background = modulePreferencesPanel.background
+                font = JLabel().font
+                border = JBUI.Borders.empty(0, 0, 6, 0)
+                rows =
+                    when {
+                        descriptionText.length > 200 -> 4
+                        descriptionText.length > 100 -> 3
+                        else -> 2
+                    }
+            }
+        modulePreferencesPanel.add(descriptionArea)
+        modulePreferencesPanel.add(JLabel())
+    }
+
+    /**
+     * Adds module-specific preference controls to the panel.
+     */
+    private fun addModulePreferences(module: PluginModule) {
+        val preferences = PrefState.getModulePreferences(module.getPreferenceId())
+
+        if (preferences.isNotEmpty()) {
+            val prefsHeaderLabel =
+                JLabel("Module Preferences").apply {
+                    font = font.deriveFont(Font.BOLD)
+                }
+            modulePreferencesPanel.add(prefsHeaderLabel)
+            modulePreferencesPanel.add(JLabel())
+        }
+
+        preferences.forEach { preference ->
+            addPreferenceField(module, preference)
+        }
+
+        modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
     }
 
     /**
@@ -730,19 +792,6 @@ class ConfigurationSection(
     }
 
     /**
-     * Builds the preferences UI for the selected module.
-     */
-    private fun buildModulePreferencesUI(module: PluginModule) {
-        // Module header
-        addModuleHeader(module)
-
-        addModulePreferences(module)
-
-        // Add spacing at the end
-        modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
-    }
-
-    /**
      * Adds module header information to the preferences panel.
      */
     private fun addModuleHeader(module: PluginModule) {
@@ -751,46 +800,22 @@ class ConfigurationSection(
                 font = font.deriveFont(Font.BOLD)
             }
         modulePreferencesPanel.add(moduleNameLabel)
-        modulePreferencesPanel.add(JLabel()) // Spacing
+        modulePreferencesPanel.add(JLabel())
+    }
 
-        val separator = JSeparator()
-        modulePreferencesPanel.add(separator)
-        modulePreferencesPanel.add(JLabel()) // Spacing
-
+    private fun addModuleStatus(module: PluginModule) {
+        val node = findModuleNodeById(module.getPreferenceId())
+        val isTopLevelNode = node?.parent?.parent == null
+        if (isTopLevelNode) return // no status for top-level nodes
         val prefState = getPrefState()
         val isEnabled = prefState.enabledModules.contains(module.getPreferenceId())
-
         val statusLabel =
             JLabel("Status: ${if (isEnabled) "Enabled" else "Disabled"}").apply {
                 foreground = if (isEnabled) JBColor.GREEN else JBColor.RED
+                border = JBUI.Borders.empty(6, 0, 6, 0)
             }
         modulePreferencesPanel.add(statusLabel)
-        modulePreferencesPanel.add(JLabel()) // Spacing
-    }
-
-    /**
-     * Adds module-specific preference controls to the panel.
-     */
-    private fun addModulePreferences(module: PluginModule) {
-        val preferences = PrefState.getModulePreferences(module.getPreferenceId())
-
-        if (preferences.isNotEmpty()) {
-            val prefsHeaderLabel =
-                JLabel("Module Preferences").apply {
-                    font = font.deriveFont(Font.BOLD)
-                }
-            modulePreferencesPanel.add(prefsHeaderLabel)
-            modulePreferencesPanel.add(JLabel()) // Spacing
-        }
-
-        preferences.forEach { preference ->
-            addPreferenceField(module, preference)
-        }
-        if (preferences.isEmpty()) {
-            modulePreferencesPanel.add(JLabel("No preferences available for this module."))
-        }
-        // add some spacing at the end
-        modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
+        modulePreferencesPanel.add(JLabel())
     }
 
     /**
