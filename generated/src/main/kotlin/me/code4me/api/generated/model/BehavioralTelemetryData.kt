@@ -37,7 +37,7 @@ data class BehavioralTelemetryData (
     val timeSinceLastAccepted: kotlin.Int? = null,
 
     @Json(name = "typing_speed")
-    val typingSpeed: kotlin.Int? = null
+    val typingSpeed: kotlin.Float? = null
 
 ) {
 

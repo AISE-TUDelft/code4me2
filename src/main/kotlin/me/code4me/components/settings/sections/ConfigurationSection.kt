@@ -1,28 +1,21 @@
 package me.code4me.components.settings.sections
-
+import com.intellij.ide.DataManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.options.ex.Settings
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
-import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import groovy.lang.Tuple2
-import me.code4me.api.generated.infrastructure.ClientException
-import me.code4me.api.generated.infrastructure.ServerException
-import me.code4me.api.generated.model.UpdateUser
 import me.code4me.components.settings.fields.FieldInfo
 import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
 import me.code4me.components.settings.fields.ModuleFloatPreferenceField
@@ -37,10 +30,10 @@ import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.PluginModule
 import me.code4me.services.modules.manager.getModuleManager
-import me.code4me.services.project.getProjectChatService
 import me.code4me.services.state.AuthState
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getPrefState
+import me.code4me.settings.UserConfigurable
 import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceType
@@ -48,10 +41,9 @@ import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.Font
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
 import java.awt.GridLayout
-import java.io.IOException
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
@@ -60,7 +52,7 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JScrollPane
-import javax.swing.JSeparator
+import javax.swing.JSplitPane
 import javax.swing.JTree
 import javax.swing.Timer
 import javax.swing.event.DocumentEvent
@@ -71,6 +63,7 @@ import javax.swing.text.PlainDocument
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.DefaultTreeModel
+import javax.swing.tree.TreePath
 import javax.swing.tree.TreeSelectionModel
 
 /**
@@ -90,7 +83,32 @@ import javax.swing.tree.TreeSelectionModel
  *
  * @since 1.0.0
  */
-class ConfigurationSection : SettingsSection {
+class ConfigurationSection() : SettingsSection {
+    val manageProfileButton =
+        JButton("Manage Profile").apply {
+            toolTipText = "Open Code4Me → User settings"
+            putClientProperty("JButton.buttonType", "link")
+            isContentAreaFilled = false
+            isBorderPainted = false
+            isFocusPainted = false
+            addActionListener {
+                val dc = com.intellij.ide.DataManager.getInstance().getDataContext(this)
+                val settings = dc.getData(com.intellij.openapi.options.ex.Settings.KEY)
+                if (settings != null) {
+                    val userCfg = settings.find(UserConfigurable::class.java)
+                    if (userCfg != null) {
+                        settings.select(userCfg)
+                    } else {
+                        com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+                            .showSettingsDialog(null, UserConfigurable::class.java)
+                    }
+                } else {
+                    com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+                        .showSettingsDialog(null, UserConfigurable::class.java)
+                }
+            }
+        }
+
     companion object {
         private val LOG = thisLogger()
 
@@ -180,6 +198,9 @@ class ConfigurationSection : SettingsSection {
                 // force a rebuild of the module tree
                 updateModuleTree()
 
+                // update application-level checkboxes
+                refreshApplicationPreferences()
+
                 // Show modal dialog indicating success
                 Messages.showInfoMessage(
                     "All module preferences have been set to use limited data collection values.",
@@ -187,6 +208,15 @@ class ConfigurationSection : SettingsSection {
                 )
             }
         }
+
+    /**
+     * Refreshes the application-level preference checkboxes to reflect current state values.
+     */
+    private fun refreshApplicationPreferences() {
+        storeContextFieldSVF.setFieldValue(storeContextFieldSVF.getStateValue())
+        storeContextualTelemetryFieldSVF.setFieldValue(storeContextualTelemetryFieldSVF.getStateValue())
+        storeBehavioralTelemetryFieldSVF.setFieldValue(storeBehavioralTelemetryFieldSVF.getStateValue())
+    }
 
     private val limitedDataCollectionFieldSVF =
         object : StateValueField<Boolean> {
@@ -258,11 +288,13 @@ class ConfigurationSection : SettingsSection {
             showsRootHandles = true
             selectionModel.selectionMode = TreeSelectionModel.SINGLE_TREE_SELECTION
             border = BorderFactory.createEtchedBorder()
-            toolTipText = "Select a module to view and configure its preferences"
+            toolTipText = "Click checkboxes to enable/disable modules, click names for preferences"
 
             // Custom renderer for displaying module information
             cellRenderer =
                 object : DefaultTreeCellRenderer() {
+                    private val checkbox = JBCheckBox()
+
                     override fun getTreeCellRendererComponent(
                         tree: JTree,
                         value: Any,
@@ -272,26 +304,49 @@ class ConfigurationSection : SettingsSection {
                         row: Int,
                         hasFocus: Boolean,
                     ): Component {
-                        val component =
-                            super.getTreeCellRendererComponent(
-                                tree,
-                                value,
-                                selected,
-                                expanded,
-                                leaf,
-                                row,
-                                hasFocus,
-                            )
+                        val panel = JPanel(BorderLayout()).apply { isOpaque = false }
 
-                        if (component is JLabel && value is DefaultMutableTreeNode) {
+                        if (value is DefaultMutableTreeNode) {
                             val userObject = value.userObject
                             if (userObject is PluginModule) {
-                                component.text = userObject.moduleName
-                                component.toolTipText = "Click to configure ${userObject.moduleName}"
+                                val moduleId = userObject.getPreferenceId()
+                                val prefState = getPrefState()
+
+                                val isTopLevelNode = value.parent?.parent == null
+
+                                val label =
+                                    JLabel(userObject.moduleName).apply {
+                                        if (selected && !isTopLevelNode) {
+                                            foreground = JBColor.WHITE
+                                            background = JBColor(0x0078D7, 0x4B6EAF)
+                                            isOpaque = true
+                                        }
+                                        toolTipText =
+                                            if (isTopLevelNode) {
+                                                "Click to expand or collapse" // More accurate tooltip
+                                            } else {
+                                                "Click checkbox to enable/disable, click name to configure ${userObject.moduleName}"
+                                            }
+                                    }
+
+                                if (isTopLevelNode) {
+                                    panel.add(label, BorderLayout.WEST)
+                                } else {
+                                    checkbox.isOpaque = false
+                                    checkbox.isSelected = prefState.enabledModules.contains(moduleId)
+
+                                    val (canBeDisabled, _) = checkModuleCanBeDisabled(userObject)
+                                    checkbox.isEnabled = canBeDisabled
+
+                                    panel.add(checkbox, BorderLayout.WEST)
+                                    panel.add(label, BorderLayout.CENTER)
+                                }
+
+                                return panel
                             }
                         }
 
-                        return component
+                        return super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus)
                     }
                 }
         }
@@ -343,6 +398,63 @@ class ConfigurationSection : SettingsSection {
     }
 
     /**
+     * Disables a module and its dependents.
+     */
+    private fun disableModuleWithDependents(module: PluginModule) {
+        val prefState = getPrefState()
+        val moduleId = module.getPreferenceId()
+        prefState.enabledModules = HashSet(prefState.enabledModules - moduleId)
+
+        try {
+            val availableModules = getConfig().getAvailableModules()
+            availableModules.forEach { mod ->
+                mod.dependencies.forEach { dep ->
+                    if (dep.isHard && dep.moduleId == moduleId) {
+                        prefState.enabledModules = HashSet(prefState.enabledModules - mod.className)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            LOG.warn("Failed to disable dependents for module $moduleId", e)
+        }
+    }
+
+    /**
+     * Enables a module and its hard dependencies.
+     */
+    private fun enableModuleWithDependencies(module: PluginModule) {
+        val prefState = getPrefState()
+        val moduleId = module.getPreferenceId()
+        prefState.enabledModules = HashSet(prefState.enabledModules + moduleId)
+
+        try {
+            val availableModules = getConfig().getAvailableModules()
+            val moduleConfig = availableModules.find { it.className == moduleId }
+
+            moduleConfig?.dependencies?.forEach { dep ->
+                if (dep.isHard) prefState.enabledModules = HashSet(prefState.enabledModules + dep.moduleId)
+            }
+        } catch (e: Exception) {
+            LOG.warn("Failed to enable dependencies for module $moduleId", e)
+        }
+    }
+
+    /**
+     * Expand a tree node to show its dependencies
+     */
+    private fun expandNodeToShowDependencies(node: DefaultMutableTreeNode) {
+        val treePath = TreePath(node.path)
+        moduleTree.expandPath(treePath)
+
+        // Also expand child nodes to show nested dependencies
+        for (i in 0 until node.childCount) {
+            val child = node.getChildAt(i) as DefaultMutableTreeNode
+            val childPath = TreePath(child.path)
+            moduleTree.expandPath(childPath)
+        }
+    }
+
+    /**
      * Updates ChatPanel overlay visibility across all open projects
      */
     private fun updateChatPanelOverlays() {
@@ -383,18 +495,211 @@ class ConfigurationSection : SettingsSection {
         updateModuleTree()
 
         // Add selection listener for dynamic preference panel updates
-        moduleTree.addTreeSelectionListener { updateModulePreferencesPanel() }
+        moduleTree.addTreeSelectionListener {
+            val selectedNode = moduleTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+            if (selectedNode != null) {
+                updateModulePreferencesPanel()
+            } else {
+                updateModulePreferencesPanel()
+            }
+        }
 
-        // Expand all nodes for better visibility
+        moduleTree.addMouseListener(
+            object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    val path = moduleTree.getPathForLocation(e.x, e.y) ?: return
+                    val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
+
+                    if (node.userObject !is PluginModule) return
+
+                    val isTopLevelNode = node.parent?.parent == null
+
+                    if (isTopLevelNode) {
+                        moduleTree.selectionPath = path
+
+                        return
+                    }
+
+                    val rowBounds = moduleTree.getPathBounds(path) ?: return
+                    val checkboxWidth = 30 // Approximate checkbox width
+                    if (e.x - rowBounds.x <= checkboxWidth) {
+                        handleModuleToggle(node)
+                    } else {
+                        moduleTree.selectionPath = path
+                    }
+                }
+            },
+        )
         expandAllTreeNodes()
+        updateModulePreferencesPanel()
+    }
+
+    /**
+     * Updates the module preferences panel based on current selection.
+     */
+    private fun updateModulePreferencesPanel() {
+        modulePreferencesPanel.removeAll()
+        modulePreferenceFields.clear()
+
+        val selectedNode = moduleTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+        val selectedModule = selectedNode?.userObject as? PluginModule
+
+        if (selectedModule != null) {
+            buildModulePreferencesUI(selectedModule)
+        } else {
+            showNoSelectionMessage()
+        }
+
+        modulePreferencesPanel.revalidate()
+        modulePreferencesPanel.repaint()
+    }
+
+    /**
+     * Builds the preferences UI for the selected module.
+     */
+    private fun buildModulePreferencesUI(module: PluginModule) {
+        addModuleHeader(module)
+        addModuleDescription(module)
+        addModuleStatus(module)
+
+        val preferences = PrefState.getModulePreferences(module.getPreferenceId())
+        if (preferences.isNotEmpty()) {
+            addModulePreferences(module)
+        }
+
+        modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
+    }
+
+    /**
+     * Adds module description to the preferences panel.
+     */
+    private fun addModuleDescription(module: PluginModule) {
+        val descriptionText =
+            try {
+                val cfg = getConfig()
+                val top = cfg.getAvailableModules()
+                val all = top + top.flatMap { it.submodules }
+
+                val runtimeId = module.getPreferenceId()
+                val runtimeClass = module.javaClass.name
+                val runtimeName = module.moduleName
+
+                val mc =
+                    all.firstOrNull {
+                        it.id == runtimeId || it.className == runtimeClass || it.name == runtimeName
+                    }
+                mc?.description ?: ""
+            } catch (_: Exception) {
+                ""
+            }
+
+        if (descriptionText.isBlank()) return
+
+        val descriptionArea =
+            JBTextArea(descriptionText).apply {
+                isEditable = false
+                lineWrap = true
+                wrapStyleWord = true
+                background = modulePreferencesPanel.background
+                font = JLabel().font
+                border = JBUI.Borders.empty(0, 0, 6, 0)
+                rows =
+                    when {
+                        descriptionText.length > 200 -> 4
+                        descriptionText.length > 100 -> 3
+                        else -> 2
+                    }
+            }
+        modulePreferencesPanel.add(descriptionArea)
+        modulePreferencesPanel.add(JLabel())
+    }
+
+    /**
+     * Adds module-specific preference controls to the panel.
+     */
+    private fun addModulePreferences(module: PluginModule) {
+        val preferences = PrefState.getModulePreferences(module.getPreferenceId())
+
+        if (preferences.isNotEmpty()) {
+            val prefsHeaderLabel =
+                JLabel("Module Preferences").apply {
+                    font = font.deriveFont(Font.BOLD)
+                }
+            modulePreferencesPanel.add(prefsHeaderLabel)
+            modulePreferencesPanel.add(JLabel())
+        }
+
+        preferences.forEach { preference ->
+            addPreferenceField(module, preference)
+        }
+
+        modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
+    }
+
+    /**
+     * Shows a message when no valid module is selected.
+     */
+    private fun showNoSelectionMessage() {
+        modulePreferencesPanel.add(
+            JLabel("Select a module to manage preferences").apply {
+                foreground = JBColor.GRAY
+                font = font.deriveFont(Font.ITALIC)
+            },
+        )
+    }
+
+    private fun handleModuleToggle(node: DefaultMutableTreeNode) {
+        val module = node.userObject as? PluginModule ?: return
+        val moduleId = module.getPreferenceId()
+        val prefState = getPrefState()
+        val currentlyEnabled = prefState.enabledModules.contains(moduleId)
+
+        try {
+            if (!currentlyEnabled) {
+                // Enabling module
+                enableModuleWithDependencies(module)
+                expandNodeToShowDependencies(node)
+                LOG.debug("Module $moduleId enabled with dependencies")
+            } else {
+                // Check if module can be disabled
+                val (canBeDisabled, reason) = checkModuleCanBeDisabled(module)
+                if (!canBeDisabled) {
+                    LOG.debug("Cannot disable module $moduleId: $reason")
+                    return
+                }
+
+                // Disabling module
+                val treePath = TreePath(node.path)
+                moduleTree.expandPath(treePath)
+                disableModuleWithDependents(module)
+                LOG.debug("Module $moduleId disabled with dependents")
+            }
+
+            // Update UI consistently
+            moduleTree.repaint()
+            updateModulePreferencesPanel()
+        } catch (e: Exception) {
+            LOG.error("Failed to toggle module $moduleId", e)
+        }
     }
 
     /**
      * Expands all nodes in the module tree.
      */
     private fun expandAllTreeNodes() {
-        for (i in 0 until moduleTree.rowCount) {
-            moduleTree.expandRow(i)
+        val root = moduleTreeModel.root as DefaultMutableTreeNode
+        expandAllNodesRecursively(root)
+    }
+
+    private fun expandAllNodesRecursively(node: DefaultMutableTreeNode) {
+        if (node.childCount > 0) {
+            val path = TreePath(node.path)
+            moduleTree.expandPath(path)
+
+            for (i in 0 until node.childCount) {
+                val child = node.getChildAt(i) as DefaultMutableTreeNode
+                expandAllNodesRecursively(child)
+            }
         }
     }
 
@@ -444,28 +749,26 @@ class ConfigurationSection : SettingsSection {
     /**
      * Checks if a module can be disabled based on dependency constraints.
      */
-    private fun checkModuleCanBeDisabled(module: PluginModule): Tuple2<Boolean, List<String>> {
-        val selectedNode = moduleTree.lastSelectedPathComponent as? DefaultMutableTreeNode
-        val isTopLevelNode = selectedNode?.parent?.parent == null
+    private fun checkModuleCanBeDisabled(module: PluginModule): Pair<Boolean, String?> {
+        return try {
+            val moduleNode = findModuleNodeById(module.getPreferenceId())
+            val isTopLevelNode = moduleNode?.parent?.parent == null
 
-        if (isTopLevelNode) {
-            return Tuple2(false, emptyList())
-        }
+            if (isTopLevelNode) {
+                return false to "Top-level modules cannot be disabled"
+            }
 
-        try {
             val moduleId = module.getPreferenceId()
-            val dependentModules = getConfig().getTransitiveHardDependants(moduleId)
+            val dependants = getConfig().getTransitiveHardDependants(moduleId)
 
-            val hasTopLevelDependency =
-                dependentModules.any { dependant ->
-                    val dependentNode = findModuleNodeById(dependant.id)
-                    dependentNode?.parent?.parent == null
-                }
-
-            return Tuple2(!hasTopLevelDependency, dependentModules.map { it.id })
+            if (dependants.isNotEmpty()) {
+                false to "Required by: ${dependants.joinToString()}"
+            } else {
+                true to null
+            }
         } catch (e: Exception) {
             LOG.warn("Failed to check module dependencies for ${module.getPreferenceId()}", e)
-            return Tuple2(true, emptyList()) // Allow disabling if check fails
+            true to null
         }
     }
 
@@ -489,43 +792,6 @@ class ConfigurationSection : SettingsSection {
     }
 
     /**
-     * Updates the module preferences panel based on current selection.
-     */
-    private fun updateModulePreferencesPanel() {
-        modulePreferencesPanel.removeAll()
-        modulePreferenceFields.clear()
-
-        val selectedNode = moduleTree.lastSelectedPathComponent as? DefaultMutableTreeNode
-        val selectedModule = selectedNode?.userObject as? PluginModule
-
-        if (selectedModule != null) {
-            buildModulePreferencesUI(selectedModule)
-        } else {
-            showNoSelectionMessage()
-        }
-
-        modulePreferencesPanel.revalidate()
-        modulePreferencesPanel.repaint()
-    }
-
-    /**
-     * Builds the preferences UI for the selected module.
-     */
-    private fun buildModulePreferencesUI(module: PluginModule) {
-        // Module header
-        addModuleHeader(module)
-
-        // Module enablement control
-        addModuleEnablementControl(module)
-
-        // Module preferences
-        addModulePreferences(module)
-
-        // Add spacing at the end
-        modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
-    }
-
-    /**
      * Adds module header information to the preferences panel.
      */
     private fun addModuleHeader(module: PluginModule) {
@@ -534,143 +800,22 @@ class ConfigurationSection : SettingsSection {
                 font = font.deriveFont(Font.BOLD)
             }
         modulePreferencesPanel.add(moduleNameLabel)
-        modulePreferencesPanel.add(JLabel()) // Spacing
-
-        val separator = JSeparator()
-        modulePreferencesPanel.add(separator)
-        modulePreferencesPanel.add(JLabel()) // Spacing
+        modulePreferencesPanel.add(JLabel())
     }
 
-    /**
-     * Adds module enablement control checkbox.
-     */
-    private fun addModuleEnablementControl(module: PluginModule) {
+    private fun addModuleStatus(module: PluginModule) {
+        val node = findModuleNodeById(module.getPreferenceId())
+        val isTopLevelNode = node?.parent?.parent == null
+        if (isTopLevelNode) return // no status for top-level nodes
         val prefState = getPrefState()
-        val enabledCheckBox =
-            JBCheckBox("Module Enabled").apply {
-                isSelected = prefState.enabledModules.contains(module.getPreferenceId())
-                toolTipText = "Enable or disable this module"
+        val isEnabled = prefState.enabledModules.contains(module.getPreferenceId())
+        val statusLabel =
+            JLabel("Status: ${if (isEnabled) "Enabled" else "Disabled"}").apply {
+                foreground = if (isEnabled) JBColor.GREEN else JBColor.RED
+                border = JBUI.Borders.empty(6, 0, 6, 0)
             }
-
-        val (canBeDisabled, dependentModules) = checkModuleCanBeDisabled(module)
-
-        if (!(canBeDisabled as Boolean)) {
-            enabledCheckBox.isEnabled = false
-            enabledCheckBox.isSelected = true
-
-            val warningMessage =
-                if ((dependentModules as List<*>).isNotEmpty()) {
-                    val filteredDependents = dependentModules.filter { it != module.getPreferenceId() }
-                    "This module cannot be disabled because it has dependencies: ${filteredDependents.joinToString(", ")}"
-                } else {
-                    "This module is required and cannot be disabled."
-                }
-            enabledCheckBox.toolTipText = warningMessage
-        }
-
-        enabledCheckBox.addActionListener {
-            handleModuleEnablementChange(module, enabledCheckBox.isSelected)
-        }
-
-        modulePreferencesPanel.add(JLabel("Module Status:"))
-        modulePreferencesPanel.add(enabledCheckBox)
-    }
-
-    /**
-     * Handles module enablement state changes.
-     */
-    private fun handleModuleEnablementChange(
-        module: PluginModule,
-        isEnabled: Boolean,
-    ) {
-        val prefState = getPrefState()
-        val moduleId = module.getPreferenceId()
-
-        try {
-            if (isEnabled) {
-                enableModuleWithDependencies(moduleId, prefState)
-            } else {
-                disableModuleWithDependents(moduleId, prefState)
-            }
-
-            LOG.debug("Module $moduleId ${if (isEnabled) "enabled" else "disabled"}")
-        } catch (e: Exception) {
-            LOG.error("Failed to change module enablement state for $moduleId", e)
-        }
-    }
-
-    /**
-     * Enables a module and its hard dependencies.
-     */
-    private fun enableModuleWithDependencies(
-        moduleId: String,
-        prefState: me.code4me.services.state.PrefSettings,
-    ) {
-        prefState.enabledModules = HashSet(prefState.enabledModules + moduleId)
-
-        try {
-            val configService = getConfig()
-            val availableModules = configService.getAvailableModules()
-            val moduleConfig = availableModules.find { it.className == moduleId }
-
-            moduleConfig?.dependencies?.forEach { dependency ->
-                if (dependency.isHard) {
-                    prefState.enabledModules = HashSet(prefState.enabledModules + dependency.moduleId)
-                }
-            }
-        } catch (e: Exception) {
-            LOG.warn("Failed to enable dependencies for module $moduleId", e)
-        }
-    }
-
-    /**
-     * Disables a module and its dependents.
-     */
-    private fun disableModuleWithDependents(
-        moduleId: String,
-        prefState: me.code4me.services.state.PrefSettings,
-    ) {
-        prefState.enabledModules = HashSet(prefState.enabledModules - moduleId)
-
-        try {
-            val configService = getConfig()
-            val availableModules = configService.getAvailableModules()
-
-            availableModules.forEach { moduleConfig ->
-                moduleConfig.dependencies.forEach { dependency ->
-                    if (dependency.moduleId == moduleId && dependency.isHard) {
-                        prefState.enabledModules = HashSet(prefState.enabledModules - moduleConfig.id)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            LOG.warn("Failed to disable dependents for module $moduleId", e)
-        }
-    }
-
-    /**
-     * Adds module-specific preference controls to the panel.
-     */
-    private fun addModulePreferences(module: PluginModule) {
-        val preferences = PrefState.getModulePreferences(module.getPreferenceId())
-
-        if (preferences.isNotEmpty()) {
-            val prefsHeaderLabel =
-                JLabel("Module Preferences").apply {
-                    font = font.deriveFont(Font.BOLD)
-                }
-            modulePreferencesPanel.add(prefsHeaderLabel)
-            modulePreferencesPanel.add(JLabel()) // Spacing
-        }
-
-        preferences.forEach { preference ->
-            addPreferenceField(module, preference)
-        }
-        if (preferences.isEmpty()) {
-            modulePreferencesPanel.add(JLabel("No preferences available for this module."))
-        }
-        // add some spacing at the end
-        modulePreferencesPanel.add(Box.createRigidArea(Dimension(0, 8)))
+        modulePreferencesPanel.add(statusLabel)
+        modulePreferencesPanel.add(JLabel())
     }
 
     /**
@@ -1142,15 +1287,6 @@ class ConfigurationSection : SettingsSection {
         return panel
     }
 
-    /**
-     * Shows a message when no module is selected.
-     */
-    private fun showNoSelectionMessage() {
-        modulePreferencesPanel.add(
-            JLabel("Select a module from the tree to view and configure its preferences"),
-        )
-    }
-
     override fun applyTo(
         builder: FormBuilder,
         stateValueFields: MutableList<StateValueField<*>>,
@@ -1181,7 +1317,7 @@ class ConfigurationSection : SettingsSection {
             }
 
         // Add user information section
-        contentPanel.add(createUserInfoPanel(), BorderLayout.NORTH)
+        contentPanel.add(createNavigationPanel(), BorderLayout.NORTH)
 
         // Add configuration sections
         contentPanel.add(createConfigurationPanel(), BorderLayout.CENTER)
@@ -1193,110 +1329,24 @@ class ConfigurationSection : SettingsSection {
     }
 
     /**
-     * Creates the user information display panel with verification status and modification options.
+     * Creates a simple navigation panel with the manage profile button.
      */
-    private fun createUserInfoPanel(): JPanel {
+    private fun createNavigationPanel(): JPanel {
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.emptyBottom(SECTION_SPACING)
 
-            val titleAndInfo =
+            val titlePanel =
                 JPanel(BorderLayout()).apply {
-                    add(userInfoTitleLabel, BorderLayout.NORTH)
-
-                    val userInfo =
-                        JPanel(GridLayout(3, 1, 5, 5)).apply {
-                            add(JLabel("Name: ${authState.getUserName() ?: "Unknown User"}"))
-                            add(JLabel("Email: ${authState.getUserEmail() ?: "Unknown Email"}"))
-                            if (authState.isVerified() == null || !(authState.isVerified()!!)) {
-                                val verificationPanel = JPanel(BorderLayout())
-                                val verificationLabel = JLabel("Not verified")
-                                verificationLabel.foreground = JBColor.GRAY
-                                verificationPanel.add(verificationLabel, BorderLayout.WEST)
-
-                                val verificationButtonsPanel = JPanel()
-                                verificationButtonsPanel.layout = BoxLayout(verificationButtonsPanel, BoxLayout.X_AXIS)
-
-                                val resendButton = JButton("Resend Email")
-                                resendButton.toolTipText = "Resend verification email"
-                                resendButton.addActionListener {
-                                    try {
-                                        appService.resendVerificationEmail()
-                                        Messages.showInfoMessage(
-                                            "Verification email has been resent. Please check your inbox.",
-                                            "Email Resent",
-                                        )
-                                        // disable the button for 5 minutes
-                                        resendButton.isEnabled = false
-                                        Timer(300000) { resendButton.isEnabled = true }.start()
-                                    } catch (e: Exception) {
-                                        LOG.error("Failed to resend verification email", e)
-                                        Messages.showErrorDialog(
-                                            "Failed to resend verification email. Please try again later.",
-                                            "Error",
-                                        )
-                                    }
-                                }
-
-                                val recheckButton = JButton("Recheck Status")
-                                recheckButton.toolTipText = "Check if your account has been verified"
-                                recheckButton.addActionListener {
-                                    val verified = appService.isUserVerified()
-                                    authState.setVerified(verified)
-                                    if (verified) {
-                                        verificationLabel.text = "Verified"
-                                        verificationLabel.foreground = JBColor.GREEN
-                                        Messages.showInfoMessage(
-                                            "Your account is now verified.",
-                                            "Verification Status",
-                                        )
-                                    } else {
-                                        verificationLabel.text = "Not verified"
-                                        verificationLabel.foreground = JBColor.GRAY
-                                        Messages.showInfoMessage(
-                                            "Your account is still not verified.",
-                                            "Verification Status",
-                                        )
-                                    }
-                                }
-
-                                verificationButtonsPanel.add(resendButton)
-                                verificationButtonsPanel.add(Box.createHorizontalStrut(5))
-                                verificationButtonsPanel.add(recheckButton)
-
-                                verificationPanel.add(verificationButtonsPanel, BorderLayout.EAST)
-                                add(verificationPanel)
-                            }
-
-                            border = JBUI.Borders.empty(5, 0, 10, 0)
+                    val titleLabel =
+                        JBLabel("Configuration Settings").apply {
+                            font = font.deriveFont(font.style or Font.BOLD)
                         }
-                    add(userInfo, BorderLayout.CENTER)
-
-                    // Add user modification panel
-                    val modificationPanel = createUserModificationPanel()
-                    add(modificationPanel, BorderLayout.SOUTH)
+                    add(titleLabel, BorderLayout.WEST)
+                    add(manageProfileButton, BorderLayout.EAST)
                 }
 
-            add(titleAndInfo, BorderLayout.CENTER)
-            add(signOutButton, BorderLayout.SOUTH)
+            add(titlePanel, BorderLayout.CENTER)
         }
-    }
-
-    /**
-     * Creates a panel for user profile modification.
-     */
-    private fun createUserModificationPanel(): JPanel {
-        val panel = JPanel(BorderLayout())
-        panel.border = JBUI.Borders.emptyTop(10)
-
-        val modifyButton = JButton("Modify Profile")
-        modifyButton.toolTipText = "Change your profile information"
-        modifyButton.addActionListener {
-            showUserModificationDialog()
-        }
-
-        panel.add(modifyButton, BorderLayout.CENTER)
-
-        return panel
     }
 
     /**
@@ -1320,65 +1370,6 @@ class ConfigurationSection : SettingsSection {
                         false -> component.text = "Email: $userEmail"
                     }
                 }
-            }
-        }
-    }
-
-    /**
-     * Shows a dialog for modifying user profile information.
-     */
-    private fun showUserModificationDialog() {
-        val dialog = UserModificationDialog(authState)
-
-        if (dialog.showAndGet()) {
-            val newName = dialog.getNewName()
-            val oldPassword = dialog.getOldPassword()
-            val newPassword = dialog.getNewPassword()
-            val newEmail = dialog.getNewEmail()
-
-            try {
-                // Build UpdateUser object with only non-empty fields
-                val updateUser =
-                    UpdateUser(
-                        name = if (newName.isNotBlank() && newName != authState.getUserName()) newName else null,
-                        email = if (newEmail.isNotBlank() && newEmail != authState.getUserEmail()) newEmail else null,
-                        previousPassword = oldPassword.ifBlank { null },
-                        password = newPassword.ifBlank { null },
-                    )
-
-                // Check if at least one field is being updated
-                val hasUpdates = listOf(updateUser.name, updateUser.email, updateUser.password).any { it != null }
-
-                if (hasUpdates) {
-                    appService.updateUser(updateUser)
-
-                    Messages.showInfoMessage(
-                        "Your profile has been updated successfully.",
-                        "Profile Updated",
-                    )
-
-                    modulePreferencesPanel.revalidate()
-                    modulePreferencesPanel.repaint()
-                } else {
-                    Messages.showInfoMessage(
-                        "No changes were made to your profile.",
-                        "No Updates",
-                    )
-                }
-            } catch (e: Exception) {
-                LOG.error("Failed to update user profile", e)
-                val errorMessage =
-                    when (e) {
-                        is ClientException -> "Invalid input or authentication failed. Please check your current password."
-                        is ServerException -> "Server error occurred. Please try again later."
-                        is IOException -> "Network error occurred. Please check your connection."
-                        else -> "An unexpected error occurred: ${e.message}"
-                    }
-
-                Messages.showErrorDialog(
-                    errorMessage,
-                    "Profile Update Error",
-                )
             }
         }
     }
@@ -1441,46 +1432,48 @@ class ConfigurationSection : SettingsSection {
 
             add(moduleTitleLabel, BorderLayout.NORTH)
 
-            val moduleContent =
-                JPanel(GridBagLayout()).apply {
-                    border = JBUI.Borders.emptyTop(5)
-
-                    val gbc =
-                        GridBagConstraints().apply {
-                            fill = GridBagConstraints.BOTH
-                            weightx = 0.4
-                            weighty = 1.0
-                            gridx = 0
-                            gridy = 0
-                        }
-
-                    // Module tree with scroll pane
-                    val treeScrollPane =
-                        JBScrollPane(moduleTree).apply {
-                            preferredSize = Dimension(MODULE_TREE_WIDTH, MODULE_TREE_HEIGHT)
-                            minimumSize = Dimension(MIN_MODULE_TREE_WIDTH, MIN_MODULE_TREE_HEIGHT)
-                            border = BorderFactory.createEtchedBorder()
-                        }
-                    add(treeScrollPane, gbc)
-
-                    // Module preferences panel
-                    gbc.gridx = 1
-                    gbc.weightx = 0.6
-
-                    modulePreferencesPanel.layout = GridLayout(0, 2, 5, 5)
-
-                    val preferencesScrollPane =
-                        JBScrollPane(modulePreferencesPanel).apply {
-                            border = JBUI.Borders.emptyLeft(10)
-                            preferredSize = Dimension(PREFERENCES_PANEL_WIDTH, MODULE_TREE_HEIGHT)
-                            minimumSize = Dimension(MIN_PREFERENCES_PANEL_WIDTH, MIN_MODULE_TREE_HEIGHT)
-                            horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
-                            verticalScrollBarPolicy = JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-                        }
-                    add(preferencesScrollPane, gbc)
+            // Module tree with scroll pane
+            val treeScrollPane =
+                JBScrollPane(moduleTree).apply {
+                    preferredSize = Dimension(MODULE_TREE_WIDTH, MODULE_TREE_HEIGHT)
+                    minimumSize = Dimension(MIN_MODULE_TREE_WIDTH, MIN_MODULE_TREE_HEIGHT)
+                    border = BorderFactory.createEtchedBorder()
                 }
 
-            add(moduleContent, BorderLayout.CENTER)
+            // Module preferences panel
+            modulePreferencesPanel.layout = GridLayout(0, 2, 5, 5)
+
+            val preferencesScrollPane =
+                JBScrollPane(modulePreferencesPanel).apply {
+                    border = JBUI.Borders.emptyLeft(10)
+                    preferredSize = Dimension(PREFERENCES_PANEL_WIDTH, MODULE_TREE_HEIGHT)
+                    minimumSize = Dimension(MIN_PREFERENCES_PANEL_WIDTH, MIN_MODULE_TREE_HEIGHT)
+                    horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
+                    verticalScrollBarPolicy = JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+                }
+
+            // resizable divider
+            val splitPane =
+                JSplitPane(JSplitPane.HORIZONTAL_SPLIT, treeScrollPane, preferencesScrollPane).apply {
+                    isOneTouchExpandable = false
+                    dividerLocation = (MODULE_TREE_WIDTH + PREFERENCES_PANEL_WIDTH) / 2 // Initial position
+                    resizeWeight = 0.4
+                    border = JBUI.Borders.emptyTop(5)
+
+                    // Make it theme-appropriate
+                    background = JBColor.PanelBackground
+                    dividerSize = 6 // Make divider slightly thicker for better visibility
+
+                    // Set divider color to match theme
+                    ui.apply {
+                        if (this is javax.swing.plaf.basic.BasicSplitPaneUI) {
+                            divider.background = JBColor.border()
+                            divider.border = JBUI.Borders.empty()
+                        }
+                    }
+                }
+
+            add(splitPane, BorderLayout.CENTER)
         }
     }
 
@@ -1511,219 +1504,5 @@ class ConfigurationSection : SettingsSection {
                 "Sign Out Error",
             )
         }
-    }
-
-    /**
-     * Dialog for modifying user profile information with chat panel integration.
-     */
-    private inner class UserModificationDialog(private val authState: me.code4me.services.state.AuthSettings) : DialogWrapper(true) {
-        private val nameField = JBTextField(authState.getUserName() ?: "")
-        private val emailField = JBTextField(authState.getUserEmail() ?: "")
-        private val oldPasswordField = JBPasswordField()
-        private val newPasswordField = JBPasswordField()
-        private val confirmPasswordField = JBPasswordField()
-        private val deleteDataCheckbox = JBCheckBox("Also delete my data")
-
-        init {
-            title = "Modify Profile"
-            init()
-        }
-
-        override fun createCenterPanel(): JComponent {
-            val dialogPanel = JPanel()
-            dialogPanel.layout = BoxLayout(dialogPanel, BoxLayout.Y_AXIS)
-            dialogPanel.border = JBUI.Borders.empty(10)
-
-            // Name change section
-            val namePanel = JPanel(BorderLayout())
-            namePanel.border = JBUI.Borders.emptyBottom(10)
-            namePanel.add(JLabel("New Name:"), BorderLayout.WEST)
-            namePanel.add(nameField, BorderLayout.CENTER)
-            dialogPanel.add(namePanel)
-
-            // Email change section
-            val emailPanel = JPanel(BorderLayout())
-            emailPanel.border = JBUI.Borders.emptyBottom(10)
-            emailPanel.add(JLabel("New Email:"), BorderLayout.WEST)
-            emailPanel.add(emailField, BorderLayout.CENTER)
-            dialogPanel.add(emailPanel)
-
-            // Password change section
-            val passwordPanel = JPanel()
-            passwordPanel.layout = BoxLayout(passwordPanel, BoxLayout.Y_AXIS)
-            passwordPanel.border = JBUI.Borders.emptyBottom(10)
-
-            val oldPasswordPanel = JPanel(BorderLayout())
-            oldPasswordPanel.add(JLabel("Current Password:"), BorderLayout.WEST)
-            oldPasswordPanel.add(oldPasswordField, BorderLayout.CENTER)
-
-            val newPasswordPanel = JPanel(BorderLayout())
-            newPasswordPanel.add(JLabel("New Password:"), BorderLayout.WEST)
-            newPasswordPanel.add(newPasswordField, BorderLayout.CENTER)
-
-            val confirmPasswordPanel = JPanel(BorderLayout())
-            confirmPasswordPanel.add(JLabel("Confirm Password:"), BorderLayout.WEST)
-            confirmPasswordPanel.add(confirmPasswordField, BorderLayout.CENTER)
-
-            passwordPanel.add(oldPasswordPanel)
-            passwordPanel.add(Box.createVerticalStrut(5))
-            passwordPanel.add(newPasswordPanel)
-            passwordPanel.add(Box.createVerticalStrut(5))
-            passwordPanel.add(confirmPasswordPanel)
-
-            val passwordNote = JLabel("Leave password fields empty if you don't want to change your password")
-            passwordNote.foreground = JBColor.GRAY
-            passwordPanel.add(passwordNote)
-
-            dialogPanel.add(passwordPanel)
-
-            // Account deletion section
-            val deletePanel = JPanel(BorderLayout())
-            deletePanel.border = JBUI.Borders.emptyTop(10)
-
-            val deleteButton = JButton("Delete Account")
-            deleteButton.foreground = JBColor.RED
-
-            deleteDataCheckbox.toolTipText = "If checked, all your data will be permanently deleted"
-
-            val deleteOptionsPanel = JPanel(BorderLayout())
-            deleteOptionsPanel.add(deleteDataCheckbox, BorderLayout.WEST)
-            deleteOptionsPanel.add(deleteButton, BorderLayout.EAST)
-
-            deleteButton.addActionListener {
-                val willDeleteData = deleteDataCheckbox.isSelected
-
-                val confirmMessage =
-                    if (willDeleteData) {
-                        "Are you sure you want to delete your account AND all your data? " +
-                            "This action cannot be undone and will permanently remove all your information from our servers."
-                    } else {
-                        "Are you sure you want to delete your account? This action cannot be undone."
-                    }
-
-                val confirmResult =
-                    Messages.showYesNoDialog(
-                        confirmMessage,
-                        "Confirm Account Deletion",
-                        "Delete Account",
-                        "Cancel",
-                        Messages.getWarningIcon(),
-                    )
-
-                if (confirmResult == Messages.YES) {
-                    try {
-                        // Clear chat data explicitly for all projects before account deletion
-                        ProjectManager.getInstance().openProjects.forEach { project ->
-                            try {
-                                val chatService = getProjectChatService(project)
-                                chatService.clearAllChatsAndMemory()
-
-                                // Force persistence of the cleared state
-                                com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
-                                    project.save()
-                                }
-
-                                LOG.info("Cleared all chat sessions for project: ${project.name}")
-                            } catch (e: Exception) {
-                                throw e
-                                // ProcessCanceledException cannot be not thrown
-                            }
-                        }
-
-                        // Pass the checkbox state to determine if user data should be deleted
-                        appService.deleteUser(willDeleteData)
-
-                        // Clear local data immediately after account deletion
-                        authState.clearUserData()
-
-                        val successMessage =
-                            if (willDeleteData) {
-                                "Your account and all associated data have been deleted successfully."
-                            } else {
-                                "Your account has been deleted successfully."
-                            }
-
-                        Messages.showInfoMessage(
-                            successMessage,
-                            "Account Deleted",
-                        )
-
-                        // Update chat panel overlays immediately after account deletion
-                        updateChatPanelOverlays()
-
-                        close(OK_EXIT_CODE)
-                    } catch (e: Exception) {
-                        val errorMessage =
-                            when (e) {
-                                is ClientException -> "Failed to delete account. Please check your authentication."
-                                is ServerException -> "Server error occurred during account deletion. Please try again later."
-                                is IOException -> "Network error occurred. Please check your connection."
-                                is ProcessCanceledException -> throw e
-                                // ProcessCanceledException cannot be not thrown
-                                else -> "An error occurred while deleting your account: ${e.message}"
-                            }
-
-                        Messages.showErrorDialog(
-                            errorMessage,
-                            "Delete Account Error",
-                        )
-                    }
-                }
-            }
-
-            deletePanel.add(deleteOptionsPanel, BorderLayout.CENTER)
-            dialogPanel.add(deletePanel)
-
-            return dialogPanel
-        }
-
-        override fun doValidate(): ValidationInfo? {
-            val newPassword = String(newPasswordField.password)
-            val confirmPassword = String(confirmPasswordField.password)
-
-            // If user wants to change password, validate password fields
-            if (newPassword.isNotEmpty() || confirmPassword.isNotEmpty()) {
-                if (String(oldPasswordField.password).isEmpty()) {
-                    return ValidationInfo("Current password is required to change password", oldPasswordField)
-                }
-
-                if (newPassword.isEmpty()) {
-                    return ValidationInfo("New password cannot be empty", newPasswordField)
-                }
-
-                if (newPassword != confirmPassword) {
-                    return ValidationInfo("Passwords do not match", confirmPasswordField)
-                }
-
-                // check that the password is at least 8 characters long and conforms to the regex
-                if (newPassword.length < 8 && !newPassword.matches(Regex("^(?=.[A-Z])(?=.[a-z])(?=.*\\d)\\S{8,}$"))) {
-                    return ValidationInfo("Password must be at least 8 characters long", newPasswordField)
-                }
-            }
-
-            // Check if at least one field has been modified
-            val nameChanged = nameField.text.trim() != (authState.getUserName() ?: "")
-            val emailChanged = emailField.text.trim() != (authState.getUserEmail() ?: "")
-            val passwordChanged = newPassword.isNotEmpty()
-
-            if (!nameChanged && !emailChanged && !passwordChanged) {
-                return ValidationInfo("Please make at least one change to update your profile")
-            }
-
-            return null
-        }
-
-        override fun doOKAction() {
-            refreshUserInfoPanel()
-            super.doOKAction()
-        }
-
-        fun getNewName(): String = nameField.text.trim()
-
-        fun getOldPassword(): String = String(oldPasswordField.password)
-
-        fun getNewPassword(): String = String(newPasswordField.password)
-
-        fun getNewEmail(): String = emailField.text.trim()
     }
 }

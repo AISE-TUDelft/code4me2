@@ -44,6 +44,16 @@
                 displayName="Code4Me V2"
                 id="me.code4me.settings.Code4MeConfigurable"
         />
+        <applicationConfigurable
+                parentId="me.code4me.settings.Code4MeConfigurable"
+                instance="me.code4me.settings.ConfigurationConfigurable"
+                displayName="Configuration"
+                id="me.code4me.settings.ConfigurationConfigurable"/>
+        <applicationConfigurable
+                parentId="me.code4me.settings.Code4MeConfigurable"
+                instance="me.code4me.settings.UserConfigurable"
+                displayName="User Profile"
+                id="me.code4me.settings.UserConfigurable"/>
 
         <!-- Service registration for ChatWindowStateService -->
         <projectService serviceImplementation="me.code4me.chatWindow.components.persistence.ChatWindowStateService"/>
