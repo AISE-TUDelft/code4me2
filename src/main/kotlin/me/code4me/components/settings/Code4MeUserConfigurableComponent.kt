@@ -59,7 +59,7 @@ class UserConfigurable : SearchableConfigurable {
                 val goToLoginButton =
                     JButton("Go to Login").apply {
                         addActionListener {
-                            navigateToParentConfigurable()
+                            navigateToMainConfigurable()
                         }
                     }
                 val buttonPanel =
@@ -73,7 +73,7 @@ class UserConfigurable : SearchableConfigurable {
                 val userSection =
                     UserSection(
                         onBackToConfiguration = {
-                            navigateToParentConfigurable()
+                            navigateToConfigurationConfigurable()
                         },
                     )
                 userSection.applyTo(builder, fieldStates)
@@ -85,7 +85,10 @@ class UserConfigurable : SearchableConfigurable {
         }
     }
 
-    private fun navigateToParentConfigurable() {
+    /**
+     * Navigates to the main Code4Me landing page.
+     */
+    private fun navigateToMainConfigurable() {
         ApplicationManager.getApplication().invokeLater {
             try {
                 val dataContext = DataManager.getInstance().dataContextFromFocusAsync.blockingGet(100)
@@ -115,6 +118,43 @@ class UserConfigurable : SearchableConfigurable {
                 // Fallback: open new dialog
                 com.intellij.openapi.options.ShowSettingsUtil.getInstance()
                     .showSettingsDialog(null, Code4MeConfigurable::class.java)
+            }
+        }
+    }
+
+    /**
+     * Navigates to the Configuration page instead of the parent landing page.
+     */
+    private fun navigateToConfigurationConfigurable() {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val dataContext = DataManager.getInstance().dataContextFromFocusAsync.blockingGet(100)
+                if (dataContext != null) {
+                    val settingsDialog = Settings.KEY.getData(dataContext)
+
+                    if (settingsDialog != null) {
+                        val configurable = settingsDialog.find(ConfigurationConfigurable::class.java)
+                        if (configurable != null) {
+                            settingsDialog.select(configurable)
+                        } else {
+                            // Fallback: open new dialog
+                            com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+                                .showSettingsDialog(null, ConfigurationConfigurable::class.java)
+                        }
+                    } else {
+                        // Fallback: open new dialog
+                        com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+                            .showSettingsDialog(null, ConfigurationConfigurable::class.java)
+                    }
+                } else {
+                    // Fallback: open new dialog
+                    com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+                        .showSettingsDialog(null, ConfigurationConfigurable::class.java)
+                }
+            } catch (e: Exception) {
+                // Fallback: open new dialog
+                com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+                    .showSettingsDialog(null, ConfigurationConfigurable::class.java)
             }
         }
     }

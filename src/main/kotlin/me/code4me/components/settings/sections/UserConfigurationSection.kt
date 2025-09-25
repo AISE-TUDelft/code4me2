@@ -1,8 +1,10 @@
 package me.code4me.components.settings.sections
 
+import com.intellij.ide.DataManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.options.ex.Settings
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogWrapper
@@ -23,6 +25,7 @@ import me.code4me.services.app.AppService
 import me.code4me.services.app.getAppService
 import me.code4me.services.project.getProjectChatService
 import me.code4me.services.state.AuthState
+import me.code4me.settings.ConfigurationConfigurable
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Component.LEFT_ALIGNMENT
@@ -79,10 +82,10 @@ class UserSection(
     // Button styling enum
     private enum class ButtonType { PRIMARY, SECONDARY, DANGER }
 
-    private val backButton =
-        JButton("Back to Configuration").apply {
-            toolTipText = "Return to module & preferences"
-            addActionListener { onBackToConfiguration?.invoke() }
+    private val configurationButton =
+        JButton("Manage configuration").apply {
+            toolTipText = "Go to module & preferences configuration"
+            addActionListener { navigateToConfiguration() }
             putClientProperty("JButton.buttonType", "link")
             isContentAreaFilled = false
             isBorderPainted = false
@@ -246,6 +249,44 @@ class UserSection(
     }
 
     /**
+     * Navigates to the Configuration page instead of the parent landing page.
+     */
+    private fun navigateToConfiguration() {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val dataContext = DataManager.getInstance().dataContextFromFocusAsync.blockingGet(100)
+                if (dataContext != null) {
+                    val settingsDialog = Settings.KEY.getData(dataContext)
+
+                    if (settingsDialog != null) {
+                        val configurable = settingsDialog.find(ConfigurationConfigurable::class.java)
+                        if (configurable != null) {
+                            settingsDialog.select(configurable)
+                            LOG.debug("Successfully navigated to Configuration page")
+                        } else {
+                            LOG.warn("Could not find Configuration configurable in current settings dialog")
+                            // Fallback: use the callback if available
+                            onBackToConfiguration?.invoke()
+                        }
+                    } else {
+                        LOG.warn("Could not find current settings dialog context")
+                        // Fallback: use the callback if available
+                        onBackToConfiguration?.invoke()
+                    }
+                } else {
+                    LOG.warn("Could not get data context")
+                    // Fallback: use the callback if available
+                    onBackToConfiguration?.invoke()
+                }
+            } catch (e: Exception) {
+                LOG.error("Failed to navigate to Configuration page", e)
+                // Fallback: use the callback if available
+                onBackToConfiguration?.invoke()
+            }
+        }
+    }
+
+    /**
      * Updates ChatPanel overlay visibility across all open projects
      */
     private fun updateChatPanelOverlays() {
@@ -289,7 +330,7 @@ class UserSection(
                     }
 
                 add(leftPanel, BorderLayout.WEST)
-                add(backButton, BorderLayout.EAST)
+                add(configurationButton, BorderLayout.EAST)
                 border = JBUI.Borders.emptyBottom(24)
             }
 
@@ -771,42 +812,6 @@ class UserSection(
                         "Account Deleted",
                     )
 
-                    // Navigate back to main configuration page within the same settings dialog
-                    // This uses the same approach as handleSignOut
-                    ApplicationManager.getApplication().invokeLater {
-                        try {
-                            // Try to find the settings dialog and navigate to main Code4Me page
-                            val dataContext = com.intellij.ide.DataManager.getInstance().dataContextFromFocusAsync.blockingGet(100)
-                            if (dataContext != null) {
-                                val settingsDialog = com.intellij.openapi.options.ex.Settings.KEY.getData(dataContext)
-
-                                if (settingsDialog != null) {
-                                    val mainConfigurable = settingsDialog.find(me.code4me.settings.Code4MeConfigurable::class.java)
-                                    if (mainConfigurable != null) {
-                                        settingsDialog.select(mainConfigurable)
-                                        LOG.debug("Successfully navigated back to main configuration page after account deletion")
-                                    } else {
-                                        LOG.warn("Could not find main Code4Me configurable in current settings dialog")
-                                        // Fallback: use the callback if available
-                                        onBackToConfiguration?.invoke()
-                                    }
-                                } else {
-                                    LOG.warn("Could not find current settings dialog context")
-                                    // Fallback: use the callback if available
-                                    onBackToConfiguration?.invoke()
-                                }
-                            } else {
-                                LOG.warn("Could not get data context")
-                                // Fallback: use the callback if available
-                                onBackToConfiguration?.invoke()
-                            }
-                        } catch (e: Exception) {
-                            LOG.error("Failed to navigate back to main configuration page after account deletion", e)
-                            // Fallback: use the callback if available
-                            onBackToConfiguration?.invoke()
-                        }
-                    }
-
                     // Update chat panel overlays immediately after account deletion
                     updateChatPanelOverlays()
                 } catch (e: Exception) {
@@ -848,42 +853,6 @@ class UserSection(
                 "Sign Out Complete",
             )
 
-            // Navigate back to main configuration page within the same settings dialog
-            // This uses the same approach as the manageProfileButton but in reverse
-            ApplicationManager.getApplication().invokeLater {
-                try {
-                    // Try to find the settings dialog and navigate to main Code4Me page
-                    val dataContext = com.intellij.ide.DataManager.getInstance().dataContextFromFocusAsync.blockingGet(100)
-                    if (dataContext != null) {
-                        val settingsDialog = com.intellij.openapi.options.ex.Settings.KEY.getData(dataContext)
-
-                        if (settingsDialog != null) {
-                            val mainConfigurable = settingsDialog.find(me.code4me.settings.Code4MeConfigurable::class.java)
-                            if (mainConfigurable != null) {
-                                settingsDialog.select(mainConfigurable)
-                                LOG.debug("Successfully navigated back to main configuration page")
-                            } else {
-                                LOG.warn("Could not find main Code4Me configurable in current settings dialog")
-                                // Fallback: use the callback if available
-                                onBackToConfiguration?.invoke()
-                            }
-                        } else {
-                            LOG.warn("Could not find current settings dialog context")
-                            // Fallback: use the callback if available
-                            onBackToConfiguration?.invoke()
-                        }
-                    } else {
-                        LOG.warn("Could not get data context")
-                        // Fallback: use the callback if available
-                        onBackToConfiguration?.invoke()
-                    }
-                } catch (e: Exception) {
-                    LOG.error("Failed to navigate back to main configuration page", e)
-                    // Fallback: use the callback if available
-                    onBackToConfiguration?.invoke()
-                }
-            }
-
             LOG.info("User signed out successfully")
         } catch (e: Exception) {
             LOG.error("Failed to sign out user", e)
@@ -892,119 +861,6 @@ class UserSection(
                 "Sign Out Error",
             )
         }
-    }
-
-    /**
-     * Dialog for modifying user profile information.
-     */
-    private inner class UserModificationDialog(
-        private val authState: me.code4me.services.state.AuthSettings,
-    ) : DialogWrapper(true) {
-        private val nameField = JBTextField(authState.getUserName() ?: "")
-        private val emailField = JBTextField(authState.getUserEmail() ?: "")
-        private val oldPasswordField = JBPasswordField()
-        private val newPasswordField = JBPasswordField()
-        private val confirmPasswordField = JBPasswordField()
-
-        init {
-            title = "Modify Profile"
-            init()
-        }
-
-        override fun createCenterPanel(): JComponent {
-            val dialogPanel = JPanel()
-            dialogPanel.layout = BoxLayout(dialogPanel, BoxLayout.Y_AXIS)
-            dialogPanel.border = JBUI.Borders.empty(10)
-
-            // Name change section
-            val namePanel = JPanel(BorderLayout())
-            namePanel.border = JBUI.Borders.emptyBottom(10)
-            namePanel.add(JLabel("New Name:"), BorderLayout.WEST)
-            namePanel.add(nameField, BorderLayout.CENTER)
-            dialogPanel.add(namePanel)
-
-            // Email change section
-            val emailPanel = JPanel(BorderLayout())
-            emailPanel.border = JBUI.Borders.emptyBottom(10)
-            emailPanel.add(JLabel("New Email:"), BorderLayout.WEST)
-            emailPanel.add(emailField, BorderLayout.CENTER)
-            dialogPanel.add(emailPanel)
-
-            // Password change section
-            val passwordPanel = JPanel()
-            passwordPanel.layout = BoxLayout(passwordPanel, BoxLayout.Y_AXIS)
-            passwordPanel.border = JBUI.Borders.emptyBottom(10)
-
-            val oldPasswordPanel = JPanel(BorderLayout())
-            oldPasswordPanel.add(JLabel("Current Password:"), BorderLayout.WEST)
-            oldPasswordPanel.add(oldPasswordField, BorderLayout.CENTER)
-
-            val newPasswordPanel = JPanel(BorderLayout())
-            newPasswordPanel.add(JLabel("New Password:"), BorderLayout.WEST)
-            newPasswordPanel.add(newPasswordField, BorderLayout.CENTER)
-
-            val confirmPasswordPanel = JPanel(BorderLayout())
-            confirmPasswordPanel.add(JLabel("Confirm Password:"), BorderLayout.WEST)
-            confirmPasswordPanel.add(confirmPasswordField, BorderLayout.CENTER)
-
-            passwordPanel.add(oldPasswordPanel)
-            passwordPanel.add(Box.createVerticalStrut(5))
-            passwordPanel.add(newPasswordPanel)
-            passwordPanel.add(Box.createVerticalStrut(5))
-            passwordPanel.add(confirmPasswordPanel)
-
-            val passwordNote = JLabel("Leave password fields empty if you don't want to change your password")
-            passwordNote.foreground = JBColor.GRAY
-            passwordPanel.add(passwordNote)
-
-            dialogPanel.add(passwordPanel)
-
-            return dialogPanel
-        }
-
-        override fun doValidate(): ValidationInfo? {
-            val newPassword = String(newPasswordField.password)
-            val confirmPassword = String(confirmPasswordField.password)
-
-            // If user wants to change password, validate password fields
-            if (newPassword.isNotEmpty() || confirmPassword.isNotEmpty()) {
-                if (String(oldPasswordField.password).isEmpty()) {
-                    return ValidationInfo("Current password is required to change password", oldPasswordField)
-                }
-
-                if (newPassword.isEmpty()) {
-                    return ValidationInfo("New password cannot be empty", newPasswordField)
-                }
-
-                if (newPassword != confirmPassword) {
-                    return ValidationInfo("Passwords do not match", confirmPasswordField)
-                }
-
-                // check that the password is at least 8 characters long and conforms to the regex
-                if (newPassword.length < 8 && !newPassword.matches(Regex("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d)\\S{8,}$"))) {
-                    return ValidationInfo("Password must be at least 8 characters long", newPasswordField)
-                }
-            }
-
-            // Check if at least one field has been modified
-            val nameChanged = nameField.text.trim() != (authState.getUserName() ?: "")
-            val emailChanged = emailField.text.trim() != (authState.getUserEmail() ?: "")
-            val passwordChanged = newPassword.isNotEmpty()
-
-            if (!nameChanged && !emailChanged && !passwordChanged) {
-                return ValidationInfo("Please make at least one change to update your profile")
-            }
-
-            return null
-        }
-
-        fun getNewName(): String = nameField.text.trim()
-
-        fun getOldPassword(): String = String(oldPasswordField.password)
-
-        fun getNewPassword(): String = String(newPasswordField.password)
-
-        fun getNewEmail(): String = emailField.text.trim()
     }
 
     /**
