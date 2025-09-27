@@ -1,30 +1,30 @@
- package me.code4me.components.settings
+package me.code4me.components.settings
 
- import com.intellij.ide.DataManager
- import com.intellij.openapi.application.ApplicationManager
- import com.intellij.openapi.diagnostic.thisLogger
- import com.intellij.openapi.options.ex.Settings
- import com.intellij.ui.JBColor
- import com.intellij.ui.components.JBLabel
- import com.intellij.ui.components.JBScrollPane
- import com.intellij.ui.components.JBTextArea
- import com.intellij.util.ui.JBUI
- import me.code4me.settings.ConfigurationConfigurable
- import me.code4me.settings.UserConfigurable
- import java.awt.BorderLayout
- import java.awt.Component
- import java.awt.Dimension
- import java.awt.Font
- import java.awt.GridBagConstraints
- import java.awt.GridBagLayout
- import java.awt.Insets
- import javax.swing.BoxLayout
- import javax.swing.JButton
- import javax.swing.JComponent
- import javax.swing.JLabel
- import javax.swing.JPanel
+import com.intellij.ide.DataManager
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.options.ex.Settings
+import com.intellij.ui.JBColor
+import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
+import com.intellij.util.ui.JBUI
+import me.code4me.settings.ConfigurationConfigurable
+import me.code4me.settings.UserConfigurable
+import java.awt.BorderLayout
+import java.awt.Component
+import java.awt.Dimension
+import java.awt.Font
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.Insets
+import javax.swing.BoxLayout
+import javax.swing.JButton
+import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.JPanel
 
- /**
+/**
  * Landing page component for the main Code4Me V2 settings.
  *
  * This component provides:
@@ -35,7 +35,7 @@
  *
  * @since 1.0.0
  */
- class LandingPageComponent {
+class LandingPageComponent {
     companion object {
         private val LOG = thisLogger()
 
@@ -98,6 +98,7 @@
                 JBLabel("Code4Me V2 Settings").apply {
                     font = font.deriveFont(Font.BOLD, 20f)
                     horizontalAlignment = JLabel.CENTER
+                    isFocusable = false
                 }
 
             val subtitleLabel =
@@ -106,6 +107,7 @@
                     foreground = JBColor.GRAY
                     horizontalAlignment = JLabel.CENTER
                     border = JBUI.Borders.emptyTop(6)
+                    isFocusable = false
                 }
 
             val titleContainer =
@@ -139,7 +141,7 @@
             val configButton =
                 createNavigationButton(
                     "Configuration & Modules",
-                    "Manage application settings, modules, and preferences",
+                    "Manage plugin settings, modules, and preferences",
                 ) { navigateToConfiguration() }
 
             // User Profile button
@@ -365,4 +367,4 @@
     fun dispose() {
         LOG.debug("LandingPageComponent disposed")
     }
- }
+}

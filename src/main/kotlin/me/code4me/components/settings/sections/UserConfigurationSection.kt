@@ -400,6 +400,7 @@ class UserSection(
         updateVerificationContent(verificationCard)
         return verificationCard
     }
+
     private fun refreshVerificationUI() {
         verificationCardRef?.let { updateVerificationContent(it) }
     }
@@ -709,8 +710,6 @@ class UserSection(
             Messages.showErrorDialog(errorMessage, "Profile Update Error")
         }
     }
-
-
 
     private fun showPasswordChangeDialog() {
         val dialog = PasswordChangeDialog()
