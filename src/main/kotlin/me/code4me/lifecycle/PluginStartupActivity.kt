@@ -90,6 +90,13 @@ class PluginStartupActivity : ProjectActivity {
                 moduleManager.initializeModules()
                 thisLogger().info("Modules initialized successfully.")
 
+                if (!response.user.preference.isNullOrEmpty()) {
+                    LOG.info("User preferences found, updating preference state")
+                    getPrefState().fromSerializableMap(response.user.preference!!)
+                } else {
+                    LOG.info("No user preferences found, using default preference state")
+                }
+
                 // Acquire session using the stored auth token
                 getAppService().acquireSessionWithStoredToken()
                 thisLogger().info("Session acquired successfully.")
