@@ -391,6 +391,14 @@ class PrefSettings : BaseState() {
 
     var storeContextualTelemetry by property(false)
 
+    // ================= SERVER SELECTION PERSISTENCE =================
+    /**
+     * Last used server selection. If host is blank or port <= 0, no override will be applied.
+     */
+    var lastServerHost by string("")
+    var lastServerPort by property(0)
+    var lastServerContextPath by string("")
+
     // ================= MODULE MANAGEMENT =================
 
     /**

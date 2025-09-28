@@ -50,6 +50,7 @@ import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
 import me.code4me.services.config.ConfigService
 import me.code4me.services.config.getConfig
+import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.project.getProjectTokenService
@@ -98,12 +99,12 @@ class AppService {
     }
 
     private val configService = getConfig()
-    private val serverConfig = configService.getServerConfig()
+    private var serverConfig = configService.getServerConfig()
     private var sessionToken: String? = null
-    private val apiBaseUrl = "${serverConfig?.host}:${serverConfig?.port}${serverConfig?.contextPath}"
+    private var apiBaseUrl = "${serverConfig?.host}:${serverConfig?.port}${serverConfig?.contextPath}"
 
     // Create a custom OkHttpClient for chat operations with extended timeouts
-    private val chatHttpClient =
+    private var chatHttpClient =
         CookieAwareApiClient.createClientWithCookieHandler()
             .newBuilder()
             .connectTimeout(CHAT_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -113,26 +114,73 @@ class AppService {
             .build()
 
     // Standard API clients with default timeouts
-    private val authApi = AuthenticationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-    private val userApi = UserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-    private val completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-    private val sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-    private val projectApi = ProjectApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-    private val userVerificationApi = UserVerificationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-    private val deactivateSessionApi =
+    private var authApi = AuthenticationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private var userApi = UserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private var completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private var sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private var projectApi = ProjectApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private var userVerificationApi = UserVerificationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private var deactivateSessionApi =
         DeactivateSessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
-    private val multiFileContextApi =
+    private var multiFileContextApi =
         MultiFileContextApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private val fileSnapshotCache = mutableMapOf<String, String>()
     val fileHashes = mutableMapOf<String, Int>()
 
     // Chat API with extended timeout configuration
-    private val chatApi = ChatApi(apiBaseUrl, chatHttpClient)
+    private var chatApi = ChatApi(apiBaseUrl, chatHttpClient)
 
     val currentGenerationProject = AtomicReference<Project?>(null)
 
     init {
+        try {
+            val prefs = getPrefState()
+            val host = prefs.lastServerHost
+            val port = prefs.lastServerPort
+            val contextPath = prefs.lastServerContextPath
+            if (!host.isNullOrBlank() && port > 0) {
+                val timeout = serverConfig?.timeout ?: 30
+                setServerConfig(ServerConfig(host = host, port = port, contextPath = contextPath ?: "", timeout = timeout))
+            }
+        } catch (e: Exception) {
+            LOG.warn("Failed to apply last server selection on startup", e)
+        }
         LOG.info("AppService initialized with API base URL: $apiBaseUrl")
+    }
+
+    @Synchronized
+    fun setServerConfig(newServer: ServerConfig) {
+        LOG.info("Switching server to ${newServer.host}:${newServer.port}${newServer.contextPath}")
+        // Clear cookies to avoid leaking sessions across environments
+        try {
+            CookieAwareApiClient.clearCookies()
+        } catch (e: Exception) {
+            LOG.warn("Failed to clear cookies when switching server", e)
+        }
+        serverConfig = newServer
+        apiBaseUrl = "${newServer.host}:${newServer.port}${newServer.contextPath}"
+
+        // Recreate clients with the new base URL
+        val defaultClient = CookieAwareApiClient.createClientWithCookieHandler()
+        authApi = AuthenticationApi(apiBaseUrl, defaultClient)
+        userApi = UserApi(apiBaseUrl, defaultClient)
+        completionApi = CompletionApi(apiBaseUrl, defaultClient)
+        sessionApi = SessionApi(apiBaseUrl, defaultClient)
+        projectApi = ProjectApi(apiBaseUrl, defaultClient)
+        userVerificationApi = UserVerificationApi(apiBaseUrl, defaultClient)
+        deactivateSessionApi = DeactivateSessionApi(apiBaseUrl, defaultClient)
+        multiFileContextApi = MultiFileContextApi(apiBaseUrl, defaultClient)
+
+        // Rebuild chat client with extended timeouts
+        chatHttpClient =
+            CookieAwareApiClient.createClientWithCookieHandler()
+                .newBuilder()
+                .connectTimeout(CHAT_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .readTimeout(CHAT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .writeTimeout(CHAT_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+        chatApi = ChatApi(apiBaseUrl, chatHttpClient)
     }
 
     // ========= Authentication Methods =========

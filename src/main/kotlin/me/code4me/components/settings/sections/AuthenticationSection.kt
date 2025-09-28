@@ -18,6 +18,8 @@ import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.app.AppService
+import me.code4me.services.state.getPrefState
+import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.state.AuthState
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -358,6 +360,15 @@ class AuthenticationSection : SettingsSection {
             putClientProperty("JButton.preferredWidth", MAX_FIELD_WIDTH)
         }
 
+    /**
+     * Advanced button to configure server selection (host/port/context-path).
+     */
+    private val advancedServerButton =
+        JButton("Advanced Server Options").apply {
+            toolTipText = "Configure server connection (host, port, context path)"
+            addActionListener { showServerSelectionDialog() }
+        }
+
     // ================= SERVICES =================
 
     private val authState = service<AuthState>().state
@@ -641,6 +652,17 @@ class AuthenticationSection : SettingsSection {
                     anchor = GridBagConstraints.CENTER
                 }
             formPanel.add(authButton, centerGbc)
+
+            // Row 7: Advanced server options button - centered below auth button
+            val advancedGbc =
+                GridBagConstraints().apply {
+                    gridx = 0
+                    gridy = 7
+                    gridwidth = 2
+                    insets = Insets(5, 5, 10, 5)
+                    anchor = GridBagConstraints.CENTER
+                }
+            formPanel.add(advancedServerButton, advancedGbc)
 
             add(JPanel().apply { add(formPanel) }, BorderLayout.CENTER)
         }
@@ -947,6 +969,44 @@ class AuthenticationSection : SettingsSection {
     }
 
     /**
+     * Shows the Advanced Server Selection dialog and applies changes.
+     */
+    private fun showServerSelectionDialog() {
+        val prefs = getPrefState()
+        val dialog = ServerSelectionDialog(
+            initialHost = prefs.lastServerHost ?: "",
+            initialPort = prefs.lastServerPort,
+            initialContextPath = prefs.lastServerContextPath ?: ""
+        )
+        if (dialog.showAndGet()) {
+            val host = dialog.getHost().trim()
+            val port = dialog.getPort()
+            val contextPath = dialog.getContextPath().trim()
+
+            // Persist selection
+            prefs.lastServerHost = host
+            prefs.lastServerPort = port
+            prefs.lastServerContextPath = contextPath
+
+            // Apply to AppService immediately
+            val timeout = 30
+            service<AppService>().setServerConfig(
+                ServerConfig(
+                    host = host,
+                    port = port,
+                    contextPath = contextPath,
+                    timeout = timeout
+                )
+            )
+
+            Messages.showInfoMessage(
+                "Server switched to $host:$port$contextPath",
+                "Server Updated"
+            )
+        }
+    }
+
+    /**
      * Initiates Google OAuth authentication flow.
      */
     private fun initiateGoogleAuth() {
@@ -1046,4 +1106,65 @@ private class PasswordCreationDialog(private val email: String) : DialogWrapper(
     fun getPassword(): String = String(passwordField.password)
 
     fun getName(): String = nameField.text.trim()
+}
+
+
+private class ServerSelectionDialog(
+    private val initialHost: String,
+    private val initialPort: Int,
+    private val initialContextPath: String,
+) : DialogWrapper(true) {
+    private val hostField = JBTextField()
+    private val portField = JBTextField()
+    private val contextPathField = JBTextField()
+
+    init {
+        title = "Advanced Server Options"
+        hostField.text = initialHost
+        portField.text = if (initialPort > 0) initialPort.toString() else ""
+        contextPathField.text = initialContextPath
+        init()
+    }
+
+    override fun createCenterPanel(): JComponent {
+        val panel = JPanel(GridBagLayout())
+        val gbc = GridBagConstraints().apply {
+            insets = Insets(5, 5, 5, 5)
+            anchor = GridBagConstraints.WEST
+        }
+
+        gbc.gridx = 0
+        gbc.gridy = 0
+        panel.add(JLabel("Host (with scheme):"), gbc)
+        gbc.gridx = 1
+        panel.add(hostField, gbc)
+
+        gbc.gridx = 0
+        gbc.gridy = 1
+        panel.add(JLabel("Port:"), gbc)
+        gbc.gridx = 1
+        panel.add(portField, gbc)
+
+        gbc.gridx = 0
+        gbc.gridy = 2
+        panel.add(JLabel("Context Path (e.g., /api):"), gbc)
+        gbc.gridx = 1
+        panel.add(contextPathField, gbc)
+
+        return panel
+    }
+
+    override fun doValidate(): ValidationInfo? {
+        val host = hostField.text.trim()
+        if (host.isBlank()) return ValidationInfo("Host is required", hostField)
+        val portText = portField.text.trim()
+        if (portText.isBlank()) return ValidationInfo("Port is required", portField)
+        val port = portText.toIntOrNull()
+        if (port == null || port <= 0 || port > 65535) return ValidationInfo("Port must be a number between 1 and 65535", portField)
+        return null
+    }
+
+    fun getHost(): String = hostField.text.trim()
+    fun getPort(): Int = portField.text.trim().toInt()
+    fun getContextPath(): String = contextPathField.text.trim()
 }
