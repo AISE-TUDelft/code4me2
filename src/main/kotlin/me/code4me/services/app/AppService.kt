@@ -193,6 +193,13 @@ class AppService {
         return try {
             val response = authApi.authenticateUserApiUserAuthenticatePost(userToAuthenticate)
 
+            if (!response.user.preference.isNullOrEmpty()) {
+                LOG.info("User preferences found, updating preference state")
+                getPrefState().fromSerializableMap(response.user.preference!!)
+            } else {
+                LOG.info("No user preferences found, using default preference state")
+            }
+
             val configService = ConfigService.fromConfigString(response.config)
             val instantiatedModules = configService.instantiateModules()
             LOG.info("Modules instantiated successfully: ${instantiatedModules.size} modules")

@@ -66,21 +66,25 @@ fun PrefSettings.fromSerializableMap(data: Map<String, Any>): PrefSettings {
     (data["store_contextual_telemetry"] as? Boolean)?.let { this.storeContextualTelemetry = it }
 
     // Update enabled modules
-    Json.decodeFromString<List<String>>(data["enabled_modules"] as String).let { modulesList ->
-        this.enabledModules.clear()
-        modulesList.filterIsInstance<String>().forEach { moduleId ->
-            this.enabledModules.add(moduleId)
+    if(data.keys.contains("enabled_modules") ) {
+        Json.decodeFromString<List<String>>(data["enabled_modules"] as String).let { modulesList ->
+            this.enabledModules.clear()
+            modulesList.filterIsInstance<String>().forEach { moduleId ->
+                this.enabledModules.add(moduleId)
+            }
         }
     }
 
     // Update module values
-    (data["module_values"] as? String)?.let { moduleValuesString ->
-        try {
-            val moduleValuesMap = Json.decodeFromString<Map<String, String>>(moduleValuesString)
-            this.moduleValues.clear()
-            this.moduleValues.putAll(moduleValuesMap)
-        } catch (e: Exception) {
-            thisLogger().warn("Failed to parse module values", e)
+    if (data.keys.contains("module_values")) {
+        (data["module_values"] as? String)?.let { moduleValuesString ->
+            try {
+                val moduleValuesMap = Json.decodeFromString<Map<String, String>>(moduleValuesString)
+                this.moduleValues.clear()
+                this.moduleValues.putAll(moduleValuesMap)
+            } catch (e: Exception) {
+                thisLogger().warn("Failed to parse module values", e)
+            }
         }
     }
 
