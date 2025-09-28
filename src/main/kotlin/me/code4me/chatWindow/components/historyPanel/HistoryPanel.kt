@@ -54,27 +54,7 @@ class HistoryPanel(
                 onSessionSelected()
             },
             onDelete = { session ->
-                // confirm the deletion and also ask if the user wants to delete from server
-                val checkbox = javax.swing.JCheckBox("Also delete from server")
-                val panel =
-                    javax.swing.JPanel(java.awt.BorderLayout()).apply {
-                        add(javax.swing.JLabel("Are you sure you want to delete this chat session?"), java.awt.BorderLayout.NORTH)
-                        add(checkbox, java.awt.BorderLayout.SOUTH)
-                    }
-                val confirm =
-                    JOptionPane.showConfirmDialog(
-                        this,
-                        panel,
-                        "Confirm Deletion",
-                        JOptionPane.YES_NO_OPTION,
-                        JOptionPane.WARNING_MESSAGE,
-                    )
-                val deleteFromServer = checkbox.isSelected
-
-                if (confirm != JOptionPane.YES_OPTION) return@HistoryRenderer
-                // Delete the session
-                sessionManager.deleteSession(session, deleteFromServer)
-                refresh()
+                deleteSessionWithConfirmation(session)
             },
         )
 
@@ -109,37 +89,7 @@ class HistoryPanel(
                                 toolTipText = "Delete all chat sessions"
 
                                 addActionListener {
-                                    val visibleSessions = sessionManager.getAllSessions().filter { session -> session.messages.size >= 1 }
-
-                                    if (visibleSessions.isNotEmpty()) {
-                                        // Confirm deletion of all sessions
-                                        // also ask if the user wants to delete from server
-                                        val checkbox = javax.swing.JCheckBox("Also delete from server")
-                                        val panel =
-                                            javax.swing.JPanel(java.awt.BorderLayout()).apply {
-                                                add(
-                                                    javax.swing.JLabel("Are you sure you want to delete this chat session?"),
-                                                    java.awt.BorderLayout.NORTH,
-                                                )
-                                                add(checkbox, java.awt.BorderLayout.SOUTH)
-                                            }
-
-                                        val confirm =
-                                            JOptionPane.showConfirmDialog(
-                                                this,
-                                                panel,
-                                                "Are you sure you want to delete all chat sessions?",
-                                                JOptionPane.YES_NO_OPTION,
-                                                JOptionPane.WARNING_MESSAGE,
-                                            )
-                                        val deleteFromServer = checkbox.isSelected
-                                        if (confirm == JOptionPane.YES_OPTION) {
-                                            sessionManager.getAllSessions().forEach {
-                                                sessionManager.deleteSession(it, deleteFromServer)
-                                            }
-                                            refresh()
-                                        }
-                                    }
+                                    deleteAllSessionsWithConfirmation()
                                 }
                             },
                         )
@@ -174,6 +124,83 @@ class HistoryPanel(
             }
 
         add(scrollPane, BorderLayout.CENTER)
+        refresh()
+    }
+
+    /**
+     * Deletes a single session with user confirmation.
+     * Cleanup happens automatically via ChatSessionManager callback.
+     *
+     * @param session The session to delete
+     */
+    private fun deleteSessionWithConfirmation(session: ChatSession) {
+        val checkbox = javax.swing.JCheckBox("Also delete from server")
+        val panel =
+            javax.swing.JPanel(java.awt.BorderLayout()).apply {
+                add(
+                    javax.swing.JLabel("Are you sure you want to delete this chat session?"),
+                    java.awt.BorderLayout.NORTH,
+                )
+                add(checkbox, java.awt.BorderLayout.SOUTH)
+            }
+        val confirm =
+            JOptionPane.showConfirmDialog(
+                this,
+                panel,
+                "Confirm Deletion",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE,
+            )
+
+        if (confirm != JOptionPane.YES_OPTION) return
+
+        val deleteFromServer = checkbox.isSelected
+
+        // Delete the session - cleanup happens automatically via callback
+        sessionManager.deleteSession(session, deleteFromServer)
+        refresh()
+    }
+
+    /**
+     * Deletes all sessions with user confirmation.
+     * Cleanup happens automatically via ChatSessionManager callback.
+     */
+    private fun deleteAllSessionsWithConfirmation() {
+        val visibleSessions =
+            sessionManager.getAllSessions().filter { session ->
+                session.messages.any { it.second.isNotBlank() }
+            }
+
+        if (visibleSessions.isEmpty()) return
+
+        val checkbox = javax.swing.JCheckBox("Also delete from server")
+        val panel =
+            javax.swing.JPanel(java.awt.BorderLayout()).apply {
+                add(
+                    javax.swing.JLabel("Are you sure you want to delete all chat sessions?"),
+                    java.awt.BorderLayout.NORTH,
+                )
+                add(checkbox, java.awt.BorderLayout.SOUTH)
+            }
+
+        val confirm =
+            JOptionPane.showConfirmDialog(
+                this,
+                panel,
+                "Are you sure you want to delete all chat sessions?",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE,
+            )
+
+        if (confirm != JOptionPane.YES_OPTION) return
+
+        val deleteFromServer = checkbox.isSelected
+
+        // Delete all sessions - cleanup happens automatically via callback
+        sessionManager.getAllSessions().forEach { session ->
+            sessionManager.deleteSession(session, deleteFromServer)
+        }
+
         refresh()
     }
 

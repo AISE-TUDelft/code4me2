@@ -72,9 +72,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private val viewManager = ChatViewManager()
     private val uiScope = CoroutineScope(Dispatchers.Default)
     private val aiScope = CoroutineScope(Dispatchers.IO)
-    private var aiJob: Job? = null
-    private var regenerateJob: Job? = null
-    private var loadingTimer: Timer? = null
+
+    // Multi-session job tracking
+    private val activeJobs = mutableMapOf<String, Job>()
+    private val loadingTimers = mutableMapOf<String, Timer>()
+
     private var editIndex: Int? = null
     private var isEditing = false
 
@@ -253,6 +255,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             historyPanel.refresh()
             topBarPanel.updateTitle()
 
+            // Cancel all active jobs and clear timers
+            activeJobs.values.forEach { it.cancel() }
+            activeJobs.clear()
+            loadingTimers.values.forEach { it.stop() }
+            loadingTimers.clear()
+
             // Force clear any cached session data
             sessionManager?.let { manager ->
                 val allSessions = manager.getAllSessions()
@@ -386,8 +394,8 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             onTitleRenamed = { historyPanel.refresh() },
         )
 
-    private fun createHistoryPanel() =
-        HistoryPanel(sessionManager!!) {
+    private fun createHistoryPanel(): HistoryPanel {
+        return HistoryPanel(sessionManager!!) {
             ApplicationManager.getApplication().invokeLater {
                 topBarPanel.updateTitle()
                 saveCurrentSession()
@@ -395,6 +403,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                 viewManager.showChatPanel()
             }
         }
+    }
 
     private fun createMainChatArea() =
         JBPanel<JBPanel<*>>(BorderLayout()).apply {
@@ -476,6 +485,8 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         val message = inputPanel.inputText.trim()
         if (message.isEmpty() || sessionManager == null) return
 
+        val currentSessionId = sessionManager!!.currentSession.id
+
         if (isEditing) {
             val index = editIndex ?: return
             val messages = sessionManager!!.currentSession.messages
@@ -509,52 +520,97 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         // Create a timer to update the loading indicator
         val loadingPatterns = arrayOf("Generating.", "Generating..", "Generating...")
         var patternIndex = 0
-        loadingTimer?.stop() // stop any previous
-        loadingTimer =
+
+        loadingTimers[currentSessionId]?.stop() // Stop any previous timer for this session
+        val timer =
             Timer(300) {
                 val loadingText = loadingPatterns[patternIndex]
-                chatDisplayPanel.updateLastBubbleText(loadingText)
+                // Only update if this is still the current session
+                if (sessionManager?.currentSession?.id == currentSessionId) {
+                    chatDisplayPanel.updateLastBubbleText(loadingText)
+                }
                 patternIndex = (patternIndex + 1) % loadingPatterns.size
             }
-        loadingTimer?.start()
+        loadingTimers[currentSessionId] = timer
+        timer.start()
 
         // Process AI response in background
-        aiJob =
+        val job =
             aiScope.launch {
-                val aiResponse = processAIResponse(message, selectedModel)
+                val aiResponse = processAIResponse(message, selectedModel, currentSessionId)
 
                 if (!isActive) return@launch
 
                 ApplicationManager.getApplication().invokeLater {
-                    loadingTimer?.stop()
-                    inputPanel.setGeneratingState(false)
-                    aiJob = null
+                    // Clean up this job
+                    activeJobs.remove(currentSessionId)
+                    loadingTimers[currentSessionId]?.stop()
+                    loadingTimers.remove(currentSessionId)
 
-                    if (aiResponse.title.isNotBlank() && sessionManager?.currentSession?.title != aiResponse.title) {
-                        sessionManager?.currentSession?.title = aiResponse.title
-                        topBarPanel.updateTitle()
+                    // Only update input state if this is still the current session
+                    if (sessionManager?.currentSession?.id == currentSessionId) {
+                        inputPanel.setGeneratingState(false)
                     }
 
-                    if (aiResponse.responses.isNotEmpty()) {
-                        updateLastMessage(aiResponse.responses.first())
-                        refreshChatDisplay()
-                        sessionManager?.chatRepository?.saveChat(sessionManager!!.currentSession)
-                    } else {
-                        updateLastMessage("No response received")
+                    // Update the session (may not be current anymore)
+                    val session = sessionManager?.getSessionById(currentSessionId)
+                    if (session != null) {
+                        if (aiResponse.title.isNotBlank() && session.title != aiResponse.title) {
+                            session.title = aiResponse.title
+                            // Update UI if this is current session
+                            if (sessionManager?.currentSession?.id == currentSessionId) {
+                                topBarPanel.updateTitle()
+                            }
+                        }
+
+                        if (aiResponse.responses.isNotEmpty()) {
+                            // Update the last message in the session
+                            if (session.messages.isNotEmpty()) {
+                                val lastIndex = session.messages.size - 1
+                                val (sender, _) = session.messages[lastIndex]
+                                session.messages[lastIndex] = sender to aiResponse.responses.first()
+                            }
+
+                            // Update display if this is the current session
+                            if (sessionManager?.currentSession?.id == currentSessionId) {
+                                refreshChatDisplay()
+                            }
+
+                            sessionManager?.chatRepository?.saveChat(session)
+                        } else {
+                            // Handle no response case
+                            if (session.messages.isNotEmpty()) {
+                                val lastIndex = session.messages.size - 1
+                                val (sender, _) = session.messages[lastIndex]
+                                session.messages[lastIndex] = sender to "No response received"
+                            }
+
+                            if (sessionManager?.currentSession?.id == currentSessionId) {
+                                refreshChatDisplay()
+                            }
+                        }
+
+                        // Always refresh history panel to show updated sessions
+                        historyPanel.refresh()
                     }
 
                     saveCurrentSession()
                 }
             }
+
+        activeJobs[currentSessionId] = job
     }
 
+    /**
+     * Cancels generation for the current session only.
+     */
     private fun cancelGeneration() {
-        aiJob?.cancel()
-        regenerateJob?.cancel()
-        aiJob = null
-        regenerateJob = null
-        loadingTimer?.stop()
-        loadingTimer = null
+        val currentSessionId = sessionManager?.currentSession?.id ?: return
+
+        activeJobs[currentSessionId]?.cancel()
+        activeJobs.remove(currentSessionId)
+        loadingTimers[currentSessionId]?.stop()
+        loadingTimers.remove(currentSessionId)
 
         val cancelMsg = "This query request was cancelled by user."
         inputPanel.setGeneratingState(false)
@@ -565,20 +621,17 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     /**
      * Processes AI response using the IO manager with current context and settings.
-     *
-     * @param query The user's message/query text
-     * @param selectedModel The selected AI model for processing
-     * @return AI response with generated content and metadata
      */
     private suspend fun processAIResponse(
         query: String,
         selectedModel: String?,
+        sessionId: String,
     ) = ioManager.getAIResponse(
         useWeb,
         selectedFiles.map { it.path },
         selectedModel,
-        sessionManager?.currentSession?.id?.toString(),
-        sessionManager?.currentSession?.messages!!,
+        sessionId,
+        sessionManager?.getSessionById(sessionId)?.messages ?: emptyList(),
         project!!,
     )
 
@@ -618,6 +671,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         super.removeNotify()
         // Save current session when panel is being disposed
         saveCurrentSession()
+        // Cancel all active jobs
+        activeJobs.values.forEach { it.cancel() }
+        activeJobs.clear()
+        loadingTimers.values.forEach { it.stop() }
+        loadingTimers.clear()
         // Clean up auth state listener
         authState.removePropertyChangeListener(TOKEN_PROPERTY, authStateListener)
     }
@@ -654,11 +712,6 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     /**
      * Regenerates AI response from a specific message index.
-     *
-     * Truncates conversation history to the specified index, finds the last user message,
-     * and requests a new AI response. Used for the "Regenerate" action on AI messages.
-     *
-     * @param index The message index to regenerate from
      */
     private fun regenerateFromIndex(index: Int) {
         // Check authentication before allowing regeneration
@@ -668,6 +721,8 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
         val messages = sessionManager?.currentSession?.messages ?: return
         if (index < 0 || index >= messages.size) return
+
+        val currentSessionId = sessionManager!!.currentSession.id
 
         // Keep only messages up to the specified index (excluding the message at that index)
         val retainedMessages = messages.subList(0, index).toList()
@@ -690,43 +745,74 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         // Create a timer to update the loading indicator (same as sendMessage)
         val loadingPatterns = arrayOf("Generating.", "Generating..", "Generating...")
         var patternIndex = 0
-        loadingTimer?.stop() // stop any previous
-        loadingTimer =
+        loadingTimers[currentSessionId]?.stop() // stop any previous
+        val timer =
             Timer(300) {
                 val loadingText = loadingPatterns[patternIndex]
-                chatDisplayPanel.updateLastBubbleText(loadingText)
+                if (sessionManager?.currentSession?.id == currentSessionId) {
+                    chatDisplayPanel.updateLastBubbleText(loadingText)
+                }
                 patternIndex = (patternIndex + 1) % loadingPatterns.size
             }
-        loadingTimer?.start()
+        loadingTimers[currentSessionId] = timer
+        timer.start()
 
         // Launch AI coroutine
-        regenerateJob =
+        val job =
             aiScope.launch {
-                val aiResponse = processAIResponse(lastUserMsg, selectedModel)
+                val aiResponse = processAIResponse(lastUserMsg, selectedModel, currentSessionId)
 
                 if (!isActive) return@launch // Cancelled
 
                 ApplicationManager.getApplication().invokeLater {
-                    loadingTimer?.stop()
-                    inputPanel.setGeneratingState(false)
-                    regenerateJob = null
+                    activeJobs.remove(currentSessionId)
+                    loadingTimers[currentSessionId]?.stop()
+                    loadingTimers.remove(currentSessionId)
 
-                    if (aiResponse.title.isNotBlank() && sessionManager?.currentSession?.title != aiResponse.title) {
-                        sessionManager?.currentSession?.title = aiResponse.title
-                        topBarPanel.updateTitle()
+                    if (sessionManager?.currentSession?.id == currentSessionId) {
+                        inputPanel.setGeneratingState(false)
                     }
 
-                    if (aiResponse.responses.isNotEmpty()) {
-                        updateLastMessage(aiResponse.responses.first())
-                        refreshChatDisplay()
-                        sessionManager?.chatRepository?.saveChat(sessionManager!!.currentSession)
-                    } else {
-                        updateLastMessage("No response received")
+                    val session = sessionManager?.getSessionById(currentSessionId)
+                    if (session != null) {
+                        if (aiResponse.title.isNotBlank() && session.title != aiResponse.title) {
+                            session.title = aiResponse.title
+                            if (sessionManager?.currentSession?.id == currentSessionId) {
+                                topBarPanel.updateTitle()
+                            }
+                        }
+
+                        if (aiResponse.responses.isNotEmpty()) {
+                            if (session.messages.isNotEmpty()) {
+                                val lastIndex = session.messages.size - 1
+                                val (sender, _) = session.messages[lastIndex]
+                                session.messages[lastIndex] = sender to aiResponse.responses.first()
+                            }
+
+                            if (sessionManager?.currentSession?.id == currentSessionId) {
+                                refreshChatDisplay()
+                            }
+                            sessionManager?.chatRepository?.saveChat(session)
+                        } else {
+                            if (session.messages.isNotEmpty()) {
+                                val lastIndex = session.messages.size - 1
+                                val (sender, _) = session.messages[lastIndex]
+                                session.messages[lastIndex] = sender to "No response received"
+                            }
+
+                            if (sessionManager?.currentSession?.id == currentSessionId) {
+                                refreshChatDisplay()
+                            }
+                        }
+
+                        historyPanel.refresh()
                     }
 
                     saveCurrentSession()
                 }
             }
+
+        activeJobs[currentSessionId] = job
     }
 
     /**
@@ -754,8 +840,6 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
     /**
      * Exits edit mode and returns to normal chat operation.
-     *
-     * Clears edit state, hides edit controls and overlay, and resets input field.
      */
     private fun exitEditMode() {
         editIndex = null
@@ -775,6 +859,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     fun resetAllChatsAfterLogout() {
         project?.let { proj: Project ->
             LOG.info("Starting complete chat reset for project: ${proj.name}")
+
+            // Cancel all active jobs and clear timers
+            activeJobs.values.forEach { it.cancel() }
+            activeJobs.clear()
+            loadingTimers.values.forEach { it.stop() }
+            loadingTimers.clear()
 
             // IMMEDIATELY clear UI content first
             chatDisplayPanel.updateContent(emptyList())
