@@ -83,7 +83,12 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
 
             try {
                 val state = getPrefState()
-                if (state.enabledModules.add(moduleId)) {
+                val oldSet = HashSet(state.enabledModules)
+                val changed = state.enabledModules.add(moduleId)
+                if (changed) {
+                    // Notify listeners and mark settings as dirty so Apply/Dispose will sync
+                    state.propertyChangeSupport.firePropertyChange("enabled_modules", oldSet, HashSet(state.enabledModules))
+                    Code4MeConfigurable.atomicSettingsChanged.set(true)
                     LOG.debug("Module enabled: $moduleId")
                 } else {
                     LOG.debug("Module was already enabled: $moduleId")
@@ -106,7 +111,12 @@ class PrefState : SimplePersistentStateComponent<PrefSettings>(PrefSettings()) {
 
             try {
                 val state = getPrefState()
-                if (state.enabledModules.remove(moduleId)) {
+                val oldSet = HashSet(state.enabledModules)
+                val changed = state.enabledModules.remove(moduleId)
+                if (changed) {
+                    // Notify listeners and mark settings as dirty so Apply/Dispose will sync
+                    state.propertyChangeSupport.firePropertyChange("enabled_modules", oldSet, HashSet(state.enabledModules))
+                    Code4MeConfigurable.atomicSettingsChanged.set(true)
                     LOG.debug("Module disabled: $moduleId")
                 } else {
                     LOG.debug("Module was already disabled: $moduleId")

@@ -205,6 +205,20 @@ class Code4MeConfigurable : SearchableConfigurable {
         }
 
         atomicSettingsChanged.set(true)
+
+        // NEW: also push to server on Apply for authenticated users
+        if (authService.isAuthenticated()) {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    updatePreferencesOnServer()
+                    // only clear the flag if successful
+                    atomicSettingsChanged.set(false)
+                } catch (e: Exception) {
+                    // keep the flag true so dispose can retry (or future Apply)
+                    LOG.error("Apply-time preference sync failed", e)
+                }
+            }
+        }
     }
 
     /**
@@ -238,10 +252,20 @@ class Code4MeConfigurable : SearchableConfigurable {
     override fun disposeUIResources() {
         if (atomicSettingsChanged.get()) {
             // Trigger server-side preference update
-            ApplicationManager.getApplication().executeOnPooledThread {
-                updatePreferencesOnServer()
+            if (authService.isAuthenticated()) {
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    try {
+                        updatePreferencesOnServer()
+                        atomicSettingsChanged.set(false)
+                    } catch (e: Exception) {
+                        LOG.error("Dispose-time preference sync failed", e)
+                        // keep the flag true for later retry
+                    }
+                }
+            } else {
+                // Not authenticated; leave the flag as-is to retry after login
+                LOG.debug("Skip preference sync on dispose: user not authenticated")
             }
-            atomicSettingsChanged.set(false)
         }
 
         authService.removePropertyChangeListener(tokenChangeListener)
@@ -273,6 +297,7 @@ class Code4MeConfigurable : SearchableConfigurable {
 
             // Use the dedicated notification function
             ProjectManager.getInstance().openProjects.firstOrNull()?.showPreferenceSyncFailedNotification()
+            throw e
         }
     }
 }
