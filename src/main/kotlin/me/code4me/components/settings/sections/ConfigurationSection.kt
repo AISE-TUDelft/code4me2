@@ -16,6 +16,7 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
+import me.code4me.api.generated.model.UpdateUser
 import me.code4me.components.settings.fields.FieldInfo
 import me.code4me.components.settings.fields.ModuleBooleanPreferenceField
 import me.code4me.components.settings.fields.ModuleFloatPreferenceField
@@ -34,13 +35,11 @@ import me.code4me.services.state.AuthState
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getPrefState
 import me.code4me.settings.UserConfigurable
-import me.code4me.settings.Code4MeConfigurable
 import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.api.toSerializableMap
-import me.code4me.api.generated.model.UpdateUser
-import me.code4me.utils.notification.showPreferenceSyncFailedNotification
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceType
+import me.code4me.utils.notification.showPreferenceSyncFailedNotification
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension

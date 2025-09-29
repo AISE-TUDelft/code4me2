@@ -98,6 +98,13 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         restoreLastSession()
         loadModelsFromConfig()
         updateAuthOverlayVisibility()
+
+        addHierarchyListener { e ->
+            val SHOWING_CHANGED = java.awt.event.HierarchyEvent.SHOWING_CHANGED.toLong()
+            if ((e.changeFlags and SHOWING_CHANGED) != 0L && isShowing) {
+                ApplicationManager.getApplication().invokeLater { updateAuthOverlayVisibility() }
+            }
+        }
     }
 
     /**
@@ -158,40 +165,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                         project?.let { currentProject: Project ->
                             try {
                                 // Try to open the specific Code4Me settings page
-                                val settingsDialog = com.intellij.openapi.options.ShowSettingsUtil.getInstance()
-
-                                // Try different possible names for the settings page
-                                val possibleNames =
-                                    listOf(
-                                        "Code4Me",
-                                        "Code4Me Settings",
-                                        "me.code4me.components.settings.Code4MeSettingsConfigurable",
-                                        "Tools",
-                                    )
-
-                                var opened = false
-                                for (name in possibleNames) {
-                                    try {
-                                        settingsDialog.showSettingsDialog(currentProject, name)
-                                        opened = true
-                                        break
-                                    } catch (e: Exception) {
-                                        LOG.debug("Failed to open settings with name: $name", e)
-                                    }
-                                }
-
-                                if (!opened) {
-                                    // Fallback: open general settings
-                                    settingsDialog.showSettingsDialog(currentProject)
-
-                                    // Show help message
-                                    ApplicationManager.getApplication().invokeLater {
-                                        com.intellij.openapi.ui.Messages.showInfoMessage(
-                                            "Please navigate to Tools → Code4Me in the settings to configure authentication.",
-                                            "Settings Opened",
-                                        )
-                                    }
-                                }
+                                val settings = com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+                                settings.showSettingsDialog(
+                                    currentProject,
+                                    me.code4me.settings.Code4MeConfigurable::class.java,
+                                )
                             } catch (e: Exception) {
                                 LOG.warn("Could not open settings", e)
                                 // Show help message instead
@@ -274,6 +252,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                 val chatService = getProjectChatService(proj)
                 chatService.clearAllChatsAndMemory()
                 sessionManager = ChatSessionManager(chatService)
+                topBarPanel.setSessionManager(sessionManager!!)
+                historyPanel.setSessionManager(sessionManager!!)
+                topBarPanel.updateTitle()
+                historyPanel.refresh()
+                refreshChatDisplay()
             }
 
             // Clear state service
@@ -299,7 +282,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             chatDisplayPanel.isEnabled = true
             historyPanel.isEnabled = true
         }
-
+        val wrapper = authOverlayPanel.parent
+        wrapper?.revalidate()
+        wrapper?.repaint()
+        this.revalidate()
+        this.repaint()
         authOverlayPanel.revalidate()
         authOverlayPanel.repaint()
     }
@@ -355,9 +342,10 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         authOverlayPanel.alignmentY = TOP_ALIGNMENT
 
         // Add components - overlay goes on top
-        layeredWrapper.add(authOverlayPanel)
-        layeredWrapper.add(chatContainer)
 
+        layeredWrapper.add(chatContainer)
+        layeredWrapper.add(authOverlayPanel)
+        layeredWrapper.setComponentZOrder(authOverlayPanel, 0)
         add(layeredWrapper, BorderLayout.CENTER)
     }
 
@@ -892,6 +880,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
             // Create a brand new session manager
             sessionManager = ChatSessionManager(chatService)
+            topBarPanel.setSessionManager(sessionManager!!)
+            historyPanel.setSessionManager(sessionManager!!)
+            topBarPanel.updateTitle()
+            historyPanel.refresh()
+            refreshChatDisplay()
 
             // Force immediate UI clearing multiple times
             chatDisplayPanel.updateContent(emptyList())
