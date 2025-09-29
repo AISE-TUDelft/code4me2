@@ -31,7 +31,7 @@ import javax.swing.SwingConstants
  * @param onSessionSelected A callback invoked when a session is selected.
  */
 class HistoryPanel(
-    private val sessionManager: ChatSessionManager,
+    private var sessionManager: ChatSessionManager,
     private val onSessionSelected: () -> Unit,
 ) : JBPanel<HistoryPanel>(BorderLayout()) {
     /**
@@ -57,6 +57,11 @@ class HistoryPanel(
                 deleteSessionWithConfirmation(session)
             },
         )
+
+    fun setSessionManager(newManager: ChatSessionManager) {
+        sessionManager = newManager
+        refresh()
+    }
 
     init {
         border = JBUI.Borders.empty(12)

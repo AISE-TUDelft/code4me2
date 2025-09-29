@@ -29,7 +29,7 @@ import javax.swing.JTextField
  * @param onTitleRenamed Callback invoked after the session title is renamed.
  */
 class TopBarPanel(
-    private val sessionManager: ChatSessionManager,
+    private var sessionManager: ChatSessionManager,
     private val onSessionSwitched: () -> Unit,
     private val onNewChatCreated: () -> Unit,
     private val onHistoryClicked: () -> Unit,
@@ -47,6 +47,11 @@ class TopBarPanel(
     private var isEditingTitle = false
 
     private var rightPanel: JBPanel<*>
+
+    fun setSessionManager(newManager: ChatSessionManager) {
+        sessionManager = newManager
+        updateTitle()
+    }
 
     init {
         background = JBColor.PanelBackground
