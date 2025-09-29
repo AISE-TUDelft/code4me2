@@ -1,5 +1,6 @@
 package me.code4me.utils.api
 
+import com.intellij.openapi.diagnostic.thisLogger
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -65,19 +66,24 @@ fun PrefSettings.fromSerializableMap(data: Map<String, Any>): PrefSettings {
     (data["store_contextual_telemetry"] as? Boolean)?.let { this.storeContextualTelemetry = it }
 
     // Update enabled modules
-    (data["enabled_modules"] as? List<*>)?.let { modulesList ->
-        this.enabledModules.clear()
-        modulesList.filterIsInstance<String>().forEach { moduleId ->
-            this.enabledModules.add(moduleId)
+    if(data.keys.contains("enabled_modules") ) {
+        Json.decodeFromString<List<String>>(data["enabled_modules"] as String).let { modulesList ->
+            this.enabledModules.clear()
+            modulesList.filterIsInstance<String>().forEach { moduleId ->
+                this.enabledModules.add(moduleId)
+            }
         }
     }
 
     // Update module values
-    (data["module_values"] as? Map<*, *>)?.let { moduleValuesMap ->
-        this.moduleValues.clear()
-        moduleValuesMap.entries.forEach { (key, value) ->
-            if (key is String && value is String) {
-                this.moduleValues[key] = value
+    if (data.keys.contains("module_values")) {
+        (data["module_values"] as? String)?.let { moduleValuesString ->
+            try {
+                val moduleValuesMap = Json.decodeFromString<Map<String, String>>(moduleValuesString)
+                this.moduleValues.clear()
+                this.moduleValues.putAll(moduleValuesMap)
+            } catch (e: Exception) {
+                thisLogger().warn("Failed to parse module values", e)
             }
         }
     }

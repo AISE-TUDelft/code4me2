@@ -18,8 +18,11 @@ import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.app.AppService
+import me.code4me.services.state.getPrefState
+import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.state.AuthState
 import java.awt.BorderLayout
+import java.awt.Dimension
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
@@ -34,6 +37,8 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JToggleButton
+import javax.swing.SwingConstants
+import javax.swing.SwingUtilities
 
 private fun JComponent.addEnterKeyListener(action: () -> Unit) {
     addKeyListener(
@@ -73,6 +78,7 @@ class AuthenticationSection : SettingsSection {
         private const val FIELD_COLUMNS = 20
         private const val FORM_PADDING = 10
         private const val SECTION_SPACING = 15
+        private const val MAX_FIELD_WIDTH = 250 // Max width for text fields
     }
 
     /**
@@ -119,16 +125,19 @@ class AuthenticationSection : SettingsSection {
         JBTextField().apply {
             columns = FIELD_COLUMNS
             toolTipText = "Enter your email address"
+            preferredSize = Dimension(MAX_FIELD_WIDTH, preferredSize.height)
             addFocusListener(
                 object : FocusAdapter() {
                     override fun focusLost(e: FocusEvent) {
-                        val text = text.trim()
-                        if (text.isNotEmpty() && !isValidEmail(text)) {
-                            background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
-                            putClientProperty("JComponent.outline", "error")
-                        } else {
-                            background = null
-                            putClientProperty("JComponent.outline", null)
+                        SwingUtilities.invokeLater {
+                            val text = text.trim()
+                            if (text.isNotEmpty() && !isValidEmail(text)) {
+                                background = JBUI.CurrentTheme.Validator.errorBackgroundColor()
+                                putClientProperty("JComponent.outline", "error")
+                            } else {
+                                background = null
+                                putClientProperty("JComponent.outline", null)
+                            }
                         }
                     }
                 },
@@ -151,6 +160,7 @@ class AuthenticationSection : SettingsSection {
         JBPasswordField().apply {
             columns = FIELD_COLUMNS
             toolTipText = "Enter your password (8+ chars, uppercase, lowercase, digit, no spaces)"
+            preferredSize = Dimension(MAX_FIELD_WIDTH, preferredSize.height)
             addFocusListener(
                 object : FocusAdapter() {
                     override fun focusLost(e: FocusEvent) {
@@ -197,6 +207,7 @@ class AuthenticationSection : SettingsSection {
         JBTextField().apply {
             columns = FIELD_COLUMNS
             toolTipText = "Enter your full name"
+            preferredSize = Dimension(MAX_FIELD_WIDTH, preferredSize.height)
             addFocusListener(
                 object : FocusAdapter() {
                     override fun focusLost(e: FocusEvent) {
@@ -229,6 +240,7 @@ class AuthenticationSection : SettingsSection {
         JBPasswordField().apply {
             columns = FIELD_COLUMNS
             toolTipText = "Confirm your password (must match requirements)"
+            preferredSize = Dimension(MAX_FIELD_WIDTH, preferredSize.height)
             addFocusListener(
                 object : FocusAdapter() {
                     override fun focusLost(e: FocusEvent) {
@@ -267,9 +279,15 @@ class AuthenticationSection : SettingsSection {
      * Mode toggle button for switching between login and signup.
      */
     private val authModeToggle =
-        JToggleButton("Login Mode").apply {
+        JToggleButton("Sign Up Mode").apply {
             toolTipText = "Toggle between login and signup modes"
             isSelected = false // Default to LOGIN mode
+            putClientProperty("JButton.buttonType", "link")
+            isContentAreaFilled = false
+            isBorderPainted = false
+            isFocusPainted = false
+            foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
+            horizontalAlignment = SwingConstants.CENTER
         }
 
     private val authModeToggleSVF =
@@ -279,7 +297,7 @@ class AuthenticationSection : SettingsSection {
             override fun setStateValue(value: Boolean) {
                 authModeToggle.isSelected = value
                 updateToggleText()
-                requiresUIRefresh.set(true)
+//                requiresUIRefresh.set(true)
                 updateFormVisibility()
             }
 
@@ -288,7 +306,7 @@ class AuthenticationSection : SettingsSection {
                 authModeToggle.addItemListener { _ ->
                     updateToggleText()
                     updateFormVisibility()
-                    requiresUIRefresh.set(true)
+//                    requiresUIRefresh.set(true)
                 }
             }
         }
@@ -300,6 +318,7 @@ class AuthenticationSection : SettingsSection {
         JButton("Login").apply {
             toolTipText = "Click to authenticate"
             addActionListener { performAuthentication() }
+            putClientProperty("JButton.preferredWidth", MAX_FIELD_WIDTH) // Make button width consistent
         }
 
     /**
@@ -313,6 +332,7 @@ class AuthenticationSection : SettingsSection {
             isFocusPainted = false
             foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
             addActionListener { switchToForgotPasswordMode() }
+            horizontalAlignment = SwingConstants.CENTER
         }
 
     /**
@@ -326,6 +346,7 @@ class AuthenticationSection : SettingsSection {
             isFocusPainted = false
             foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
             addActionListener { switchToLoginMode() }
+            horizontalAlignment = SwingConstants.CENTER
         }
 
     /**
@@ -336,6 +357,16 @@ class AuthenticationSection : SettingsSection {
             toolTipText = "Authenticate using your Google account"
             addActionListener { initiateGoogleAuth() }
             isEnabled = false // TODO: Enable when Google OAuth is implemented
+            putClientProperty("JButton.preferredWidth", MAX_FIELD_WIDTH)
+        }
+
+    /**
+     * Advanced button to configure server selection (host/port/context-path).
+     */
+    private val advancedServerButton =
+        JButton("Advanced Server Options").apply {
+            toolTipText = "Configure server connection (host, port, context path)"
+            addActionListener { showServerSelectionDialog() }
         }
 
     // ================= SERVICES =================
@@ -353,22 +384,14 @@ class AuthenticationSection : SettingsSection {
         JBLabel("Credential-based Authentication").apply {
             font = font.deriveFont(font.style or java.awt.Font.BOLD)
             border = JBUI.Borders.empty(0, 0, 5, 0)
+            horizontalAlignment = SwingConstants.CENTER
         }
 
     private val googleTitleLabel =
         JBLabel("Google-based Authentication").apply {
             font = font.deriveFont(font.style or java.awt.Font.BOLD)
             border = JBUI.Borders.empty(0, 0, 5, 0)
-        }
-
-    /**
-     * Help text label shown below the toggle button to guide users.
-     */
-    private val modeHelpLabel =
-        JBLabel("Don't have an account? Switch to Sign Up Mode").apply {
-            font = font.deriveFont(java.awt.Font.ITALIC)
-            foreground = JBUI.CurrentTheme.Label.disabledForeground()
-            border = JBUI.Borders.empty(2, 0, 8, 0)
+            horizontalAlignment = SwingConstants.CENTER
         }
 
     init {
@@ -412,22 +435,7 @@ class AuthenticationSection : SettingsSection {
      */
     private fun updateToggleText() {
         val isSignupMode = authModeToggle.isSelected
-        authModeToggle.text = if (isSignupMode) "Login Mode" else "Sign Up Mode"
-
-        // Set toggle button appearance based on mode
-        authModeToggle.background =
-            if (isSignupMode) {
-                JBUI.CurrentTheme.Validator.errorBackgroundColor()
-            } else {
-                JBUI.CurrentTheme.Validator.warningBackgroundColor()
-            }
-
-        modeHelpLabel.text =
-            if (isSignupMode) {
-                "Already have an account? Switch to Login Mode"
-            } else {
-                "Don't have an account? Switch to Sign Up Mode"
-            }
+        authModeToggle.text = if (isSignupMode) "Already have an account? Login" else "Don't have an account? Sign Up"
 
         authButton.text = if (isSignupMode) "Sign Up" else "Login"
         googleAuthButton.text = if (isSignupMode) "Sign Up with Google" else "Login with Google"
@@ -445,7 +453,6 @@ class AuthenticationSection : SettingsSection {
 
                 // Show/hide toggle and related elements
                 authModeToggle.isVisible = true
-                modeHelpLabel.isVisible = true
 
                 // Show/hide fields based on signup mode
                 fullNameField.isVisible = isSignupMode
@@ -472,7 +479,6 @@ class AuthenticationSection : SettingsSection {
             AuthMode.FORGOT_PASSWORD -> {
                 // Hide toggle and signup-specific elements
                 authModeToggle.isVisible = false
-                modeHelpLabel.isVisible = false
                 fullNameField.isVisible = false
                 confirmPasswordField.isVisible = false
                 fullNameLabel.isVisible = false
@@ -493,7 +499,7 @@ class AuthenticationSection : SettingsSection {
         LOG.debug("Form visibility updated: Current mode = $currentAuthMode")
 
         // just to ensure the UI refreshes correctly
-        requiresUIRefresh.set(true)
+//        requiresUIRefresh.set(true)
         if (currentAuthMode != AuthMode.FORGOT_PASSWORD) {
             updateToggleText()
         }
@@ -582,68 +588,83 @@ class AuthenticationSection : SettingsSection {
             gbc.gridx = 0
             gbc.gridy = 0
             gbc.gridwidth = 2
+            gbc.anchor = GridBagConstraints.CENTER
             formPanel.add(authModeToggle, gbc)
 
-            // Mode helper text
-            gbc.gridy = 1
-            formPanel.add(modeHelpLabel, gbc)
+            val labelGbc =
+                GridBagConstraints().apply {
+                    gridx = 0
+                    insets = Insets(5, 5, 5, 5)
+                    anchor = GridBagConstraints.WEST
+                }
 
-            // Logical ordering of fields in sign-up mode:
-            // 1. Email
-            // 2. Full name (signup only)
-            // 3. Password
-            // 4. Confirm password (signup only)
+            val fieldGbc =
+                GridBagConstraints().apply {
+                    gridx = 1
+                    insets = Insets(5, 5, 5, 5)
+                    anchor = GridBagConstraints.WEST
+                    weightx = 1.0 // Allow this column to grow horizontally
+                    fill = GridBagConstraints.HORIZONTAL // Make components fill the column's width
+                }
 
-            // Email field
-            gbc.gridx = 0
-            gbc.gridy = 2
-            gbc.gridwidth = 1
-            formPanel.add(JLabel("Email:"), gbc)
-            gbc.gridx = 1
-            formPanel.add(emailField, gbc)
+            // Row 1: Email field
+            labelGbc.gridy = 1
+            formPanel.add(JLabel("Email:"), labelGbc)
+            fieldGbc.gridy = 1
+            formPanel.add(emailField, fieldGbc)
 
-            // Full name field (signup only)
-            gbc.gridx = 0
-            gbc.gridy = 3
-            formPanel.add(fullNameLabel, gbc)
-            gbc.gridx = 1
-            formPanel.add(fullNameField, gbc)
+            // Row 2: Full name field (for signup)
+            labelGbc.gridy = 2
+            formPanel.add(fullNameLabel, labelGbc)
+            fieldGbc.gridy = 2
+            formPanel.add(fullNameField, fieldGbc)
 
-            // Password field
-            gbc.gridx = 0
-            gbc.gridy = 4
-            formPanel.add(passwordLabel, gbc)
-            gbc.gridx = 1
-            formPanel.add(passwordField, gbc)
+            // Row 3: Password field
+            labelGbc.gridy = 3
+            formPanel.add(passwordLabel, labelGbc)
+            fieldGbc.gridy = 3
+            formPanel.add(passwordField, fieldGbc)
 
-            // Confirm password field (signup only)
-            gbc.gridx = 0
-            gbc.gridy = 5
-            formPanel.add(confirmPasswordLabel, gbc)
-            gbc.gridx = 1
-            formPanel.add(confirmPasswordField, gbc)
+            // Row 4: Confirm password field (for signup)
+            labelGbc.gridy = 4
+            formPanel.add(confirmPasswordLabel, labelGbc)
+            fieldGbc.gridy = 4
+            formPanel.add(confirmPasswordField, fieldGbc)
 
-            // Forgot password link (login only)
-            gbc.gridx = 1
-            gbc.gridy = 6
-            gbc.gridwidth = 1
-            gbc.anchor = GridBagConstraints.EAST
-            formPanel.add(forgotPasswordButton, gbc)
+            // Row 5: Forgot password / Back to login buttons
+            val rightAlignedGbc =
+                GridBagConstraints().apply {
+                    gridx = 1
+                    gridy = 5
+                    insets = Insets(5, 5, 5, 5)
+                    anchor = GridBagConstraints.EAST // Align to the right
+                }
+            formPanel.add(forgotPasswordButton, rightAlignedGbc)
+            formPanel.add(backToLoginButton, rightAlignedGbc)
 
-            // Back to login link (forgot password only)
-            gbc.gridx = 1
-            gbc.gridy = 6
-            gbc.anchor = GridBagConstraints.EAST
-            formPanel.add(backToLoginButton, gbc)
+            // Row 6: Auth button - centered below fields
+            val centerGbc =
+                GridBagConstraints().apply {
+                    gridx = 0
+                    gridy = 6
+                    gridwidth = 2 // Span both columns
+                    insets = Insets(10, 5, 5, 5) // More top margin
+                    anchor = GridBagConstraints.CENTER
+                }
+            formPanel.add(authButton, centerGbc)
 
-            // Auth button
-            gbc.gridx = 0
-            gbc.gridy = 7
-            gbc.gridwidth = 2
-            gbc.anchor = GridBagConstraints.WEST
-            formPanel.add(authButton, gbc)
+            // Row 7: Advanced server options button - centered below auth button
+            val advancedGbc =
+                GridBagConstraints().apply {
+                    gridx = 0
+                    gridy = 7
+                    gridwidth = 2
+                    insets = Insets(5, 5, 10, 5)
+                    anchor = GridBagConstraints.CENTER
+                }
+            formPanel.add(advancedServerButton, advancedGbc)
 
-            add(formPanel, BorderLayout.CENTER)
+            add(JPanel().apply { add(formPanel) }, BorderLayout.CENTER)
         }
     }
 
@@ -654,8 +675,14 @@ class AuthenticationSection : SettingsSection {
         return JPanel(BorderLayout()).apply {
             border =
                 BorderFactory.createCompoundBorder(
-                    BorderFactory.createTitledBorder(""),
-                    JBUI.Borders.empty(5),
+                    BorderFactory.createMatteBorder(
+                        JBUI.scale(1),
+                        0,
+                        0,
+                        0,
+                        JBUI.CurrentTheme.Popup.separatorColor(), // theme-aware
+                    ),
+                    JBUI.Borders.empty(SECTION_SPACING, 0, 0, 0),
                 )
 
             add(googleTitleLabel, BorderLayout.NORTH)
@@ -942,6 +969,44 @@ class AuthenticationSection : SettingsSection {
     }
 
     /**
+     * Shows the Advanced Server Selection dialog and applies changes.
+     */
+    private fun showServerSelectionDialog() {
+        val prefs = getPrefState()
+        val dialog = ServerSelectionDialog(
+            initialHost = prefs.lastServerHost ?: "",
+            initialPort = prefs.lastServerPort,
+            initialContextPath = prefs.lastServerContextPath ?: ""
+        )
+        if (dialog.showAndGet()) {
+            val host = dialog.getHost().trim()
+            val port = dialog.getPort()
+            val contextPath = dialog.getContextPath().trim()
+
+            // Persist selection
+            prefs.lastServerHost = host
+            prefs.lastServerPort = port
+            prefs.lastServerContextPath = contextPath
+
+            // Apply to AppService immediately
+            val timeout = 30
+            service<AppService>().setServerConfig(
+                ServerConfig(
+                    host = host,
+                    port = port,
+                    contextPath = contextPath,
+                    timeout = timeout
+                )
+            )
+
+            Messages.showInfoMessage(
+                "Server switched to $host:$port$contextPath",
+                "Server Updated"
+            )
+        }
+    }
+
+    /**
      * Initiates Google OAuth authentication flow.
      */
     private fun initiateGoogleAuth() {
@@ -1041,4 +1106,65 @@ private class PasswordCreationDialog(private val email: String) : DialogWrapper(
     fun getPassword(): String = String(passwordField.password)
 
     fun getName(): String = nameField.text.trim()
+}
+
+
+private class ServerSelectionDialog(
+    private val initialHost: String,
+    private val initialPort: Int,
+    private val initialContextPath: String,
+) : DialogWrapper(true) {
+    private val hostField = JBTextField()
+    private val portField = JBTextField()
+    private val contextPathField = JBTextField()
+
+    init {
+        title = "Advanced Server Options"
+        hostField.text = initialHost
+        portField.text = if (initialPort > 0) initialPort.toString() else ""
+        contextPathField.text = initialContextPath
+        init()
+    }
+
+    override fun createCenterPanel(): JComponent {
+        val panel = JPanel(GridBagLayout())
+        val gbc = GridBagConstraints().apply {
+            insets = Insets(5, 5, 5, 5)
+            anchor = GridBagConstraints.WEST
+        }
+
+        gbc.gridx = 0
+        gbc.gridy = 0
+        panel.add(JLabel("Host (with scheme):"), gbc)
+        gbc.gridx = 1
+        panel.add(hostField, gbc)
+
+        gbc.gridx = 0
+        gbc.gridy = 1
+        panel.add(JLabel("Port:"), gbc)
+        gbc.gridx = 1
+        panel.add(portField, gbc)
+
+        gbc.gridx = 0
+        gbc.gridy = 2
+        panel.add(JLabel("Context Path (e.g., /api):"), gbc)
+        gbc.gridx = 1
+        panel.add(contextPathField, gbc)
+
+        return panel
+    }
+
+    override fun doValidate(): ValidationInfo? {
+        val host = hostField.text.trim()
+        if (host.isBlank()) return ValidationInfo("Host is required", hostField)
+        val portText = portField.text.trim()
+        if (portText.isBlank()) return ValidationInfo("Port is required", portField)
+        val port = portText.toIntOrNull()
+        if (port == null || port <= 0 || port > 65535) return ValidationInfo("Port must be a number between 1 and 65535", portField)
+        return null
+    }
+
+    fun getHost(): String = hostField.text.trim()
+    fun getPort(): Int = portField.text.trim().toInt()
+    fun getContextPath(): String = contextPathField.text.trim()
 }
