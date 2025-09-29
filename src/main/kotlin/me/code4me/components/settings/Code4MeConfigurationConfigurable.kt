@@ -19,12 +19,28 @@ import javax.swing.JPanel
 import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
 
+/**
+ * Configuration settings page for the Code4Me plugin.
+ *
+ * This configurable handles the actual configuration settings UI.
+ * It shows authentication prompts when not logged in, and the full
+ * configuration interface when authenticated.
+ */
 class ConfigurationConfigurable : SearchableConfigurable {
     override fun getId(): String = "me.code4me.settings.ConfigurationConfigurable"
 
-    private val fieldStates = mutableListOf<StateValueField<*>>()
-    private var mainPanel: JPanel? = null
     private val authService = getAuthState()
+    private var mainPanel: JPanel? = null
+
+    /**
+     * Collection of all field state managers for persistence.
+     */
+    private val fieldStates = mutableListOf<StateValueField<*>>()
+
+    /**
+     * The configuration section instance (created when needed).
+     */
+    private var configurationSection: ConfigurationSection? = null
 
     /**
      * Listener that responds to authentication token changes by rebuilding the UI.
@@ -59,7 +75,7 @@ class ConfigurationConfigurable : SearchableConfigurable {
                 val goToLoginButton =
                     JButton("Go to Login").apply {
                         addActionListener {
-                            navigateToParentConfigurable()
+                            navigateToMainConfigurable()
                         }
                     }
                 val buttonPanel =
@@ -71,9 +87,9 @@ class ConfigurationConfigurable : SearchableConfigurable {
                 // Show normal configuration UI for authenticated users
                 try {
                     val builder = FormBuilder.createFormBuilder()
-                    val configSection =
+                    configurationSection =
                         ConfigurationSection()
-                    configSection.applyTo(builder, fieldStates)
+                    configurationSection?.applyTo(builder, fieldStates)
                     panel.add(builder.panel, BorderLayout.CENTER)
                 } catch (e: Exception) {
                     // If ConfigurationSection fails to initialize, show error message
@@ -89,7 +105,7 @@ class ConfigurationConfigurable : SearchableConfigurable {
         }
     }
 
-    private fun navigateToParentConfigurable() {
+    private fun navigateToMainConfigurable() {
         ApplicationManager.getApplication().invokeLater {
             try {
                 val dataContext = DataManager.getInstance().dataContextFromFocusAsync.blockingGet(100)
@@ -132,6 +148,5 @@ class ConfigurationConfigurable : SearchableConfigurable {
     override fun disposeUIResources() {
         authService.removePropertyChangeListener(tokenChangeListener)
         mainPanel = null
-        fieldStates.clear()
     }
 }

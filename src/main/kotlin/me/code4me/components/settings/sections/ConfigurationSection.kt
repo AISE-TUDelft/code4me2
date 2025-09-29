@@ -34,7 +34,11 @@ import me.code4me.services.state.AuthState
 import me.code4me.services.state.PrefState
 import me.code4me.services.state.getPrefState
 import me.code4me.settings.UserConfigurable
+import me.code4me.settings.Code4MeConfigurable
 import me.code4me.utils.api.fromSerializableMap
+import me.code4me.utils.api.toSerializableMap
+import me.code4me.api.generated.model.UpdateUser
+import me.code4me.utils.notification.showPreferenceSyncFailedNotification
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceType
 import java.awt.BorderLayout
@@ -401,21 +405,23 @@ class ConfigurationSection() : SettingsSection {
      * Disables a module and its dependents.
      */
     private fun disableModuleWithDependents(module: PluginModule) {
-        val prefState = getPrefState()
         val moduleId = module.getPreferenceId()
-        prefState.enabledModules = HashSet(prefState.enabledModules - moduleId)
 
         try {
+            // Disable the module itself using PrefState API to ensure proper state updates
+            PrefState.disableModule(moduleId)
+
+            // Disable any modules that have a hard dependency on this module
             val availableModules = getConfig().getAvailableModules()
             availableModules.forEach { mod ->
                 mod.dependencies.forEach { dep ->
                     if (dep.isHard && dep.moduleId == moduleId) {
-                        prefState.enabledModules = HashSet(prefState.enabledModules - mod.className)
+                        PrefState.disableModule(mod.className)
                     }
                 }
             }
         } catch (e: Exception) {
-            LOG.warn("Failed to disable dependents for module $moduleId", e)
+            LOG.warn("Failed to disable module or dependents for module $moduleId", e)
         }
     }
 
@@ -423,16 +429,18 @@ class ConfigurationSection() : SettingsSection {
      * Enables a module and its hard dependencies.
      */
     private fun enableModuleWithDependencies(module: PluginModule) {
-        val prefState = getPrefState()
         val moduleId = module.getPreferenceId()
-        prefState.enabledModules = HashSet(prefState.enabledModules + moduleId)
 
         try {
+            // Enable the module itself using PrefState API
+            PrefState.enableModule(moduleId)
+
+            // Ensure all hard dependencies are enabled as well
             val availableModules = getConfig().getAvailableModules()
             val moduleConfig = availableModules.find { it.className == moduleId }
 
             moduleConfig?.dependencies?.forEach { dep ->
-                if (dep.isHard) prefState.enabledModules = HashSet(prefState.enabledModules + dep.moduleId)
+                if (dep.isHard) PrefState.enableModule(dep.moduleId)
             }
         } catch (e: Exception) {
             LOG.warn("Failed to enable dependencies for module $moduleId", e)
@@ -473,6 +481,28 @@ class ConfigurationSection() : SettingsSection {
                             component.onUserLoggedOut()
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Push current preferences to the backend asynchronously. Called after module enable/disable.
+     */
+    private fun syncPreferencesToServerAsync() {
+        if (!authState.isAuthenticated()) return
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val prefs = getPrefState().toSerializableMap()
+                val updateUser = UpdateUser(preference = prefs)
+                appService.updateUser(updateUser)
+                LOG.info("Synced preferences with server after module toggle")
+            } catch (e: Exception) {
+                LOG.error("Failed to sync preferences with server after module toggle", e)
+                try {
+                    ProjectManager.getInstance().openProjects.firstOrNull()?.showPreferenceSyncFailedNotification()
+                } catch (_: Exception) {
+                    // ignore notification errors
                 }
             }
         }
@@ -678,6 +708,8 @@ class ConfigurationSection() : SettingsSection {
             // Update UI consistently
             moduleTree.repaint()
             updateModulePreferencesPanel()
+            // Immediately sync preference changes with backend
+            syncPreferencesToServerAsync()
         } catch (e: Exception) {
             LOG.error("Failed to toggle module $moduleId", e)
         }
