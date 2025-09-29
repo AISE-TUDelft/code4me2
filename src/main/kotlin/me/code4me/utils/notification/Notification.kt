@@ -12,7 +12,7 @@ import com.intellij.openapi.project.Project
  */
 object AuthNotificationConfig {
     const val NOTIFICATION_GROUP_ID = "Code4Me V2"
-    const val SETTINGS_CONFIGURABLE_ID = "me.code4me.settings" // Replace with your actual settings configurable ID
+    const val SETTINGS_CONFIGURABLE_ID = "me.code4me.settings.Code4MeConfigurable"
 }
 
 /**
@@ -46,7 +46,8 @@ fun Project.showLoginRequiredNotification(
                 e: AnActionEvent,
                 notification: com.intellij.notification.Notification,
             ) {
-                ShowSettingsUtil.getInstance().showSettingsDialog(this@showLoginRequiredNotification, settingsId)
+                ShowSettingsUtil.getInstance()
+                    .showSettingsDialog(this@showLoginRequiredNotification, me.code4me.settings.Code4MeConfigurable::class.java)
                 notification.expire()
             }
         },
@@ -98,7 +99,8 @@ fun Project.showTokenInvalidationNotification(
                 e: AnActionEvent,
                 notification: com.intellij.notification.Notification,
             ) {
-                ShowSettingsUtil.getInstance().showSettingsDialog(this@showTokenInvalidationNotification, settingsId)
+                ShowSettingsUtil.getInstance()
+                    .showSettingsDialog(this@showTokenInvalidationNotification, me.code4me.settings.Code4MeConfigurable::class.java)
                 notification.expire()
             }
         },
@@ -156,7 +158,8 @@ fun Project.showAuthNotification(
                     e: AnActionEvent,
                     notification: com.intellij.notification.Notification,
                 ) {
-                    ShowSettingsUtil.getInstance().showSettingsDialog(this@showAuthNotification, settingsId)
+                    ShowSettingsUtil.getInstance()
+                        .showSettingsDialog(this@showAuthNotification, me.code4me.settings.Code4MeConfigurable::class.java)
                     notification.expire()
                 }
             },
