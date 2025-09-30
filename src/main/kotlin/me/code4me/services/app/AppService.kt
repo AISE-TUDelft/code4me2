@@ -101,7 +101,23 @@ class AppService {
     private val configService = getConfig()
     private var serverConfig = configService.getServerConfig()
     private var sessionToken: String? = null
-    private var apiBaseUrl = "${serverConfig?.host}:${serverConfig?.port}${serverConfig?.contextPath}"
+    private fun buildApiBaseUrl(host: String?, port: Int?, contextPath: String?): String {
+        if (host.isNullOrBlank()) return ""
+        var normalizedHost = host.trim()
+        // Ensure scheme present; default to https
+        if (!normalizedHost.startsWith("http://") && !normalizedHost.startsWith("https://")) {
+            normalizedHost = "https://" + normalizedHost
+        }
+        val portSegment = if (port != null && port > 0) ":$port" else ""
+        val path = (contextPath ?: "").trim()
+        val normalizedPath = when {
+            path.isBlank() -> ""
+            path.startsWith("/") -> path
+            else -> "/$path"
+        }
+        return "$normalizedHost$portSegment$normalizedPath"
+    }
+    private var apiBaseUrl = buildApiBaseUrl(serverConfig?.host, serverConfig?.port, serverConfig?.contextPath)
 
     // Create a custom OkHttpClient for chat operations with extended timeouts
     private var chatHttpClient =
@@ -138,7 +154,7 @@ class AppService {
             val host = prefs.lastServerHost
             val port = prefs.lastServerPort
             val contextPath = prefs.lastServerContextPath
-            if (!host.isNullOrBlank() && port > 0) {
+            if (!host.isNullOrBlank()) {
                 val timeout = serverConfig?.timeout ?: 30
                 setServerConfig(ServerConfig(host = host, port = port, contextPath = contextPath ?: "", timeout = timeout))
             }
@@ -150,7 +166,8 @@ class AppService {
 
     @Synchronized
     fun setServerConfig(newServer: ServerConfig) {
-        LOG.info("Switching server to ${newServer.host}:${newServer.port}${newServer.contextPath}")
+        val displayPort = if (newServer.port > 0) ":${newServer.port}" else ""
+        LOG.info("Switching server to ${newServer.host}$displayPort${newServer.contextPath}")
         // Clear cookies to avoid leaking sessions across environments
         try {
             CookieAwareApiClient.clearCookies()
@@ -158,7 +175,7 @@ class AppService {
             LOG.warn("Failed to clear cookies when switching server", e)
         }
         serverConfig = newServer
-        apiBaseUrl = "${newServer.host}:${newServer.port}${newServer.contextPath}"
+        apiBaseUrl = buildApiBaseUrl(newServer.host, newServer.port, newServer.contextPath)
 
         // Recreate clients with the new base URL
         val defaultClient = CookieAwareApiClient.createClientWithCookieHandler()

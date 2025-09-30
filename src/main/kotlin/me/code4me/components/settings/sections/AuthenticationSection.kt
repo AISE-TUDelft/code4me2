@@ -999,8 +999,9 @@ class AuthenticationSection : SettingsSection {
                 )
             )
 
+            val portSegment = if (port > 0) ":$port" else ""
             Messages.showInfoMessage(
-                "Server switched to $host:$port$contextPath",
+                "Server switched to $host$portSegment$contextPath",
                 "Server Updated"
             )
         }
@@ -1141,13 +1142,13 @@ private class ServerSelectionDialog(
 
         gbc.gridx = 0
         gbc.gridy = 1
-        panel.add(JLabel("Port:"), gbc)
+        panel.add(JLabel("Port (optional):"), gbc)
         gbc.gridx = 1
         panel.add(portField, gbc)
 
         gbc.gridx = 0
         gbc.gridy = 2
-        panel.add(JLabel("Context Path (e.g., /api):"), gbc)
+        panel.add(JLabel("Context Path (e.g., /api) - optional:"), gbc)
         gbc.gridx = 1
         panel.add(contextPathField, gbc)
 
@@ -1158,13 +1159,14 @@ private class ServerSelectionDialog(
         val host = hostField.text.trim()
         if (host.isBlank()) return ValidationInfo("Host is required", hostField)
         val portText = portField.text.trim()
-        if (portText.isBlank()) return ValidationInfo("Port is required", portField)
-        val port = portText.toIntOrNull()
-        if (port == null || port <= 0 || port > 65535) return ValidationInfo("Port must be a number between 1 and 65535", portField)
+        if (portText.isNotBlank()) {
+            val port = portText.toIntOrNull()
+            if (port == null || port <= 0 || port > 65535) return ValidationInfo("Port must be a number between 1 and 65535", portField)
+        }
         return null
     }
 
     fun getHost(): String = hostField.text.trim()
-    fun getPort(): Int = portField.text.trim().toInt()
+    fun getPort(): Int = portField.text.trim().toIntOrNull() ?: 0
     fun getContextPath(): String = contextPathField.text.trim()
 }

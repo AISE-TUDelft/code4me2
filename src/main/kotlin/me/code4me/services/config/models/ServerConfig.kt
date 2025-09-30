@@ -18,10 +18,12 @@ data class ServerConfig(
 ) {
     companion object {
         fun fromConfig(config: Config): ServerConfig {
+            val port: Int = if (config.hasPath("port")) config.getInt("port") else 0
+            val contextPath: String = if (config.hasPath("contextPath")) config.getString("contextPath") else ""
             return ServerConfig(
                 host = config.getString("host"),
-                port = config.getInt("port"),
-                contextPath = config.getString("contextPath"),
+                port = port,
+                contextPath = contextPath,
                 timeout = config.getInt("timeout"),
             )
         }
