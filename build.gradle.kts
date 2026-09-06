@@ -50,17 +50,41 @@ dependencies {
     testImplementation(libs.opentest4j)
     testImplementation("org.mockito:mockito-core:5.18.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
-    testImplementation("io.mockk:mockk:1.14.2")
+    // mockk's BOM pins kotlinx-coroutines to 1.6.4, which wins over the (much newer) coroutines
+    // the IntelliJ Platform puts on the test classpath. The platform's coroutines-javaagent is
+    // compiled against the newer DebugProbesImpl API, so with 1.6.4 present its premain throws
+    // NoSuchMethodError and aborts every test JVM. Plugins must always use the platform's
+    // coroutines, so drop mockk's copy and its version constraint.
+    testImplementation("io.mockk:mockk:1.14.2") {
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-bom")
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core-jvm")
+    }
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension
     intellijPlatform {
-        create(providers.gradleProperty("platformType"), providers.gradleProperty("platformVersion"))
+        intellijIdea(providers.gradleProperty("platformVersion"))
 
-        bundledPlugins("org.intellij.plugins.markdown")
-        bundledPlugins(providers.gradleProperty("platformBundledPlugins").map { it.split(',') })
+        // Both lists are trimmed and emptied-filtered so a blank gradle property yields no
+        // coordinate at all rather than a single "" entry the resolver would choke on.
+        bundledPlugins(
+            providers.gradleProperty("platformBundledPlugins")
+                .map {
+                    it.split(",")
+                        .map(String::trim)
+                        .filter(String::isNotEmpty)
+                },
+        )
 
         // Plugin Dependencies. Uses `platformPlugins` property from the gradle.properties file for plugin from JetBrains Marketplace.
-        plugins(providers.gradleProperty("platformPlugins").map { it.split(',') })
+        plugins(
+            providers.gradleProperty("platformPlugins")
+                .map {
+                    it.split(",")
+                        .map(String::trim)
+                        .filter(String::isNotEmpty)
+                },
+        )
 
         testFramework(TestFrameworkType.Platform)
     }
@@ -184,6 +208,20 @@ tasks {
 
     build {
         dependsOn("formatKotlin", "ktlintCheck")
+    }
+
+    runIde {
+        // The vendored codex-acp proxy lives in THIS plugin repo, but at runtime the open project
+        // is the user's codebase, so AgentStartupManager cannot find it via project.basePath.
+        // Pass the repo path explicitly.
+        //
+        // DEVELOPMENT-only: this points the sandbox IDE at the codex-acp source tree, which needs
+        // Node.js >= 18 and npm on PATH. A production release would instead compile codex-acp to a
+        // standalone binary, bundle it in the plugin distribution zip, and drop this property.
+        systemProperty(
+            "code4me.codexProxyDir",
+            projectDir.resolve("dev/codex-acp-proxy/codex-acp").absolutePath,
+        )
     }
 
     test {

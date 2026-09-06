@@ -1503,7 +1503,8 @@ class ModulesLightTest : BasePlatformTestCase() {
         val insertEnvironment = InlineCompletionInsertEnvironment(
             editor=myFixture.editor,
             file=psiFile,
-            insertedRange = TextRange(startOffset, endOffset)
+            insertedRange = TextRange(startOffset, endOffset),
+            request = request
         )
 
         // Create a simple mock element that doesn't require stubbing internal methods
@@ -1587,7 +1588,8 @@ class ModulesLightTest : BasePlatformTestCase() {
         val insertEnvironment = InlineCompletionInsertEnvironment(
             editor = myFixture.editor,
             file = psiFile,
-            insertedRange = TextRange(startOffset, endOffset)
+            insertedRange = TextRange(startOffset, endOffset),
+            request = request
         )
 
         // Test that all after insertion modules are called with empty elements (realistic scenario)

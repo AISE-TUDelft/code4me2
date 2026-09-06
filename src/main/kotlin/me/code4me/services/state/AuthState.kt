@@ -12,10 +12,6 @@ import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.ProjectManager
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 import me.code4me.services.project.getProjectChatService
 import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.state.AuthState.Companion.getAuthToken
@@ -219,7 +215,6 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
  * @since 1.0.0
  */
 
-@OptIn(DelicateCoroutinesApi::class)
 class AuthSettings : BaseState() {
     companion object {
         private val LOG = thisLogger()
@@ -244,10 +239,11 @@ class AuthSettings : BaseState() {
     private var isVerified: Boolean? = false
 
     init {
-        GlobalScope.launch(Dispatchers.IO) {
-            // Initialize the cache in a background thread
-            initializeCache()
-        }
+        // Loaded synchronously so getToken() is correct for the very first caller. Deferring this
+        // to a background coroutine raced with plugin startup, which reads the token immediately
+        // and would decide the user was logged out. PasswordSafe reads hit the local OS keychain
+        // and are fast enough to do inline.
+        initializeCache()
     }
 
     /**

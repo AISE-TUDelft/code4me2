@@ -30,6 +30,13 @@ class CookieAwareApiClient(
         }
 
         /**
+         * Process-wide shared OkHttp client for raw requests (e.g. the local agent proxy and the
+         * agent REST endpoints) that need direct streaming access to response bodies. Reuses the
+         * same cookie interceptor so session/auth cookies ride along automatically.
+         */
+        val sharedOkHttpClient: OkHttpClient by lazy { createClientWithCookieHandler() }
+
+        /**
          * Creates an OkHttpClient with a cookie handler interceptor.
          *
          * The interceptor captures cookies from responses and adds them to subsequent requests.
@@ -68,15 +75,24 @@ class CookieAwareApiClient(
          */
         private fun addCookiesToRequest(request: Request): Request {
             val url = request.url.toString()
-            var cookies = cookieManager.cookieStore.get(URI(url))
+            val cookieParts = mutableListOf<String>()
 
-            // if the authToken is present but not in the cookies, add it
-            if (getAuthState().getToken() != null && getCookie("auth_token") == null) {
-                cookieManager.cookieStore.add(URI(url), HttpCookie("auth_token", getAuthState().getToken()!!))
-                cookies = cookieManager.cookieStore.get(URI(url))
+            // Attach the auth token straight from AuthSettings rather than routing it through the
+            // cookie store. HttpCookie instances synthesised locally carry no domain/path, so
+            // cookieStore.get(uri) can return an empty list even right after adding one — which
+            // silently produced unauthenticated requests.
+            val authToken = getAuthState().getToken()
+            if (!authToken.isNullOrBlank()) {
+                cookieParts.add("auth_token=$authToken")
             }
 
-            val cookieHeader = cookies.joinToString("; ") { "${it.name}=${it.value}" }
+            // Any other cookies the server actually set for this URI still apply.
+            cookieManager.cookieStore.get(URI(url)).forEach { cookie ->
+                if (cookie.name != "auth_token" || authToken.isNullOrBlank()) {
+                    cookieParts.add("${cookie.name}=${cookie.value}")
+                }
+            }
+
             // add the project token cookie if it exists
             if (getAppService().currentGenerationProject.get() != null) {
                 val projectToken =
@@ -84,13 +100,12 @@ class CookieAwareApiClient(
                         getAppService().currentGenerationProject.get()!!,
                     ).getProjectToken()
                 if (projectToken != null) {
-                    return request.newBuilder()
-                        .addHeader("Cookie", "$cookieHeader; project_token=$projectToken")
-                        .build()
+                    cookieParts.add("project_token=$projectToken")
                 }
             }
+
             return request.newBuilder()
-                .addHeader("Cookie", cookieHeader)
+                .addHeader("Cookie", cookieParts.joinToString("; "))
                 .build()
         }
 

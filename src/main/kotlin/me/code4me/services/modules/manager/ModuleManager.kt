@@ -339,9 +339,12 @@ class ModuleManager : PluginModule {
         environment: InlineCompletionInsertEnvironment,
         elements: List<InlineCompletionElement>,
     ) {
-        ApplicationManager.getApplication().runReadAction {
-            modules.forEach { module ->
-                GlobalScope.launch {
+        // The read action must be *inside* the coroutine, not around the launches. Wrapping the
+        // launches meant the read action was released as soon as the last coroutine was dispatched,
+        // so each module actually ran afterInsertion with no read access at all.
+        modules.forEach { module ->
+            GlobalScope.launch {
+                ApplicationManager.getApplication().runReadAction {
                     try {
                         module.afterInsertion(environment, elements)
                     } catch (e: Exception) {

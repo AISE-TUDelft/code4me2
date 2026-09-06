@@ -24,6 +24,12 @@ fun PrefSettings.toSerializableMap(): Map<String, Any> {
         "store_contextual_telemetry" to this.storeContextualTelemetry,
         "enabled_modules" to this.enabledModules.toList(),
         "module_values" to this.moduleValues.toMap(),
+        "store_agent_telemetry" to this.storeAgentTelemetry,
+        "store_agent_content" to this.storeAgentContent,
+        "selected_agent_profile" to (this.selectedAgentProfile ?: "default"),
+        "agent_path" to (this.agentPath ?: ""),
+        "pending_task_id" to (this.pendingTaskId ?: ""),
+        "local_proxy_port" to this.localProxyPort,
     )
 }
 
@@ -64,9 +70,15 @@ fun PrefSettings.fromSerializableMap(data: Map<String, Any>): PrefSettings {
     (data["store_context"] as? Boolean)?.let { this.storeContext = it }
     (data["store_behavioral_telemetry"] as? Boolean)?.let { this.storeBehavioralTelemetry = it }
     (data["store_contextual_telemetry"] as? Boolean)?.let { this.storeContextualTelemetry = it }
+    (data["store_agent_telemetry"] as? Boolean)?.let { this.storeAgentTelemetry = it }
+    (data["store_agent_content"] as? Boolean)?.let { this.storeAgentContent = it }
+    (data["selected_agent_profile"] as? String)?.let { this.selectedAgentProfile = it }
+    (data["agent_path"] as? String)?.let { this.agentPath = it }
+    (data["pending_task_id"] as? String)?.let { this.pendingTaskId = it }
+    (data["local_proxy_port"] as? Number)?.let { this.localProxyPort = it.toInt() }
 
     // Update enabled modules
-    if(data.keys.contains("enabled_modules") ) {
+    if (data.keys.contains("enabled_modules")) {
         Json.decodeFromString<List<String>>(data["enabled_modules"] as String).let { modulesList ->
             this.enabledModules.clear()
             modulesList.filterIsInstance<String>().forEach { moduleId ->
@@ -109,6 +121,11 @@ fun PrefSettings.fromJsonString(jsonString: String): PrefSettings {
     jsonObject["store_context"]?.jsonPrimitive?.boolean?.let { this.storeContext = it }
     jsonObject["store_behavioral_telemetry"]?.jsonPrimitive?.boolean?.let { this.storeBehavioralTelemetry = it }
     jsonObject["store_contextual_telemetry"]?.jsonPrimitive?.boolean?.let { this.storeContextualTelemetry = it }
+    jsonObject["store_agent_telemetry"]?.jsonPrimitive?.boolean?.let { this.storeAgentTelemetry = it }
+    jsonObject["store_agent_content"]?.jsonPrimitive?.boolean?.let { this.storeAgentContent = it }
+    jsonObject["selected_agent_profile"]?.jsonPrimitive?.content?.let { this.selectedAgentProfile = it }
+    jsonObject["agent_path"]?.jsonPrimitive?.content?.let { this.agentPath = it }
+    jsonObject["pending_task_id"]?.jsonPrimitive?.content?.let { this.pendingTaskId = it }
 
     // Update enabled modules
     jsonObject["enabled_modules"]?.jsonArray?.let { modulesArray ->

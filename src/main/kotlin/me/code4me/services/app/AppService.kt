@@ -10,6 +10,12 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import me.code4me.api.generated.api.AcpApi
 import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.ChatApi
 import me.code4me.api.generated.api.CompletionApi
@@ -38,6 +44,8 @@ import me.code4me.api.generated.model.DeleteChatSuccessResponse
 import me.code4me.api.generated.model.FeedbackCompletion
 import me.code4me.api.generated.model.FileContextChangeData
 import me.code4me.api.generated.model.GetUserGetResponse
+import me.code4me.api.generated.model.PrepareAcpGrant
+import me.code4me.api.generated.model.PrepareAcpGrantPostResponse
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestChatCompletion
 import me.code4me.api.generated.model.RequestCompletion
@@ -60,9 +68,13 @@ import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.api.mapsTo
 import me.code4me.utils.api.toSerializableMap
 import me.code4me.utils.record.Record
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import toApiModel
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
@@ -101,7 +113,12 @@ class AppService {
     private val configService = getConfig()
     private var serverConfig = configService.getServerConfig()
     private var sessionToken: String? = null
-    private fun buildApiBaseUrl(host: String?, port: Int?, contextPath: String?): String {
+
+    private fun buildApiBaseUrl(
+        host: String?,
+        port: Int?,
+        contextPath: String?,
+    ): String {
         if (host.isNullOrBlank()) return ""
         var normalizedHost = host.trim()
         // Ensure scheme present; default to https
@@ -110,13 +127,15 @@ class AppService {
         }
         val portSegment = if (port != null && port > 0) ":$port" else ""
         val path = (contextPath ?: "").trim()
-        val normalizedPath = when {
-            path.isBlank() -> ""
-            path.startsWith("/") -> path
-            else -> "/$path"
-        }
+        val normalizedPath =
+            when {
+                path.isBlank() -> ""
+                path.startsWith("/") -> path
+                else -> "/$path"
+            }
         return "$normalizedHost$portSegment$normalizedPath"
     }
+
     private var apiBaseUrl = buildApiBaseUrl(serverConfig?.host, serverConfig?.port, serverConfig?.contextPath)
 
     // Create a custom OkHttpClient for chat operations with extended timeouts
@@ -131,6 +150,7 @@ class AppService {
 
     // Standard API clients with default timeouts
     private var authApi = AuthenticationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private var acpApi = AcpApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private var userApi = UserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private var completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private var sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
@@ -156,7 +176,15 @@ class AppService {
             val contextPath = prefs.lastServerContextPath
             if (!host.isNullOrBlank()) {
                 val timeout = serverConfig?.timeout ?: 30
-                setServerConfig(ServerConfig(host = host, port = port, contextPath = contextPath ?: "", timeout = timeout))
+                setServerConfig(
+                    ServerConfig(
+                        host = host,
+                        port = port,
+                        contextPath = contextPath ?: "",
+                        timeout = timeout,
+                        acpRuntimeBaseUrl = serverConfig?.acpRuntimeBaseUrl,
+                    ),
+                )
             }
         } catch (e: Exception) {
             LOG.warn("Failed to apply last server selection on startup", e)
@@ -166,20 +194,29 @@ class AppService {
 
     @Synchronized
     fun setServerConfig(newServer: ServerConfig) {
-        val displayPort = if (newServer.port > 0) ":${newServer.port}" else ""
-        LOG.info("Switching server to ${newServer.host}$displayPort${newServer.contextPath}")
+        // The server-selection dialog only collects host/port/contextPath, so a switch made
+        // there would otherwise silently drop an acpRuntimeBaseUrl that came from plugin.conf.
+        val effectiveServer =
+            if (newServer.acpRuntimeBaseUrl.isNullOrBlank() && !serverConfig?.acpRuntimeBaseUrl.isNullOrBlank()) {
+                newServer.copy(acpRuntimeBaseUrl = serverConfig?.acpRuntimeBaseUrl)
+            } else {
+                newServer
+            }
+        val displayPort = if (effectiveServer.port > 0) ":${effectiveServer.port}" else ""
+        LOG.info("Switching server to ${effectiveServer.host}$displayPort${effectiveServer.contextPath}")
         // Clear cookies to avoid leaking sessions across environments
         try {
             CookieAwareApiClient.clearCookies()
         } catch (e: Exception) {
             LOG.warn("Failed to clear cookies when switching server", e)
         }
-        serverConfig = newServer
-        apiBaseUrl = buildApiBaseUrl(newServer.host, newServer.port, newServer.contextPath)
+        serverConfig = effectiveServer
+        apiBaseUrl = buildApiBaseUrl(effectiveServer.host, effectiveServer.port, effectiveServer.contextPath)
 
         // Recreate clients with the new base URL
         val defaultClient = CookieAwareApiClient.createClientWithCookieHandler()
         authApi = AuthenticationApi(apiBaseUrl, defaultClient)
+        acpApi = AcpApi(apiBaseUrl, defaultClient)
         userApi = UserApi(apiBaseUrl, defaultClient)
         completionApi = CompletionApi(apiBaseUrl, defaultClient)
         sessionApi = SessionApi(apiBaseUrl, defaultClient)
@@ -200,6 +237,24 @@ class AppService {
         chatApi = ChatApi(apiBaseUrl, chatHttpClient)
     }
 
+    /**
+     * Returns the resolved base URL used by the OpenAPI-generated clients, so raw-HTTP callers
+     * such as [me.code4me.services.agent.LocalProxyServer] can target the same host.
+     */
+    fun getApiBaseUrl(): String = apiBaseUrl
+
+    /**
+     * Base URL that a locally-running ACP agent runtime should call. Falls back to the plugin's
+     * own base URL when no runtime-specific override is configured.
+     */
+    fun getAcpRuntimeBaseUrl(): String = serverConfig?.acpRuntimeBaseUrl?.trim()?.takeIf { it.isNotBlank() } ?: apiBaseUrl
+
+    /** Requests a one-time ACP launch grant for the given project/workspace pair. */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun prepareAcpGrant(request: PrepareAcpGrant): PrepareAcpGrantPostResponse {
+        return acpApi.prepareAcpGrantApiAcpGrantPost(request)
+    }
+
     // ========= Authentication Methods =========
 
     /**
@@ -213,9 +268,18 @@ class AppService {
     private fun storeAuthenticationResponse(response: AuthenticateUserPostResponse) {
         val authSettings = getAuthState()
 
-        // Prioritize session token from cookies over response message
-        val sessionToken = CookieAwareApiClient.getAuthToken()
-        authSettings.setToken(sessionToken ?: response.message)
+        // The auth token lives in response.user.authToken. response.message is only a human
+        // readable status string ("User authenticated successfully") and must never be stored
+        // as a token. The cookie store is a fallback: it can be empty or stale for a different
+        // URI, so it is consulted second rather than first.
+        val authToken =
+            response.user.authToken?.toString()
+                ?: CookieAwareApiClient.getAuthToken()
+        if (!authToken.isNullOrBlank()) {
+            authSettings.setToken(authToken)
+        } else {
+            LOG.warn("Authentication response contained no auth token — session will not be persisted")
+        }
 
         // Store user profile information
         authSettings.setUserName(response.user.name)
@@ -1030,11 +1094,16 @@ class AppService {
 
             currentGenerationProject.set(project)
 
+            val modelsConfiguration = getConfig().getModelsConfiguration()
+            // getModelIdByName("default") returns the first default model of *either* kind, which
+            // can be a chat model. Fall back to the default completion model so the completion
+            // path never requests a chat-only model id.
             val modelId =
-                getConfig().getModelsConfiguration()
+                modelsConfiguration
                     ?.getModelIdByName(
                         aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default",
                     )
+                    ?: modelsConfiguration?.getDefaultCompletionModelId()
 
             val rawContext = aggregatedCollectedData[Record.Type.CONTEXT]?.toMutableMap() ?: error("Missing CONTEXT")
             val relativePaths =
@@ -1263,6 +1332,97 @@ class AppService {
             null
         } finally {
             currentGenerationProject.set(null)
+        }
+    }
+
+    // ========= Agent Methods =========
+    //
+    // These use raw OkHttp rather than a generated client because the agent endpoints exchange
+    // opaque, provider-shaped payloads (Chat Completions / Responses API bodies) that are
+    // deliberately not modelled in the OpenAPI schema.
+
+    /**
+     * Pre-mints an AgentTask on the server before an agent runtime issues its first LLM call.
+     *
+     * The server is idempotent on a caller-supplied task_id (201 fresh, 200 existing), so retries
+     * are safe. Session ownership is enforced server-side via the session_token cookie — no other
+     * auth header is required.
+     */
+    suspend fun createAgentTask(
+        taskId: UUID,
+        profile: String = "default",
+        description: String? = null,
+    ): UUID =
+        withContext(Dispatchers.IO) {
+            val bodyJson =
+                buildJsonObject {
+                    put("task_id", taskId.toString())
+                    put("profile", profile)
+                    if (description != null) put("task_description", description)
+                }.toString()
+
+            val request =
+                Request.Builder()
+                    .url("$apiBaseUrl/api/agent/task")
+                    .post(bodyJson.toRequestBody("application/json".toMediaType()))
+                    .build()
+
+            CookieAwareApiClient.sharedOkHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("createAgentTask failed: HTTP ${response.code}")
+                }
+                val responseBody =
+                    response.body?.string()
+                        ?: throw IOException("createAgentTask: empty response body")
+                val returnedId =
+                    Json.parseToJsonElement(responseBody).jsonObject["task_id"]?.jsonPrimitive?.content
+                        ?: throw IOException("createAgentTask: no task_id in response")
+                UUID.fromString(returnedId)
+            }
+        }
+
+    /**
+     * Marks an agent task done so the server aggregates its accrued inference events.
+     *
+     * A 404 is treated as success: it means there is no such task to close, which is the desired
+     * end state anyway.
+     */
+    suspend fun closeAgentTask(taskId: UUID): Unit =
+        withContext(Dispatchers.IO) {
+            val request =
+                Request.Builder()
+                    .url("$apiBaseUrl/api/agent/task/$taskId/close")
+                    .post("".toRequestBody("application/json".toMediaType()))
+                    .build()
+
+            CookieAwareApiClient.sharedOkHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful && response.code != 404) {
+                    throw IOException("closeAgentTask failed: HTTP ${response.code}")
+                }
+            }
+        }
+
+    /**
+     * Uploads normalized agent telemetry for a task to `POST /api/agent/task/{task_id}/telemetry`.
+     *
+     * Used by the self-reporting path (the `code4me2-agent` runtime we control). Third-party
+     * agents are instead observed transparently by
+     * [me.code4me.services.agent.LocalProxyServer], which needs no cooperation from the runtime.
+     */
+    suspend fun uploadTrajectory(
+        taskId: UUID,
+        trajectoryJson: String,
+    ) = withContext(Dispatchers.IO) {
+        val request =
+            Request.Builder()
+                .url("$apiBaseUrl/api/agent/task/$taskId/telemetry")
+                .post(trajectoryJson.toRequestBody("application/json".toMediaType()))
+                .build()
+
+        CookieAwareApiClient.sharedOkHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("uploadTrajectory failed: HTTP ${response.code}")
+            }
         }
     }
 }

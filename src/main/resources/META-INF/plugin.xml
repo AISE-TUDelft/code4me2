@@ -16,6 +16,12 @@
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt shift 9"/>
             <add-to-group group-id="EditorActions" anchor="last"/>
         </action>
+        <action id="me.code4me.actions.PrepareAcpAgentSessionAction"
+                class="me.code4me.actions.PrepareAcpAgentSessionAction"
+                text="Prepare Code4Me Agent Session"
+                description="Prepare a one-time authenticated ACP launch grant for this project">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
     </actions>
 
 

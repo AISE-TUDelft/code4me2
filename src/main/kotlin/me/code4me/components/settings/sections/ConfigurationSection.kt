@@ -186,6 +186,30 @@ class ConfigurationSection() : SettingsSection {
         }
 
     /**
+     * Checkbox for controlling storage of agent content (prompts, responses, tool/editor text).
+     *
+     * The backend is the actual enforcement point — it nulls content columns when consent is
+     * absent regardless of what the client sends — so this is how the user *expresses* the
+     * preference. The plugin also honours it locally, suppressing content before transmission.
+     */
+    private val storeAgentContentField =
+        JBCheckBox("Agent content telemetry").apply {
+            toolTipText =
+                "Enable storage of agent content (prompts, responses, tool and editor text). " +
+                "When off, only non-sensitive metadata is stored."
+        }
+
+    private val storeAgentContentFieldSVF =
+        object : ToggleButtonField(storeAgentContentField) {
+            override fun getStateValue(): Boolean = getPrefState().storeAgentContent
+
+            override fun setStateValue(value: Boolean) {
+                storeAgentContentField.isSelected = value
+                getPrefState().storeAgentContent = value
+            }
+        }
+
+    /**
      * Button for applying limited data collection preferences.
      */
     private val limitedDataCollectionButton =
@@ -219,6 +243,7 @@ class ConfigurationSection() : SettingsSection {
         storeContextFieldSVF.setFieldValue(storeContextFieldSVF.getStateValue())
         storeContextualTelemetryFieldSVF.setFieldValue(storeContextualTelemetryFieldSVF.getStateValue())
         storeBehavioralTelemetryFieldSVF.setFieldValue(storeBehavioralTelemetryFieldSVF.getStateValue())
+        storeAgentContentFieldSVF.setFieldValue(storeAgentContentFieldSVF.getStateValue())
     }
 
     private val limitedDataCollectionFieldSVF =
@@ -515,6 +540,7 @@ class ConfigurationSection() : SettingsSection {
         storeContextField.isSelected = prefState.storeContext
         storeContextualTelemetryField.isSelected = prefState.storeContextualTelemetry
         storeBehavioralTelemetryField.isSelected = prefState.storeBehavioralTelemetry
+        storeAgentContentField.isSelected = prefState.storeAgentContent
     }
 
     /**
@@ -1328,6 +1354,7 @@ class ConfigurationSection() : SettingsSection {
                 storeContextFieldSVF,
                 storeContextualTelemetryFieldSVF,
                 storeBehavioralTelemetryFieldSVF,
+                storeAgentContentFieldSVF,
                 limitedDataCollectionFieldSVF,
             ),
         )
@@ -1440,10 +1467,11 @@ class ConfigurationSection() : SettingsSection {
                 }
 
             val optionsPanel =
-                JPanel(GridLayout(1, 3, 5, 5)).apply {
+                JPanel(GridLayout(1, 4, 5, 5)).apply {
                     add(storeContextField)
                     add(storeContextualTelemetryField)
                     add(storeBehavioralTelemetryField)
+                    add(storeAgentContentField)
                 }
 
             add(configTitle, BorderLayout.NORTH)

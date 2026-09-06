@@ -1,0 +1,41 @@
+diff --git a/src/CodexAcpClient.ts b/src/CodexAcpClient.ts
+index 22cde0d..XXXXXXX 100644
+--- a/src/CodexAcpClient.ts
++++ b/src/CodexAcpClient.ts
+@@ -75,6 +75,27 @@ export class CodexAcpClient {
+     async authenticate(authRequest: acp.AuthenticateRequest): Promise<Boolean> {
+         if (!isCodexAuthRequest(authRequest)) {
+             throw RequestError.invalidRequest();
+         }
+
++        // When CODEX_PROXY_URL is set, bypass all normal auth methods (api-key, chat-gpt,
++        // gateway) and route every LLM call through the Code4Me local proxy instead.
++        // Without this, JetBrains may send an "api-key" auth request which goes straight
++        // to OpenAI — CODEX_PROXY_URL only took effect in the "gateway" branch before.
++        const proxyUrl = process.env["CODEX_PROXY_URL"];
++        if (proxyUrl) {
++            logger.log("[Code4Me] CODEX_PROXY_URL set — overriding auth to use local proxy", { method: authRequest.methodId, proxyUrl });
++            this.gatewayConfig = {
++                modelProvider: "custom-gateway",
++                config: {
++                    name: "Code4Me Proxy",
++                    base_url: proxyUrl,
++                    http_headers: { "X-Client-Feature-ID": "codex" },
++                    wire_api: "responses"
++                }
++            };
++            return true;
++        }
++
+         switch (authRequest.methodId) {
+@@ -105,7 +126,9 @@ export class CodexAcpClient {
+                 const gatewaySettings = authRequest._meta["gateway"]
+                 if (!gatewaySettings) throw RequestError.invalidRequest();
+
+-                const baseUrl = gatewaySettings.baseUrl;
++                // Allow the Code4Me local proxy to intercept LLM calls for telemetry.
++                // When CODEX_PROXY_URL is set, route to our proxy instead of the JetBrains gateway.
++                const baseUrl = process.env["CODEX_PROXY_URL"] ?? gatewaySettings.baseUrl;
+                 const providerName = typeof gatewaySettings.providerName === "string" && gatewaySettings.providerName.trim().length > 0
+                     ? gatewaySettings.providerName
+                     : "User-provided gateway";

@@ -14,11 +14,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import me.code4me.api.generated.model.UpdateMultiFileContext
+import me.code4me.services.agent.AgentStartupManager
+import me.code4me.services.agent.LocalProxyServer
+import me.code4me.services.app.AcpPreparationService
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.ConfigService
 import me.code4me.services.modules.context.MultiFileContextRetrievalModule
 import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.project.getProjectMultiFileContextService
+import me.code4me.services.state.TOKEN_PROPERTY
 import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.activateOrCreateProject
@@ -26,8 +30,10 @@ import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.notification.showLoginRequiredNotification
 import me.code4me.utils.notification.showTokenInvalidationNotification
 import toApiModel
+import java.beans.PropertyChangeListener
 import java.io.File
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Project activity that initializes modules at startup.
@@ -102,6 +108,7 @@ class PluginStartupActivity : ProjectActivity {
                 thisLogger().info("Session acquired successfully.")
                 activateOrCreateProject(project, thisLogger())
                 startCacheValidation(project)
+                launchAgentSetup(project)
             } catch (e: Exception) {
                 thisLogger().error("Failed to acquire session with stored token", e)
 
@@ -117,17 +124,78 @@ class PluginStartupActivity : ProjectActivity {
                         LOG.error("Failed to clear user data during sign out", e)
                     }
                 }
+
+                // The stored token was rejected, so agent setup never ran. Arm the post-auth hook
+                // so logging in again brings the agent paths up without an IDE restart.
+                registerPostAuthAgentSetup(project)
             }
         } else {
             thisLogger().warn("No authentication token found. Skipping session acquisition.")
             // Show notification prompting user to login
             project.showLoginRequiredNotification()
+            registerPostAuthAgentSetup(project)
         }
 
         // Register the ProjectCloseListener to save the last chat when a project is closed
         val connection: MessageBusConnection = project.messageBus.connect()
         connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
         thisLogger().info("ProjectCloseListener registered successfully.")
+    }
+
+    /**
+     * Brings up both agent integration paths, off the startup thread.
+     *
+     * The two are siblings under a [SupervisorJob] so neither can block or cancel the other:
+     *  - the third-party path ([LocalProxyServer] + [AgentStartupManager]) registers Goose/Codex
+     *    in `~/.jetbrains/acp.json` for the native AI Assistant, and may shell out to `npm` on
+     *    first run, which is slow;
+     *  - the custom-runtime path ([AcpPreparationService]) writes a one-time launch grant for a
+     *    locally-running `code4me2-agent`, which needs a server round-trip.
+     *
+     * Neither is required for completions or the built-in chat panel to work, so every failure is
+     * logged and swallowed.
+     */
+    private fun launchAgentSetup(project: Project) {
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            launch {
+                try {
+                    LocalProxyServer.start(project)
+                    AgentStartupManager.ensureActiveTask(project)
+                    LOG.info("Third-party agent (ACP registry) setup complete")
+                } catch (e: Exception) {
+                    LOG.warn("Third-party agent setup failed — non-blocking", e)
+                }
+            }
+            launch {
+                try {
+                    AcpPreparationService().prepare(project)
+                    LOG.info("ACP runtime handoff prepared for the custom agent")
+                } catch (e: Exception) {
+                    LOG.warn("ACP runtime handoff preparation failed — non-blocking", e)
+                }
+            }
+        }
+    }
+
+    /**
+     * Registers a one-shot auth-token listener so [launchAgentSetup] runs as soon as the user logs
+     * in, instead of only at project open. Removes itself once fired, so a later token refresh in
+     * the same session doesn't provision a second task.
+     */
+    private fun registerPostAuthAgentSetup(project: Project) {
+        val listenerRef = AtomicReference<PropertyChangeListener>()
+        val listener =
+            PropertyChangeListener { event ->
+                val newToken = event.newValue as? String
+                if (!newToken.isNullOrBlank()) {
+                    listenerRef.get()?.let { getAuthState().removePropertyChangeListener(TOKEN_PROPERTY, it) }
+                    LOG.info("Post-auth trigger fired — starting agent setup")
+                    launchAgentSetup(project)
+                }
+            }
+        listenerRef.set(listener)
+        getAuthState().addPropertyChangeListener(TOKEN_PROPERTY, listener)
+        LOG.info("Post-auth agent setup listener registered")
     }
 
     /**

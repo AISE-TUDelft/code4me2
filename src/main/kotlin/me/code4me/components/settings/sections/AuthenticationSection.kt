@@ -18,9 +18,9 @@ import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.app.AppService
-import me.code4me.services.state.getPrefState
 import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.state.AuthState
+import me.code4me.services.state.getPrefState
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.GridBagConstraints
@@ -973,11 +973,12 @@ class AuthenticationSection : SettingsSection {
      */
     private fun showServerSelectionDialog() {
         val prefs = getPrefState()
-        val dialog = ServerSelectionDialog(
-            initialHost = prefs.lastServerHost ?: "",
-            initialPort = prefs.lastServerPort,
-            initialContextPath = prefs.lastServerContextPath ?: ""
-        )
+        val dialog =
+            ServerSelectionDialog(
+                initialHost = prefs.lastServerHost ?: "",
+                initialPort = prefs.lastServerPort,
+                initialContextPath = prefs.lastServerContextPath ?: "",
+            )
         if (dialog.showAndGet()) {
             val host = dialog.getHost().trim()
             val port = dialog.getPort()
@@ -995,14 +996,14 @@ class AuthenticationSection : SettingsSection {
                     host = host,
                     port = port,
                     contextPath = contextPath,
-                    timeout = timeout
-                )
+                    timeout = timeout,
+                ),
             )
 
             val portSegment = if (port > 0) ":$port" else ""
             Messages.showInfoMessage(
                 "Server switched to $host$portSegment$contextPath",
-                "Server Updated"
+                "Server Updated",
             )
         }
     }
@@ -1109,7 +1110,6 @@ private class PasswordCreationDialog(private val email: String) : DialogWrapper(
     fun getName(): String = nameField.text.trim()
 }
 
-
 private class ServerSelectionDialog(
     private val initialHost: String,
     private val initialPort: Int,
@@ -1129,10 +1129,11 @@ private class ServerSelectionDialog(
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(GridBagLayout())
-        val gbc = GridBagConstraints().apply {
-            insets = Insets(5, 5, 5, 5)
-            anchor = GridBagConstraints.WEST
-        }
+        val gbc =
+            GridBagConstraints().apply {
+                insets = Insets(5, 5, 5, 5)
+                anchor = GridBagConstraints.WEST
+            }
 
         gbc.gridx = 0
         gbc.gridy = 0
@@ -1167,6 +1168,8 @@ private class ServerSelectionDialog(
     }
 
     fun getHost(): String = hostField.text.trim()
+
     fun getPort(): Int = portField.text.trim().toIntOrNull() ?: 0
+
     fun getContextPath(): String = contextPathField.text.trim()
 }

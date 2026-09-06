@@ -5,8 +5,8 @@ import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.1.20"
-    id("org.jetbrains.intellij.platform") version "2.5.0"
+    alias(libs.plugins.kotlin)
+    alias(libs.plugins.intelliJPlatform)
     alias(libs.plugins.changelog)
 }
 
@@ -45,14 +45,27 @@ dependencies {
 
     // IntelliJ Platform dependencies for testing
     intellijPlatform {
-        create(providers.gradleProperty("platformType"), providers.gradleProperty("platformVersion"))
+        intellijIdea(providers.gradleProperty("platformVersion"))
 
         // Plugin Dependencies. Uses `platformBundledPlugins` property from the gradle.properties file for bundled IntelliJ Platform plugins.
-        bundledPlugins("org.intellij.plugins.markdown")
-        bundledPlugins(providers.gradleProperty("platformBundledPlugins").map { it.split(',') })
+        bundledPlugins(
+            providers.gradleProperty("platformBundledPlugins")
+                .map {
+                    it.split(",")
+                        .map(String::trim)
+                        .filter(String::isNotEmpty)
+                },
+        )
 
         // Plugin Dependencies. Uses `platformPlugins` property from the gradle.properties file for plugin from JetBrains Marketplace.
-        plugins(providers.gradleProperty("platformPlugins").map { it.split(',') })
+        plugins(
+            providers.gradleProperty("platformPlugins")
+                .map {
+                    it.split(",")
+                        .map(String::trim)
+                        .filter(String::isNotEmpty)
+                },
+        )
 
         testFramework(TestFrameworkType.Platform)
     }

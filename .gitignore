@@ -12,4 +12,5 @@ build/
 
 allure-results/
 out/
+*.log
 

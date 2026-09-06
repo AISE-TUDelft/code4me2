@@ -16,7 +16,6 @@ import me.code4me.chatWindow.components.utils.TitleResponsePair
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.modules.manager.getModuleManager
-import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.api.mapsTo
@@ -54,14 +53,10 @@ class ChatIOManager {
             )
         }
 
-        val tokService = getProjectTokenService(project)
-
-        if (tokService.getProjectToken() == null || (tokService.hasProjectToken() && !tokService.isActivated())) {
-            activateOrCreateProject(
-                project,
-                LOG,
-            )
-        }
+        // Activate unconditionally. `isActivated()` is a purely local flag: it stays true across a
+        // re-login even though the new server-side session has no project activated, so gating on
+        // it made every chat in that session fail. Re-activating is idempotent server-side.
+        activateOrCreateProject(project, LOG)
 
         // Collect editor data within a read action
 
@@ -77,7 +72,7 @@ class ChatIOManager {
                     val isEmpty = document.textLength == 0
                     val isMinimalContent = document.textLength < 10
 
-                    val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
+                    val psiFile = virtualFile?.let { PsiManager.getInstance(project).findFile(it) }
 
                     if (isEmpty || psiFile == null) {
                         LOG.info("Handling empty or problematic file: ${virtualFile?.name}")
@@ -185,9 +180,15 @@ class ChatIOManager {
 
         // model preferences
         val modelPrefs = aggregatedData[Record.Type.MODEL]
+        val modelsConfiguration = getConfig().getModelsConfiguration()
+        // This is the chat path, so it must read preferredChatModel — reading
+        // preferredCompletionModel here sent the user's completion model to the chat endpoint.
+        // "default" resolves to the first default model of either kind, so fall back explicitly
+        // to the default *chat* model when the named lookup misses.
         val modelId =
-            getConfig().getModelsConfiguration()
-                ?.getModelIdByName(selectedModel ?: modelPrefs?.get("preferredCompletionModel")?.toString() ?: "default")
+            modelsConfiguration
+                ?.getModelIdByName(selectedModel ?: modelPrefs?.get("preferredChatModel")?.toString() ?: "default")
+                ?: modelsConfiguration?.getDefaultChatModelId()
         val systemPrompt = modelPrefs?.get("systemPrompt")?.toString() ?: "You are a helpful programming assistant."
 
         // construct the chat history

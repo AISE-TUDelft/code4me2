@@ -27,6 +27,21 @@ import java.beans.PropertyChangeSupport
 const val PREF_STATE_NAME = "me.code4me.state.preferences"
 
 /**
+ * Default loopback port for the client-side agent inference relay.
+ *
+ * Declared here rather than inline in the agent package so the port has exactly one source of
+ * truth: everything that needs it (proxy bind address, Goose env bundle, the Codex `acp.json`
+ * entry) reads [PrefSettings.localProxyPort] instead of repeating a literal.
+ */
+const val DEFAULT_LOCAL_PROXY_PORT = 47362
+
+/**
+ * Default model name passed to third-party agent runtimes at launch. Overridden server-side per
+ * agent profile on each inference call, so it only has to be a name the runtime accepts.
+ */
+const val DEFAULT_AGENT_LAUNCH_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+/**
  * Helper function to access the current preference settings.
  *
  * @return The current [PrefSettings] instance from the service
@@ -390,6 +405,42 @@ class PrefSettings : BaseState() {
     var storeBehavioralTelemetry by property(false)
 
     var storeContextualTelemetry by property(false)
+
+    // ================= AGENT SETTINGS =================
+
+    var storeAgentTelemetry by property(true)
+
+    /**
+     * Whether agent *content* (prompts, responses, tool arguments, editor selections) may be
+     * stored alongside the structural telemetry. Defaults to on, matching the server-side
+     * `store_agent_content` default: the backend is the enforcement point and nulls content
+     * columns when consent is absent, so this flag is the user's *expression* of preference,
+     * not the gate itself. The client honours it too, so opting out means the content is never
+     * even transmitted.
+     */
+    var storeAgentContent by property(true)
+
+    /** Name of the server-side agent profile to request when minting a new `AgentTask`. */
+    var selectedAgentProfile by string("default")
+
+    /** Cached absolute path of the detected third-party agent binary (Goose). */
+    var agentPath by string("")
+
+    /** Cached `<agent> --version` output, used to tag telemetry with `framework_version`. */
+    var agentVersion by string("")
+
+    /** Task id of the currently open agent session, or blank when none is provisioned. */
+    var pendingTaskId by string("")
+
+    /** Loopback port [me.code4me.services.agent.LocalProxyServer] binds for third-party agents. */
+    var localProxyPort by property(DEFAULT_LOCAL_PROXY_PORT)
+
+    /**
+     * Model identifier handed to third-party agent runtimes at launch. The backend overrides the
+     * model per assigned agent profile on every `/api/agent/inference` call, so this only needs
+     * to be a name the runtime accepts without erroring at startup.
+     */
+    var agentLaunchModel by string(DEFAULT_AGENT_LAUNCH_MODEL)
 
     // ================= SERVER SELECTION PERSISTENCE =================
     /**
