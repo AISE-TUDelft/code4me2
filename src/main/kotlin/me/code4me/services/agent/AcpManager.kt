@@ -28,12 +28,12 @@ object AcpManager {
         get() = File(System.getProperty("user.home"), ".jetbrains/acp.json")
 
     fun writeOrUpdate(
-        goosePath: String,
+        goosePath: String?,
         envBundle: Map<String, String>,
         localProxyBaseUrl: String,
         codexSourceDir: String? = null,
     ) {
-        LOG.info("[AcpManager] writeOrUpdate called with goosePath=$goosePath, codexSourceDir=${codexSourceDir ?: "<null>"}")
+        LOG.info("[AcpManager] writeOrUpdate called with goosePath=${goosePath ?: "<null>"}, codexSourceDir=${codexSourceDir ?: "<null>"}")
         try {
             val file = acpFile
             file.parentFile.mkdirs()
@@ -57,15 +57,19 @@ object AcpManager {
             val servers = existingServers.toMutableMap()
             var changed = false
 
-            val gooseEntry =
-                JsonObject(
-                    mapOf(
-                        "command" to JsonPrimitive(goosePath),
-                        "args" to JsonArray(listOf(JsonPrimitive("acp"))),
-                        "env" to JsonObject(envBundle.mapValues { JsonPrimitive(it.value) }),
-                    ),
-                )
-            if (servers.putIfCorrect(GOOSE_ENTRY_NAME, gooseEntry)) changed = true
+            if (goosePath != null) {
+                val gooseEntry =
+                    JsonObject(
+                        mapOf(
+                            "command" to JsonPrimitive(goosePath),
+                            "args" to JsonArray(listOf(JsonPrimitive("acp"))),
+                            "env" to JsonObject(envBundle.mapValues { JsonPrimitive(it.value) }),
+                        ),
+                    )
+                if (servers.putIfCorrect(GOOSE_ENTRY_NAME, gooseEntry)) changed = true
+            } else {
+                LOG.info("[AcpManager] Goose not detected — leaving any existing '$GOOSE_ENTRY_NAME' entry untouched")
+            }
 
             if (!codexSourceDir.isNullOrBlank()) {
                 val codexEntry =

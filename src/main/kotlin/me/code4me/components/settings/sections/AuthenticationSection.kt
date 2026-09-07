@@ -720,28 +720,40 @@ class AuthenticationSection : SettingsSection {
 
     /**
      * Handles forgot password request.
+     *
+     * The actual request runs on a pooled thread: it's a blocking network call, and IntelliJ's
+     * threading rules forbid slow I/O on the EDT (this button click starts on the EDT). Only the
+     * UI follow-up hops back via `invokeLater`.
      */
     private fun handleForgotPassword() {
         val email = emailField.text.trim()
 
-        try {
-            val success = appService.requestPasswordReset(email)
+        authButton.isEnabled = false
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val success = appService.requestPasswordReset(email)
 
-            // Show success message
-            if (!success) {
-                showError("Failed to send password reset email. Please check your email address and try again.")
-            } else {
-                Messages.showInfoMessage(
-                    "A password reset email has been sent to $email. " +
-                        "Please check your inbox and follow the instructions to reset your password.",
-                    "Password Reset Email Sent",
-                )
-                switchToLoginMode()
-                LOG.info("Password reset email requested for: $email")
+                ApplicationManager.getApplication().invokeLater {
+                    authButton.isEnabled = true
+                    if (!success) {
+                        showError("Failed to send password reset email. Please check your email address and try again.")
+                    } else {
+                        Messages.showInfoMessage(
+                            "A password reset email has been sent to $email. " +
+                                "Please check your inbox and follow the instructions to reset your password.",
+                            "Password Reset Email Sent",
+                        )
+                        switchToLoginMode()
+                        LOG.info("Password reset email requested for: $email")
+                    }
+                }
+            } catch (e: Exception) {
+                LOG.error("Failed to send password reset email", e)
+                ApplicationManager.getApplication().invokeLater {
+                    authButton.isEnabled = true
+                    showError("Failed to send password reset email. Please try again later.")
+                }
             }
-        } catch (e: Exception) {
-            LOG.error("Failed to send password reset email", e)
-            showError("Failed to send password reset email. Please try again later.")
         }
     }
 
@@ -849,45 +861,59 @@ class AuthenticationSection : SettingsSection {
 
     /**
      * Handles credential-based authentication.
+     *
+     * The button click (and, for signup, the confirmation dialog) run on the EDT, but the actual
+     * login/signup call, the credential-store writes it triggers (`AuthState.setToken`/etc. write
+     * through to the OS keychain), and the follow-up session acquisition are all blocking I/O —
+     * IntelliJ's threading rules forbid that on the EDT. That work is dispatched to a pooled
+     * thread; only the final UI update hops back via `invokeLater`.
      */
     private fun handleCredentialsAuth() {
         val email = emailField.text.trim()
         val password = String(passwordField.password)
         val isSignupMode = authModeToggle.isSelected
+        val fullName = fullNameField.text.trim()
 
+        if (isSignupMode) {
+            val confirmResult =
+                Messages.showYesNoDialog(
+                    """
+                    By signing up, you agree to the following:
+
+                    • Your email and name will be stored securely
+                    • Your coding activity will be processed to provide suggestions
+                    • You can delete your account and data at any time
+                    • We will never share your personal information with third parties
+
+                    For more details, please refer to our Privacy Policy here: https://code4me.me/privacy-policy
+
+                    Do you want to continue with registration?
+                    """.trimIndent(),
+                    "Confirm Registration",
+                    "Continue",
+                    "Cancel",
+                    Messages.getQuestionIcon(),
+                )
+            if (confirmResult != Messages.YES) return
+        }
+
+        authButton.isEnabled = false
+        ApplicationManager.getApplication().executeOnPooledThread {
+            runCredentialsAuthRequest(isSignupMode, email, password, fullName)
+        }
+    }
+
+    /**
+     * The blocking half of [handleCredentialsAuth], run off the EDT. See that method's doc for why.
+     */
+    private fun runCredentialsAuthRequest(
+        isSignupMode: Boolean,
+        email: String,
+        password: String,
+        fullName: String,
+    ) {
         try {
-            val token =
-                if (isSignupMode) {
-                    val fullName = fullNameField.text.trim()
-
-                    val confirmResult =
-                        Messages.showYesNoDialog(
-                            """
-                            By signing up, you agree to the following:
-
-                            • Your email and name will be stored securely
-                            • Your coding activity will be processed to provide suggestions
-                            • You can delete your account and data at any time
-                            • We will never share your personal information with third parties
-                            
-                            For more details, please refer to our Privacy Policy here: https://code4me.me/privacy-policy
-
-                            Do you want to continue with registration?
-                            """.trimIndent(),
-                            "Confirm Registration",
-                            "Continue",
-                            "Cancel",
-                            Messages.getQuestionIcon(),
-                        )
-
-                    if (confirmResult == Messages.YES) {
-                        performSignup(fullName, email, password)
-                    } else {
-                        null
-                    }
-                } else {
-                    performLogin(email, password)
-                }
+            val token = if (isSignupMode) performSignup(fullName, email, password) else performLogin(email, password)
 
             if (token != null) {
                 // Store authentication data
@@ -895,15 +921,18 @@ class AuthenticationSection : SettingsSection {
                 authState.setUserEmail(email)
 
                 if (isSignupMode) {
-                    authState.setUserName(fullNameField.text.trim())
+                    authState.setUserName(fullName)
                 }
 
-                showSuccess("Authentication successful!")
-                clearAllFields()
                 appService.acquireSessionWithStoredToken()
 
-                // Update chat panel overlays immediately after successful auth
-                updateChatPanelOverlays()
+                ApplicationManager.getApplication().invokeLater {
+                    authButton.isEnabled = true
+                    showSuccess("Authentication successful!")
+                    clearAllFields()
+                    // Update chat panel overlays immediately after successful auth
+                    updateChatPanelOverlays()
+                }
             } else {
                 val errorMessage =
                     if (isSignupMode) {
@@ -911,11 +940,17 @@ class AuthenticationSection : SettingsSection {
                     } else {
                         "Login failed. Please check your credentials and try again."
                     }
-                showError(errorMessage)
+                ApplicationManager.getApplication().invokeLater {
+                    authButton.isEnabled = true
+                    showError(errorMessage)
+                }
             }
         } catch (e: Exception) {
             LOG.error("Authentication request failed", e)
-            showError("Authentication failed: ${e.message}")
+            ApplicationManager.getApplication().invokeLater {
+                authButton.isEnabled = true
+                showError("Authentication failed: ${e.message}")
+            }
         }
     }
 
@@ -1149,8 +1184,13 @@ private class ServerSelectionDialog(
 
         gbc.gridx = 0
         gbc.gridy = 2
-        panel.add(JLabel("Context Path (e.g., /api) - optional:"), gbc)
+        panel.add(JLabel("Extra path prefix (optional):"), gbc)
         gbc.gridx = 1
+        contextPathField.toolTipText =
+            "Only needed if the backend is mounted under an extra path, e.g. a reverse proxy " +
+            "serving it at /my-proxy rather than at the host root. Every API route already " +
+            "starts with /api on its own, so leave this blank for a plain host such as " +
+            "http://localhost:8008 — entering /api here would double it to /api/api/...."
         panel.add(contextPathField, gbc)
 
         return panel

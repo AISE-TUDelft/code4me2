@@ -4,6 +4,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import me.code4me.api.wrapper.CookieAwareApiClient
 import me.code4me.services.app.getAppService
@@ -15,8 +16,10 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Orchestrates the third-party-agent startup path: mint an `AgentTask` server-side, locate the
- * Goose binary, bootstrap the vendored codex-acp proxy, and register both in
- * `~/.jetbrains/acp.json` so the native AI Assistant can launch them.
+ * Goose binary, bootstrap the vendored codex-acp proxy, and register whichever of the two are
+ * available in `~/.jetbrains/acp.json` so the native AI Assistant can launch them. Goose and Codex
+ * are detected and registered independently — one being missing never prevents the other from
+ * being registered.
  *
  * Every failure here is non-fatal: the plugin's completion and chat features must keep working
  * whether or not any agent runtime is installed.
@@ -24,12 +27,20 @@ import java.util.concurrent.TimeUnit
 object AgentStartupManager {
     private val LOG = thisLogger()
 
+    // A fresh login fires this via a property-change listener (see
+    // PluginStartupActivity.registerPostAuthAgentSetup) the instant the auth token is stored —
+    // which is *before* the caller acquires a session a few lines later. The session_token cookie
+    // CookieAwareApiClient.getSessionToken() reads is only set once that HTTP round-trip completes,
+    // so a single immediate check reliably loses the race. Poll briefly instead of bailing outright.
+    private const val SESSION_TOKEN_POLL_ATTEMPTS = 10
+    private const val SESSION_TOKEN_POLL_INTERVAL_MS = 300L
+
     suspend fun ensureActiveTask(project: Project) {
         LOG.info("[AgentStartupManager] ensureActiveTask — begin")
 
-        val sessionId = CookieAwareApiClient.getSessionToken()
+        val sessionId = awaitSessionToken()
         if (sessionId.isNullOrBlank()) {
-            LOG.warn("[AgentStartupManager] no session token available — skipping acp.json write")
+            LOG.warn("[AgentStartupManager] no session token available after waiting — skipping acp.json write")
             return
         }
         LOG.info("[AgentStartupManager] session token present")
@@ -42,10 +53,12 @@ object AgentStartupManager {
         LOG.info("[AgentStartupManager] detecting Goose binary…")
         val goosePath = GooseRuntime.detect()
         if (goosePath == null) {
+            // Goose is one optional runtime among several (Codex is the other) — its absence
+            // must not block registering whichever runtimes *are* available.
             showGooseNotFoundNotification(project)
-            return
+        } else {
+            LOG.info("[AgentStartupManager] Goose binary resolved: $goosePath")
         }
-        LOG.info("[AgentStartupManager] Goose binary resolved: $goosePath")
 
         val localProxyBaseUrl = LocalProxyServer.baseUrl()
         val envBundle = GooseRuntime.buildEnvBundle(localProxyBaseUrl)
@@ -79,6 +92,24 @@ object AgentStartupManager {
         return provisionTask().also {
             LOG.info("[AgentStartupManager] rotateTask — ${if (it != null) "new task $it" else "failed"}")
         }
+    }
+
+    /**
+     * Polls for [CookieAwareApiClient.getSessionToken] for up to
+     * `SESSION_TOKEN_POLL_ATTEMPTS * SESSION_TOKEN_POLL_INTERVAL_MS` (~3s), instead of a single
+     * immediate check that loses the startup race described above. Returns null if the cookie
+     * still isn't there once the window elapses.
+     */
+    private suspend fun awaitSessionToken(): String? {
+        repeat(SESSION_TOKEN_POLL_ATTEMPTS) { attempt ->
+            val token = CookieAwareApiClient.getSessionToken()
+            if (!token.isNullOrBlank()) {
+                if (attempt > 0) LOG.info("[AgentStartupManager] session token appeared after ${attempt + 1} check(s)")
+                return token
+            }
+            if (attempt < SESSION_TOKEN_POLL_ATTEMPTS - 1) delay(SESSION_TOKEN_POLL_INTERVAL_MS)
+        }
+        return null
     }
 
     /**
@@ -149,13 +180,27 @@ object AgentStartupManager {
         return null
     }
 
-    // Ensures the vendored codex-acp has its npm dependencies installed. Returns true if
-    // node_modules is present — either already, or after a successful install.
+    // Ensures the vendored codex-acp has its npm dependencies installed *and* that the native
+    // Codex CLI binary the proxy shells out to (@openai/codex's platform package) is actually
+    // present on disk. That binary is a frequent target of a known macOS XProtect false positive
+    // (openai/codex#31377): Gatekeeper/XProtect deletes the vendored Mach-O as "malware" some time
+    // after npm placed it there, while leaving `node_modules/` itself intact — so a node_modules
+    // existence check alone would keep reporting Codex as ready after it's already been eaten.
+    // Returns true only if the binary that would actually be spawned is present.
     private fun ensureCodexInstalled(sourceDir: String): Boolean {
         val dir = File(sourceDir)
         if (dir.resolve("node_modules").isDirectory) {
-            LOG.info("[AgentStartupManager] codex node_modules present — skipping npm install")
-            return true
+            if (codexNativeBinaryPresent(dir)) {
+                LOG.info("[AgentStartupManager] codex node_modules present — skipping npm install")
+                return true
+            }
+            LOG.warn(
+                "[AgentStartupManager] codex node_modules present but the native Codex binary is " +
+                    "missing — likely removed by macOS Gatekeeper/XProtect as a known false positive " +
+                    "(see https://github.com/openai/codex/issues/31377). Skipping Codex entry; " +
+                    "reinstalling won't help until @openai/codex is updated past the flagged build.",
+            )
+            return false
         }
 
         val isWindows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
@@ -187,11 +232,17 @@ object AgentStartupManager {
                 return false
             }
             drain.join(2_000)
-            val ok = process.exitValue() == 0 && dir.resolve("node_modules").isDirectory
-            if (ok) {
-                LOG.info("[AgentStartupManager] codex npm install completed successfully")
-            } else {
-                LOG.warn("[AgentStartupManager] codex npm install failed (exit=${process.exitValue()}) — skipping Codex entry")
+            val installed = process.exitValue() == 0 && dir.resolve("node_modules").isDirectory
+            val ok = installed && codexNativeBinaryPresent(dir)
+            when {
+                ok -> LOG.info("[AgentStartupManager] codex npm install completed successfully")
+                installed ->
+                    LOG.warn(
+                        "[AgentStartupManager] codex npm install succeeded but the native Codex binary is " +
+                            "missing right after install — likely removed by macOS Gatekeeper/XProtect as a " +
+                            "known false positive (see https://github.com/openai/codex/issues/31377). Skipping Codex entry.",
+                    )
+                else -> LOG.warn("[AgentStartupManager] codex npm install failed (exit=${process.exitValue()}) — skipping Codex entry")
             }
             ok
         } catch (e: Exception) {
@@ -200,14 +251,34 @@ object AgentStartupManager {
         }
     }
 
+    // Checks that the native Codex CLI binary @openai/codex's launcher (bin/codex.js) will
+    // actually spawn is present on disk, at node_modules/@openai/codex-<platform>/vendor/<target
+    // triple>/bin/codex(.exe) — see findCodexExecutable() in that launcher. We match by the
+    // codex-* platform-package naming pattern and search all target-triple subdirs rather than
+    // hardcoding the current OS/arch's triple, since npm only ever installs the one optional
+    // platform dependency matching the running machine, and the exact vendor layout has changed
+    // across @openai/codex releases (older builds used vendor/<triple>/codex/codex instead).
+    private fun codexNativeBinaryPresent(sourceDir: File): Boolean {
+        val platformPackagesDir = sourceDir.resolve("node_modules/@openai")
+        val platformDirs = platformPackagesDir.listFiles { f -> f.isDirectory && f.name.startsWith("codex-") } ?: return false
+        return platformDirs.any { platformDir ->
+            val vendorDir = platformDir.resolve("vendor")
+            vendorDir.listFiles { f -> f.isDirectory }?.any { targetTripleDir ->
+                val binDir = targetTripleDir.resolve("bin")
+                binDir.resolve("codex").let { it.isFile && it.length() > 0 } ||
+                    binDir.resolve("codex.exe").let { it.isFile && it.length() > 0 }
+            } ?: false
+        }
+    }
+
     private fun showGooseNotFoundNotification(project: Project) {
-        LOG.warn("[AgentStartupManager] Goose binary not found — acp.json not written")
+        LOG.warn("[AgentStartupManager] Goose binary not found — Goose entry not written (other runtimes, e.g. Codex, are unaffected)")
         project.showAuthNotification(
-            title = "Code4Me agent runtime not found",
+            title = "Code4Me: Goose runtime not found",
             message =
                 "No Goose binary was found on PATH or in the JetBrains ACP agent registry, so no " +
-                    "Code4Me agent was registered with AI Assistant. Install Goose (or an agent " +
-                    "from the AI Assistant agent list) and reopen the project to retry.",
+                    "Goose agent was registered with AI Assistant. Other Code4Me-managed runtimes " +
+                    "(e.g. Codex) are unaffected. Install Goose and reopen the project to retry.",
             type = NotificationType.WARNING,
             includeSettingsAction = false,
         )

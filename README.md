@@ -27,6 +27,12 @@ Code4Me V2 is an AI-powered code completion platform developed for the **AISE la
 - **Code Analysis**: Get explanations, refactoring suggestions, and debugging help
 - **Session Management**: Persistent chat history with project-specific conversations
 
+#### Agent Mode
+- **ACP-Based Agents**: Launch third-party coding agents (Goose, Codex) through JetBrains' native AI Assistant agent picker, registered automatically as `Goose (Code4Me)` and `Codex (Code4Me)`
+- **Transparent Proxying**: Every agent LLM call is routed through a local proxy to the Code4Me backend, so usage is authenticated and attributed without the agent ever handling a real API key
+- **Custom Agent Runtime**: Prepare a one-time authenticated launch grant for Code4Me's own agent runtime via `Tools > Prepare Code4Me Agent Session`
+- **Task & Telemetry Tracking**: Agent tasks are minted, rotated, and closed server-side so trajectories and token usage are attributed to the right session
+
 #### Comprehensive Settings Management
 - **Complete User Control**: Enable/disable individual modules through intuitive settings interface
 - **Granular Data Collection**: Choose exactly what data is collected and transmitted
@@ -305,6 +311,7 @@ The plugin uses HOCON (Human-Optimized Config Object Notation) for configuration
 - Backend server host and port settings
 - Connection timeout and retry parameters
 - Context path and SSL configuration
+- Optional `acpRuntimeBaseUrl` override, used only by locally-running ACP agent runtimes that can't reach the resolved `host` as written (e.g. an agent running in a container needing `http://host.docker.internal:8008`)
 
 **Authentication Settings** (customizable OAuth configuration):
 - Google OAuth client credentials
@@ -384,6 +391,8 @@ Each module in plugin.conf includes:
 - JDK 21 or higher
 - IntelliJ IDEA 2024.2+
 - Gradle 8.13+
+- **Node.js ≥ 18 and npm** on `PATH` — only needed for Agent Mode's vendored `codex-acp` proxy (see [Agent Mode Setup](#agent-mode-setup) below)
+- **Goose** binary on `PATH`, or installable through JetBrains AI Assistant's agent picker — optional; Goose and Codex are registered independently, so Codex works without it
 
 ### Building the Plugin
 ```bash
@@ -397,9 +406,18 @@ cd code4me2
 # Run tests
 ./gradlew check
 
-# Run in development IDE
-./gradlew runIde
+# Run in development IDE ('clean' is required, otherwise the agent proxy isn't started)
+./gradlew clean runIde
 ```
+
+### Agent Mode Setup
+
+Code4Me can drive coding agents through the [Agent Client Protocol (ACP)](https://agentclientprotocol.com), via two independent paths:
+
+1. **Third-party ACP agents (Goose, Codex)** — on IDE startup, once you're logged in, the plugin registers both agents in `~/.jetbrains/acp.json` so they appear in JetBrains AI Assistant's agent picker. Every LLM call they make is transparently relayed through a local proxy to the Code4Me backend for authentication and telemetry — no real API key ever reaches the client. Codex runs from a vendored source checkout (`dev/codex-acp-proxy/codex-acp`) and needs its npm dependencies installed, which the plugin does automatically on first run. See **[dev/codex-acp-proxy/SETUP.md](dev/codex-acp-proxy/SETUP.md)** for the full local run guide and troubleshooting.
+2. **Code4Me's own agent runtime** (`code4me2-agent`, a separate project) — trigger `Tools > Prepare Code4Me Agent Session` to mint a one-time authenticated launch grant. It's written to `.idea/code4me/acp-runtime.env` in the open project (plus a couple of fallback locations) for the runtime to pick up.
+
+Both paths are non-fatal to set up: if Goose, Node/npm, or the runtime aren't available, completions and the built-in chat panel keep working, and the plugin logs why agent registration was skipped.
 
 ### Code Quality Standards
 The project maintains high code quality through:
@@ -470,6 +488,13 @@ The plugin integrates with the Code4Me backend through these endpoints:
 
 **Chat:**
 - `POST /api/chat/request/` - Chat completion request
+
+**Agent (ACP):**
+- `POST /api/acp/grant` - Mint a one-time authenticated launch grant for Code4Me's own agent runtime
+- `POST /api/agent/task` - Mint (or idempotently re-use) an `AgentTask` before an agent's first inference call
+- `POST /api/agent/inference` - Relay endpoint the local proxy forwards third-party agents' (Goose, Codex) LLM calls through
+- `POST /api/agent/task/{task_id}/close` - Close a task so the server aggregates its accrued token usage
+- `POST /api/agent/task/{task_id}/telemetry` - Upload normalized trajectory telemetry for the self-reporting agent runtime
 
 ## 📚 Resources
 

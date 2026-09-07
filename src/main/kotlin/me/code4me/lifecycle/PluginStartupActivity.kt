@@ -1,5 +1,6 @@
 package me.code4me.lifecycle
 
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
@@ -13,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.model.UpdateMultiFileContext
 import me.code4me.services.agent.AgentStartupManager
 import me.code4me.services.agent.LocalProxyServer
@@ -27,6 +29,7 @@ import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.api.fromSerializableMap
+import me.code4me.utils.notification.showAuthNotification
 import me.code4me.utils.notification.showLoginRequiredNotification
 import me.code4me.utils.notification.showTokenInvalidationNotification
 import toApiModel
@@ -109,24 +112,48 @@ class PluginStartupActivity : ProjectActivity {
                 activateOrCreateProject(project, thisLogger())
                 startCacheValidation(project)
                 launchAgentSetup(project)
-            } catch (e: Exception) {
-                thisLogger().error("Failed to acquire session with stored token", e)
-
-                // Show notification about token invalidation and clear user data
-                project.showTokenInvalidationNotification()
-
-                // Clear user data as the token is invalid
-                ApplicationManager.getApplication().executeOnPooledThread {
-                    try {
-                        authState.clearUserData()
-                        LOG.info("User data cleared successfully during sign out")
-                    } catch (e: Exception) {
-                        LOG.error("Failed to clear user data during sign out", e)
+            } catch (e: ClientException) {
+                if (e.statusCode == 401) {
+                    // The backend explicitly rejected the stored token — it's genuinely invalid
+                    // (expired/revoked), so there's nothing to gain by keeping it around.
+                    thisLogger().error("Stored token rejected (401) — signing out", e)
+                    project.showTokenInvalidationNotification()
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        try {
+                            authState.clearUserData()
+                            LOG.info("User data cleared successfully during sign out")
+                        } catch (clearError: Exception) {
+                            LOG.error("Failed to clear user data during sign out", clearError)
+                        }
                     }
+                } else {
+                    // Any other client error (e.g. a transient backend/proxy hiccup returning
+                    // 5xx-shaped content as a 4xx, or a temporary outage) says nothing about
+                    // whether the token itself is valid — keep it and just retry on next open.
+                    thisLogger().warn(
+                        "Could not verify stored session (HTTP ${e.statusCode}) — keeping credentials, will retry next time",
+                        e,
+                    )
+                    project.showAuthNotification(
+                        title = "Code4Me could not reach the server",
+                        message = "Your login is kept — this will retry automatically next time the project opens.",
+                        type = NotificationType.WARNING,
+                    )
                 }
-
-                // The stored token was rejected, so agent setup never ran. Arm the post-auth hook
-                // so logging in again brings the agent paths up without an IDE restart.
+                // Either way, agent setup never ran this time. Arm the post-auth hook so a fresh
+                // login (or the notification's retry) brings the agent paths up without an IDE
+                // restart.
+                registerPostAuthAgentSetup(project)
+            } catch (e: Exception) {
+                // Network/server-side failures (ServerException, IOException, ...): the token
+                // itself was never actually checked, so signing the user out here would be
+                // punishing them for a backend outage rather than an invalid credential.
+                thisLogger().warn("Could not verify stored session (non-client error) — keeping credentials, will retry next time", e)
+                project.showAuthNotification(
+                    title = "Code4Me could not reach the server",
+                    message = "Your login is kept — this will retry automatically next time the project opens.",
+                    type = NotificationType.WARNING,
+                )
                 registerPostAuthAgentSetup(project)
             }
         } else {

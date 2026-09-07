@@ -4,7 +4,6 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.UIUtil
-import groovy.lang.Tuple2
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.sections.ConfigurationSection
 import me.code4me.services.modules.PluginModule
@@ -392,15 +391,14 @@ class ConfigurationSectionTest : BasePlatformTestCase() {
             ).apply { isAccessible = true }
 
         // Call the method
-        val result = checkMethod.invoke(section, module) as Tuple2<Boolean, List<String>>
+        @Suppress("UNCHECKED_CAST")
+        val result = checkMethod.invoke(section, module) as Pair<Boolean, String?>
 
         // Verify the result
         // Note: In a test environment without a proper tree setup, we expect a default result
         assertNotNull(result, "Result should not be null")
         // The first value is a Boolean indicating if the module can be disabled
-        assertNotNull(result.getV1(), "Can be disabled flag should not be null")
-        // The second value is a List of dependent module IDs
-        assertNotNull(result.getV2(), "Dependent modules list should not be null")
+        assertNotNull(result.first, "Can be disabled flag should not be null")
     }
 
     fun testFindModuleNodeById() {
