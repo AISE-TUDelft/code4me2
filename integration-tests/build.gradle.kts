@@ -15,7 +15,7 @@ version = "1.0-SNAPSHOT"
 
 // Set the JVM language level used to build the project.
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
 }
 
 repositories {
@@ -73,6 +73,10 @@ dependencies {
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.8.1")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.8.1")
+    // Align Kotlin stdlib with the root project (2.4.0): transitive moshi pins
+    // resolve 1.9.x here, whose coroutine debug metadata (v1) mismatches the
+    // platform's coroutines-debug (expects v2) and hangs app init in tests.
+    testImplementation(platform("org.jetbrains.kotlin:kotlin-bom:2.4.0"))
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
     testImplementation("org.mockito:mockito-core:5.18.0")
@@ -105,7 +109,6 @@ intellijPlatform {
 
         ideaVersion {
             sinceBuild = providers.gradleProperty("pluginSinceBuild")
-            untilBuild = providers.gradleProperty("pluginUntilBuild")
         }
     }
 

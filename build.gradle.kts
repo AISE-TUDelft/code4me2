@@ -2,6 +2,7 @@ import org.gradle.kotlin.dsl.register
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 plugins {
     id("java") // Java support
@@ -19,8 +20,23 @@ group = providers.gradleProperty("pluginGroup").get()
 version = providers.gradleProperty("pluginVersion").get()
 
 // Set the JVM language level used to build the project.
+// Java 25: required for IntelliJ Platform 2026.2+ (IDE runs on JBR 25).
+// Kotlin 2.4 matches the 2026.2 platform runtime (sinceBuild 262).
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
+    compilerOptions {
+        languageVersion.set(KotlinVersion.KOTLIN_2_4)
+        apiVersion.set(KotlinVersion.KOTLIN_2_4)
+    }
+}
+
+configurations.named("runtimeClasspath") {
+    // Kotlin is supplied by IntelliJ. Do not package transitive copies pulled
+    // in by Moshi, OkHttp, or the generated API client.
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-reflect")
 }
 
 // Configure project's dependencies
@@ -127,7 +143,6 @@ intellijPlatform {
 
         ideaVersion {
             sinceBuild = providers.gradleProperty("pluginSinceBuild")
-            untilBuild = providers.gradleProperty("pluginUntilBuild")
         }
     }
 
@@ -180,7 +195,8 @@ kover {
 
 // Configure JaCoCo Plugin
 jacoco {
-    toolVersion = "0.8.11"
+    // 0.8.15+: reads Java 25 (v69) bytecode from toolchain-25 classes.
+    toolVersion = "0.8.15"
 }
 
 ktlint {
@@ -193,6 +209,12 @@ ktlint {
         exclude { element -> element.file.path.contains("integration/") }
     }
     ignoreFailures = true
+}
+
+dokka {
+    dokkaPublications.html {
+        outputDirectory.set(layout.buildDirectory.dir("dokka"))
+    }
 }
 
 tasks {
@@ -285,12 +307,8 @@ tasks {
         dependsOn(jacocoTestReport)
     }
 
-    val dokkaHtml by getting(org.jetbrains.dokka.gradle.DokkaTask::class) {
-        outputDirectory.set(layout.buildDirectory.dir("dokka"))
-    }
-
     register<Zip>("dokkaZip") {
-        dependsOn(dokkaHtml)
+        dependsOn("dokkaGeneratePublicationHtml")
         archiveBaseName.set("dokka-documentation")
         archiveVersion.set(project.version.toString())
         archiveExtension.set("zip")
