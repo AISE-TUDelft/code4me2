@@ -153,14 +153,11 @@ object GooseRuntime {
             if (!AcpManager.acpFile.exists()) return null
             val root = Json.parseToJsonElement(AcpManager.acpFile.readText()).jsonObject
             val servers = root["agent_servers"]?.jsonObject ?: return null
-            for ((_, entry) in servers) {
-                val cmd = entry.jsonObject["command"]?.jsonPrimitive?.content ?: continue
-                if (File(cmd).exists()) {
-                    LOG.info("[GooseRuntime] Goose detected via acp.json at: $cmd")
-                    return cmd
-                }
-            }
-            null
+            val cmd = servers["Goose (Code4Me)"]?.jsonObject?.get("command")?.jsonPrimitive?.content
+                ?: return null
+            if (File(cmd).name != "goose" || !File(cmd).exists()) return null
+            LOG.info("[GooseRuntime] Goose detected via acp.json at: $cmd")
+            cmd
         } catch (e: Exception) {
             LOG.warn("[GooseRuntime] Failed to read Goose path from acp.json", e)
             null
