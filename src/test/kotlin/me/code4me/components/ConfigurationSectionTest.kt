@@ -7,7 +7,6 @@ import com.intellij.util.ui.UIUtil
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.sections.ConfigurationSection
 import me.code4me.services.modules.PluginModule
-import me.code4me.services.state.PrefSettings
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.configuration.Preference
 import me.code4me.utils.configuration.PreferenceClass
@@ -105,10 +104,12 @@ class ConfigurationSectionTest : BasePlatformTestCase() {
     }
 
     fun testCreateUserInfoPanel() {
-        val section = ConfigurationSection()
+        // User account UI moved to UserSection; ConfigurationSection keeps only
+        // dead field declarations. Exercise the current account panel instead.
+        val section = me.code4me.components.settings.sections.UserSection()
         val userInfoPanel =
             section.javaClass.getDeclaredMethod(
-                "createUserInfoPanel",
+                "createAccountManagementPanel",
             ).apply { isAccessible = true }.invoke(section) as JPanel
 
         assertNotNull(userInfoPanel, "User info panel should not be null")
@@ -281,100 +282,70 @@ class ConfigurationSectionTest : BasePlatformTestCase() {
 
         // Verify that the added component is a JLabel with the expected text
         val labels = UIUtil.findComponentsOfType(panel, javax.swing.JLabel::class.java)
-        val hasExpectedLabel = labels.any { it.text?.contains("Select a module from the tree") == true }
+        val hasExpectedLabel = labels.any { it.text?.contains("Select a module to manage preferences") == true }
         assertTrue(hasExpectedLabel, "Panel should contain a label with instructions to select a module")
     }
 
     fun testValidateDecimalInput() {
+        // Validation now lives in the createFloatField document filter, which
+        // silently rejects keystrokes that would make the text an invalid float.
         val section = ConfigurationSection()
-
-        // Create test components
-        val textField = com.intellij.ui.components.JBTextField()
-        val warningLabel = com.intellij.ui.components.JBLabel()
-        warningLabel.isVisible = false
-
-        // Get the validateDecimalInput method
-        val validateMethod =
+        val floatPref =
+            me.code4me.utils.configuration.Preference(
+                key = "test.float",
+                type = me.code4me.utils.configuration.PreferenceType.FLOAT,
+                defaultValue = "",
+                displayName = "Test Float",
+                description = "A test float preference",
+            )
+        val fieldPanel =
             section.javaClass.getDeclaredMethod(
-                "validateDecimalInput",
-                com.intellij.ui.components.JBTextField::class.java,
-                com.intellij.ui.components.JBLabel::class.java,
-                me.code4me.utils.configuration.PreferenceType::class.java,
-            ).apply { isAccessible = true }
+                "createFloatField",
+                String::class.java,
+                me.code4me.utils.configuration.Preference::class.java,
+            ).apply { isAccessible = true }.invoke(section, "test.module", floatPref) as JComponent
+        val textField = UIUtil.findComponentsOfType(fieldPanel, com.intellij.ui.components.JBTextField::class.java).first()
 
-        // Test with empty text
+        // Valid float is accepted
         textField.text = ""
-        validateMethod.invoke(section, textField, warningLabel, me.code4me.utils.configuration.PreferenceType.FLOAT)
-        assertFalse(warningLabel.isVisible, "Warning label should be hidden for empty text")
+        textField.document.insertString(0, "3.14", null)
+        assertEquals("Valid float should be accepted", "3.14", textField.text)
 
-        // Test with valid float
-        textField.text = "3.14"
-        validateMethod.invoke(section, textField, warningLabel, me.code4me.utils.configuration.PreferenceType.FLOAT)
-        assertFalse(warningLabel.isVisible, "Warning label should be hidden for valid float")
-
-        // Test with invalid float
-        textField.text = "not-a-number"
-        validateMethod.invoke(section, textField, warningLabel, me.code4me.utils.configuration.PreferenceType.FLOAT)
-        assertTrue(warningLabel.isVisible, "Warning label should be visible for invalid float")
-        assertTrue(warningLabel.text.contains("Invalid float value"), "Warning label should show correct error message for float")
-
-        // Test with valid double
-        warningLabel.isVisible = false
-        textField.text = "3.14159"
-        validateMethod.invoke(section, textField, warningLabel, me.code4me.utils.configuration.PreferenceType.DOUBLE)
-        assertFalse(warningLabel.isVisible, "Warning label should be hidden for valid double")
-
-        // Test with invalid double
-        textField.text = "not-a-number"
-        validateMethod.invoke(section, textField, warningLabel, me.code4me.utils.configuration.PreferenceType.DOUBLE)
-        assertTrue(warningLabel.isVisible, "Warning label should be visible for invalid double")
-        assertTrue(warningLabel.text.contains("Invalid decimal value"), "Warning label should show correct error message for decimal")
+        // Invalid float is rejected by the filter
+        textField.text = ""
+        textField.document.insertString(0, "not-a-number", null)
+        assertEquals("Invalid float should be rejected", "", textField.text)
     }
 
     fun testValidateNumericInput() {
+        // Validation now lives in the createIntegerField document filter, which
+        // silently rejects keystrokes that would make the text an invalid integer.
         val section = ConfigurationSection()
-
-        // Create test components
-        val textField = com.intellij.ui.components.JBTextField()
-        val warningLabel = com.intellij.ui.components.JBLabel()
-        warningLabel.isVisible = false
-
-        // Get the validateNumericInput method
-        val validateMethod =
+        val intPref =
+            me.code4me.utils.configuration.Preference(
+                key = "test.int",
+                type = me.code4me.utils.configuration.PreferenceType.INT,
+                defaultValue = "",
+                displayName = "Test Integer",
+                description = "A test integer preference",
+            )
+        val fieldPanel =
             section.javaClass.getDeclaredMethod(
-                "validateNumericInput",
-                com.intellij.ui.components.JBTextField::class.java,
-                com.intellij.ui.components.JBLabel::class.java,
-                me.code4me.utils.configuration.PreferenceType::class.java,
-            ).apply { isAccessible = true }
+                "createIntegerField",
+                String::class.java,
+                me.code4me.utils.configuration.Preference::class.java,
+            ).apply { isAccessible = true }.invoke(section, "test.module", intPref) as JComponent
+        val textField = UIUtil.findComponentsOfType(fieldPanel, com.intellij.ui.components.JBTextField::class.java).first()
 
-        // Test with empty text
+        // Valid integer is accepted
         textField.text = ""
-        validateMethod.invoke(section, textField, warningLabel, me.code4me.utils.configuration.PreferenceType.INT)
-        assertFalse(warningLabel.isVisible, "Warning label should be hidden for empty text")
+        textField.document.insertString(0, "42", null)
+        assertEquals("Valid integer should be accepted", "42", textField.text)
 
-        // Test with valid integer
-        textField.text = "42"
-        validateMethod.invoke(section, textField, warningLabel, me.code4me.utils.configuration.PreferenceType.INT)
-        assertFalse(warningLabel.isVisible, "Warning label should be hidden for valid integer")
-
-        // Test with invalid integer
-        textField.text = "not-a-number"
-        validateMethod.invoke(section, textField, warningLabel, me.code4me.utils.configuration.PreferenceType.INT)
-        assertTrue(warningLabel.isVisible, "Warning label should be visible for invalid integer")
-        assertTrue(warningLabel.text.contains("Invalid integer value"), "Warning label should show correct error message for integer")
-
-        // Test with valid long
-        warningLabel.isVisible = false
-        textField.text = "9223372036854775807" // Max long value
-        validateMethod.invoke(section, textField, warningLabel, me.code4me.utils.configuration.PreferenceType.LONG)
-        assertFalse(warningLabel.isVisible, "Warning label should be hidden for valid long")
-
-        // Test with invalid long
-        textField.text = "not-a-number"
-        validateMethod.invoke(section, textField, warningLabel, me.code4me.utils.configuration.PreferenceType.LONG)
-        assertTrue(warningLabel.isVisible, "Warning label should be visible for invalid long")
-        assertTrue(warningLabel.text.contains("Invalid long value"), "Warning label should show correct error message for long")
+        // Invalid integer is rejected by the filter
+        textField.text = ""
+        textField.document.insertString(0, "not-a-number", null)
+        assertEquals("Invalid integer should be rejected", "", textField.text)
     }
 
     fun testCheckModuleCanBeDisabled() {
@@ -445,7 +416,7 @@ class ConfigurationSectionTest : BasePlatformTestCase() {
         // Verify that the panel was updated
         // Since no module is selected, it should show the "no selection" message
         val labels = UIUtil.findComponentsOfType(panel, javax.swing.JLabel::class.java)
-        val hasExpectedLabel = labels.any { it.text?.contains("Select a module from the tree") == true }
+        val hasExpectedLabel = labels.any { it.text?.contains("Select a module to manage preferences") == true }
         assertTrue(hasExpectedLabel, "Panel should contain a label with instructions to select a module")
     }
 
@@ -509,106 +480,104 @@ class ConfigurationSectionTest : BasePlatformTestCase() {
     }
 
     fun testAddModuleEnablementControl() {
+        // Enablement is driven by handleModuleToggle on a tree node (there is no
+        // separate enablement-control builder in the current UI).
         val section = ConfigurationSection()
+        val module = MockPluginModule("Test Module", "test.toggle.enable.module")
+        me.code4me.services.state.PrefState.disableModule(module.getPreferenceId())
+        val node = DefaultMutableTreeNode(module)
 
-        // Create a mock module
-        val module = MockPluginModule("Test Module", "test.module")
-
-        // Get access to the modulePreferencesPanel field
-        val panelField = section.javaClass.getDeclaredField("modulePreferencesPanel").apply { isAccessible = true }
-        val panel = panelField.get(section) as JPanel
-
-        // Record the initial component count
-        val initialComponentCount = panel.componentCount
-
-        // Get the addModuleEnablementControl method
-        val addControlMethod =
+        val toggleMethod =
             section.javaClass.getDeclaredMethod(
-                "addModuleEnablementControl",
-                PluginModule::class.java,
-            ).apply { isAccessible = true }
-
-        // Call the method
-        addControlMethod.invoke(section, module)
-
-        // Verify that components were added to the panel
-        assertTrue(panel.componentCount > initialComponentCount, "Components should be added to the panel")
-
-        // Verify that the enablement checkbox was added
-        val checkboxes = UIUtil.findComponentsOfType(panel, JCheckBox::class.java)
-        val hasEnablementCheckbox = checkboxes.any { it.text == "Module Enabled" }
-        assertTrue(hasEnablementCheckbox, "Panel should contain a checkbox for module enablement")
-    }
-
-    fun testHandleModuleEnablementChange() {
-        val section = ConfigurationSection()
-
-        // Create a mock module
-        val module = MockPluginModule("Test Module", "test.module")
-
-        // Get the handleModuleEnablementChange method
-        val handleMethod =
-            section.javaClass.getDeclaredMethod(
-                "handleModuleEnablementChange",
-                PluginModule::class.java,
-                Boolean::class.java,
+                "handleModuleToggle",
+                DefaultMutableTreeNode::class.java,
             ).apply { isAccessible = true }
 
         try {
-            // Call the method with enabled=true
-            handleMethod.invoke(section, module, true)
+            toggleMethod.invoke(section, node)
+            assertTrue(
+                me.code4me.services.state.PrefState.getEnabledModules().contains(module.getPreferenceId()),
+                "Toggling a disabled module should enable it",
+            )
+        } finally {
+            me.code4me.services.state.PrefState.disableModule(module.getPreferenceId())
+        }
+    }
 
-            // Call the method with enabled=false
-            handleMethod.invoke(section, module, false)
+    fun testHandleModuleEnablementChange() {
+        // Enablement changes go through handleModuleToggle on a tree node.
+        // The node must sit below a parent: top-level nodes refuse disable.
+        val section = ConfigurationSection()
+        val module = MockPluginModule("Test Module", "test.toggle.disable.module")
+        me.code4me.services.state.PrefState.enableModule(module.getPreferenceId())
+        val parent = DefaultMutableTreeNode("TestParent")
+        val node = DefaultMutableTreeNode(module)
+        parent.add(node)
+        val modelField = section.javaClass.getDeclaredField("moduleTreeModel").apply { isAccessible = true }
+        val model = modelField.get(section) as DefaultTreeModel
+        (model.root as DefaultMutableTreeNode).add(parent)
 
-            // If we get here without exceptions, the test passes
-            assertTrue(true, "Method should execute without exceptions")
-        } catch (e: Exception) {
-            fail("Method should not throw exceptions: ${e.message}")
+        val toggleMethod =
+            section.javaClass.getDeclaredMethod(
+                "handleModuleToggle",
+                DefaultMutableTreeNode::class.java,
+            ).apply { isAccessible = true }
+
+        try {
+            toggleMethod.invoke(section, node)
+            assertFalse(
+                me.code4me.services.state.PrefState.getEnabledModules().contains(module.getPreferenceId()),
+                "Toggling an enabled module should disable it",
+            )
+        } finally {
+            me.code4me.services.state.PrefState.disableModule(module.getPreferenceId())
         }
     }
 
     fun testEnableModuleWithDependencies() {
         val section = ConfigurationSection()
+        val module = MockPluginModule("Test Module", "test.enable.module")
+        me.code4me.services.state.PrefState.disableModule(module.getPreferenceId())
 
-        // Create a mock PrefSettings
-        val prefSettings = PrefSettings()
-
-        // Get the enableModuleWithDependencies method
+        // The current API takes the module; dependencies resolve from the config.
         val enableMethod =
             section.javaClass.getDeclaredMethod(
                 "enableModuleWithDependencies",
-                String::class.java,
-                PrefSettings::class.java,
+                PluginModule::class.java,
             ).apply { isAccessible = true }
 
-        // Call the method
-        enableMethod.invoke(section, "test.module", prefSettings)
-
-        // Verify that the module was enabled
-        assertTrue(prefSettings.enabledModules.contains("test.module"), "Module should be enabled")
+        try {
+            enableMethod.invoke(section, module)
+            assertTrue(
+                me.code4me.services.state.PrefState.getEnabledModules().contains(module.getPreferenceId()),
+                "Module should be enabled",
+            )
+        } finally {
+            me.code4me.services.state.PrefState.disableModule(module.getPreferenceId())
+        }
     }
 
     fun testDisableModuleWithDependents() {
         val section = ConfigurationSection()
+        val module = MockPluginModule("Test Module", "test.disable.module")
+        me.code4me.services.state.PrefState.enableModule(module.getPreferenceId())
 
-        // Create a mock PrefSettings and enable the module
-        val prefSettings = PrefSettings()
-        prefSettings.enabledModules = HashSet(prefSettings.enabledModules + "test.module")
-
-        // Get the disableModuleWithDependents method
+        // The current API takes the module; dependents resolve from the config.
         val disableMethod =
             section.javaClass.getDeclaredMethod(
                 "disableModuleWithDependents",
-                String::class.java,
-                PrefSettings::class.java,
+                PluginModule::class.java,
             ).apply { isAccessible = true }
 
-        // Call the method
-        disableMethod.invoke(section, "test.module", prefSettings)
-
-        // Verify that the module was disabled
-        assertFalse(prefSettings.enabledModules.contains("test.module"), "Module should be disabled")
+        try {
+            disableMethod.invoke(section, module)
+            assertFalse(
+                me.code4me.services.state.PrefState.getEnabledModules().contains(module.getPreferenceId()),
+                "Module should be disabled",
+            )
+        } finally {
+            me.code4me.services.state.PrefState.disableModule(module.getPreferenceId())
+        }
     }
 
     fun testAddModulePreferences() {
@@ -665,14 +634,15 @@ class ConfigurationSectionTest : BasePlatformTestCase() {
         // Create a mock module
         val module = MockPluginModule("Test Module", "test.module")
 
-        // Create a test preference
+        // Create a test preference. Non-boolean types render a separate label;
+        // booleans fold their text into the checkbox (see addPreferenceField).
         val preference =
             Preference(
-                key = "test.bool",
-                type = PreferenceType.BOOLEAN,
-                defaultValue = "true",
-                displayName = "Test Boolean",
-                description = "A test boolean preference",
+                key = "test.string",
+                type = PreferenceType.STRING,
+                defaultValue = "test",
+                displayName = "Test String",
+                description = "A test string preference",
             )
 
         // Get access to the modulePreferencesPanel field
@@ -698,7 +668,7 @@ class ConfigurationSectionTest : BasePlatformTestCase() {
 
         // Verify that the preference label was added
         val labels = UIUtil.findComponentsOfType(panel, javax.swing.JLabel::class.java)
-        val hasPreferenceLabel = labels.any { it.text?.contains("Test Boolean") == true }
+        val hasPreferenceLabel = labels.any { it.text?.contains("Test String") == true }
         assertTrue(hasPreferenceLabel, "Panel should contain a label with the preference name")
     }
 

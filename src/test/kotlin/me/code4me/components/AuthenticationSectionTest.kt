@@ -1,7 +1,6 @@
 package me.code4me.components
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
@@ -82,10 +81,6 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
         val authModeToggleField = section.javaClass.getDeclaredField("authModeToggle").apply { isAccessible = true }
         val authModeToggle = authModeToggleField.get(section) as JToggleButton
 
-        // Get access to the modeHelpLabel field
-        val modeHelpLabelField = section.javaClass.getDeclaredField("modeHelpLabel").apply { isAccessible = true }
-        val modeHelpLabel = modeHelpLabelField.get(section) as JBLabel
-
         // Get access to the authButton field
         val authButtonField = section.javaClass.getDeclaredField("authButton").apply { isAccessible = true }
         val authButton = authButtonField.get(section) as JButton
@@ -97,12 +92,12 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
         // Get the updateToggleText method
         val updateToggleTextMethod = section.javaClass.getDeclaredMethod("updateToggleText").apply { isAccessible = true }
 
-        // Test login mode (default)
+        // Test login mode (default). The toggle itself carries the help text;
+        // there is no separate modeHelpLabel in the current UI.
         authModeToggle.isSelected = false
         updateToggleTextMethod.invoke(section)
 
-        assertEquals("Toggle button should show 'Login Mode' text", "Login Mode", authModeToggle.text)
-        assertTrue("Help label should mention signing up", modeHelpLabel.text.contains("Don't have an account"))
+        assertEquals("Toggle button should show signup help text", "Don't have an account? Sign Up", authModeToggle.text)
         assertEquals("Auth button should show 'Login' text", "Login", authButton.text)
         assertEquals("Google button should show 'Login with Google' text", "Login with Google", googleAuthButton.text)
 
@@ -110,8 +105,7 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
         authModeToggle.isSelected = true
         updateToggleTextMethod.invoke(section)
 
-        assertEquals("Toggle button should show 'Sign Up Mode' text", "Sign Up Mode", authModeToggle.text)
-        assertTrue("Help label should mention logging in", modeHelpLabel.text.contains("Already have an account"))
+        assertEquals("Toggle button should show login help text", "Already have an account? Login", authModeToggle.text)
         assertEquals("Auth button should show 'Sign Up' text", "Sign Up", authButton.text)
         assertEquals("Google button should show 'Sign Up with Google' text", "Sign Up with Google", googleAuthButton.text)
     }
