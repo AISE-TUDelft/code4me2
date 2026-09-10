@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.testing.Test
 import org.gradle.kotlin.dsl.register
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
@@ -82,6 +83,24 @@ dependencies {
     testImplementation("org.mockito:mockito-core:5.18.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 
+}
+
+// Same 2026.2.2 flat-test-classpath treatment as the root project (see root
+// build.gradle.kts Phase 2 comments): fork-first fastutil ordering, ml.llm out
+// of the test JVM, Ultimate plugin first. Test-JVM-only.
+tasks.named<Test>("test") {
+    // NOTE: do not call useJUnitPlatform() here; the default test detector
+    // matches the JUnit3-style platform fixtures. Forcing the platform launcher
+    // mixes junit-platform-commons versions at executor startup.
+    val forkFastutil =
+        configurations.detachedConfiguration(
+            project.dependencies.create("org.jetbrains.intellij.deps.fastutil:intellij-deps-fastutil:8.5.18-jb1"),
+        )
+    classpath = files(forkFastutil) + classpath.filter { it.name != "fleet.fastutil.jar" } + files(
+        classpath.filter { it.name == "fleet.fastutil.jar" },
+    )
+    classpath = classpath.filter { !it.absolutePath.contains("com.intellij.ml.llm-") }
+    classpath = files(classpath.filter { it.name == "ultimate-plugin.jar" }) + classpath.filter { it.name != "ultimate-plugin.jar" }
 }
 
 intellijPlatform {

@@ -107,6 +107,16 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
+// Phase 2 fastutil test-runtime fix for 2026.2.2 (262.10315.125).
+// Reproduced: NoSuchMethodError 'void Int2IntOpenHashMap.forEach(IntIntBiConsumer)'
+// at LightPlatformTestCase.initProject:221. Graph shows test configs contain both
+// bundledModule:fleet.fastutil (plain upstream, missing fork methods)
+// and bundledModule:intellij.libraries.fastutil (patched fork, superset).
+// Keep the fork, drop upstream, test-runtime-only. Production classpaths untouched.
+configurations.matching { it.name.contains("Test", ignoreCase = true) }.configureEach {
+    exclude(group = "bundledModule", module = "fleet.fastutil")
+}
+
 // Configure IntelliJ Platform Gradle Plugin
 intellijPlatform {
     pluginConfiguration {
@@ -251,6 +261,35 @@ tasks {
         testLogging {
             events("passed", "skipped", "failed")
         }
+        // Phase 2 fastutil test-JVM fix (2026.2.2): the flat Gradle test classpath
+        // contains THREE fastutil jars: patched fork twice (intellij-deps-fastutil
+        // Maven + intellij.libraries.fastutil module) and plain upstream
+        // fleet.fastutil.jar. They are NOT interchangeable: `it.unimi.dsi.*`
+        // exists in both (fork has extra methods like Int2IntOpenHashMap.forEach),
+        // while `fleet.fastutil.*` (relocated) exists ONLY in the fleet jar —
+        // removing it hangs app init with NoClassDefFoundError fleet/fastutil.
+        // So: keep all three, but force a fork copy FIRST so `it.unimi` resolves
+        // from the fork while `fleet.*` still resolves from the fleet jar.
+        // Test-JVM-only; distribution, sandbox, production, verifier untouched.
+        // Precedent: JetBrains IdeaVim test-classpath surgery for flat-classpath
+        // collisions. Pinned version fails loudly at resolve time if renamed.
+        val forkFastutil = configurations.detachedConfiguration(
+            project.dependencies.create("org.jetbrains.intellij.deps.fastutil:intellij-deps-fastutil:8.5.18-jb1"),
+        )
+        classpath = files(forkFastutil) + classpath.filter { it.name != "fleet.fastutil.jar" } + files(
+            // Re-append ONLY if present, after the fork: provides fleet.* packages.
+            classpath.filter { it.name == "fleet.fastutil.jar" },
+        )
+        // Drop the JetBrains AI Assistant plugin from the TEST JVM only: it is
+        // unloadable in the test sandbox (missing com.intellij.modules.platform)
+        // and its obfuscated jars collide with Ultimate post-startup loading.
+        // runIde/production keep it for ACP chat E2E.
+        classpath = classpath.filter { !it.absolutePath.contains("com.intellij.ml.llm-") }
+        // Ultimate plugin first: its obfuscated B.B.B.B.s is the concrete
+        // postStartupActivity impl; lib/product-backend.jar carries the same FQN
+        // as an interface and wins alphabetically on the flat test classpath.
+        // Mirrors production (plugin layer shadows platform). Test-JVM-only.
+        classpath = files(classpath.filter { it.name == "ultimate-plugin.jar" }) + classpath.filter { it.name != "ultimate-plugin.jar" }
         finalizedBy(jacocoTestReport) // Generate JaCoCo report after tests
     }
 
