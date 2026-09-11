@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -176,13 +177,16 @@ class AppService {
             val contextPath = prefs.lastServerContextPath
             if (!host.isNullOrBlank()) {
                 val timeout = serverConfig?.timeout ?: 30
+                // Do not carry a localhost/container acpRuntimeBaseUrl override
+                // into a restored server selection; the runtime URL defaults to
+                // the selected host unless explicitly reconfigured.
                 setServerConfig(
                     ServerConfig(
                         host = host,
                         port = port,
                         contextPath = contextPath ?: "",
                         timeout = timeout,
-                        acpRuntimeBaseUrl = serverConfig?.acpRuntimeBaseUrl,
+                        acpRuntimeBaseUrl = null,
                     ),
                 )
             }
@@ -194,14 +198,10 @@ class AppService {
 
     @Synchronized
     fun setServerConfig(newServer: ServerConfig) {
-        // The server-selection dialog only collects host/port/contextPath, so a switch made
-        // there would otherwise silently drop an acpRuntimeBaseUrl that came from plugin.conf.
-        val effectiveServer =
-            if (newServer.acpRuntimeBaseUrl.isNullOrBlank() && !serverConfig?.acpRuntimeBaseUrl.isNullOrBlank()) {
-                newServer.copy(acpRuntimeBaseUrl = serverConfig?.acpRuntimeBaseUrl)
-            } else {
-                newServer
-            }
+        val previousBaseUrl = apiBaseUrl
+        // Runtime overrides are environment-specific. A server selected in the UI must not
+        // inherit a localhost/container override from plugin.conf or a previous server.
+        val effectiveServer = newServer
         val displayPort = if (effectiveServer.port > 0) ":${effectiveServer.port}" else ""
         LOG.info("Switching server to ${effectiveServer.host}$displayPort${effectiveServer.contextPath}")
         // Clear cookies to avoid leaking sessions across environments
@@ -212,6 +212,16 @@ class AppService {
         }
         serverConfig = effectiveServer
         apiBaseUrl = buildApiBaseUrl(effectiveServer.host, effectiveServer.port, effectiveServer.contextPath)
+        if (previousBaseUrl != apiBaseUrl) {
+            getAuthState().clearUserData()
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                getProjectTokenService(project).clearProjectToken()
+                getProjectTokenService(project).setActivated(false)
+            }
+            runCatching {
+                me.code4me.services.agent.getParticipantAgentSetupService().onServerChanged()
+            }.onFailure { LOG.warn("Failed to reset participant setup on server change", it) }
+        }
 
         // Recreate clients with the new base URL
         val defaultClient = CookieAwareApiClient.createClientWithCookieHandler()
@@ -253,6 +263,87 @@ class AppService {
     @Throws(IOException::class, ClientException::class, ServerException::class)
     fun prepareAcpGrant(request: PrepareAcpGrant): PrepareAcpGrantPostResponse {
         return acpApi.prepareAcpGrantApiAcpGrantPost(request)
+    }
+
+    /** Requests a protocol-v1 launch grant without persisting the short-lived credential. */
+    fun prepareManagedAcpGrant(
+        project: Project,
+        projectId: UUID,
+        workspace: String,
+        pathFormat: String,
+        launchId: String,
+    ): String {
+        val payload = buildJsonObject {
+            put("project_id", projectId.toString())
+            put("workspace", workspace)
+            put("path_format", pathFormat)
+            put("managed_protocol_version", "1")
+            put("launch_id", launchId)
+        }.toString()
+        val request = Request.Builder()
+            .url("$apiBaseUrl/api/acp/grant")
+            .post(payload.toRequestBody("application/json".toMediaType()))
+            .build()
+        currentGenerationProject.set(project)
+        try {
+            CookieAwareApiClient.sharedOkHttpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IOException("ACP grant request failed: HTTP ${response.code}")
+                if (body.isBlank()) throw IOException("ACP grant request returned an empty response")
+                return body
+            }
+        } finally {
+            currentGenerationProject.compareAndSet(project, null)
+        }
+    }
+
+    /** Checks the hosted backend for managed-protocol v1 readiness. */
+    fun checkManagedCapabilities(): Result<Unit> = runCatching {
+        val request = Request.Builder()
+            .url("$apiBaseUrl/api/acp/capabilities")
+            .get()
+            .build()
+        CookieAwareApiClient.sharedOkHttpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (response.code == 503) {
+                throw IOException(
+                    "Study server is not ready (HTTP 503). Update the server before study work: $body",
+                )
+            }
+            if (!response.isSuccessful) {
+                throw IOException("Study server is unavailable at $apiBaseUrl (HTTP ${response.code}). Check network and server selection.")
+            }
+            val root = Json.parseToJsonElement(body).jsonObject
+            val versions = root["managed_protocol_versions"]?.jsonArray
+                ?.mapNotNull { runCatching { it.jsonPrimitive.content }.getOrNull() }
+                .orEmpty()
+            if ("1" !in versions) {
+                throw IOException("Study server does not support managed protocol v1. Contact the study coordinator.")
+            }
+            val ready = root["schema_ready"]?.toString() == "true"
+            if (!ready) {
+                throw IOException("Study server schema is not ready. Contact the study coordinator.")
+            }
+        }
+        val readinessRequest = Request.Builder()
+            .url("$apiBaseUrl/api/acp/readiness")
+            .get()
+            .build()
+        CookieAwareApiClient.sharedOkHttpClient.newCall(readinessRequest).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val detail = runCatching {
+                    Json.parseToJsonElement(body).jsonObject["detail"]?.jsonPrimitive?.content
+                }.getOrNull()
+                throw IOException(
+                    detail ?: "Your study agent assignment is not ready (HTTP ${response.code}). Contact the study coordinator.",
+                )
+            }
+            val root = Json.parseToJsonElement(body).jsonObject
+            if (root["ready"]?.toString() != "true" || root["runtime"]?.jsonPrimitive?.content != "code4me2-agent") {
+                throw IOException("Your assigned agent runtime is not supported by this participant release.")
+            }
+        }
     }
 
     // ========= Authentication Methods =========
@@ -746,6 +837,9 @@ class AppService {
      */
     private fun clearLocalSession() {
         CookieAwareApiClient.clearCookies()
+        runCatching {
+            me.code4me.services.agent.getParticipantAgentSetupService().onLogout()
+        }.onFailure { LOG.warn("Failed to stop managed grants on sign out", it) }
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 getAuthState().clearUserData()

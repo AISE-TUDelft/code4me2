@@ -75,15 +75,89 @@ class LandingPageComponent {
         val headerPanel = createHeaderPanel()
         panel.add(headerPanel, BorderLayout.NORTH)
 
-        // Navigation buttons
-        val navigationPanel = createNavigationPanel()
-        panel.add(navigationPanel, BorderLayout.CENTER)
+        // Navigation buttons + agent setup status
+        val centerPanel =
+            JPanel(BorderLayout()).apply {
+                background = JBColor.background()
+                add(createNavigationPanel(), BorderLayout.NORTH)
+                add(createAgentSetupPanel(), BorderLayout.CENTER)
+            }
+        panel.add(centerPanel, BorderLayout.CENTER)
 
         // Information text area
         val informationPanel = createInformationPanel()
         panel.add(informationPanel, BorderLayout.SOUTH)
 
         return panel
+    }
+
+    /**
+     * Participant agent setup/status panel: Sign in → Check server →
+     * Prepare agent → Ready, with Prepare/Repair actions.
+     */
+    private fun createAgentSetupPanel(): JPanel {
+        // Wrapping, selectable status area: failure diagnostics can exceed one
+        // line and must remain fully visible without a log dive.
+        val statusArea =
+            com.intellij.ui.components.JBTextArea().apply {
+                isEditable = false
+                lineWrap = true
+                wrapStyleWord = true
+                rows = 3
+                background = JBColor.background()
+                border = JBUI.Borders.empty(4)
+            }
+        fun show(text: String) {
+            statusArea.text = text
+            statusArea.toolTipText = text
+            statusArea.caretPosition = 0
+        }
+        fun refresh() {
+            val status =
+                runCatching {
+                    me.code4me.services.agent.getParticipantAgentSetupService().currentStatus()
+                }.getOrNull()
+            show(
+                if (status == null) "Sign in  →  Check server  →  Prepare agent  →  Ready: unavailable."
+                else "Sign in  →  Check server  →  Prepare agent  →  Ready: ${status.message}",
+            )
+        }
+        return JPanel(BorderLayout()).apply {
+            background = JBColor.background()
+            border = javax.swing.BorderFactory.createTitledBorder("Code4Me Agent setup")
+            add(javax.swing.JScrollPane(statusArea).apply {
+                border = JBUI.Borders.empty()
+                horizontalScrollBarPolicy = javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            }, BorderLayout.CENTER)
+            add(JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT)).apply {
+                background = JBColor.background()
+                add(javax.swing.JButton("Prepare agent").apply {
+                    addActionListener {
+                        val project =
+                            com.intellij.openapi.project.ProjectManager.getInstance().openProjects.firstOrNull()
+                        if (project == null) show("Open a project before preparing the agent.")
+                        else com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+                            val status =
+                                me.code4me.services.agent.getParticipantAgentSetupService().prepare(project)
+                            javax.swing.SwingUtilities.invokeLater { show(status.message) }
+                        }
+                    }
+                })
+                add(javax.swing.JButton("Repair agent").apply {
+                    addActionListener {
+                        val project =
+                            com.intellij.openapi.project.ProjectManager.getInstance().openProjects.firstOrNull()
+                        if (project == null) show("Open a project before repairing the agent.")
+                        else com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+                            val status =
+                                me.code4me.services.agent.getParticipantAgentSetupService().prepare(project, repair = true)
+                            javax.swing.SwingUtilities.invokeLater { show(status.message) }
+                        }
+                    }
+                })
+            }, BorderLayout.EAST)
+            refresh()
+        }
     }
 
     /**

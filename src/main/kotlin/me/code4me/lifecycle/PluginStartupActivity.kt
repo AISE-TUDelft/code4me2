@@ -16,9 +16,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.model.UpdateMultiFileContext
-import me.code4me.services.agent.AgentStartupManager
-import me.code4me.services.agent.LocalProxyServer
-import me.code4me.services.app.AcpPreparationService
+import me.code4me.services.agent.getParticipantAgentSetupService
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.ConfigService
 import me.code4me.services.modules.context.MultiFileContextRetrievalModule
@@ -58,11 +56,9 @@ class PluginStartupActivity : ProjectActivity {
      */
     override suspend fun execute(project: Project) {
         // Handle authentication and session acquisition
+        // (ProjectCloseListener is registered once at the end of
+        // handleAuthenticationAndSession for all auth paths.)
         handleAuthenticationAndSession(project)
-        // Register the ProjectCloseListener to save the last chat when a project is closed
-        val connection: MessageBusConnection = project.messageBus.connect()
-        connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
-        thisLogger().info("ProjectCloseListener registered successfully.")
     }
 
     /**
@@ -165,41 +161,31 @@ class PluginStartupActivity : ProjectActivity {
 
         // Register the ProjectCloseListener to save the last chat when a project is closed
         val connection: MessageBusConnection = project.messageBus.connect()
-        connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
+        connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener(project))
         thisLogger().info("ProjectCloseListener registered successfully.")
     }
 
-    /**
-     * Brings up both agent integration paths, off the startup thread.
-     *
-     * The two are siblings under a [SupervisorJob] so neither can block or cancel the other:
-     *  - the third-party path ([LocalProxyServer] + [AgentStartupManager]) registers Goose/Codex
-     *    in `~/.jetbrains/acp.json` for the native AI Assistant, and may shell out to `npm` on
-     *    first run, which is slow;
-     *  - the custom-runtime path ([AcpPreparationService]) writes a one-time launch grant for a
-     *    locally-running `code4me2-agent`, which needs a server round-trip.
-     *
-     * Neither is required for completions or the built-in chat panel to work, so every failure is
-     * logged and swallowed.
-     */
+    /** Starts managed participant setup off the startup thread; developer agents stay opt-in. */
     private fun launchAgentSetup(project: Project) {
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
-            launch {
-                try {
-                    LocalProxyServer.start(project)
-                    AgentStartupManager.ensureActiveTask(project)
-                    LOG.info("Third-party agent (ACP registry) setup complete")
-                } catch (e: Exception) {
-                    LOG.warn("Third-party agent setup failed — non-blocking", e)
+            try {
+                val setup = getParticipantAgentSetupService()
+                var status = setup.prepare(project)
+                // A fresh login stores the auth token just before its server
+                // session finishes initializing. Retry that short handoff so
+                // participants do not need to click Prepare after signing in.
+                repeat(2) { attempt ->
+                    if (status.step == me.code4me.services.agent.ParticipantSetupStep.READY) return@repeat
+                    delay((attempt + 1) * 1_000L)
+                    if (!project.isDisposed && getAuthState().isAuthenticated()) {
+                        status = setup.prepare(project)
+                    }
                 }
-            }
-            launch {
-                try {
-                    AcpPreparationService().prepare(project)
-                    LOG.info("ACP runtime handoff prepared for the custom agent")
-                } catch (e: Exception) {
-                    LOG.warn("ACP runtime handoff preparation failed — non-blocking", e)
-                }
+                LOG.info("Managed participant agent setup: ${status.step} (${status.message})")
+                // TODO: distribute and certify Goose/Codex as managed participant runtimes.
+                setup.prepareDeveloperAgents(project)
+            } catch (e: Exception) {
+                LOG.warn("Managed participant agent setup failed — non-blocking", e)
             }
         }
     }

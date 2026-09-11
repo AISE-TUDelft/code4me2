@@ -1,15 +1,21 @@
 package me.code4me.components.settings
 
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.FormBuilder
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.sections.AuthenticationSection
 import me.code4me.components.settings.sections.ConfigurationSection
 import me.code4me.services.state.TOKEN_PROPERTY
 import me.code4me.services.state.getAuthState
+import me.code4me.services.agent.getParticipantAgentSetupService
 import java.awt.BorderLayout
+import java.awt.FlowLayout
 import java.beans.PropertyChangeListener
 import javax.swing.JPanel
+import javax.swing.JButton
 import javax.swing.SwingUtilities
 
 /**
@@ -121,6 +127,8 @@ class Code4MeConfigurableComponent {
                 if (configurationSection == null) {
                     configurationSection = ConfigurationSection()
                 }
+                builder.addComponent(createAgentSetupPanel())
+                builder.addSeparator()
                 configurationSection?.applyTo(builder, fieldStates)
             }
 
@@ -140,6 +148,42 @@ class Code4MeConfigurableComponent {
         }
 
         return newMainPanel
+    }
+
+    private fun createAgentSetupPanel(): JPanel {
+        val service = getParticipantAgentSetupService()
+        val statusLabel = JBLabel()
+        fun refresh() {
+            val status = service.currentStatus()
+            statusLabel.text = "Sign in  →  Check server  →  Prepare agent  →  Ready: ${status.message}"
+        }
+        return JPanel(BorderLayout()).apply {
+            border = javax.swing.BorderFactory.createTitledBorder("Code4Me Agent setup")
+            add(statusLabel, BorderLayout.CENTER)
+            add(JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+                add(JButton("Prepare agent").apply {
+                    addActionListener {
+                        val project = ProjectManager.getInstance().openProjects.firstOrNull()
+                        if (project == null) statusLabel.text = "Open a project before preparing the agent."
+                        else ApplicationManager.getApplication().executeOnPooledThread {
+                            val status = service.prepare(project)
+                            SwingUtilities.invokeLater { statusLabel.text = status.message }
+                        }
+                    }
+                })
+                add(JButton("Repair agent").apply {
+                    addActionListener {
+                        val project = ProjectManager.getInstance().openProjects.firstOrNull()
+                        if (project == null) statusLabel.text = "Open a project before repairing the agent."
+                        else ApplicationManager.getApplication().executeOnPooledThread {
+                            val status = service.prepare(project, repair = true)
+                            SwingUtilities.invokeLater { statusLabel.text = status.message }
+                        }
+                    }
+                })
+            }, BorderLayout.EAST)
+            refresh()
+        }
     }
 
     /**

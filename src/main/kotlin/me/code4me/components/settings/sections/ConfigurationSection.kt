@@ -1541,12 +1541,15 @@ class ConfigurationSection() : SettingsSection {
      */
     private fun handleSignOut() {
         try {
-            // First clear user data synchronously to ensure it completes
+            // Deactivate server-side first while cookies/token are still present,
+            // then stop local grants and clear user data.
+            runCatching { appService.deactivateSession() }
+                .onFailure { LOG.warn("Server session deactivation failed during sign out", it) }
+            runCatching {
+                me.code4me.services.agent.getParticipantAgentSetupService().onLogout()
+            }.onFailure { LOG.warn("Failed to stop managed grants on sign out", it) }
             authState.clearUserData()
             LOG.info("User data cleared successfully during sign out")
-
-            // Then deactivate session
-            appService.deactivateSession()
 
             // Update chat panel overlays immediately after sign out
             updateChatPanelOverlays()
