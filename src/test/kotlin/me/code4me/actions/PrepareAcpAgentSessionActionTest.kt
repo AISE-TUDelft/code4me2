@@ -6,6 +6,8 @@ import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.project.Project
 import me.code4me.services.app.PreparedAcpRuntimeHandoff
 import me.code4me.services.app.ProjectAcpPreparation
+import me.code4me.services.agent.ParticipantSetupStatus
+import me.code4me.services.agent.ParticipantSetupStep
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -59,7 +61,14 @@ class PrepareAcpAgentSessionActionTest {
             ),
         )
 
-        PrepareAcpAgentSessionAction(preparation, backgroundRunner = { it() }).actionPerformed(event)
+        PrepareAcpAgentSessionAction(
+            preparation,
+            setup = { currentProject, fallback ->
+                fallback.prepare(currentProject)
+                ParticipantSetupStatus(ParticipantSetupStep.READY, "ready")
+            },
+            backgroundRunner = { it() },
+        ).actionPerformed(event)
 
         verify(preparation).prepare(project)
     }

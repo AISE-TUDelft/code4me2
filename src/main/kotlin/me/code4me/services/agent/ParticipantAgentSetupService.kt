@@ -9,6 +9,8 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.ide.plugins.PluginManagerCore
 import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.app.AcpPreparationService
+import me.code4me.services.app.ProjectAcpPreparation
 import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.activateOrCreateProject
 import java.nio.file.Path
@@ -21,6 +23,7 @@ data class ParticipantSetupStatus(
     val step: ParticipantSetupStep,
     val message: String,
     val canRepair: Boolean = false,
+    val useLegacyAcpPreparation: Boolean = false,
 )
 
 fun getParticipantAgentSetupService(): ParticipantAgentSetupService = service()
@@ -133,6 +136,7 @@ class ParticipantAgentSetupService : Disposable {
             is RuntimeInstallResult.Unavailable -> ParticipantSetupStatus(
                 ParticipantSetupStep.PREPARE_AGENT,
                 "${result.message} This build does not support your OS/architecture.",
+                useLegacyAcpPreparation = true,
             )
             is RuntimeInstallResult.Failed -> ParticipantSetupStatus(
                 ParticipantSetupStep.PREPARE_AGENT,
@@ -141,6 +145,32 @@ class ParticipantAgentSetupService : Disposable {
             )
         }
         return remember(status)
+    }
+
+    fun prepareWithLegacyFallback(
+        project: Project,
+        preparation: ProjectAcpPreparation = AcpPreparationService(),
+        repair: Boolean = false,
+    ): ParticipantSetupStatus {
+        val status = prepare(project, repair)
+        if (!status.useLegacyAcpPreparation) return status
+        return try {
+            preparation.prepare(project)
+            remember(
+                ParticipantSetupStatus(
+                    ParticipantSetupStep.READY,
+                    "Code4Me Agent is ready using the development ACP handoff.",
+                ),
+            )
+        } catch (e: Exception) {
+            log.warn("Development ACP handoff preparation failed", e)
+            remember(
+                ParticipantSetupStatus(
+                    ParticipantSetupStep.PREPARE_AGENT,
+                    e.message ?: "Code4Me could not prepare the development ACP agent session.",
+                ),
+            )
+        }
     }
 
     fun currentStatus(): ParticipantSetupStatus {

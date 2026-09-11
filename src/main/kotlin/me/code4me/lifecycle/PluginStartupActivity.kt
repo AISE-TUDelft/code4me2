@@ -170,7 +170,7 @@ class PluginStartupActivity : ProjectActivity {
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 val setup = getParticipantAgentSetupService()
-                var status = setup.prepare(project)
+                var status = setup.prepareWithLegacyFallback(project)
                 // A fresh login stores the auth token just before its server
                 // session finishes initializing. Retry that short handoff so
                 // participants do not need to click Prepare after signing in.
@@ -178,7 +178,7 @@ class PluginStartupActivity : ProjectActivity {
                     if (status.step == me.code4me.services.agent.ParticipantSetupStep.READY) return@repeat
                     delay((attempt + 1) * 1_000L)
                     if (!project.isDisposed && getAuthState().isAuthenticated()) {
-                        status = setup.prepare(project)
+                        status = setup.prepareWithLegacyFallback(project)
                     }
                 }
                 LOG.info("Managed participant agent setup: ${status.step} (${status.message})")

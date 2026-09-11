@@ -5,9 +5,13 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.project.Project
 import me.code4me.services.app.AcpPreparationException
 import me.code4me.services.app.AcpPreparationService
 import me.code4me.services.app.ProjectAcpPreparation
+import me.code4me.services.agent.ParticipantSetupStatus
+import me.code4me.services.agent.ParticipantSetupStep
+import me.code4me.services.agent.getParticipantAgentSetupService
 import me.code4me.utils.notification.showAuthSuccessNotification
 import me.code4me.utils.notification.showErrorNotification
 
@@ -20,6 +24,8 @@ import me.code4me.utils.notification.showErrorNotification
  */
 class PrepareAcpAgentSessionAction(
     private val preparation: ProjectAcpPreparation = AcpPreparationService(),
+    private val setup: (Project, ProjectAcpPreparation) -> ParticipantSetupStatus =
+        { project, fallback -> getParticipantAgentSetupService().prepareWithLegacyFallback(project, fallback) },
     private val backgroundRunner: ((() -> Unit) -> Unit) = { task ->
         ApplicationManager.getApplication().executeOnPooledThread(task)
     },
@@ -31,20 +37,21 @@ class PrepareAcpAgentSessionAction(
 
         backgroundRunner {
             try {
-                val handoff = preparation.prepare(project)
+                val status = setup(project, preparation)
+                if (status.step != ParticipantSetupStep.READY) {
+                    throw AcpPreparationException(status.message)
+                }
                 notifySafely {
                     project.showAuthSuccessNotification(
-                        title = "ACP Agent Session Prepared",
-                        message =
-                            "Start a new ACP chat within ${handoff.expiresInSeconds / 60} minutes for " +
-                                "workspace ${handoff.workspace}.",
+                        title = "Code4Me Agent Prepared",
+                        message = status.message,
                     )
                 }
             } catch (error: AcpPreparationException) {
                 notifySafely {
                     project.showErrorNotification(
                         title = "ACP Agent Session Preparation Failed",
-                        message = error.message ?: "Code4Me could not prepare an ACP agent session.",
+                        message = error.message,
                     )
                 }
             } catch (error: Exception) {
