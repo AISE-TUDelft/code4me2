@@ -13,6 +13,8 @@ import me.code4me.services.app.AcpPreparationService
 import me.code4me.services.app.ProjectAcpPreparation
 import me.code4me.services.state.getAuthState
 import me.code4me.utils.api.activateOrCreateProject
+import java.io.File
+import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
@@ -133,11 +135,31 @@ class ParticipantAgentSetupService : Disposable {
                     )
                 }
             }
-            is RuntimeInstallResult.Unavailable -> ParticipantSetupStatus(
-                ParticipantSetupStep.PREPARE_AGENT,
-                "${result.message} This build does not support your OS/architecture.",
-                useLegacyAcpPreparation = true,
-            )
+            is RuntimeInstallResult.Unavailable -> {
+                val executable = localDevelopmentRuntime()
+                if (executable == null) {
+                    ParticipantSetupStatus(
+                        ParticipantSetupStep.PREPARE_AGENT,
+                        "${result.message} This build does not support your OS/architecture.",
+                        useLegacyAcpPreparation = true,
+                    )
+                } else {
+                    val registration = runCatching {
+                        AcpManager.registerManagedAgent(executable.toString(), bridgeDirectory.toString()).getOrThrow()
+                        bridge.register(project)
+                        projects += project
+                    }
+                    if (registration.isFailure) ParticipantSetupStatus(
+                        ParticipantSetupStep.PREPARE_AGENT,
+                        "Code4Me could not register the local development agent: " +
+                            (registration.exceptionOrNull()?.message ?: "unknown error"),
+                        canRepair = true,
+                    ) else ParticipantSetupStatus(
+                        ParticipantSetupStep.READY,
+                        "Code4Me Agent is ready using the local development runtime.",
+                    )
+                }
+            }
             is RuntimeInstallResult.Failed -> ParticipantSetupStatus(
                 ParticipantSetupStep.PREPARE_AGENT,
                 "${result.message} The bundled runtime is corrupted or incomplete.",
@@ -230,6 +252,13 @@ class ParticipantAgentSetupService : Disposable {
     private fun remember(status: ParticipantSetupStatus): ParticipantSetupStatus {
         lastStatus = status
         return status
+    }
+
+    private fun localDevelopmentRuntime(): Path? {
+        if (!java.lang.Boolean.getBoolean("idea.plugin.in.sandbox.mode")) return null
+        return System.getenv("PATH").orEmpty().split(File.pathSeparator)
+            .map { Path.of(it, "code4me2-agent") }
+            .firstOrNull { Files.isExecutable(it) }
     }
 
     private fun runtimeSelfCheck(executable: Path): String? = try {
