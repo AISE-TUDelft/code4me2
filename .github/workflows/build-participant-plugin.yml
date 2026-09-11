@@ -1,0 +1,75 @@
+name: Build participant plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      serverUrl:
+        description: Hosted backend origin (https://...)
+        required: true
+      version:
+        description: Participant release version
+        required: true
+      serverCommit:
+        description: Pinned code4me2-server commit
+        required: true
+      pluginCommit:
+        description: Pinned code4me2 commit
+        required: true
+      runtimeRepository:
+        description: Runtime release repository (owner/code4me2-server)
+        required: true
+      runtimeTag:
+        description: Immutable runtime release tag (runtime-vX.Y.Z)
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.pluginCommit }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Verify pinned plugin commit
+        run: |
+          actual=$(git rev-parse HEAD)
+          case "$actual" in
+            "${{ inputs.pluginCommit }}"*) ;;
+            *) echo "Checked out $actual, expected ${{ inputs.pluginCommit }}" >&2; exit 1 ;;
+          esac
+      - name: Download pinned native runtime release
+        env:
+          GH_TOKEN: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/runtimes"
+          gh release download "${{ inputs.runtimeTag }}" \
+            --repo "${{ inputs.runtimeRepository }}" \
+            --pattern 'code4me-agent-*.zip' \
+            --pattern 'code4me-managed-runtime-release.json' \
+            --dir "$RUNNER_TEMP/runtimes"
+      - name: Stage native runtime bundles
+        run: |
+          python3 scripts/stage-runtime-bundles.py "$RUNNER_TEMP/runtimes" \
+            --version "${{ inputs.version }}" \
+            --server-commit "${{ inputs.serverCommit }}" \
+            --plugin-commit "${{ inputs.pluginCommit }}" \
+            --release-manifest "$RUNNER_TEMP/runtimes/code4me-managed-runtime-release.json"
+      - name: Run plugin tests
+        run: ./gradlew --no-daemon test
+      - name: Build participant ZIP
+        run: |
+          ./gradlew --no-daemon --no-configuration-cache buildParticipantPlugin \
+            "-PpluginVersion=${{ inputs.version }}" \
+            "-Pcode4me.serverUrl=${{ inputs.serverUrl }}"
+      - name: Verify participant artifact
+        run: |
+          python3 scripts/verify-participant-artifact.py \
+            $(ls -t build/distributions/*.zip | head -n 1)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: code4me-participant-${{ inputs.version }}
+          path: build/distributions/*.zip
+          if-no-files-found: error

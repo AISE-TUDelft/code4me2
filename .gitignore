@@ -14,3 +14,12 @@ allure-results/
 out/
 *.log
 
+# Python helpers and release scripts
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Native participant runtimes are immutable release artifacts staged by CI.
+# Keep the contract manifest tracked without committing large platform bundles.
+src/main/resources/code4me-runtime/*.zip

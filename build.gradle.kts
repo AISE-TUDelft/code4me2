@@ -1,3 +1,7 @@
+import groovy.json.JsonSlurper
+import java.io.File
+import java.net.URI
+import java.security.MessageDigest
 import org.gradle.kotlin.dsl.register
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
@@ -358,6 +362,136 @@ tasks {
     publishPlugin {
         dependsOn(patchChangelog)
     }
+}
+
+// Participant releases must explicitly select the hosted backend. The source plugin.conf remains
+// developer-owned (and may point at localhost); only the copied build resource is rewritten.
+val participantServerUrl = providers.gradleProperty("code4me.serverUrl")
+val configuredParticipantServerUrl = participantServerUrl.orNull?.trim()?.trimEnd('/')
+val configuredPluginVersion = providers.gradleProperty("pluginVersion").get()
+val localRuntimeResourceDir = providers.gradleProperty("code4me.localRuntimeDir").orNull?.trim()?.takeIf { it.isNotEmpty() }
+val participantRuntimeResourceRoot = layout.projectDirectory.dir("src/main/resources").asFile.toPath().toString()
+val participantBuildRequested = gradle.startParameter.taskNames.any { it.endsWith("buildParticipantPlugin") }
+require(!(participantBuildRequested && localRuntimeResourceDir != null)) {
+    "Local runtime overlays cannot be used for participant release builds."
+}
+if (participantBuildRequested) {
+    require(project.version.toString().matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?"))) {
+        "Participant plugin version must be meaningful SemVer (for example 1.2.0)."
+    }
+}
+tasks.named<ProcessResources>("processResources") {
+    inputs.property("code4me.serverUrl", configuredParticipantServerUrl ?: "")
+    inputs.property("code4me.localRuntimeDir", localRuntimeResourceDir ?: "")
+    localRuntimeResourceDir?.let { generatedResourcePath ->
+        val generatedResourceRoot = file(generatedResourcePath)
+        inputs.dir(generatedResourceRoot)
+        doLast {
+            val generatedRuntimeRoot = generatedResourceRoot.resolve("code4me-runtime")
+            require(generatedRuntimeRoot.resolve("manifest.json").isFile) {
+                "Local runtime overlay is missing code4me-runtime/manifest.json"
+            }
+            val destination = destinationDir.resolve("code4me-runtime")
+            delete(destination)
+            copy {
+                from(generatedRuntimeRoot)
+                into(destination)
+            }
+        }
+    }
+    if (participantBuildRequested) require(!configuredParticipantServerUrl.isNullOrBlank()) {
+        "Pass -Pcode4me.serverUrl=https://api.example.org"
+    }
+    configuredParticipantServerUrl?.let { url ->
+        val origin = runCatching { URI(url) }.getOrElse {
+            throw GradleException("Participant backend is not a valid HTTPS origin: $url", it)
+        }
+        require(
+            origin.scheme == "https" &&
+                !origin.host.isNullOrBlank() &&
+                origin.userInfo == null &&
+                origin.query == null &&
+                origin.fragment == null &&
+                (origin.path.isNullOrBlank() || origin.path == "/"),
+        ) { "Participant backend must be a credential-free HTTPS origin: $url" }
+        filesMatching("plugin.conf") {
+            filter { line: String ->
+                if (line.trimStart().startsWith("host =") || line.trimStart().startsWith("acpRuntimeBaseUrl =")) {
+                    line.replace(Regex("\"[^\"]*\""), "\"$url\"")
+                } else line
+            }
+        }
+    }
+}
+
+tasks.register("buildParticipantPlugin") {
+    group = "distribution"
+    description = "Builds a study ZIP with an explicit HTTPS backend (-Pcode4me.serverUrl=...)."
+    dependsOn("verifyParticipantRuntimeResources", "buildPlugin")
+}
+
+tasks.register("verifyParticipantRuntimeResources") {
+    group = "verification"
+    description = "Verifies all four native runtime archives before a participant build."
+    // JsonSlurper and digest verification run only for release assembly. This
+    // task intentionally opts out instead of making the repository-wide
+    // configuration-cache setting turn an otherwise valid release into a
+    // second, unrelated build failure.
+    notCompatibleWithConfigurationCache("Participant archive verification uses release-only script objects")
+    inputs.dir(participantRuntimeResourceRoot)
+    inputs.property("participantPluginVersion", configuredPluginVersion)
+    doLast {
+        val resourceRoot = File(participantRuntimeResourceRoot)
+        val manifestFile = resourceRoot.resolve("code4me-runtime/manifest.json")
+        @Suppress("UNCHECKED_CAST")
+        val manifest = JsonSlurper().parse(manifestFile) as Map<String, Any?>
+        require(manifest["manifest_version"].toString() == "1") {
+            "Runtime manifest version must be 1"
+        }
+        require(manifest["managed_protocol_version"].toString() == "1") {
+            "Managed protocol version must be 1"
+        }
+        require(manifest["runtime_version"].toString() == configuredPluginVersion) {
+            "Runtime and participant plugin versions must match"
+        }
+        @Suppress("UNCHECKED_CAST")
+        val artifacts = manifest["artifacts"] as? List<Map<String, Any?>> ?: error("Runtime manifest has no artifacts")
+        val expected = setOf("macos-arm64", "macos-x64", "windows-x64", "linux-x64")
+        val actual = artifacts.map { "${it["platform"]}-${it["architecture"]}" }.toSet()
+        require(artifacts.size == expected.size && actual == expected) {
+            "Runtime manifest platforms must be exactly $expected; found $actual"
+        }
+        artifacts.forEach { artifact ->
+            require(artifact["runtime_id"] == "code4me-agent") { "Unexpected runtime ID in manifest" }
+            require(artifact["version"].toString() == configuredPluginVersion) {
+                "Runtime artifact version does not match the participant plugin"
+            }
+            require(artifact["managed_protocol"].toString() == "1") {
+                "Runtime artifact does not support managed protocol v1"
+            }
+            val archive = resourceRoot.resolve(artifact["archive"].toString()).normalize()
+            require(archive.startsWith(resourceRoot) && archive.isFile) { "Missing runtime archive: $archive" }
+            val digest = MessageDigest.getInstance("SHA-256")
+            archive.inputStream().buffered().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            val checksum = digest.digest().joinToString("") { "%02x".format(it) }
+            require(checksum == artifact["sha256"].toString().lowercase()) {
+                "Runtime checksum mismatch: ${archive.name}"
+            }
+        }
+    }
+}
+
+// When both tasks are selected by buildParticipantPlugin, reject incomplete or
+// mismatched native bundles before starting the expensive IntelliJ ZIP build.
+tasks.named("buildPlugin") {
+    mustRunAfter("verifyParticipantRuntimeResources")
 }
 
 // Add a task to run integration tests - but don't make it part of the build cycle
