@@ -22,5 +22,7 @@ data class AgentLaunchSettings(
 /** Result of provisioning a task: the (server-confirmed) task id plus its launch settings. */
 data class AgentTaskInfo(
     val taskId: UUID,
+    val frameworkVersion: String?,
+    val model: String?,
     val launch: AgentLaunchSettings?,
 )

@@ -1446,7 +1446,7 @@ class AppService {
         taskId: UUID,
         profile: String = "default",
         description: String? = null,
-    ): UUID =
+    ): me.code4me.services.agent.AgentTaskInfo =
         withContext(Dispatchers.IO) {
             val bodyJson =
                 buildJsonObject {
@@ -1468,10 +1468,16 @@ class AppService {
                 val responseBody =
                     response.body?.string()
                         ?: throw IOException("createAgentTask: empty response body")
+                val payload = Json.parseToJsonElement(responseBody).jsonObject
                 val returnedId =
-                    Json.parseToJsonElement(responseBody).jsonObject["task_id"]?.jsonPrimitive?.content
+                    payload["task_id"]?.jsonPrimitive?.content
                         ?: throw IOException("createAgentTask: no task_id in response")
-                UUID.fromString(returnedId)
+                me.code4me.services.agent.AgentTaskInfo(
+                    taskId = UUID.fromString(returnedId),
+                    frameworkVersion = payload["framework_version"]?.jsonPrimitive?.content,
+                    model = payload["model"]?.jsonPrimitive?.content,
+                    launch = null,
+                )
             }
         }
 

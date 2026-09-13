@@ -45,8 +45,18 @@ object AgentStartupManager {
         }
         LOG.info("[AgentStartupManager] session token present")
 
-        if (provisionTask() == null) {
+        val task = provisionTask()
+        if (task == null) {
             LOG.warn("[AgentStartupManager] task provisioning failed — skipping acp.json write")
+            return
+        }
+
+        if (task.frameworkVersion != "goose") {
+            LOG.info(
+                "[AgentStartupManager] assigned runtime=${task.frameworkVersion ?: "unknown"}; " +
+                    "Goose entry will not be registered",
+            )
+            AcpManager.removeDeveloperGooseEntry()
             return
         }
 
@@ -61,7 +71,7 @@ object AgentStartupManager {
         }
 
         val localProxyBaseUrl = LocalProxyServer.baseUrl()
-        val envBundle = GooseRuntime.buildEnvBundle(localProxyBaseUrl)
+        val envBundle = GooseRuntime.buildEnvBundle(localProxyBaseUrl, task.model)
         LOG.info("[AgentStartupManager] proxy=$localProxyBaseUrl  env bundle keys=${envBundle.keys}")
 
         // Resolve and prepare the vendored codex-acp proxy. We only register the Codex
@@ -89,9 +99,9 @@ object AgentStartupManager {
      */
     suspend fun rotateTask(): UUID? {
         LOG.info("[AgentStartupManager] rotateTask — begin")
-        return provisionTask().also {
-            LOG.info("[AgentStartupManager] rotateTask — ${if (it != null) "new task $it" else "failed"}")
-        }
+        val task = provisionTask()
+        LOG.info("[AgentStartupManager] rotateTask — ${task?.taskId ?: "failed"}")
+        return task?.taskId
     }
 
     /**
@@ -122,7 +132,7 @@ object AgentStartupManager {
      *
      * Returns the new task id, or null if the server rejected the mint.
      */
-    private suspend fun provisionTask(): UUID? {
+    private suspend fun provisionTask(): AgentTaskInfo? {
         val prefs = getPrefState()
 
         // Best-effort close of the previous task. It may have accrued inference events during
@@ -141,10 +151,13 @@ object AgentStartupManager {
         val profile = prefs.selectedAgentProfile?.takeIf { it.isNotBlank() } ?: "default"
         LOG.info("[AgentStartupManager] pre-minting AgentTask on server (taskId=$taskUuid, profile=$profile)")
         return try {
-            getAppService().createAgentTask(taskUuid, profile)
-            prefs.pendingTaskId = taskUuid.toString()
-            LOG.info("[AgentStartupManager] AgentTask pre-mint OK (taskId=$taskUuid)")
-            taskUuid
+            val task = getAppService().createAgentTask(taskUuid, profile)
+            prefs.pendingTaskId = task.taskId.toString()
+            LOG.info(
+                "[AgentStartupManager] AgentTask pre-mint OK (taskId=${task.taskId}, " +
+                    "runtime=${task.frameworkVersion ?: "unknown"})",
+            )
+            task
         } catch (e: Exception) {
             LOG.warn("[AgentStartupManager] failed to pre-mint AgentTask", e)
             null

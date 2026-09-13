@@ -127,6 +127,27 @@ object AcpManager {
         }
     }
 
+    fun removeDeveloperGooseEntry() {
+        try {
+            val file = acpFile
+            if (!file.exists()) return
+            val root = json.parseToJsonElement(file.readText()).jsonObject
+            val servers = (root["agent_servers"]?.jsonObject ?: return).toMutableMap()
+            if (servers.remove(GOOSE_ENTRY_NAME) == null) return
+            val updated = JsonObject(root.toMutableMap().also { it["agent_servers"] = JsonObject(servers) })
+            val tmp = File(file.parent, "acp.json.tmp")
+            tmp.writeText(json.encodeToString(JsonObject.serializer(), updated))
+            try {
+                Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            } catch (_: Exception) {
+                Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+            LOG.info("[AcpManager] removed '$GOOSE_ENTRY_NAME' because it is not the assigned runtime")
+        } catch (e: Exception) {
+            LOG.warn("[AcpManager] Failed to remove stale '$GOOSE_ENTRY_NAME' entry", e)
+        }
+    }
+
     // Writes [expected] under [name] only if the current entry is missing or doesn't already
     // match it exactly — a correctly-formatted entry is left as-is. Keeps acp.json stable
     // across runs while still healing stale/malformed entries.
