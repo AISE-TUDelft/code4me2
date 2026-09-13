@@ -22,11 +22,12 @@ object GooseRuntime {
         val prefs = getPrefState()
 
         val stored = prefs.agentPath
-        if (!stored.isNullOrBlank() && File(stored).exists()) {
+        if (!stored.isNullOrBlank() && isGooseExecutable(stored)) {
             LOG.info("[GooseRuntime] Goose path from cache: $stored")
             ensureVersionCached(stored)
             return stored
         }
+        if (!stored.isNullOrBlank()) prefs.agentPath = ""
 
         // Try system PATH first.
         val fromPath = detectViaPath()
@@ -95,7 +96,7 @@ object GooseRuntime {
             val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
             val result = process.inputStream.bufferedReader().readLine()?.trim()
             process.waitFor()
-            if (!result.isNullOrBlank() && File(result).exists()) {
+            if (!result.isNullOrBlank() && isGooseExecutable(result)) {
                 LOG.info("[GooseRuntime] Goose detected via system PATH at: $result")
                 result
             } else {
@@ -155,13 +156,19 @@ object GooseRuntime {
             val servers = root["agent_servers"]?.jsonObject ?: return null
             val cmd = servers["Goose (Code4Me)"]?.jsonObject?.get("command")?.jsonPrimitive?.content
                 ?: return null
-            if (File(cmd).name != "goose" || !File(cmd).exists()) return null
+            if (!isGooseExecutable(cmd)) return null
             LOG.info("[GooseRuntime] Goose detected via acp.json at: $cmd")
             cmd
         } catch (e: Exception) {
             LOG.warn("[GooseRuntime] Failed to read Goose path from acp.json", e)
             null
         }
+    }
+
+    private fun isGooseExecutable(path: String): Boolean {
+        val file = File(path)
+        val expectedName = if (System.getProperty("os.name").lowercase().contains("win")) "goose.exe" else "goose"
+        return file.isFile && file.name.equals(expectedName, ignoreCase = true)
     }
 
     /**
@@ -179,9 +186,11 @@ object GooseRuntime {
      * - `OPENAI_API_KEY` — required by the OpenAI SDK to send an Authorization header at all.
      *   The proxy ignores the value; the real credential never leaves the server.
      */
-    fun buildEnvBundle(localProxyBaseUrl: String): Map<String, String> {
+    fun buildEnvBundle(localProxyBaseUrl: String, assignedModel: String?): Map<String, String> {
         val origin = localProxyBaseUrl.trimEnd('/')
-        val model = getPrefState().agentLaunchModel?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT_LAUNCH_MODEL
+        val model = assignedModel?.takeIf { it.isNotBlank() }
+            ?: getPrefState().agentLaunchModel?.takeIf { it.isNotBlank() }
+            ?: DEFAULT_AGENT_LAUNCH_MODEL
         return mapOf(
             "GOOSE_PROVIDER__BASE_URL" to origin,
             "GOOSE_PROVIDER" to "openai",
