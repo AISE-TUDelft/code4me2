@@ -247,6 +247,10 @@ tasks {
     }
 
     runIde {
+        providers.systemProperty("code4me.developerAgents").orNull?.let {
+            systemProperty("code4me.developerAgents", it)
+        }
+
         // The vendored codex-acp proxy lives in THIS plugin repo, but at runtime the open project
         // is the user's codebase, so AgentStartupManager cannot find it via project.basePath.
         // Pass the repo path explicitly.
