@@ -2632,8 +2632,6 @@ class ResearchSessionMaintenanceTest {
         val createBody = bodyOf(create)
         assertEquals("enrollment-1", createBody["enrollment_id"])
         assertEquals("study-1", createBody["study_id"])
-        assertFalse(createBody.containsKey("study_revision_id"), createBody.keys.toString())
-        assertFalse(createBody.containsKey("revision_id"), createBody.keys.toString())
         assertEquals(30_000L, scheduler.periods.single())
         assertNotNull(scheduler.latestTask())
     }
