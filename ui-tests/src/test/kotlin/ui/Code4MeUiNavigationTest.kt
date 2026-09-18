@@ -262,7 +262,11 @@ class Code4MeUiNavigationTest {
             true
         """.trimIndent()
         robot.callJs<Boolean>(script, true)
-        val bridges = Path.of(env("CODE4ME_UI_HOME"), "system", "code4me", "bridges")
+        // The bridge directory follows the IDE's own system path. The harness
+        // redirects it into its private home, but the OS layout differs (macOS
+        // uses ~/Library/Caches/JetBrains/<product>), so resolve it by searching
+        // the harness home instead of assuming one layout.
+        val bridges = bridgesDirectory()
         waitFor(120_000, "Prepare agent did not create a managed authentication bridge") {
             Files.isDirectory(bridges) && Files.list(bridges).use { it.anyMatch { p -> p.toString().endsWith(".json") } }
         }
@@ -526,6 +530,26 @@ class Code4MeUiNavigationTest {
             System.getenv(name)?.trim().orEmpty().ifEmpty {
                 throw IllegalStateException("required environment variable $name is not set")
             }
+
+        /**
+         * Locate the managed-auth bridge directory inside the harness home.
+         *
+         * The IDE writes it under its system path (`<system>/code4me/bridges`),
+         * which the harness redirects into [CODE4ME_UI_HOME]; the exact layout
+         * depends on the OS (macOS nests it under Library/Caches/JetBrains).
+         */
+        private fun bridgesDirectory(): Path {
+            val home = Path.of(env("CODE4ME_UI_HOME"))
+            val expected = home.resolve("system").resolve("code4me").resolve("bridges")
+            if (Files.isDirectory(expected)) return expected
+            Files.walk(home, 7).use { stream ->
+                return stream
+                    .filter { Files.isDirectory(it) }
+                    .filter { it.endsWith(Path.of("code4me", "bridges")) }
+                    .findFirst()
+                    .orElse(expected)
+            }
+        }
 
         private fun isPluginLoadedScript(pluginId: String): String =
             "com.intellij.ide.plugins.PluginManagerCore.isPluginInstalled(" +
