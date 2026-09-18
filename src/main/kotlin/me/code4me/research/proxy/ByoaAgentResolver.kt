@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit
  *
  * A bare name is never treated as a path: it is looked up in `PATH` and then in
  * [DefaultByoaAgentResolver.knownLocations]. Whatever was used is recorded in
- * [ObservedAgentIdentity.source] so analysis can distinguish a BYOA exposure.
+ * [ObservedAgentIdentity.source] so provenance can distinguish a BYOA-resolved agent.
  *
  * PATH is consulted **only** here. The PACKAGED path in
  * [PackagedProxyRuntimeResolver] never consults `PATH`, `npm`, or a global install.
@@ -53,8 +53,8 @@ enum class AgentDiscoverySource(val wireValue: String) {
  * The observed identity of a participant-installed agent.
  *
  * [executable] is the absolute path actually resolved. The path is recorded
- * locally for diagnostics only; exposures report the path-free [digest] and
- * [version].
+ * locally for diagnostics only; telemetry provenance reports the path-free
+ * [digest] and [version].
  */
 data class ObservedAgentIdentity(
     val executable: Path,

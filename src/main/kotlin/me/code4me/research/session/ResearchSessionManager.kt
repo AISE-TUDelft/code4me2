@@ -17,7 +17,6 @@ import me.code4me.research.bootstrap.PluginCompatibility
 import me.code4me.research.bootstrap.normalizeSha256Hex
 import me.code4me.research.bootstrap.parseInstant
 import me.code4me.research.telemetry.CanonicalEvent
-import me.code4me.research.telemetry.EventSource
 import me.code4me.research.telemetry.FieldClass
 import me.code4me.research.telemetry.canonicalJson
 import me.code4me.research.telemetry.parseCanonicalJson
@@ -154,22 +153,6 @@ data class ResearchSessionPolicy(
         require(resumeGraceMs > 0) { "resumeGraceMs must be positive" }
         require(idleTimeoutMs > 0) { "idleTimeoutMs must be positive" }
     }
-}
-
-/**
- * The runtime-exposure outcomes this client reports to
- * `POST {serverBaseUrl}/api/research/bootstrap/exposures`.
- *
- * [STARTED] is the actual condition exposure: it is sent once the proxy runtime
- * is observably running (the first proxy-origin canonical event proves the agent
- * handshake is producing traffic). [RUNTIME_UNAVAILABLE] is a **non-exposure**
- * recorded when activation fails closed because the pinned runtime could not be
- * resolved, registered, or started. The wire values are the server's exact
- * `ExposureOutcome` members so the receipt is accepted as-is.
- */
-enum class ResearchExposureOutcome(val wireValue: String) {
-    STARTED("STARTED"),
-    RUNTIME_UNAVAILABLE("RUNTIME_UNAVAILABLE"),
 }
 
 /**
@@ -418,12 +401,6 @@ class ResearchSessionManager(
     private val bootstrap = BootstrapClient(transport, compatibility, manifestCache, instantClock, nearExpiryWindow, contextId = contextId)
     private val lock = Any()
 
-    /** Idempotency keys whose exposure receipt was accepted by the server. */
-    private val recordedExposureKeys = HashSet<String>()
-
-    /** Bounded per-key attempt counter, so a failing receipt retries but not forever. */
-    private val exposureAttempts = HashMap<String, Int>()
-
     @Volatile private var manifest: BootstrapManifest? = null
 
     @Volatile private var machine: SessionStateMachine? = null
@@ -455,14 +432,6 @@ class ResearchSessionManager(
     @Volatile private var consentState: StudyComponentState = StudyComponentState.UNAVAILABLE
 
     @Volatile private var compatibilityState: StudyComponentState = StudyComponentState.UNAVAILABLE
-
-    /**
-     * Path-free observed agent identity of the last successful runtime setup.
-     * Exposures report the distribution mode and this digest/version so analysis
-     * can distinguish BYOA from a packaged agent. The executable path is never
-     * sent; it stays local for diagnostics only.
-     */
-    @Volatile private var observedAgentIdentity: AgentExposureIdentity? = null
 
     @Volatile private var blockReason: StudyBlockReason? = null
 
@@ -943,10 +912,10 @@ class ResearchSessionManager(
         val startedIpc =
             try {
                 ipcServerFactory?.invoke(resolvedSpool)
-                    ?: ResearchSpoolIpcServer(resolvedSpool, onEventAppended = { event -> observeProxyEvent(event) })
+                    ?: ResearchSpoolIpcServer(resolvedSpool)
             } catch (exception: Exception) {
                 val detail = exception.message ?: "the local spool IPC server could not start"
-                markBlocked(StudyBlockReason.RUNTIME_UNAVAILABLE, detail, validManifest, authoritativeSession)
+                markBlocked(StudyBlockReason.RUNTIME_UNAVAILABLE, detail)
                 return ResearchActivationResult.Blocked(StudyBlockReason.RUNTIME_UNAVAILABLE, detail)
             }
         synchronized(lock) { ipcServer = startedIpc }
@@ -955,7 +924,7 @@ class ResearchSessionManager(
         // it that server's capability (never the server session capability).
         val runtimeSetup = prepareProxyRuntime(startedIpc, validManifest)
         if (runtimeSetup is RuntimeSetup.Failed) {
-            markBlocked(runtimeSetup.reason, runtimeSetup.detail, validManifest, authoritativeSession)
+            markBlocked(runtimeSetup.reason, runtimeSetup.detail)
             return ResearchActivationResult.Blocked(runtimeSetup.reason, runtimeSetup.detail)
         }
         synchronized(lock) {
@@ -966,7 +935,7 @@ class ResearchSessionManager(
         // never drain, so a start failure is fatal to activation.
         val uploaderStart = startUploader(resolvedSpool, validManifest)
         if (uploaderStart is UploaderStart.Failed) {
-            markBlocked(StudyBlockReason.RUNTIME_UNAVAILABLE, uploaderStart.detail, validManifest, authoritativeSession)
+            markBlocked(StudyBlockReason.RUNTIME_UNAVAILABLE, uploaderStart.detail)
             return ResearchActivationResult.Blocked(StudyBlockReason.RUNTIME_UNAVAILABLE, uploaderStart.detail)
         }
 
@@ -1465,10 +1434,6 @@ class ResearchSessionManager(
      */
     private fun onCanonicalEvent(event: CanonicalEvent) {
         if (!active || stopped) return
-        // A proxy-origin event proves the launched runtime's agent handshake is
-        // producing traffic; observe it before the spool/privacy path so the
-        // exposure receipt is not gated on IDE qualification.
-        if (event.source == EventSource.ACP) observeProxyEvent(event)
         synchronized(lock) {
             val current = session ?: return
             if (current.isTerminal) return
@@ -1514,182 +1479,6 @@ class ResearchSessionManager(
         }
     }
 
-    // ------------------------------------------------------------------
-    // Exposure receipts
-    // ------------------------------------------------------------------
-
-    /** The manifest/session/run an exposure receipt is anchored to. */
-    private data class ExposureContext(
-        val manifest: BootstrapManifest,
-        val session: ResearchSession,
-        val agentRunId: String,
-    )
-
-    /**
-     * Path-free agent identity reported with an exposure receipt. It carries the
-     * distribution mode plus the observed digest/version so analysis can
-     * distinguish a BYOA exposure from a packaged one without a local path.
-     */
-    private data class AgentExposureIdentity(
-        val distributionMode: AgentDistributionMode,
-        val digest: String?,
-        val version: String?,
-    )
-
-    /**
-     * Observe one canonical event for exposure purposes.
-     *
-     * The first proxy-origin (`source == acp`) event of a session is the
-     * observable proof that the pinned proxy launched and the agent handshake is
-     * producing traffic, so it records the condition exposure. The event is only
-     * attributed to the current session: a foreign `research_session_id` is
-     * ignored. If no agent run is open yet, the first proxy event opens one (a
-     * run is a child of the session; proxy traffic implies the agent is live).
-     *
-     * Idempotent and bounded: the receipt is sent once per `(session, run)` and
-     * a transport failure leaves it unrecorded so the next qualifying event may
-     * retry, up to [MAX_EXPOSURE_ATTEMPTS]. Never throws.
-     */
-    private fun observeProxyEvent(event: CanonicalEvent) {
-        if (event.source != EventSource.ACP) return
-        if (!isActive) return
-        val context =
-            synchronized(lock) {
-                val current = session ?: return
-                if (current.isTerminal) return
-                if (event.researchSessionId != null && event.researchSessionId != current.sessionId) return
-                val held = manifest ?: return
-                val run =
-                    currentRun
-                        ?.takeIf { !it.isTerminal && it.researchSessionId == current.sessionId }
-                        ?: AgentRun
-                            .start(runIdFactory(), current, held.agentRelease.releaseId.takeIf { it.isNotBlank() }, clock())
-                            .also { currentRun = it }
-                ExposureContext(held, current, run.runId)
-            }
-        recordExposureOutcome(context, ResearchExposureOutcome.STARTED)
-    }
-
-    /** Record the non-exposure for a fail-closed runtime failure (once per session). */
-    private fun recordRuntimeUnavailable(
-        manifest: BootstrapManifest,
-        session: ResearchSession,
-    ) {
-        val context = ExposureContext(manifest, session, RUNTIME_UNAVAILABLE_MARKER)
-        recordExposureOutcome(context, ResearchExposureOutcome.RUNTIME_UNAVAILABLE)
-    }
-
-    /**
-     * Idempotent, bounded exposure receipt. A success is remembered so a replay
-     * is never attempted; a failure logs and leaves the key eligible for a
-     * bounded number of retries on later qualifying events.
-     */
-    private fun recordExposureOutcome(
-        context: ExposureContext,
-        outcome: ResearchExposureOutcome,
-    ) {
-        val key = exposureIdempotencyKey(context.session.sessionId, context.agentRunId)
-        synchronized(lock) {
-            if (key in recordedExposureKeys) return
-            val attempts = exposureAttempts[key] ?: 0
-            if (attempts >= MAX_EXPOSURE_ATTEMPTS) return
-            exposureAttempts[key] = attempts + 1
-        }
-        if (postExposureReceipt(context, outcome, key)) {
-            synchronized(lock) { recordedExposureKeys.add(key) }
-        }
-    }
-
-    /**
-     * POST the exposure receipt. Requires a validated manifest/session (the
-     * caller only holds those after activation) and a resolved server base URL;
-     * without either it records nothing. Never throws: a failure is logged and
-     * reported as `false` so the key stays eligible for a bounded retry.
-     */
-    private fun postExposureReceipt(
-        context: ExposureContext,
-        outcome: ResearchExposureOutcome,
-        idempotencyKey: String,
-    ): Boolean {
-        val baseUrl = safeValue { serverBaseUrlProvider() } ?: return false
-        val payload =
-            linkedMapOf<String, Any?>(
-                "capability" to context.manifest.sessionCapabilityObject(),
-                "enrollment_id" to context.manifest.enrollmentId,
-                "assignment_id" to context.manifest.assignment.assignmentId,
-                "environment" to exposureEnvironment(),
-                "outcome" to outcome.wireValue,
-                "idempotency_key" to idempotencyKey,
-                "agent_release_id" to context.manifest.agentRelease.releaseId.takeIf { it.isNotBlank() },
-                "artifact_digest" to context.manifest.agentRelease.artifactDigest.takeIf { it.isNotBlank() },
-                "adapter_version" to context.manifest.agentRelease.adapterVersion,
-                "distribution_mode" to context.manifest.agentRelease.distributionMode.wireValue,
-                "observed_configuration" to observedAgentConfiguration(context.manifest),
-            )
-        return try {
-            val request =
-                Request
-                    .Builder()
-                    .url(baseUrl.trimEnd('/') + EXPOSURES_PATH)
-                    .post(canonicalJson(payload).toRequestBody(JSON_MEDIA_TYPE))
-                    .header("Accept", "application/json")
-                    .build()
-            httpClient.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    true
-                } else {
-                    log.warn("Research exposure receipt was rejected with HTTP ${response.code}.")
-                    false
-                }
-            }
-        } catch (exception: Exception) {
-            log.warn("Research exposure receipt failed: ${exception.message ?: "unexpected error"}")
-            false
-        }
-    }
-
-    /**
-     * Path-free agent identity reported with an exposure receipt. It always
-     * carries the distribution mode; when an agent was actually observed it also
-     * carries that executable's digest and version, so a BYOA exposure is
-     * distinguishable from a packaged one. No local path is ever included.
-     */
-    private fun observedAgentConfiguration(manifest: BootstrapManifest): Map<String, Any?> {
-        val observed = observedAgentIdentity
-        val mode = observed?.distributionMode ?: manifest.agentRelease.distributionMode
-        val configuration = linkedMapOf<String, Any?>("distribution_mode" to mode.wireValue)
-        val digest = normalizeSha256Hex(observed?.digest) ?: manifest.agentRelease.normalizedArtifactDigest
-        digest?.let { configuration["observed_agent_digest"] = it }
-        val version =
-            observed?.version?.takeIf { it.isNotBlank() }
-                ?: manifest.agentRelease.version.takeIf { it.isNotBlank() }
-        version?.let { configuration["observed_agent_version"] = it }
-        return configuration
-    }
-
-    /** Non-identifying host tuple reported with an exposure receipt. */
-    private fun exposureEnvironment(): Map<String, Any?> {
-        val reported =
-            try {
-                environmentProvider()
-            } catch (_: Exception) {
-                BootstrapEnvironment()
-            }
-        val environment = LinkedHashMap<String, Any?>()
-        reported.os?.takeIf { it.isNotBlank() }?.let { environment["os"] = it }
-        reported.arch?.takeIf { it.isNotBlank() }?.let { environment["arch"] = it }
-        reported.ideBuild?.takeIf { it.isNotBlank() }?.let { environment["ide_build"] = it }
-        reported.pluginVersion?.takeIf { it.isNotBlank() }?.let { environment["plugin_version"] = it }
-        reported.hostKind?.takeIf { it.isNotBlank() }?.let { environment["host_kind"] = it }
-        return environment
-    }
-
-    /** Stable, non-reversible receipt key for one `(session, agent run)` pair. */
-    private fun exposureIdempotencyKey(
-        researchSessionId: String,
-        agentRunId: String,
-    ): String = sha256Hex("code4me.research.exposure.v1:$researchSessionId:$agentRunId")
-
     /**
      * Tear down every session-owned runtime resource. Idempotent and
      * exception-safe: a research teardown failure must never affect ordinary
@@ -1721,7 +1510,6 @@ class ResearchSessionManager(
         runCatching { acpHostRegistration?.unregister() }
         val staged = capabilityFile
         capabilityFile = null
-        observedAgentIdentity = null
         AcpHostRegistration.cleanupCapabilityFile(staged)
     }
 
@@ -1844,7 +1632,6 @@ class ResearchSessionManager(
                         result.exceptionOrNull()?.message ?: "the research proxy ACP entry could not be registered",
                     )
                 } else {
-                    observedAgentIdentity = ready.exposure
                     RuntimeSetup.Ready(capability)
                 }
             }
@@ -1872,7 +1659,7 @@ class ResearchSessionManager(
                     "the packaged runtime declares no agent; refusing to launch without a digest-pinned agent",
                 )
             }
-            return AgentPlan.Ready(argv = null, digest = null, exposure = null)
+            return AgentPlan.Ready(argv = null, digest = null)
         }
         if (pinnedAgentDigest == null) {
             return AgentPlan.Failed(
@@ -1897,12 +1684,6 @@ class ResearchSessionManager(
         return AgentPlan.Ready(
             argv = runtime.agentArgv,
             digest = pinnedAgentDigest,
-            exposure =
-                AgentExposureIdentity(
-                    distributionMode = AgentDistributionMode.PACKAGED,
-                    digest = pinnedAgentDigest,
-                    version = release.version.takeIf { it.isNotBlank() },
-                ),
         )
     }
 
@@ -1938,12 +1719,6 @@ class ResearchSessionManager(
                 AgentPlan.Ready(
                     argv = resolution.argv,
                     digest = resolution.identity.digest,
-                    exposure =
-                        AgentExposureIdentity(
-                            distributionMode = AgentDistributionMode.BYOA_EXTERNAL,
-                            digest = resolution.identity.digest,
-                            version = resolution.identity.version ?: release.version.takeIf { it.isNotBlank() },
-                        ),
                 )
         }
     }
@@ -1953,7 +1728,6 @@ class ResearchSessionManager(
         data class Ready(
             val argv: List<String>?,
             val digest: String?,
-            val exposure: AgentExposureIdentity?,
         ) : AgentPlan
 
         data class Failed(val reason: StudyBlockReason, val detail: String) : AgentPlan
@@ -2006,20 +1780,8 @@ class ResearchSessionManager(
     private fun markBlocked(
         reason: StudyBlockReason,
         detail: String?,
-        exposureManifest: BootstrapManifest? = null,
-        exposureSession: ResearchSession? = null,
     ) {
         log.warn("Research session blocked (reason=${reason.value}): ${detail ?: "no detail"}")
-        // A fail-closed runtime startup records a non-exposure so a launch
-        // failure is never counted as an actual condition exposure. The receipt
-        // is only sent when a validated manifest and session are actually held.
-        if (
-            (reason == StudyBlockReason.RUNTIME_UNAVAILABLE || reason == StudyBlockReason.AGENT_NOT_FOUND) &&
-            exposureManifest != null &&
-            exposureSession != null
-        ) {
-            recordRuntimeUnavailable(exposureManifest, exposureSession)
-        }
         deactivateRuntime()
         synchronized(lock) {
             active = false
@@ -2173,7 +1935,6 @@ class ResearchSessionManager(
         private const val MIN_HEARTBEAT_PERIOD_MS: Long = 1_000L
         private const val SECONDS_TO_MILLIS = 1_000L
         private const val BOUNDED_FLUSH_RECORDS = 1_000
-        private const val MAX_EXPOSURE_ATTEMPTS = 3
 
         private const val SESSIONS_PATH = "/api/research/sessions/"
         private const val HEARTBEAT_PATH = "/api/research/sessions/heartbeat"
@@ -2194,11 +1955,6 @@ class ResearchSessionManager(
         /** Stable, plugin-owned capability file name under the research root. */
         private const val CAPABILITY_FILE_PREFIX = "capability-"
         private const val CAPABILITY_FILE_EXTENSION = ".txt"
-
-        /** Non-exposure run marker used when no agent run exists yet. */
-        private const val RUNTIME_UNAVAILABLE_MARKER = "runtime-unavailable"
-
-        private const val EXPOSURES_PATH = "/api/research/bootstrap/exposures"
 
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 

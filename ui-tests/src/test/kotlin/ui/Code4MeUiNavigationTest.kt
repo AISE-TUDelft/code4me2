@@ -64,10 +64,10 @@ class Code4MeUiNavigationTest {
                 Step("plugin_loaded", ::pluginLoaded),
                 Step("settings_navigation", ::settingsNavigation),
                 Step("sign_in", ::signIn),
-                Step("join_research_study", ::joinResearchStudy),
+                Step("enrollment_activation", ::activateEnrollment),
                 Step("status_surface", ::statusSurface),
                 Step("acp_registration", ::acpRegistration),
-                Step("host_launches_agent", ::hostLaunchesAgent),
+                Step("prepare_agent", ::prepareAgent),
             )
         for (step in steps) {
             runStep(step)
@@ -155,25 +155,26 @@ class Code4MeUiNavigationTest {
     // 4. Join Research Study
     // ------------------------------------------------------------------
 
-    private fun joinResearchStudy() {
+    private fun activateEnrollment() {
         closeSettings()
-        if (joinCode.isBlank()) {
-            throw UiBlocked("CODE4ME_E2E_JOIN_CODE is not set; cannot drive the Join Research Study action")
+        // Enrollment/consent now happen on the web. Reopen the project after
+        // sign-in to exercise the real startup discovery/activation hook.
+        val script = """
+            const project = com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects()[0];
+            const path = project.getBasePath();
+            const runnable = new java.lang.Runnable({ run: function() {
+                const pm = com.intellij.openapi.project.ex.ProjectManagerEx.getInstanceEx();
+                pm.closeAndDispose(project);
+                pm.openProject(java.nio.file.Path.of(path), com.intellij.ide.impl.OpenProjectTask.build());
+            }});
+            com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater(runnable);
+            true
+        """.trimIndent()
+        robot.callJs<Boolean>(script, true)
+        waitFor(120_000, "project did not reopen after login") {
+            robot.callJs<Boolean>(
+                "com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects().length > 0", true)
         }
-        // Invoke the real Tools-menu action with a project data context. The
-        // action opens the input dialog on the EDT, so it is scheduled and the
-        // dialog is driven out of band.
-        scheduleJoinAction()
-
-        waitFor(30_000, "the Join Research Study input dialog never appeared") {
-            exists(JOIN_DIALOG_XPATH)
-        }
-
-        val input = robot.find<ComponentFixture>(byXpath(JOIN_INPUT_XPATH), Duration.ofSeconds(10))
-        input.callJs<Boolean>("component.setText(${jsQuote(joinCode)}); true", true)
-        val ok = robot.find<ComponentFixture>(byXpath(JOIN_OK_XPATH), Duration.ofSeconds(10))
-        ok.runJs("component.doClick();", true)
-
         // Activation is asynchronous (bootstrap + runtime setup). The participant
         // status only becomes "active" once the session collects a qualifying IDE
         // activity signal, so drive the editor while we wait.
@@ -248,21 +249,23 @@ class Code4MeUiNavigationTest {
     // 7. Host launches the registered agent (best effort)
     // ------------------------------------------------------------------
 
-    private fun hostLaunchesAgent() {
-        val aiLoaded = robot.callJs<Boolean>(isPluginLoadedScript(AI_PLUGIN_ID), true)
-        assertTrue(
-            aiLoaded,
-            "the AI Assistant plugin ($AI_PLUGIN_ID) is not loaded in the sandbox IDE, so the ACP " +
-                "registry cannot be exercised by its host",
-        )
-        val registryHasEntry = Files.readString(acpPath).contains(ACP_ENTRY_NAME)
-        assertTrue(registryHasEntry, "the ACP registry lost the Code4Me entry before the host step")
-        throw UiBlocked(
-            "selecting and launching the registered ACP agent requires a signed-in JetBrains AI " +
-                "account (AI Assistant chat) in the IDE; the disposable sandbox is not signed in, " +
-                "so the host-launch cannot be driven deterministically. Evidence: AI Assistant " +
-                "plugin loaded=$aiLoaded, ACP registry entry present=$registryHasEntry, robot URL=$robotUrl.",
-        )
+    private fun prepareAgent() {
+        val script = """
+            const am = com.intellij.openapi.actionSystem.ActionManager.getInstance();
+            const action = am.getAction("me.code4me.actions.PrepareAcpAgentSessionAction");
+            if (action === null) { throw new Error("Prepare agent action is missing"); }
+            const project = com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects()[0];
+            const dc = com.intellij.openapi.actionSystem.impl.SimpleDataContext.getProjectContext(project);
+            const event = com.intellij.openapi.actionSystem.AnActionEvent.createFromAnAction(action, null, "ToolsMenu", dc);
+            const runnable = new java.lang.Runnable({ run: function() { action.actionPerformed(event); } });
+            com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater(runnable);
+            true
+        """.trimIndent()
+        robot.callJs<Boolean>(script, true)
+        val bridges = Path.of(env("CODE4ME_UI_HOME"), "system", "code4me", "bridges")
+        waitFor(120_000, "Prepare agent did not create a managed authentication bridge") {
+            Files.isDirectory(bridges) && Files.list(bridges).use { it.anyMatch { p -> p.toString().endsWith(".json") } }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -274,6 +277,7 @@ class Code4MeUiNavigationTest {
     private class UiBlocked(val reason: String) : RuntimeException(reason)
 
     private fun runStep(step: Step) {
+        println("UI step: ${step.id}")
         val prerequisite = blockedPrerequisite
         if (prerequisite != null) {
             // A BLOCKED step does not abort the suite, but the later steps cannot
@@ -295,6 +299,8 @@ class Code4MeUiNavigationTest {
         } catch (error: Throwable) {
             val type = error::class.qualifiedName ?: error::class.simpleName ?: "Throwable"
             results += StepResult(step.id, "FAIL", "$type: ${error.message ?: error.toString()}")
+            blockedPrerequisite = step.id to "failed"
+
         }
     }
 
@@ -358,6 +364,7 @@ class Code4MeUiNavigationTest {
     private fun triggerIdeActivity() {
         val script =
             """
+            com.intellij.openapi.application.WriteIntentReadAction.run(new java.lang.Runnable({ run: function() {
             const project = com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects()[0];
             const basePath = project.getBasePath();
             const dir = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(basePath);
@@ -368,6 +375,7 @@ class Code4MeUiNavigationTest {
             const manager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project);
             manager.closeFile(file);
             manager.openFile(file, true);
+            }}));
             true
             """.trimIndent()
         robot.callJs<Boolean>(script, true)
@@ -488,7 +496,7 @@ class Code4MeUiNavigationTest {
                 System.getenv("CODE4ME_UI_ROBOT_URL")?.trim().orEmpty()
                     .ifEmpty { "http://localhost:8082" }
 
-            snapshotAcp()
+            acpPath = Path.of(env("CODE4ME_UI_HOME"), ".jetbrains", "acp.json")
 
             waitForRobot(180_000)
             robot = RemoteRobot(robotUrl)
@@ -504,9 +512,8 @@ class Code4MeUiNavigationTest {
         @AfterAll
         @JvmStatic
         fun tearDown() {
-            restoreAcp()
             writeResults()
-            val failed = results.filter { it.status == "FAIL" }
+            val failed = results.filter { it.status != "PASS" }
             if (failed.isNotEmpty()) {
                 throw AssertionError(
                     "Code4Me UI navigation FAILED: " +
@@ -665,29 +672,6 @@ class Code4MeUiNavigationTest {
             val resolved = robot.callJs<String>(script, true)
             check(resolved.startsWith(baseUrl)) {
                 "could not point the plugin at $baseUrl (it reports $resolved)"
-            }
-        }
-
-        private fun snapshotAcp() {
-            acpPath = Path.of(System.getProperty("user.home"), ".jetbrains", "acp.json")
-            acpExisted = Files.isRegularFile(acpPath)
-            if (acpExisted) {
-                acpBytes = Files.readAllBytes(acpPath)
-                acpMtime = Files.getLastModifiedTime(acpPath)
-            }
-        }
-
-        private fun restoreAcp() {
-            if (!::acpPath.isInitialized) return
-            try {
-                if (acpExisted && acpBytes != null) {
-                    Files.write(acpPath, acpBytes)
-                    acpMtime?.let { Files.setLastModifiedTime(acpPath, it) }
-                } else if (!acpExisted) {
-                    Files.deleteIfExists(acpPath)
-                }
-            } catch (error: Throwable) {
-                System.err.println("WARNING: could not restore $acpPath: $error")
             }
         }
 

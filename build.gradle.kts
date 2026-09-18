@@ -978,10 +978,20 @@ intellijPlatformTesting {
     runIde {
         register("runIdeForUiTests") {
             task {
+                // The harness supplies a private home/config/system directory.
+                // No test touches the developer's ACP registry or saved accounts.
+                val e2eHome = providers.environmentVariable("CODE4ME_UI_HOME").orNull
+                if (e2eHome != null) {
+                    systemProperty("user.home", e2eHome)
+                    sandboxConfigDirectory.set(file("$e2eHome/config"))
+                    sandboxSystemDirectory.set(file("$e2eHome/system"))
+                    sandboxLogDirectory.set(file("$e2eHome/log"))
+                    systemProperty("idea.trust.all.projects", "true")
+                }
                 jvmArgumentProviders +=
                     CommandLineArgumentProvider {
                         listOf(
-                            "-Drobot-server.port=8082",
+                            "-Drobot-server.port=${providers.environmentVariable("CODE4ME_UI_ROBOT_PORT").getOrElse("8082")}",
                             "-Dide.mac.message.dialogs.as.sheets=false",
                             "-Djb.privacy.policy.text=<!--999.999-->",
                             "-Djb.consents.confirmation.enabled=false",
