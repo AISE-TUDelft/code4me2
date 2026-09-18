@@ -104,7 +104,6 @@ class ParticipantStudyStateV1Test {
             ParticipantStudyStateV1(
                 enrollmentId = "enrollment-1",
                 studyId = "study-1",
-                revisionId = "revision-1",
                 consentState = StudyComponentState.AVAILABLE,
                 compatibilityState = StudyComponentState.AVAILABLE,
                 sessionState = StudyComponentState.AVAILABLE,
@@ -163,7 +162,6 @@ class ParticipantStudyStateV1Test {
             ParticipantStudyStateV1(
                 enrollmentId = "enrollment-1",
                 studyId = "study-1",
-                revisionId = "revision-1",
                 consentState = StudyComponentState.PAUSED,
                 blockReason = StudyBlockReason.REVOKED,
             )
@@ -1920,7 +1918,6 @@ class FileResearchSessionStoreTest {
         ResearchSession(
             sessionId = "session-1",
             enrollmentId = "enrollment-1",
-            revisionId = "revision-1",
             state = SessionState.RUNNING,
             openedAtEpochMs = 1_000L,
             lastActivityEpochMs = 2_000L,
@@ -2627,7 +2624,9 @@ class ResearchSessionMaintenanceTest {
         val create = http.requests.first { it.url.encodedPath == "/api/research/sessions/" }
         val createBody = bodyOf(create)
         assertEquals("enrollment-1", createBody["enrollment_id"])
-        assertEquals("revision-1", createBody["study_revision_id"])
+        assertEquals("study-1", createBody["study_id"])
+        assertFalse(createBody.containsKey("study_revision_id"), createBody.keys.toString())
+        assertFalse(createBody.containsKey("revision_id"), createBody.keys.toString())
         assertEquals(30_000L, scheduler.periods.single())
         assertNotNull(scheduler.latestTask())
     }

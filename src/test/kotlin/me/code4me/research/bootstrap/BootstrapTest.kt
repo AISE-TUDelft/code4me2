@@ -230,10 +230,9 @@ class BootstrapManifestTest {
         assertEquals("1", manifest.manifestVersion)
         assertEquals(AUDIENCE, manifest.audience)
         assertEquals("study-1", manifest.studyId)
-        assertEquals("revision-1", manifest.revisionId)
         assertEquals("enrollment-1", manifest.enrollmentId)
         assertEquals("session-1", manifest.researchSession.researchSessionId)
-        assertEquals("control", manifest.assignment.conditionId)
+        assertEquals("assignment-1", manifest.assignment.assignmentId)
         assertEquals(VALID_ARTIFACT_DIGEST, manifest.agentRelease.artifactDigest)
         assertEquals("codex-v1", manifest.agentRelease.adapterVersion)
         assertEquals(30L, manifest.policies.privacy?.retentionDays)
@@ -255,6 +254,18 @@ class BootstrapManifestTest {
             BootstrapManifest.computeManifestDigest(withoutSignature),
             BootstrapManifest.computeManifestDigest(withSignature),
         )
+    }
+
+    @Test
+    fun `canonical map emits no revision or condition keys`() {
+        val manifest = validManifest()
+        val canonical = manifest.toCanonicalMap()
+
+        assertFalse(canonical.containsKey("revision_id"), canonical.keys.toString())
+        assertFalse(canonical.containsKey("study_revision_id"), canonical.keys.toString())
+        val assignment = canonical["assignment"] as Map<*, *>
+        assertFalse(assignment.containsKey("condition_id"), assignment.keys.toString())
+        assertFalse(assignment.containsKey("conditionId"), assignment.keys.toString())
     }
 
     @Test
@@ -650,8 +661,8 @@ class BootstrapManifestTest {
         val assignment =
             linkedMapOf<String, Any?>(
                 "assignment_id" to "assignment-1",
-                "condition_id" to "participant@example.com",
-                "strategy" to "weighted",
+                "agent_profile_id" to "participant@example.com",
+                "strategy" to "RANDOM_EQUAL",
             )
         val manifest = BootstrapManifest.parse(manifestJson(overrides = mapOf("assignment" to assignment)))
 
@@ -764,7 +775,6 @@ internal fun manifestDocument(
             "issued_at" to "2026-01-01T00:00:00Z",
             "expires_at" to "2026-01-01T01:00:00Z",
             "study_id" to "study-1",
-            "revision_id" to "revision-1",
             "enrollment_id" to "enrollment-1",
             "research_session" to
                 linkedMapOf<String, Any?>(
@@ -774,8 +784,10 @@ internal fun manifestDocument(
             "assignment" to
                 linkedMapOf<String, Any?>(
                     "assignment_id" to "assignment-1",
-                    "condition_id" to "control",
-                    "strategy" to "weighted",
+                    "agent_profile_id" to "profile-1",
+                    "strategy" to "RANDOM_EQUAL",
+                    "randomization_epoch" to 0,
+                    "profile_digest" to "profile-digest-1",
                 ),
             "agent_release" to
                 linkedMapOf<String, Any?>(
@@ -1106,7 +1118,8 @@ class BootstrapRejectionTest {
             BootstrapRejection.ENROLLMENT_NOT_ACTIVE,
             BootstrapRejection.REVOKED,
             BootstrapRejection.INELIGIBLE,
-            BootstrapRejection.REVISION_NOT_PUBLISHED,
+            BootstrapRejection.STUDY_STOPPED,
+            BootstrapRejection.STUDY_MISMATCH,
             BootstrapRejection.KILL_SWITCH_ENGAGED,
         ).forEach { rejection ->
             assertTrue(rejection.participantMessage.isNotBlank(), rejection.name)
@@ -1136,6 +1149,9 @@ class BootstrapRejectionTest {
 /**
  * Contract tests for [ResearchJoinCodeResolver] against a local
  * [com.sun.net.httpserver.HttpServer] (no new test dependency).
+ *
+ * Membership is discovered from `GET /api/research/participants/me`; joining
+ * itself happens through web consent, so the resolver never redeems a code.
  */
 class ResearchJoinCodeResolverTest {
     private data class Reply(
@@ -1169,18 +1185,13 @@ class ResearchJoinCodeResolverTest {
         fun stop() = server.stop(0)
     }
 
-    private val resolvedBody =
-        """{"join_code":"AB12CD34","study":{"study_id":"study-1","name":"Focus study"},""" +
-            """"revision":{"revision_id":"revision-1","status":"PUBLISHED"},"consent":{}}"""
-
     private fun enrollmentsBody(vararg entries: String) = """{"enrollments":[${entries.joinToString(",")}]}"""
 
     private fun enrollment(
         status: String,
         enrollmentId: String = "enr-1",
         studyId: String = "study-1",
-        revisionId: String = "revision-1",
-    ) = """{"enrollment_id":"$enrollmentId","study_id":"$studyId","study_revision_id":"$revisionId","status":"$status"}"""
+    ) = """{"enrollment_id":"$enrollmentId","study_id":"$studyId","status":"$status"}"""
 
     private fun withBackend(responder: (String) -> Reply, block: (JoinBackend) -> Unit) {
         val backend = JoinBackend(responder)
@@ -1194,149 +1205,173 @@ class ResearchJoinCodeResolverTest {
     private fun resolver(backend: JoinBackend) = ResearchJoinCodeResolver(backend.baseUrl, httpClient = OkHttpClient())
 
     @Test
-    fun `an active enrollment for the code resolves to its enrollment id`() {
+    fun `an active enrollment discovers its enrollment id`() {
         withBackend(
-            { path -> if ("/participants/me" in path) Reply(200, enrollmentsBody(enrollment("ACTIVE"))) else Reply(200, resolvedBody) },
+            { _ -> Reply(200, enrollmentsBody(enrollment("ACTIVE"))) },
         ) { backend ->
-            val result = resolver(backend).resolve("AB12CD34")
+            val result = resolver(backend).discover()
 
-            assertEquals(JoinCodeResolution.ActiveEnrollment("enr-1"), result)
-            assertTrue(backend.requestedPaths.any { it.endsWith("/api/research/join/AB12CD34") })
+            assertEquals(EnrollmentDiscovery.Active("enr-1"), result)
             assertTrue(backend.requestedPaths.any { it.endsWith("/api/research/participants/me") })
         }
     }
 
     @Test
-    fun `no enrollment for the code asks the participant to consent on the web`() {
+    fun `no enrollment reports none so the caller can direct web consent`() {
         withBackend(
-            { path -> if ("/participants/me" in path) Reply(200, enrollmentsBody()) else Reply(200, resolvedBody) },
+            { _ -> Reply(200, enrollmentsBody()) },
         ) { backend ->
-            assertEquals(JoinCodeResolution.EnrollmentRequired, resolver(backend).resolve("AB12CD34"))
+            assertEquals(EnrollmentDiscovery.None, resolver(backend).discover())
         }
     }
 
     @Test
-    fun `a non-active enrollment for the code still asks for consent`() {
+    fun `an unknown enrollment status reports none`() {
         withBackend(
-            { path -> if ("/participants/me" in path) Reply(200, enrollmentsBody(enrollment("PENDING_CONSENT"))) else Reply(200, resolvedBody) },
+            { _ -> Reply(200, enrollmentsBody(enrollment("PENDING_CONSENT"))) },
         ) { backend ->
-            assertEquals(JoinCodeResolution.EnrollmentRequired, resolver(backend).resolve("AB12CD34"))
+            assertEquals(EnrollmentDiscovery.None, resolver(backend).discover())
         }
     }
 
     @Test
-    fun `an active enrollment in a different study is reported separately`() {
+    fun `an active enrollment in another study still discovers active`() {
         withBackend(
-            { path ->
-                if ("/participants/me" in path) {
-                    Reply(200, enrollmentsBody(enrollment("ACTIVE", enrollmentId = "other", studyId = "study-2", revisionId = "revision-2")))
-                } else {
-                    Reply(200, resolvedBody)
-                }
+            { _ ->
+                Reply(200, enrollmentsBody(enrollment("ACTIVE", enrollmentId = "other", studyId = "study-2")))
             },
         ) { backend ->
             assertEquals(
-                JoinCodeResolution.AlreadyEnrolled("study-2"),
-                resolver(backend).resolve("AB12CD34"),
+                EnrollmentDiscovery.Active("other"),
+                resolver(backend).discover(),
             )
         }
     }
 
     @Test
-    fun `a server without the own-enrollment endpoint still asks for consent`() {
+    fun `a server without the own-enrollment endpoint reports none`() {
         withBackend(
-            { path -> if ("/participants/me" in path) Reply(404, """{"detail":"Not Found"}""") else Reply(200, resolvedBody) },
+            { _ -> Reply(404, """{"detail":"Not Found"}""") },
         ) { backend ->
-            assertEquals(JoinCodeResolution.EnrollmentRequired, resolver(backend).resolve("AB12CD34"))
+            assertEquals(EnrollmentDiscovery.None, resolver(backend).discover())
+        }
+        withBackend(
+            { _ -> Reply(405, """{"detail":"Method Not Allowed"}""") },
+        ) { backend ->
+            assertEquals(EnrollmentDiscovery.None, resolver(backend).discover())
         }
     }
 
     @Test
-    fun `an unknown join code is rejected without touching my enrollments`() {
-        withBackend({ Reply(404, """{"detail":"Join code not found"}""") }) { backend ->
-            val result = resolver(backend).resolve("UNKNOWN1")
+    fun `a missing membership document reports none without failing`() {
+        withBackend({ _ -> Reply(404, """{"detail":"Not Found"}""") }) { backend ->
+            val result = resolver(backend).discover()
 
-            assertTrue(result is JoinCodeResolution.Rejected)
-            assertFalse(backend.requestedPaths.any { it.endsWith("/api/research/participants/me") })
+            assertEquals(EnrollmentDiscovery.None, result)
         }
     }
 
     @Test
-    fun `an unauthenticated resolve is rejected`() {
-        withBackend({ Reply(401, """{"detail":"Not authenticated"}""") }) { backend ->
-            val result = resolver(backend).resolve("AB12CD34")
-            assertTrue(result is JoinCodeResolution.Rejected)
+    fun `an unauthenticated discover is unavailable`() {
+        withBackend({ _ -> Reply(401, """{"detail":"Not authenticated"}""") }) { backend ->
+            val result = resolver(backend).discover()
+
+            assertTrue(result is EnrollmentDiscovery.Unavailable)
         }
     }
 
     @Test
     fun `a server error is a retryable unavailable result`() {
-        withBackend({ Reply(503, """{"detail":"temporarily unavailable"}""") }) { backend ->
-            assertTrue(resolver(backend).resolve("AB12CD34") is JoinCodeResolution.Unavailable)
+        withBackend({ _ -> Reply(503, """{"detail":"temporarily unavailable"}""") }) { backend ->
+            assertTrue(resolver(backend).discover() is EnrollmentDiscovery.Unavailable)
         }
     }
 
     @Test
-    fun `a blank join code is rejected without a request`() {
-        withBackend({ Reply(200, resolvedBody) }) { backend ->
-            assertTrue(resolver(backend).resolve("   ") is JoinCodeResolution.Rejected)
-            assertTrue(backend.requestedPaths.isEmpty())
+    fun `a malformed document reports none`() {
+        withBackend({ _ -> Reply(200, "{not json") }) { backend ->
+            assertEquals(EnrollmentDiscovery.None, resolver(backend).discover())
         }
     }
 
-    private val consentBody =
-        """{"join_code":"AB12CD34","study":{"study_id":"study-1","name":"Focus study"},""" +
-            """"revision":{"revision_id":"revision-1","status":"PUBLISHED"},""" +
-            """"consent":{"document_id":"doc-1","document_version":"2","document_digest":"digest-1"}}"""
-
-    private fun enrolledBody(
-        enrollmentId: String = "enr-new",
-        reused: Boolean = false,
-    ) = """{"enrollment_id":"$enrollmentId","study_id":"study-1","revision_id":"revision-1",""" +
-        """"status":"ACTIVE","created":false,"reused":$reused}"""
-
-    
-    
-    
     @Test
-    fun `redeem posts the accepted code and returns the enrollment id`() {
+    fun `a revoked enrollment is terminal`() {
+        withBackend({ _ -> Reply(200, enrollmentsBody(enrollment("REVOKED"))) }) { backend ->
+            assertEquals(EnrollmentDiscovery.Terminal("REVOKED"), resolver(backend).discover())
+        }
+    }
+
+    @Test
+    fun `a stopped-study enrollment is terminal`() {
+        withBackend({ _ -> Reply(200, enrollmentsBody(enrollment("STUDY_STOPPED"))) }) { backend ->
+            assertEquals(EnrollmentDiscovery.Terminal("STUDY_STOPPED"), resolver(backend).discover())
+        }
+    }
+
+    @Test
+    fun `a completed enrollment is terminal`() {
+        withBackend({ _ -> Reply(200, enrollmentsBody(enrollment("COMPLETED"))) }) { backend ->
+            assertEquals(EnrollmentDiscovery.Terminal("COMPLETED"), resolver(backend).discover())
+        }
+    }
+
+    @Test
+    fun `an active enrollment wins over terminal entries`() {
         withBackend(
-            { path -> if (path == "/api/research/join") Reply(200, enrolledBody("enr-new")) else Reply(404, """{}""") },
+            { _ -> Reply(200, enrollmentsBody(enrollment("REVOKED", enrollmentId = "old"), enrollment("ACTIVE"))) },
         ) { backend ->
-            val result = resolver(backend).redeem("AB12CD34")
-
-            assertEquals(JoinEnrollResolution.Enrolled("enr-new", reused = false), result)
-            val body = backend.requestedBodies.last()
-            assertTrue(body.contains("AB12CD34"), body)
-            assertTrue(body.contains("accept_consent"), body)
+            assertEquals(EnrollmentDiscovery.Active("enr-1"), resolver(backend).discover())
         }
     }
 
     @Test
-    fun `an already-redeemed code is reused idempotently`() {
-        withBackend(
-            { path ->
-                if (path == "/api/research/join") {
-                    Reply(200, enrolledBody("enr-old", reused = true))
-                } else {
-                    Reply(404, """{}""")
-                }
-            },
-        ) { backend ->
-            assertEquals(
-                JoinEnrollResolution.Enrolled("enr-old", reused = true),
-                resolver(backend).redeem("AB12CD34"),
+    fun `terminal matching is case-insensitive`() {
+        withBackend({ _ -> Reply(200, enrollmentsBody(enrollment("revoked"))) }) { backend ->
+            assertEquals(EnrollmentDiscovery.Terminal("REVOKED"), resolver(backend).discover())
+        }
+    }
+}
+
+// --------------------------------------------------------------------------
+// ResearchEnrollmentClassificationTest.kt
+// --------------------------------------------------------------------------
+
+/** Unit tests for the membership classifier behind [ResearchJoinCodeResolver]. */
+class ResearchEnrollmentClassificationTest {
+    @Test
+    fun `active wins over terminal entries`() {
+        val discovery =
+            classifyEnrollmentDiscovery(
+                listOf(
+                    ResolvedEnrollment("enr-old", "study-1", "REVOKED"),
+                    ResolvedEnrollment("enr-new", "study-1", "ACTIVE"),
+                ),
             )
+
+        assertEquals(EnrollmentDiscovery.Active("enr-new"), discovery)
+    }
+
+    @Test
+    fun `each server terminal status classifies terminal`() {
+        listOf("REVOKED", "STUDY_STOPPED", "COMPLETED").forEach { status ->
+            val discovery = classifyEnrollmentDiscovery(listOf(ResolvedEnrollment("enr-1", "study-1", status)))
+
+            assertEquals(EnrollmentDiscovery.Terminal(status), discovery)
         }
     }
 
     @Test
-    fun `a rejected redemption is participant-safe and a server error is retryable`() {
-        withBackend({ Reply(409, """{"detail":{"code":"UNKNOWN_REVISION"}}""") }) { backend ->
-            assertTrue(resolver(backend).redeem("AB12CD34") is JoinEnrollResolution.Rejected)
-        }
-        withBackend({ Reply(503, """{"detail":"down"}""") }) { backend ->
-            assertTrue(resolver(backend).redeem("AB12CD34") is JoinEnrollResolution.Unavailable)
-        }
+    fun `unknown statuses report none`() {
+        assertEquals(EnrollmentDiscovery.None, classifyEnrollmentDiscovery(emptyList()))
+        assertEquals(
+            EnrollmentDiscovery.None,
+            classifyEnrollmentDiscovery(listOf(ResolvedEnrollment("enr-1", "study-1", "PENDING_CONSENT"))),
+        )
+    }
+
+    @Test
+    fun `malformed documents parse to no enrollments`() {
+        assertTrue(parseEnrollmentEntries("{not json").isEmpty())
+        assertTrue(parseEnrollmentEntries("""{"enrollments":"nope"}""").isEmpty())
     }
 }

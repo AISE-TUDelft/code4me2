@@ -71,13 +71,12 @@ enum class StudyBlockReason(val value: String) {
  * Non-identifying participant study state (Issue 10, `ParticipantStudyStateV1`).
  *
  * The state deliberately carries no account, user, e-mail, device, or provider
- * field: it identifies the enrollment/revision/session only, plus the manifest
+ * field: it identifies the enrollment/study/session only, plus the manifest
  * digest/expiry that the launch decision is based on. Blocked states always
  * carry a typed [blockReason].
  *
  * @property enrollmentId opaque enrollment reference, never a participant id.
  * @property studyId opaque study reference.
- * @property revisionId pinned revision reference.
  * @property consentState participant-visible consent state.
  * @property compatibilityState environment/plugin compatibility state.
  * @property sessionState research-session state as seen by the participant.
@@ -89,7 +88,6 @@ enum class StudyBlockReason(val value: String) {
 data class ParticipantStudyStateV1(
     val enrollmentId: String? = null,
     val studyId: String? = null,
-    val revisionId: String? = null,
     val consentState: StudyComponentState = StudyComponentState.UNAVAILABLE,
     val compatibilityState: StudyComponentState = StudyComponentState.UNAVAILABLE,
     val sessionState: StudyComponentState = StudyComponentState.UNAVAILABLE,
@@ -116,7 +114,6 @@ data class ParticipantStudyStateV1(
         linkedMapOf(
             "enrollment_id" to enrollmentId,
             "study_id" to studyId,
-            "revision_id" to revisionId,
             "consent_state" to consentState.value,
             "compatibility_state" to compatibilityState.value,
             "session_state" to sessionState.value,

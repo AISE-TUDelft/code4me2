@@ -74,12 +74,10 @@ data class ResearchSessionDescriptor(
 /** The assignment projection embedded in a manifest. */
 data class ManifestAssignment(
     val assignmentId: String,
-    val conditionId: String,
     val strategy: String,
 ) {
     init {
         require(assignmentId.isNotBlank()) { "assignmentId must not be blank" }
-        require(conditionId.isNotBlank()) { "conditionId must not be blank" }
     }
 }
 
@@ -211,7 +209,7 @@ data class SessionCapabilityRef(
  * Immutable, secret-free `BootstrapManifestV1` as consumed by the participant
  * client (Issue 05 / Issue 10).
  *
- * The model carries exactly the launch contract: pinned revision, sticky
+ * The model carries exactly the launch contract: pinned study, sticky
  * assignment, pinned agent release, policy set, compatibility receipt reference,
  * and a scoped session capability. It never carries account identity, provider
  * credentials, raw consent, or arbitrary launch commands.
@@ -228,7 +226,6 @@ data class BootstrapManifest(
     val issuedAt: String,
     val expiresAt: String,
     val studyId: String,
-    val revisionId: String,
     val enrollmentId: String,
     val researchSession: ResearchSessionDescriptor,
     val assignment: ManifestAssignment,
@@ -484,7 +481,6 @@ data class BootstrapManifest(
             "issued_at" to issuedAt,
             "expires_at" to expiresAt,
             "study_id" to studyId,
-            "revision_id" to revisionId,
             "enrollment_id" to enrollmentId,
             "research_session" to
                 linkedMapOf(
@@ -494,14 +490,12 @@ data class BootstrapManifest(
             "assignment" to
                 linkedMapOf(
                     "assignment_id" to assignment.assignmentId,
-                    "condition_id" to assignment.conditionId,
                     "strategy" to assignment.strategy,
                 ),
             "agent_release" to
                 linkedMapOf(
                     "agent_id" to agentRelease.agentId,
                     "release_id" to agentRelease.releaseId,
-                    "version" to agentRelease.version,
                     "artifact_digest" to agentRelease.artifactDigest,
                     "adapter_version" to agentRelease.adapterVersion,
                     "distribution_mode" to agentRelease.distributionMode.wireValue,
@@ -597,7 +591,6 @@ data class BootstrapManifest(
                         ?: requiredString(capability, "issued_at"),
                 expiresAt = (map["expires_at"] as? String) ?: requiredString(capability, "expires_at"),
                 studyId = requiredString(map, "study_id"),
-                revisionId = requiredString(map, "revision_id"),
                 enrollmentId = requiredString(map, "enrollment_id"),
                 researchSession =
                     ResearchSessionDescriptor(
@@ -607,7 +600,6 @@ data class BootstrapManifest(
                 assignment =
                     ManifestAssignment(
                         assignmentId = requiredString(assignment, "assignment_id"),
-                        conditionId = requiredString(assignment, "condition_id"),
                         strategy = requiredString(assignment, "strategy"),
                     ),
                 agentRelease =

@@ -69,17 +69,17 @@ enum class BootstrapRejection {
     /** The participant is not eligible for this study. */
     INELIGIBLE,
 
-    /** The study revision is not published/open for enrollment. */
-    REVISION_NOT_PUBLISHED,
-
     /** The study window has not opened for enrollment yet. */
     STUDY_NOT_OPEN,
 
     /** The study window has closed; no new enrollment is accepted. */
     STUDY_CLOSED,
 
-    /** The enrollment is not bound to the requested study revision. */
-    REVISION_MISMATCH,
+    /** The study was stopped by the research team; bootstrap is refused. */
+    STUDY_STOPPED,
+
+    /** The enrollment is not bound to the requested study. */
+    STUDY_MISMATCH,
 
     /** The sticky assignment does not belong to this enrollment/revision. */
     ASSIGNMENT_MISMATCH,
@@ -162,18 +162,18 @@ val BootstrapRejection.participantMessage: String
                     "is a mistake. (reason: REVOKED)"
             BootstrapRejection.INELIGIBLE ->
                 "You are not eligible for this study. (reason: INELIGIBLE)"
-            BootstrapRejection.REVISION_NOT_PUBLISHED ->
-                "This study revision is not currently open for enrollment. " +
-                    "(reason: REVISION_NOT_PUBLISHED)"
             BootstrapRejection.STUDY_NOT_OPEN ->
                 "This study has not opened for enrollment yet. Try again later. " +
                     "(reason: STUDY_NOT_OPEN)"
             BootstrapRejection.STUDY_CLOSED ->
                 "This study has closed and is no longer accepting participants. " +
                     "(reason: STUDY_CLOSED)"
-            BootstrapRejection.REVISION_MISMATCH ->
-                "This enrollment is bound to a different study revision. Contact the researcher. " +
-                    "(reason: REVISION_MISMATCH)"
+            BootstrapRejection.STUDY_STOPPED ->
+                "This study has been stopped by the research team and is no longer accepting participants. " +
+                    "(reason: STUDY_STOPPED)"
+            BootstrapRejection.STUDY_MISMATCH ->
+                "This enrollment belongs to a different study. Contact the researcher. " +
+                    "(reason: STUDY_MISMATCH)"
             BootstrapRejection.ASSIGNMENT_MISMATCH ->
                 "Your study assignment does not match the current revision. Contact the researcher. " +
                     "(reason: ASSIGNMENT_MISMATCH)"

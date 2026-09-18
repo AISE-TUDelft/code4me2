@@ -51,7 +51,6 @@ class IdeActivityCollectorTest {
         IdeCollectionScope(
             researchSessionId = "session-1",
             studyId = "study-1",
-            revisionId = "revision-1",
             enrollmentId = "enrollment-1",
             manifestDigest = "manifest-digest",
         )
@@ -130,7 +129,6 @@ class IdeActivityCollectorTest {
         assertEquals("kt", sink.events[0].payload["file_extension"])
         assertEquals("session-1", sink.events[0].researchSessionId)
         assertEquals("study-1", sink.events[0].studyId)
-        assertEquals("revision-1", sink.events[0].revisionId)
         assertEquals("enrollment-1", sink.events[0].enrollmentId)
         assertEquals(CoverageState.AVAILABLE, sink.events[0].coverage.state)
         assertTrue(sink.events.flatMap { it.payload.keys }.none { it.contains("content") || it.contains("text") })
@@ -464,7 +462,6 @@ class IntellijIdeActivityIntegrationTest : BasePlatformTestCase() {
                 IdeCollectionScope(
                     researchSessionId = "session-integration",
                     studyId = "study-1",
-                    revisionId = "rev-1",
                     enrollmentId = "enr-1",
                     manifestDigest = "sha256:" + "a".repeat(64),
                 ),

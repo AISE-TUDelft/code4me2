@@ -283,7 +283,6 @@ class FileResearchSessionStore(
             "schema_version" to SESSION_SCHEMA_VERSION,
             "session_id" to session.sessionId,
             "enrollment_id" to session.enrollmentId,
-            "revision_id" to session.revisionId,
             "context_id" to session.contextId,
             "state" to session.state.value,
             "opened_at_epoch_ms" to session.openedAtEpochMs,
@@ -306,7 +305,6 @@ class FileResearchSessionStore(
             ResearchSession(
                 sessionId = sessionId,
                 enrollmentId = map["enrollment_id"] as? String,
-                revisionId = map["revision_id"] as? String,
                 contextId = (map["context_id"] as? String) ?: "",
                 state = state,
                 openedAtEpochMs = (map["opened_at_epoch_ms"] as? Number)?.toLong(),
@@ -490,7 +488,6 @@ class ResearchSessionManager(
         return ParticipantStudyStateV1(
             enrollmentId = current?.enrollmentId ?: held?.enrollmentId,
             studyId = held?.studyId,
-            revisionId = held?.revisionId,
             consentState = consentState,
             compatibilityState = compatibilityState,
             sessionState = sessionComponentOf(current?.state),
@@ -1034,7 +1031,7 @@ class ResearchSessionManager(
                 linkedMapOf<String, Any?>(
                     "capability" to validManifest.sessionCapabilityObject(),
                     "enrollment_id" to validManifest.enrollmentId,
-                    "study_revision_id" to validManifest.revisionId,
+                    "study_id" to validManifest.studyId,
                     "manifest_digest" to validManifest.manifestDigest,
                     "context_id" to contextId,
                 ),
@@ -1415,7 +1412,6 @@ class ResearchSessionManager(
             IdeCollectionScope(
                 researchSessionId = resolvedSession.sessionId,
                 studyId = validManifest.studyId,
-                revisionId = validManifest.revisionId,
                 enrollmentId = validManifest.enrollmentId,
                 manifestDigest = validManifest.manifestDigest,
             ),
@@ -2095,10 +2091,10 @@ class ResearchSessionManager(
             BootstrapRejection.ENROLLMENT_NOT_FOUND,
             BootstrapRejection.ENROLLMENT_NOT_ACTIVE,
             BootstrapRejection.INELIGIBLE,
-            BootstrapRejection.REVISION_NOT_PUBLISHED,
             BootstrapRejection.STUDY_NOT_OPEN,
             BootstrapRejection.STUDY_CLOSED,
-            BootstrapRejection.REVISION_MISMATCH,
+            BootstrapRejection.STUDY_STOPPED,
+            BootstrapRejection.STUDY_MISMATCH,
             BootstrapRejection.ASSIGNMENT_MISMATCH,
             BootstrapRejection.KILL_SWITCH_ENGAGED,
             BootstrapRejection.UNKNOWN,

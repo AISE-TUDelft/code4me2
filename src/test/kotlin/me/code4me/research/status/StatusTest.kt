@@ -23,8 +23,8 @@ import org.junit.jupiter.api.Test
  * Pure-JVM tests for the participant status presentation (Issue 10).
  *
  * They pin the mapping from [ParticipantStudyStateV1] to the participant-visible
- * status view and, critically, assert that no study internal (enrollment/study/
- * revision ids, manifest digest) or synthetic canary can leak through the
+ * status view and, critically, assert that no study internal (enrollment/study
+ * ids, manifest digest) or synthetic canary can leak through the
  * status surface.
  */
 class ParticipantStatusPresentationTest {
@@ -177,7 +177,6 @@ class ParticipantStatusPresentationTest {
             listOf(
                 "CANARY_ENROLLMENT",
                 "CANARY_STUDY",
-                "CANARY_REVISION",
                 "CANARY_MANIFEST_DIGEST",
                 "/Users/participant/secret-project",
             )
@@ -185,14 +184,13 @@ class ParticipantStatusPresentationTest {
             ParticipantStudyStateV1(
                 enrollmentId = canaries[0],
                 studyId = canaries[1],
-                revisionId = canaries[2],
                 consentState = StudyComponentState.BLOCKED,
                 compatibilityState = StudyComponentState.BLOCKED,
                 sessionState = StudyComponentState.BLOCKED,
-                manifestDigest = canaries[3],
+                manifestDigest = canaries[2],
                 manifestExpiry = "2026-01-01T00:00:00Z",
                 blockReason = StudyBlockReason.MANIFEST_INVALID,
-                blockReasonDetail = canaries[4],
+                blockReasonDetail = canaries[3],
             )
 
         val view = ParticipantStatusPresentation.of(state)

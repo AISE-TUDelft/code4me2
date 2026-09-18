@@ -37,7 +37,6 @@ data class CanonicalEvent(
     val eventType: String,
     val source: EventSource,
     val studyId: String? = null,
-    val revisionId: String? = null,
     val enrollmentId: String? = null,
     val researchSessionId: String? = null,
     val agentRunId: String? = null,
@@ -76,7 +75,6 @@ data class CanonicalEvent(
             "event_type" to eventType,
             "source" to source.value,
             "study_id" to studyId,
-            "revision_id" to revisionId,
             "enrollment_id" to enrollmentId,
             "research_session_id" to researchSessionId,
             "agent_run_id" to agentRunId,
@@ -120,7 +118,6 @@ data class CanonicalEvent(
                     EventSource.fromWire(map["source"] as? String)
                         ?: throw IllegalArgumentException("Unknown event source: ${map["source"]}"),
                 studyId = map["study_id"] as? String,
-                revisionId = map["revision_id"] as? String,
                 enrollmentId = map["enrollment_id"] as? String,
                 researchSessionId = map["research_session_id"] as? String,
                 agentRunId = map["agent_run_id"] as? String,

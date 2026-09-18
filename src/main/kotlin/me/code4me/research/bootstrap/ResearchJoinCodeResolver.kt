@@ -18,7 +18,7 @@ sealed interface EnrollmentDiscovery {
     /** The account has an ACTIVE enrollment; [enrollmentId] is its id. */
     data class Active(val enrollmentId: String) : EnrollmentDiscovery
 
-    /** The account's enrollment is terminal (withdrawn/completed). */
+    /** The account's enrollment is terminal (revoked, stopped, or completed). */
     data class Terminal(val status: String) : EnrollmentDiscovery
 
     /** The account has no enrollment on this server. */
@@ -62,8 +62,8 @@ internal fun parseEnrollmentEntries(
 
 /**
  * The membership classification for discovered enrollments: the ACTIVE
- * enrollment wins; otherwise a terminal (WITHDRAWN/COMPLETED) enrollment is
- * reported; otherwise the account has none.
+ * enrollment wins; otherwise a terminal (REVOKED/STUDY_STOPPED/COMPLETED)
+ * enrollment is reported; otherwise the account has none.
  */
 internal fun classifyEnrollmentDiscovery(
     enrollments: List<ResolvedEnrollment>,
@@ -72,7 +72,7 @@ internal fun classifyEnrollmentDiscovery(
     if (active != null) return EnrollmentDiscovery.Active(active.enrollmentId)
     val terminal =
         enrollments.firstOrNull {
-            it.status.equals("COMPLETED", ignoreCase = true)
+            it.status.equals("COMPLETED", ignoreCase = true) ||
             it.status.equals("REVOKED", ignoreCase = true) ||
             it.status.equals("STUDY_STOPPED", ignoreCase = true)
         }

@@ -38,7 +38,6 @@ enum class SessionTerminalReason(val value: String) {
 data class ResearchSession(
     val sessionId: String,
     val enrollmentId: String? = null,
-    val revisionId: String? = null,
     /**
      * Opaque execution-context id (project/window). Scopes the durable
      * session-store document and capability file so two windows never share or

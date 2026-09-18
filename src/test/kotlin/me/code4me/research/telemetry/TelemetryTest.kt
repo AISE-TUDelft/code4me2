@@ -233,7 +233,6 @@ class CanonicalEventSerializationTest {
                 "event_type",
                 "source",
                 "study_id",
-                "revision_id",
                 "enrollment_id",
                 "research_session_id",
                 "agent_run_id",
@@ -280,6 +279,15 @@ class CanonicalEventSerializationTest {
 
         val coverage = parsed["coverage"] as Map<*, *>
         assertEquals(setOf("state", "reason", "capability"), coverage.keys)
+    }
+
+    @Test
+    fun `envelope emits no revision keys`() {
+        val event = builder().build(eventType = CanonicalEventTypes.AGENT_MESSAGE_STARTED)
+        val parsed = parseCanonicalJson(event.toCanonicalJson()) as Map<*, *>
+
+        assertFalse(parsed.containsKey("revision_id"), parsed.keys.toString())
+        assertFalse(parsed.containsKey("study_revision_id"), parsed.keys.toString())
     }
 
     @Test
@@ -404,7 +412,6 @@ class CanonicalEventSerializationTest {
                     ),
                 fidelity = CanonicalFidelity.NORMALIZED,
                 studyId = "study-1",
-                revisionId = "revision-1",
                 enrollmentId = "enrollment-1",
                 researchSessionId = "session-1",
                 agentRunId = "run-1",
