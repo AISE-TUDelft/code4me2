@@ -185,7 +185,9 @@ class ParticipantStatusPresentationTest {
             ParticipantStudyStateV1(
                 enrollmentId = canaries[0],
                 studyId = canaries[1],
-                revisionId = canaries[2],
+                assignmentId = canaries[2],
+                agentProfileId = "CANARY_PROFILE",
+                profileDigest = "CANARY_PROFILE_DIGEST",
                 consentState = StudyComponentState.BLOCKED,
                 compatibilityState = StudyComponentState.BLOCKED,
                 sessionState = StudyComponentState.BLOCKED,

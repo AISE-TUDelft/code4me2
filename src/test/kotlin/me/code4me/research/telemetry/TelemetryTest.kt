@@ -404,7 +404,6 @@ class CanonicalEventSerializationTest {
                     ),
                 fidelity = CanonicalFidelity.NORMALIZED,
                 studyId = "study-1",
-                revisionId = "revision-1",
                 enrollmentId = "enrollment-1",
                 researchSessionId = "session-1",
                 agentRunId = "run-1",

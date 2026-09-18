@@ -283,7 +283,9 @@ class FileResearchSessionStore(
             "schema_version" to SESSION_SCHEMA_VERSION,
             "session_id" to session.sessionId,
             "enrollment_id" to session.enrollmentId,
-            "revision_id" to session.revisionId,
+            "study_id" to session.studyId,
+            "assignment_id" to session.assignmentId,
+            "profile_digest" to session.profileDigest,
             "context_id" to session.contextId,
             "state" to session.state.value,
             "opened_at_epoch_ms" to session.openedAtEpochMs,
@@ -306,7 +308,9 @@ class FileResearchSessionStore(
             ResearchSession(
                 sessionId = sessionId,
                 enrollmentId = map["enrollment_id"] as? String,
-                revisionId = map["revision_id"] as? String,
+                studyId = map["study_id"] as? String,
+                assignmentId = map["assignment_id"] as? String,
+                profileDigest = map["profile_digest"] as? String,
                 contextId = (map["context_id"] as? String) ?: "",
                 state = state,
                 openedAtEpochMs = (map["opened_at_epoch_ms"] as? Number)?.toLong(),
@@ -490,7 +494,9 @@ class ResearchSessionManager(
         return ParticipantStudyStateV1(
             enrollmentId = current?.enrollmentId ?: held?.enrollmentId,
             studyId = held?.studyId,
-            revisionId = held?.revisionId,
+            assignmentId = held?.assignment?.assignmentId,
+            agentProfileId = held?.assignment?.agentProfileId,
+            profileDigest = held?.assignment?.profileDigest,
             consentState = consentState,
             compatibilityState = compatibilityState,
             sessionState = sessionComponentOf(current?.state),
@@ -893,7 +899,12 @@ class ResearchSessionManager(
         val manifestSessionId = validManifest.researchSession.researchSessionId
         val adoptedManifestId = manifestSessionId.isNotBlank() && manifestSessionId != resolvedSession.sessionId
         val authoritativeSession =
-            if (adoptedManifestId) resolvedSession.copy(sessionId = manifestSessionId) else resolvedSession
+            resolvedSession.copy(
+                sessionId = if (adoptedManifestId) manifestSessionId else resolvedSession.sessionId,
+                studyId = validManifest.studyId,
+                assignmentId = validManifest.assignment.assignmentId,
+                profileDigest = validManifest.assignment.profileDigest,
+            )
         val resumed = resolution.resumed && !adoptedManifestId
         val resolvedSpool =
             try {
@@ -1034,7 +1045,7 @@ class ResearchSessionManager(
                 linkedMapOf<String, Any?>(
                     "capability" to validManifest.sessionCapabilityObject(),
                     "enrollment_id" to validManifest.enrollmentId,
-                    "study_revision_id" to validManifest.revisionId,
+                    "study_id" to validManifest.studyId,
                     "manifest_digest" to validManifest.manifestDigest,
                     "context_id" to contextId,
                 ),
@@ -1415,7 +1426,8 @@ class ResearchSessionManager(
             IdeCollectionScope(
                 researchSessionId = resolvedSession.sessionId,
                 studyId = validManifest.studyId,
-                revisionId = validManifest.revisionId,
+                assignmentId = validManifest.assignment.assignmentId,
+                profileDigest = validManifest.assignment.profileDigest,
                 enrollmentId = validManifest.enrollmentId,
                 manifestDigest = validManifest.manifestDigest,
             ),

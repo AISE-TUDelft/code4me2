@@ -77,7 +77,9 @@ enum class StudyBlockReason(val value: String) {
  *
  * @property enrollmentId opaque enrollment reference, never a participant id.
  * @property studyId opaque study reference.
- * @property revisionId pinned revision reference.
+ * @property assignmentId sticky study assignment reference.
+ * @property agentProfileId selected agent profile reference.
+ * @property profileDigest immutable assigned profile configuration digest.
  * @property consentState participant-visible consent state.
  * @property compatibilityState environment/plugin compatibility state.
  * @property sessionState research-session state as seen by the participant.
@@ -89,7 +91,9 @@ enum class StudyBlockReason(val value: String) {
 data class ParticipantStudyStateV1(
     val enrollmentId: String? = null,
     val studyId: String? = null,
-    val revisionId: String? = null,
+    val assignmentId: String? = null,
+    val agentProfileId: String? = null,
+    val profileDigest: String? = null,
     val consentState: StudyComponentState = StudyComponentState.UNAVAILABLE,
     val compatibilityState: StudyComponentState = StudyComponentState.UNAVAILABLE,
     val sessionState: StudyComponentState = StudyComponentState.UNAVAILABLE,
@@ -116,7 +120,9 @@ data class ParticipantStudyStateV1(
         linkedMapOf(
             "enrollment_id" to enrollmentId,
             "study_id" to studyId,
-            "revision_id" to revisionId,
+            "assignment_id" to assignmentId,
+            "agent_profile_id" to agentProfileId,
+            "profile_digest" to profileDigest,
             "consent_state" to consentState.value,
             "compatibility_state" to compatibilityState.value,
             "session_state" to sessionState.value,

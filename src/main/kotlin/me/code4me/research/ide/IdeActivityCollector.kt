@@ -19,14 +19,15 @@ fun interface CanonicalEventSink {
  * The active, manifest-scoped collection context.
  *
  * A collector must not emit or buffer anything until it has an active scope:
- * unscoped IDE content has no study/revision/session attribution and must be
+ * unscoped IDE content has no study/assignment/session attribution and must be
  * dropped.
  */
 data class IdeCollectionScope(
     val researchSessionId: String,
     val studyId: String? = null,
-    val revisionId: String? = null,
     val enrollmentId: String? = null,
+    val assignmentId: String? = null,
+    val profileDigest: String? = null,
     val manifestDigest: String? = null,
 ) {
     init {
@@ -138,7 +139,6 @@ class IdeActivityCollector(
                 event = observation,
                 canonical = context.canonicalBuilder,
                 studyId = active.studyId,
-                revisionId = active.revisionId,
                 enrollmentId = active.enrollmentId,
                 researchSessionId = active.researchSessionId,
                 coverage =
