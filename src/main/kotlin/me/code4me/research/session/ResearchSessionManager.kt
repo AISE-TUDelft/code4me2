@@ -43,6 +43,7 @@ import me.code4me.research.proxy.ProxyRuntimeResolver
 import me.code4me.research.proxy.ResolvedProxyRuntime
 import me.code4me.research.spool.DurableSpool
 import me.code4me.research.spool.ResearchSpoolIpcServer
+import me.code4me.research.spool.SpoolEventContext
 import me.code4me.research.spool.SpoolDelivery
 import me.code4me.research.spool.SpoolIpcServer
 import me.code4me.research.spool.SpoolStats
@@ -921,7 +922,14 @@ class ResearchSessionManager(
         val startedIpc =
             try {
                 ipcServerFactory?.invoke(resolvedSpool)
-                    ?: ResearchSpoolIpcServer(resolvedSpool)
+                    ?: ResearchSpoolIpcServer(
+                        resolvedSpool,
+                        eventContext = SpoolEventContext(
+                            validManifest.studyId,
+                            validManifest.enrollmentId,
+                            authoritativeSession.sessionId,
+                        ),
+                    )
             } catch (exception: Exception) {
                 val detail = exception.message ?: "the local spool IPC server could not start"
                 markBlocked(StudyBlockReason.RUNTIME_UNAVAILABLE, detail)

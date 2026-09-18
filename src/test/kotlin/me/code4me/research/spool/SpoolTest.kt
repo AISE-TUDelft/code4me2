@@ -409,6 +409,52 @@ class ResearchSpoolIpcServerTest {
     private fun tempSpool(): DurableSpool = DurableSpool(Files.createTempDirectory("spool-ipc"))
 
     @Test
+    fun `proxy events are bound to the IPC session before durable acknowledgement`() {
+        val directory = Files.createTempDirectory("spool-ipc-context")
+        val context = SpoolEventContext("study", "enrollment", "session")
+        val server = ResearchSpoolIpcServer(DurableSpool(directory), eventContext = context)
+        try {
+            val unscoped = events(1).single().copy(studyId = null, enrollmentId = null, researchSessionId = null)
+            val response = post(server.endpointUrl, body(listOf(unscoped)), server.capability)
+            assertEquals(listOf(unscoped.eventId), stringList(json(response), "accepted"))
+            // Reopen from disk to check the acknowledged, persisted envelope.
+            assertEquals(context.bind(unscoped), DurableSpool(directory).pending().single().event)
+            val replay = post(server.endpointUrl, body(listOf(context.bind(unscoped))), server.capability)
+            assertEquals(listOf(unscoped.eventId), stringList(json(replay), "duplicate"))
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun `IPC rejects foreign study enrollment and session even with a valid capability`() {
+        val spool = tempSpool()
+        val context = SpoolEventContext("study", "enrollment", "session")
+        val server = ResearchSpoolIpcServer(spool, eventContext = context)
+        try {
+            val scoped = events(3).map(context::bind)
+            val foreign = listOf(
+                scoped[0].copy(studyId = "other-study"),
+                scoped[1].copy(enrollmentId = "other-enrollment"),
+                scoped[2].copy(researchSessionId = "other-session"),
+            )
+            val response = post(server.endpointUrl, body(foreign), server.capability)
+            assertEquals(200, response.statusCode())
+            assertEquals(3, (json(response)["rejected"] as List<*>).size)
+            // A well-formed event for another session is a context mismatch, not
+            // a malformed payload.
+            val reasons = (json(response)["rejected"] as List<*>)
+                .mapNotNull { (it as? Map<*, *>)?.get("reason") as? String }
+                .toSet()
+            assertEquals(setOf("context_mismatch"), reasons)
+            assertTrue(stringList(json(response), "accepted").isEmpty())
+            assertTrue(spool.pending().isEmpty())
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
     fun `missing capability is rejected with 401 and appends nothing`() {
         val spool = tempSpool()
         withServer(spool) { server ->

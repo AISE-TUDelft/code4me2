@@ -33,6 +33,20 @@ interface SpoolIpcServer {
     fun close()
 }
 
+/** Authority of one authenticated IPC endpoint, supplied by the active IDE session. */
+data class SpoolEventContext(
+    val studyId: String,
+    val enrollmentId: String,
+    val researchSessionId: String,
+) {
+    fun bind(event: CanonicalEvent): CanonicalEvent {
+        require(event.studyId == null || event.studyId == studyId) { "Study context mismatch" }
+        require(event.enrollmentId == null || event.enrollmentId == enrollmentId) { "Enrollment context mismatch" }
+        require(event.researchSessionId == null || event.researchSessionId == researchSessionId) { "Session context mismatch" }
+        return event.copy(studyId = studyId, enrollmentId = enrollmentId, researchSessionId = researchSessionId)
+    }
+}
+
 /**
  * Local, authenticated spool IPC server (Gap 2).
  *
@@ -60,6 +74,7 @@ class ResearchSpoolIpcServer(
     private val maxEventsPerRequest: Int = DEFAULT_MAX_EVENTS_PER_REQUEST,
     private val bindAddress: InetAddress = InetAddress.getLoopbackAddress(),
     private val onEventAppended: (CanonicalEvent) -> Unit = {},
+    private val eventContext: SpoolEventContext? = null,
 ) : SpoolIpcServer {
     init {
         require(maxBodyBytes > 0) { "maxBodyBytes must be positive" }
@@ -153,12 +168,17 @@ class ResearchSpoolIpcServer(
         val events = ArrayList<CanonicalEvent>(rawEvents.size)
         val invalid = ArrayList<Map<String, Any?>>()
         for (raw in rawEvents) {
-            val parsedEvent = parseEvent(raw)
-            if (parsedEvent == null) {
-                val id = (raw as? Map<*, *>)?.get("event_id") as? String
-                invalid.add(linkedMapOf("event_id" to id, "reason" to "invalid_event"))
-            } else {
-                events.add(parsedEvent)
+            val parsed = parseEvent(raw)
+            val bound = parsed?.let { event -> runCatching { eventContext?.bind(event) ?: event }.getOrNull() }
+            when {
+                bound != null -> events.add(bound)
+                else -> {
+                    val id = (raw as? Map<*, *>)?.get("event_id") as? String
+                    // Distinguish a well-formed event for another session from a
+                    // malformed one: operators need to tell them apart.
+                    val reason = if (parsed != null) "context_mismatch" else "invalid_event"
+                    invalid.add(linkedMapOf("event_id" to id, "reason" to reason))
+                }
             }
         }
         val outcome = appendAll(events)

@@ -98,14 +98,42 @@ class Code4MeUiNavigationTest {
     // ------------------------------------------------------------------
 
     private fun settingsNavigation() {
-        openCode4MeSettings()
+        // A freshly provisioned sandbox can still be indexing when the suite
+        // starts; the settings dialog then opens before the plugin's
+        // configurable is registered and the tree never selects it. Wait for the
+        // IDE to leave dumb mode and retry the open instead of failing the gate.
+        waitFor(180_000, "the sandbox IDE never finished indexing") { !isDumb() }
 
-        val tree = robot.find<JTreeFixture>(byXpath(SETTINGS_TREE_XPATH), Duration.ofSeconds(10))
-        waitFor(60_000, "the settings tree never selected Tools > Code4Me V2") {
-            tree.collectSelectedPaths().any { path -> path.lastOrNull() == "Code4Me V2" }
+        val attempts = 3
+        val selectionTimeoutMs = 30_000L
+        var lastError: AssertionError? = null
+        for (attempt in 1..attempts) {
+            openCode4MeSettings()
+            try {
+                val tree = robot.find<JTreeFixture>(byXpath(SETTINGS_TREE_XPATH), Duration.ofSeconds(10))
+                waitFor(selectionTimeoutMs, "the settings tree never selected Tools > Code4Me V2") {
+                    tree.collectSelectedPaths().any { path -> path.lastOrNull() == "Code4Me V2" }
+                }
+                lastError = null
+                break
+            } catch (error: AssertionError) {
+                lastError = error
+                closeSettings()
+            }
+        }
+        lastError?.let {
+            throw AssertionError("${it.message} (after $attempts attempts)")
         }
 
-        // The authentication section only exists on the Code4Me page.
+        // The authentication section only exists on the Code4Me page, and the
+        // page content renders after the tree selection; wait for it instead of
+        // asserting immediately.
+        waitFor(30_000, "the Code4Me settings page never rendered its authentication section") {
+            exists(CREDENTIALS_TITLE_XPATH) &&
+                exists(EMAIL_LABEL_XPATH) &&
+                exists(PASSWORD_LABEL_XPATH) &&
+                exists(LOGIN_BUTTON_XPATH)
+        }
         assertTrue(
             exists(CREDENTIALS_TITLE_XPATH),
             "the Code4Me settings page is selected but its authentication section is missing " +
@@ -115,6 +143,15 @@ class Code4MeUiNavigationTest {
         assertTrue(exists(PASSWORD_LABEL_XPATH), "the Code4Me authentication page has no Password field label")
         assertTrue(exists(LOGIN_BUTTON_XPATH), "the Code4Me authentication page has no Login button")
     }
+
+    /** Whether the open project is still indexing (dumb mode). */
+    private fun isDumb(): Boolean =
+        robot.callJs<Boolean>(
+            "(function() { const p = com.intellij.openapi.project.ProjectManager.getInstance()" +
+                ".getOpenProjects()[0]; return p ? com.intellij.openapi.project.DumbService" +
+                ".getInstance(p).isDumb() : false; })()",
+            true,
+        )
 
     // ------------------------------------------------------------------
     // 3. Sign-in
@@ -262,11 +299,12 @@ class Code4MeUiNavigationTest {
             true
         """.trimIndent()
         robot.callJs<Boolean>(script, true)
-        // The bridge directory follows the IDE's own system path. The harness
-        // redirects it into its private home, but the OS layout differs (macOS
-        // uses ~/Library/Caches/JetBrains/<product>), so resolve it by searching
-        // the harness home instead of assuming one layout.
-        val bridges = bridgesDirectory()
+        // Ask the running IDE: the directory may not exist yet, and its system
+        // path differs by OS. Searching once before preparation completes races
+        // bridge creation and can pin the wait to a nonexistent fallback path.
+        val systemPath = robot.callJs<String>("com.intellij.openapi.application.PathManager.getSystemPath()", true)
+        val bridges = Path.of(systemPath).resolve("code4me").resolve("bridges")
+        check(bridges.startsWith(Path.of(env("CODE4ME_UI_HOME")))) { "IDE system path escaped the isolated home" }
         waitFor(120_000, "Prepare agent did not create a managed authentication bridge") {
             Files.isDirectory(bridges) && Files.list(bridges).use { it.anyMatch { p -> p.toString().endsWith(".json") } }
         }
@@ -337,15 +375,24 @@ class Code4MeUiNavigationTest {
     }
 
     private fun researchStatusHeadline(): String {
+        // The status-bar widget is registered lazily (and the project is reopened
+        // mid-suite), so it can be absent on an early poll. Return "" and let the
+        // caller's polling loop wait instead of failing the step with a raw
+        // IdeaSideException.
         val script =
             """
-            const project = com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects()[0];
-            const sb = com.intellij.openapi.wm.WindowManager.getInstance().getStatusBar(project);
-            sb.updateWidget("me.code4me.research.status");
-            const widget = sb.getWidget("me.code4me.research.status");
-            String(widget.getPresentation().getText())
+            (function() {
+              const projects = com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects();
+              if (projects.length === 0) return "";
+              const project = projects[0];
+              const sb = com.intellij.openapi.wm.WindowManager.getInstance().getStatusBar(project);
+              if (sb === null) return "";
+              sb.updateWidget("me.code4me.research.status");
+              const widget = sb.getWidget("me.code4me.research.status");
+              return widget === null ? "" : String(widget.getPresentation().getText());
+            })()
             """.trimIndent()
-        return robot.callJs(script, true)
+        return runCatching { robot.callJs<String>(script, true) }.getOrElse { "" }
     }
 
     private fun researchStatusTooltip(): String {
@@ -530,26 +577,6 @@ class Code4MeUiNavigationTest {
             System.getenv(name)?.trim().orEmpty().ifEmpty {
                 throw IllegalStateException("required environment variable $name is not set")
             }
-
-        /**
-         * Locate the managed-auth bridge directory inside the harness home.
-         *
-         * The IDE writes it under its system path (`<system>/code4me/bridges`),
-         * which the harness redirects into [CODE4ME_UI_HOME]; the exact layout
-         * depends on the OS (macOS nests it under Library/Caches/JetBrains).
-         */
-        private fun bridgesDirectory(): Path {
-            val home = Path.of(env("CODE4ME_UI_HOME"))
-            val expected = home.resolve("system").resolve("code4me").resolve("bridges")
-            if (Files.isDirectory(expected)) return expected
-            Files.walk(home, 7).use { stream ->
-                return stream
-                    .filter { Files.isDirectory(it) }
-                    .filter { it.endsWith(Path.of("code4me", "bridges")) }
-                    .findFirst()
-                    .orElse(expected)
-            }
-        }
 
         private fun isPluginLoadedScript(pluginId: String): String =
             "com.intellij.ide.plugins.PluginManagerCore.isPluginInstalled(" +
