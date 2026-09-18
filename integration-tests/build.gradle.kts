@@ -101,6 +101,15 @@ tasks.named<Test>("test") {
     )
     classpath = classpath.filter { !it.absolutePath.contains("com.intellij.ml.llm-") }
     classpath = files(classpath.filter { it.name == "ultimate-plugin.jar" }) + classpath.filter { it.name != "ultimate-plugin.jar" }
+
+    // The live HTTP workflow test needs the harness-owned disposable backend.
+    // JUnit3-style platform fixtures do not honour a JUnit 4 assumption as a
+    // skip (it is reported as a failure), so gate the class at the task level:
+    // without CODE4ME_E2E_BASE_URL the suite stays green and the live test is
+    // simply not selected.
+    if (System.getenv("CODE4ME_E2E_BASE_URL").isNullOrBlank()) {
+        filter.excludeTestsMatching("integration.LiveStudyWorkflowPluginTest")
+    }
 }
 
 intellijPlatform {
