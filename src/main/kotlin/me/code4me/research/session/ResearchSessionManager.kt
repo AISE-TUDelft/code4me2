@@ -283,6 +283,9 @@ class FileResearchSessionStore(
             "schema_version" to SESSION_SCHEMA_VERSION,
             "session_id" to session.sessionId,
             "enrollment_id" to session.enrollmentId,
+            "study_id" to session.studyId,
+            "assignment_id" to session.assignmentId,
+            "profile_digest" to session.profileDigest,
             "context_id" to session.contextId,
             "state" to session.state.value,
             "opened_at_epoch_ms" to session.openedAtEpochMs,
@@ -305,6 +308,9 @@ class FileResearchSessionStore(
             ResearchSession(
                 sessionId = sessionId,
                 enrollmentId = map["enrollment_id"] as? String,
+                studyId = map["study_id"] as? String,
+                assignmentId = map["assignment_id"] as? String,
+                profileDigest = map["profile_digest"] as? String,
                 contextId = (map["context_id"] as? String) ?: "",
                 state = state,
                 openedAtEpochMs = (map["opened_at_epoch_ms"] as? Number)?.toLong(),
@@ -488,6 +494,9 @@ class ResearchSessionManager(
         return ParticipantStudyStateV1(
             enrollmentId = current?.enrollmentId ?: held?.enrollmentId,
             studyId = held?.studyId,
+            assignmentId = held?.assignment?.assignmentId,
+            agentProfileId = held?.assignment?.agentProfileId,
+            profileDigest = held?.assignment?.profileDigest,
             consentState = consentState,
             compatibilityState = compatibilityState,
             sessionState = sessionComponentOf(current?.state),
@@ -890,7 +899,12 @@ class ResearchSessionManager(
         val manifestSessionId = validManifest.researchSession.researchSessionId
         val adoptedManifestId = manifestSessionId.isNotBlank() && manifestSessionId != resolvedSession.sessionId
         val authoritativeSession =
-            if (adoptedManifestId) resolvedSession.copy(sessionId = manifestSessionId) else resolvedSession
+            resolvedSession.copy(
+                sessionId = if (adoptedManifestId) manifestSessionId else resolvedSession.sessionId,
+                studyId = validManifest.studyId,
+                assignmentId = validManifest.assignment.assignmentId,
+                profileDigest = validManifest.assignment.profileDigest,
+            )
         val resumed = resolution.resumed && !adoptedManifestId
         val resolvedSpool =
             try {
@@ -1412,6 +1426,8 @@ class ResearchSessionManager(
             IdeCollectionScope(
                 researchSessionId = resolvedSession.sessionId,
                 studyId = validManifest.studyId,
+                assignmentId = validManifest.assignment.assignmentId,
+                profileDigest = validManifest.assignment.profileDigest,
                 enrollmentId = validManifest.enrollmentId,
                 manifestDigest = validManifest.manifestDigest,
             ),

@@ -33,11 +33,14 @@ enum class SessionTerminalReason(val value: String) {
  * One research session (Issue 07, `ResearchSessionV1`).
  *
  * Idle/resume values live in [SessionStateMachine], never here, because they are
- * revision policy inputs rather than session facts.
+ * study policy inputs rather than session facts.
  */
 data class ResearchSession(
     val sessionId: String,
     val enrollmentId: String? = null,
+    val studyId: String? = null,
+    val assignmentId: String? = null,
+    val profileDigest: String? = null,
     /**
      * Opaque execution-context id (project/window). Scopes the durable
      * session-store document and capability file so two windows never share or

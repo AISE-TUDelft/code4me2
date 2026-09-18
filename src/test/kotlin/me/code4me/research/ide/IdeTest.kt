@@ -52,6 +52,8 @@ class IdeActivityCollectorTest {
             researchSessionId = "session-1",
             studyId = "study-1",
             enrollmentId = "enrollment-1",
+            assignmentId = "assignment-1",
+            profileDigest = "profile-digest-1",
             manifestDigest = "manifest-digest",
         )
 
@@ -463,6 +465,8 @@ class IntellijIdeActivityIntegrationTest : BasePlatformTestCase() {
                     researchSessionId = "session-integration",
                     studyId = "study-1",
                     enrollmentId = "enr-1",
+                    assignmentId = "assignment-1",
+                    profileDigest = "profile-digest-1",
                     manifestDigest = "sha256:" + "a".repeat(64),
                 ),
             )

@@ -74,15 +74,19 @@ data class ResearchSessionDescriptor(
 /** The assignment projection embedded in a manifest. */
 data class ManifestAssignment(
     val assignmentId: String,
+    val agentProfileId: String,
     val strategy: String,
+    val profileDigest: String,
 ) {
     init {
         require(assignmentId.isNotBlank()) { "assignmentId must not be blank" }
+        require(agentProfileId.isNotBlank()) { "agentProfileId must not be blank" }
+        require(profileDigest.isNotBlank()) { "profileDigest must not be blank" }
     }
 }
 
 /**
- * How the agent pinned by a study condition is distributed to the participant.
+ * How the agent pinned by a study profile is distributed to the participant.
  *
  * [PACKAGED] is the default: the agent is a digest-pinned artifact shipped inside
  * the plugin runtime, so the manifest carries an `artifact_digest` and resolution
@@ -110,8 +114,8 @@ enum class AgentDistributionMode(val wireValue: String) {
  * The pinned agent distribution projection embedded in the manifest's
  * `agent_release` object.
  *
- * The backend models a study condition's *distribution* (`AgentProfile`) and
- * freezes an exact pin at publication; the bootstrap manifest projects that pin
+ * The backend models a study profile's *distribution* and freezes an exact pin
+ * at study assignment; the bootstrap manifest projects that pin
  * here. For [AgentDistributionMode.PACKAGED] the immutable `release_id` and
  * `artifact_digest` (the server-selected artifact for the participant's
  * host platform) are the launch contract. For
@@ -209,8 +213,8 @@ data class SessionCapabilityRef(
  * Immutable, secret-free `BootstrapManifestV1` as consumed by the participant
  * client (Issue 05 / Issue 10).
  *
- * The model carries exactly the launch contract: pinned study, sticky
- * assignment, pinned agent release, policy set, compatibility receipt reference,
+ * The model carries exactly the launch contract: study identity, sticky
+ * profile assignment, pinned agent release, policy set, compatibility receipt reference,
  * and a scoped session capability. It never carries account identity, provider
  * credentials, raw consent, or arbitrary launch commands.
  *
@@ -490,7 +494,9 @@ data class BootstrapManifest(
             "assignment" to
                 linkedMapOf(
                     "assignment_id" to assignment.assignmentId,
+                    "agent_profile_id" to assignment.agentProfileId,
                     "strategy" to assignment.strategy,
+                    "profile_digest" to assignment.profileDigest,
                 ),
             "agent_release" to
                 linkedMapOf(
@@ -600,7 +606,9 @@ data class BootstrapManifest(
                 assignment =
                     ManifestAssignment(
                         assignmentId = requiredString(assignment, "assignment_id"),
+                        agentProfileId = requiredString(assignment, "agent_profile_id"),
                         strategy = requiredString(assignment, "strategy"),
+                        profileDigest = requiredString(assignment, "profile_digest"),
                     ),
                 agentRelease =
                     AgentReleaseRef(

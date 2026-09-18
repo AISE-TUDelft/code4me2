@@ -104,6 +104,8 @@ class ParticipantStudyStateV1Test {
             ParticipantStudyStateV1(
                 enrollmentId = "enrollment-1",
                 studyId = "study-1",
+                assignmentId = "assignment-1",
+                profileDigest = "profile-digest-1",
                 consentState = StudyComponentState.AVAILABLE,
                 compatibilityState = StudyComponentState.AVAILABLE,
                 sessionState = StudyComponentState.AVAILABLE,
@@ -162,6 +164,8 @@ class ParticipantStudyStateV1Test {
             ParticipantStudyStateV1(
                 enrollmentId = "enrollment-1",
                 studyId = "study-1",
+                assignmentId = "assignment-1",
+                profileDigest = "profile-digest-1",
                 consentState = StudyComponentState.PAUSED,
                 blockReason = StudyBlockReason.REVOKED,
             )
@@ -1918,6 +1922,9 @@ class FileResearchSessionStoreTest {
         ResearchSession(
             sessionId = "session-1",
             enrollmentId = "enrollment-1",
+            studyId = "study-1",
+            assignmentId = "assignment-1",
+            profileDigest = "profile-digest-1",
             state = SessionState.RUNNING,
             openedAtEpochMs = 1_000L,
             lastActivityEpochMs = 2_000L,

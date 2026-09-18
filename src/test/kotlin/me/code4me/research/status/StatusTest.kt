@@ -179,11 +179,16 @@ class ParticipantStatusPresentationTest {
                 "CANARY_STUDY",
                 "CANARY_MANIFEST_DIGEST",
                 "/Users/participant/secret-project",
+                "CANARY_PROFILE",
+                "CANARY_PROFILE_DIGEST",
             )
         val state =
             ParticipantStudyStateV1(
                 enrollmentId = canaries[0],
                 studyId = canaries[1],
+                assignmentId = canaries[2],
+                agentProfileId = canaries[4],
+                profileDigest = canaries[5],
                 consentState = StudyComponentState.BLOCKED,
                 compatibilityState = StudyComponentState.BLOCKED,
                 sessionState = StudyComponentState.BLOCKED,

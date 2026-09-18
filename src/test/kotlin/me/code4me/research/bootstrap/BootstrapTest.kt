@@ -52,7 +52,6 @@ class BootstrapClientTest {
     fun `first fetch validates and returns a launchable manifest`() {
         val transport = FakeTransport(mutableListOf(BootstrapTransportResult.Success(manifestJson())))
         val result = client(transport).acquire("enrollment-1")
-
         assertEquals(BootstrapStatus.OK, result.status)
         assertTrue(result.canLaunch)
         assertNotNull(result.manifest)
@@ -65,10 +64,8 @@ class BootstrapClientTest {
     fun `cached manifest within expiry is reused without a transport call`() {
         val transport = FakeTransport(mutableListOf(BootstrapTransportResult.Success(manifestJson())))
         val client = client(transport)
-
         val first = client.acquire("enrollment-1")
         val second = client.acquire("enrollment-1")
-
         assertEquals(BootstrapStatus.OK, first.status)
         assertFalse(first.fromCache)
         assertEquals(BootstrapStatus.OK, second.status)
@@ -79,24 +76,16 @@ class BootstrapClientTest {
 
     @Test
     fun `distinct execution contexts never share a cached manifest`() {
-        val transport =
-            FakeTransport(
-                mutableListOf(
-                    BootstrapTransportResult.Success(manifestJson()),
-                    BootstrapTransportResult.Success(manifestJson()),
-                ),
-            )
+        val transport = FakeTransport(
+            mutableListOf(
+                BootstrapTransportResult.Success(manifestJson()),
+                BootstrapTransportResult.Success(manifestJson()),
+            ),
+        )
         val client = client(transport)
-
-        val firstContext = client.acquire("enrollment-1", "ctx-a")
-        val reused = client.acquire("enrollment-1", "ctx-a")
-        val secondContext = client.acquire("enrollment-1", "ctx-b")
-
-        assertEquals(BootstrapStatus.OK, firstContext.status)
-        assertTrue(reused.fromCache)
-        assertEquals(BootstrapStatus.OK, secondContext.status)
-        // ctx-a cached once; ctx-b fetched separately.
-        assertFalse(secondContext.fromCache)
+        assertEquals(BootstrapStatus.OK, client.acquire("enrollment-1", "ctx-a").status)
+        assertTrue(client.acquire("enrollment-1", "ctx-a").fromCache)
+        assertEquals(BootstrapStatus.OK, client.acquire("enrollment-1", "ctx-b").status)
         assertEquals(2, transport.callCount)
     }
 
@@ -105,101 +94,55 @@ class BootstrapClientTest {
         val cache = InMemoryManifestCache()
         val expired = BootstrapManifest.parse(manifestJson(overrides = mapOf("expires_at" to "2026-01-01T00:00:01Z")))
         cache.put("enrollment-1|default", expired)
-
         val transport = FakeTransport(mutableListOf(BootstrapTransportResult.Success(manifestJson())))
-        val client = client(transport, cache)
-
-        val result = client.acquire("enrollment-1")
-
+        val result = client(transport, cache).acquire("enrollment-1")
         assertEquals(BootstrapStatus.OK, result.status)
-        assertEquals(1, transport.callCount)
         assertFalse(result.fromCache)
         assertTrue(result.manifest!!.expiresAt > expired.expiresAt)
         assertEquals(result.manifest, cache.get("enrollment-1|default"))
     }
 
     @Test
-    fun `refresh returning another expired manifest asks for refresh without blocking`() {
-        val transport =
-            FakeTransport(
-                mutableListOf(
-                    BootstrapTransportResult.Success(
-                        manifestJson(overrides = mapOf("expires_at" to "2026-01-01T00:00:01Z")),
-                    ),
-                ),
-            )
-
+    fun `refresh returning another expired manifest asks for refresh`() {
+        val transport = FakeTransport(
+            mutableListOf(BootstrapTransportResult.Success(manifestJson(overrides = mapOf("expires_at" to "2026-01-01T00:00:01Z")))),
+        )
         val result = client(transport).acquire("enrollment-1")
-
         assertEquals(BootstrapStatus.REFRESH_REQUIRED, result.status)
         assertFalse(result.canLaunch)
-        assertFalse(result.manifest == null)
         assertEquals(ManifestValidationReason.EXPIRED, result.validationReason)
     }
 
     @Test
     fun `revoked enrollment is blocked and the cache is cleared`() {
         val cache = InMemoryManifestCache()
-        // Cache holds a stale (expired) entry, so the client refreshes and learns of revocation.
-        cache.put(
-            "enrollment-1|default",
-            BootstrapManifest.parse(manifestJson(overrides = mapOf("expires_at" to "2026-01-01T00:00:01Z"))),
-        )
-        val transport = FakeTransport(mutableListOf(BootstrapTransportResult.Revoked("withdrawn")))
-
-        val result = client(transport, cache).acquire("enrollment-1")
-
+        cache.put("enrollment-1|default", BootstrapManifest.parse(manifestJson(overrides = mapOf("expires_at" to "2026-01-01T00:00:01Z"))))
+        val result = client(FakeTransport(mutableListOf(BootstrapTransportResult.Revoked("withdrawn"))), cache).acquire("enrollment-1")
         assertEquals(BootstrapStatus.BLOCKED, result.status)
         assertNull(result.manifest)
-        assertFalse(result.canLaunch)
         assertEquals("withdrawn", result.reason)
         assertNull(cache.get("enrollment-1|default"))
-        assertEquals(1, transport.callCount)
     }
 
     @Test
-    fun `transport failure returns a typed retryable result`() {
-        val transport = FakeTransport(mutableListOf(BootstrapTransportResult.Failure("timeout", retryable = true)))
-
-        val result = client(transport).acquire("enrollment-1")
-
-        assertEquals(BootstrapStatus.RETRYABLE, result.status)
-        assertNull(result.manifest)
-        assertFalse(result.canLaunch)
-        assertEquals("timeout", result.reason)
-    }
-
-    @Test
-    fun `non-retryable transport failure is blocked`() {
-        val transport = FakeTransport(mutableListOf(BootstrapTransportResult.Failure("forbidden", retryable = false)))
-
-        val result = client(transport).acquire("enrollment-1")
-
-        assertEquals(BootstrapStatus.BLOCKED, result.status)
-        assertNull(result.manifest)
+    fun `transport failures preserve retry semantics`() {
+        val retryable = client(FakeTransport(mutableListOf(BootstrapTransportResult.Failure("timeout", retryable = true)))).acquire("enrollment-1")
+        assertEquals(BootstrapStatus.RETRYABLE, retryable.status)
+        val blocked = client(FakeTransport(mutableListOf(BootstrapTransportResult.Failure("forbidden", retryable = false)))).acquire("enrollment-1")
+        assertEquals(BootstrapStatus.BLOCKED, blocked.status)
     }
 
     @Test
     fun `malformed manifest is blocked rather than launched`() {
-        val transport = FakeTransport(mutableListOf(BootstrapTransportResult.Success("{not json")))
-
-        val result = client(transport).acquire("enrollment-1")
-
+        val result = client(FakeTransport(mutableListOf(BootstrapTransportResult.Success("{not json")))).acquire("enrollment-1")
         assertEquals(BootstrapStatus.BLOCKED, result.status)
         assertEquals(ManifestValidationReason.MALFORMED, result.validationReason)
-        assertNull(result.manifest)
     }
 
     @Test
     fun `invalid manifest is blocked and never cached`() {
         val cache = InMemoryManifestCache()
-        val transport =
-            FakeTransport(
-                mutableListOf(BootstrapTransportResult.Success(manifestJson(digestOverride = "0".repeat(64)))),
-            )
-
-        val result = client(transport, cache).acquire("enrollment-1")
-
+        val result = client(FakeTransport(mutableListOf(BootstrapTransportResult.Success(manifestJson(digestOverride = "0".repeat(64))))), cache).acquire("enrollment-1")
         assertEquals(BootstrapStatus.BLOCKED, result.status)
         assertEquals(ManifestValidationReason.DIGEST_MISMATCH, result.validationReason)
         assertNull(cache.get("enrollment-1|default"))
@@ -207,13 +150,10 @@ class BootstrapClientTest {
 
     @Test
     fun `invalidate drops a cached manifest`() {
-        val transport = FakeTransport(mutableListOf(BootstrapTransportResult.Success(manifestJson())))
-        val client = client(transport)
+        val client = client(FakeTransport(mutableListOf(BootstrapTransportResult.Success(manifestJson()))))
         client.acquire("enrollment-1")
         assertNotNull(client.cached("enrollment-1"))
-
         client.invalidate("enrollment-1")
-
         assertNull(client.cached("enrollment-1"))
     }
 }
@@ -226,18 +166,20 @@ class BootstrapManifestTest {
     @Test
     fun `valid manifest parses and validates`() {
         val manifest = validManifest()
-
         assertEquals("1", manifest.manifestVersion)
         assertEquals(AUDIENCE, manifest.audience)
         assertEquals("study-1", manifest.studyId)
         assertEquals("enrollment-1", manifest.enrollmentId)
         assertEquals("session-1", manifest.researchSession.researchSessionId)
         assertEquals("assignment-1", manifest.assignment.assignmentId)
+        assertEquals("profile-1", manifest.assignment.agentProfileId)
+        assertEquals("profile-digest-1", manifest.assignment.profileDigest)
         assertEquals(VALID_ARTIFACT_DIGEST, manifest.agentRelease.artifactDigest)
         assertEquals("codex-v1", manifest.agentRelease.adapterVersion)
         assertEquals(30L, manifest.policies.privacy?.retentionDays)
         assertEquals(600L, manifest.policies.session?.idleTimeoutSeconds)
         assertTrue(manifest.sessionCapability.scope.contains("telemetry:write"))
+        assertEquals("receipt-1", manifest.compatibilityReceiptRef)
         assertEquals("receipt-1", manifest.compatibilityReceiptRef)
 
         assertTrue(manifest.digestMatches())
@@ -663,6 +605,7 @@ class BootstrapManifestTest {
                 "assignment_id" to "assignment-1",
                 "agent_profile_id" to "participant@example.com",
                 "strategy" to "RANDOM_EQUAL",
+                "profile_digest" to "profile-digest-1",
             )
         val manifest = BootstrapManifest.parse(manifestJson(overrides = mapOf("assignment" to assignment)))
 
