@@ -13,8 +13,6 @@ import me.code4me.research.bootstrap.BootstrapTransport
 import me.code4me.research.bootstrap.BootstrapTransportResult
 import me.code4me.research.bootstrap.EnrollmentDiscovery
 import me.code4me.research.bootstrap.HttpBootstrapTransport
-import me.code4me.research.bootstrap.JoinCodeResolution
-import me.code4me.research.bootstrap.JoinEnrollResolution
 import me.code4me.research.bootstrap.PluginCompatibility
 import me.code4me.research.bootstrap.ResearchJoinCodeResolver
 import me.code4me.research.actions.ResearchEnrollmentSettings
@@ -114,33 +112,6 @@ class ResearchSessionService(private val project: Project) : Disposable {
             }
             is EnrollmentDiscovery.Unavailable -> null
         }
-    }
-
-    /**
-     * Resolve a short study join code to the signed-in account's enrollment.
-     *
-     * A missing/partial backend configuration yields a retryable
-     * [JoinCodeResolution.Unavailable] rather than guessing an endpoint. Never
-     * throws: the resolver maps every network/parse failure to a typed result.
-     */
-    fun resolveJoinCode(joinCode: String): JoinCodeResolution {
-        val baseUrl =
-            resolveConfiguredBaseUrl()
-                ?: return JoinCodeResolution.Unavailable("The research server is not configured for this build.")
-        return ResearchJoinCodeResolver(baseUrl).resolve(joinCode)
-    }
-
-    /**
-     * Redeem a short study join code for the signed-in participant.
-     *
-     * Idempotent: a code the account already redeemed reuses the existing
-     * enrollment. Never throws.
-     */
-    fun enrollWithJoinCode(joinCode: String): JoinEnrollResolution {
-        val baseUrl =
-            resolveConfiguredBaseUrl()
-                ?: return JoinEnrollResolution.Unavailable("The research server is not configured for this build.")
-        return ResearchJoinCodeResolver(baseUrl).redeem(joinCode)
     }
 
     /** Stop any running participant session (idempotent). */

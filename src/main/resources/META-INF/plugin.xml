@@ -22,12 +22,6 @@
                 description="Prepare a one-time authenticated ACP launch grant for this project">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
-        <action id="me.code4me.research.actions.JoinResearchStudyAction"
-                class="me.code4me.research.actions.JoinResearchStudyAction"
-                text="Join Research Study..."
-                description="Join a Code4Me research study with an enrollment code">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
     </actions>
 
 
