@@ -23,3 +23,7 @@ out/
 # Native participant runtimes are immutable release artifacts staged by CI.
 # Keep the contract manifest tracked without committing large platform bundles.
 src/main/resources/code4me-runtime/*.zip
+
+dist/
+telemetry-acp-proxy/agents/
+*.md

@@ -1,0 +1,22 @@
+[project]
+name = "telemetry-acp-proxy"
+version = "1.0.0"
+description = "Standalone, versioned, transparent ACP stdio telemetry proxy (Issue 08)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+dependencies = []
+
+[project.scripts]
+telemetry-acp-proxy = "telemetry_acp_proxy.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["telemetry_acp_proxy*"]
+
+[tool.ruff]
+line-length = 99
+target-version = "py310"

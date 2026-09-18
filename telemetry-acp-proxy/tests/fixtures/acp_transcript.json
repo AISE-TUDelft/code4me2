@@ -1,0 +1,242 @@
+[
+  {
+    "direction": "host_to_agent",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "initialize",
+      "params": {
+        "protocolVersion": 1,
+        "clientCapabilities": { "fs": { "readTextFile": true } },
+        "api_key": "sk-CANARY-ACP-0000000001"
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "protocolVersion": 1,
+        "agentCapabilities": { "loadSession": true, "promptCapabilities": { "image": false } }
+      }
+    }
+  },
+  {
+    "direction": "host_to_agent",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session/new",
+      "params": { "cwd": "/synthetic/project", "mcpServers": [] }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": { "sessionId": "sess-synthetic-1" }
+    }
+  },
+  {
+    "direction": "host_to_agent",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "session/prompt",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "prompt": [ { "type": "text", "text": "CANARY-PROMPT-TEXT" } ]
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "call-synthetic-1",
+          "title": "Edit file",
+          "kind": "edit",
+          "status": "pending",
+          "rawInput": {
+            "path": "/synthetic/project/main.py",
+            "api_key": "sk-CANARY-ACP-0000000002"
+          },
+          "content": [ { "type": "text", "text": "CANARY-ACP-CONTENT-BODY" } ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call-synthetic-1",
+          "status": "in_progress"
+        }
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "toolCall": { "toolCallId": "call-synthetic-1" },
+        "options": [
+          { "optionId": "allow_once", "name": "Allow once", "kind": "allow_once" },
+          { "optionId": "reject_once", "name": "Reject", "kind": "reject_once" }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "host_to_agent",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": { "outcome": { "outcome": "selected", "optionId": "allow_once" } }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call-synthetic-1",
+          "status": "completed",
+          "content": [ { "type": "text", "text": "CANARY-ACP-TOOL-OUTPUT" } ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "messageId": "msg-synthetic-1",
+          "content": { "type": "text", "text": "CANARY-ACP-RESPONSE" }
+        }
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg-synthetic-1",
+          "content": { "type": "text", "text": "CANARY-ACP-REASONING" }
+        }
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "update": {
+          "sessionUpdate": "plan",
+          "entries": [
+            { "content": "step one", "priority": "high" },
+            { "content": "step two", "priority": "low" }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "update": { "sessionUpdate": "usage_update", "inputTokens": 10, "outputTokens": 5, "totalTokens": 15 }
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "update": { "sessionUpdate": "usage_update", "totalTokens": 0 }
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": { "stopReason": "end_turn", "usage": { "totalTokens": 15 } }
+    }
+  },
+  {
+    "direction": "host_to_agent",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "session/prompt",
+      "params": {
+        "sessionId": "sess-synthetic-1",
+        "prompt": [ { "type": "text", "text": "CANARY-SECOND-PROMPT" } ]
+      }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": { "jsonrpc": "2.0", "id": 5, "result": {} }
+  },
+  {
+    "direction": "host_to_agent",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "vendor/unknownThing",
+      "params": { "secret": "ghp_CANARYACP0000000003", "count": 3 }
+    }
+  },
+  {
+    "direction": "agent_to_host",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "error": { "code": -32601, "message": "Method not found: CANARY-ERROR-TEXT" }
+    }
+  }
+]

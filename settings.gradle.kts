@@ -25,3 +25,4 @@ rootProject.name = "client"
 
 include(":generated")
 include(":integration-tests")
+include(":ui-tests")

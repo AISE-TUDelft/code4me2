@@ -1,0 +1,222 @@
+[
+  {
+    "sequence": 1,
+    "event_type": "interaction.started",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 2,
+    "event_type": "unknown_source_event",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "NEEDS_REVIEW",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 3,
+    "event_type": "interaction.started",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 4,
+    "event_type": "unknown_source_event",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "NEEDS_REVIEW",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 5,
+    "event_type": "agent.message.started",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 6,
+    "event_type": "tool.created",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": "pending",
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 7,
+    "event_type": "tool.started",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": "started",
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 8,
+    "event_type": "permission.requested",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 9,
+    "event_type": "permission.decided",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 10,
+    "event_type": "tool.completed",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": "completed",
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 11,
+    "event_type": "agent.message.started",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": "started",
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 12,
+    "event_type": "agent.message.started",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": "started",
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 13,
+    "event_type": "plan.updated",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 14,
+    "event_type": "usage.updated",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": null,
+    "usage_tokens": 15,
+    "usage_state": "AVAILABLE",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 15,
+    "event_type": "usage.updated",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": null,
+    "usage_tokens": 0,
+    "usage_state": "AVAILABLE",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 16,
+    "event_type": "agent.message.completed",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": "completed",
+    "usage_tokens": 15,
+    "usage_state": "AVAILABLE",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 17,
+    "event_type": "agent.message.started",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 18,
+    "event_type": "agent.message.completed",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": "completed",
+    "usage_tokens": null,
+    "usage_state": "UNAVAILABLE",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 19,
+    "event_type": "unknown_source_event",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "NEEDS_REVIEW",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  },
+  {
+    "sequence": 20,
+    "event_type": "agent.error",
+    "source": "acp",
+    "fidelity": "normalized",
+    "coverage_state": "AVAILABLE",
+    "lifecycle_state": null,
+    "usage_tokens": null,
+    "usage_state": "UNKNOWN",
+    "normalizer_version": "generic-acp-v1"
+  }
+]

@@ -1,12 +1,15 @@
+import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
-import java.io.File
-import java.net.URI
-import java.security.MessageDigest
 import org.gradle.kotlin.dsl.register
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
+import java.io.File
+import java.io.OutputStream
+import java.net.URI
+import java.security.DigestInputStream
+import java.security.MessageDigest
 
 plugins {
     id("java") // Java support
@@ -281,13 +284,15 @@ tasks {
         // Test-JVM-only; distribution, sandbox, production, verifier untouched.
         // Precedent: JetBrains IdeaVim test-classpath surgery for flat-classpath
         // collisions. Pinned version fails loudly at resolve time if renamed.
-        val forkFastutil = configurations.detachedConfiguration(
-            project.dependencies.create("org.jetbrains.intellij.deps.fastutil:intellij-deps-fastutil:8.5.18-jb1"),
-        )
-        classpath = files(forkFastutil) + classpath.filter { it.name != "fleet.fastutil.jar" } + files(
-            // Re-append ONLY if present, after the fork: provides fleet.* packages.
-            classpath.filter { it.name == "fleet.fastutil.jar" },
-        )
+        val forkFastutil =
+            configurations.detachedConfiguration(
+                project.dependencies.create("org.jetbrains.intellij.deps.fastutil:intellij-deps-fastutil:8.5.18-jb1"),
+            )
+        classpath = files(forkFastutil) + classpath.filter { it.name != "fleet.fastutil.jar" } +
+            files(
+                // Re-append ONLY if present, after the fork: provides fleet.* packages.
+                classpath.filter { it.name == "fleet.fastutil.jar" },
+            )
         // Drop the JetBrains AI Assistant plugin from the TEST JVM only: it is
         // unloadable in the test sandbox (missing com.intellij.modules.platform)
         // and its obfuscated jars collide with Ultimate post-startup loading.
@@ -403,13 +408,16 @@ tasks.named<ProcessResources>("processResources") {
             }
         }
     }
-    if (participantBuildRequested) require(!configuredParticipantServerUrl.isNullOrBlank()) {
-        "Pass -Pcode4me.serverUrl=https://api.example.org"
+    if (participantBuildRequested) {
+        require(!configuredParticipantServerUrl.isNullOrBlank()) {
+            "Pass -Pcode4me.serverUrl=https://api.example.org"
+        }
     }
     configuredParticipantServerUrl?.let { url ->
-        val origin = runCatching { URI(url) }.getOrElse {
-            throw GradleException("Participant backend is not a valid HTTPS origin: $url", it)
-        }
+        val origin =
+            runCatching { URI(url) }.getOrElse {
+                throw GradleException("Participant backend is not a valid HTTPS origin: $url", it)
+            }
         require(
             origin.scheme == "https" &&
                 !origin.host.isNullOrBlank() &&
@@ -422,7 +430,9 @@ tasks.named<ProcessResources>("processResources") {
             filter { line: String ->
                 if (line.trimStart().startsWith("host =") || line.trimStart().startsWith("acpRuntimeBaseUrl =")) {
                     line.replace(Regex("\"[^\"]*\""), "\"$url\"")
-                } else line
+                } else {
+                    line
+                }
             }
         }
     }
@@ -447,6 +457,7 @@ tasks.register("verifyParticipantRuntimeResources") {
     doLast {
         val resourceRoot = File(participantRuntimeResourceRoot)
         val manifestFile = resourceRoot.resolve("code4me-runtime/manifest.json")
+
         @Suppress("UNCHECKED_CAST")
         val manifest = JsonSlurper().parse(manifestFile) as Map<String, Any?>
         require(manifest["manifest_version"].toString() == "1") {
@@ -476,13 +487,8 @@ tasks.register("verifyParticipantRuntimeResources") {
             val archive = resourceRoot.resolve(artifact["archive"].toString()).normalize()
             require(archive.startsWith(resourceRoot) && archive.isFile) { "Missing runtime archive: $archive" }
             val digest = MessageDigest.getInstance("SHA-256")
-            archive.inputStream().buffered().use { input ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    digest.update(buffer, 0, read)
-                }
+            DigestInputStream(archive.inputStream().buffered(), digest).use {
+                it.transferTo(OutputStream.nullOutputStream())
             }
             val checksum = digest.digest().joinToString("") { "%02x".format(it) }
             require(checksum == artifact["sha256"].toString().lowercase()) {
@@ -490,6 +496,465 @@ tasks.register("verifyParticipantRuntimeResources") {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Packaged research ACP proxy runtime (Issue 08 / Issue 11).
+//
+// `research-runtime/` is staged into plugin resources and shipped in the plugin
+// jar/ZIP. `proxy-manifest.json` pins every payload file by relative safe path,
+// size, and SHA-256; at runtime `PackagedProxyRuntimeResolver` refuses anything
+// missing, mismatched, escaping, or not self-contained. No PATH/npm/source
+// fallback is ever consulted.
+// ---------------------------------------------------------------------------
+val researchProxySourceRoot = layout.projectDirectory.dir("telemetry-acp-proxy")
+val researchProxyDistRoot = layout.projectDirectory.dir("telemetry-acp-proxy/dist")
+val researchRuntimeStagingDir = layout.buildDirectory.dir("research-runtime-staging")
+
+val hostResearchOs: String =
+    when {
+        System.getProperty("os.name").startsWith("Windows", ignoreCase = true) -> "windows"
+        System.getProperty("os.name").startsWith("Mac", ignoreCase = true) -> "macos"
+        System.getProperty("os.name").startsWith("Linux", ignoreCase = true) -> "linux"
+        else -> "unsupported"
+    }
+val hostResearchArch: String =
+    when (System.getProperty("os.arch").lowercase()) {
+        "aarch64", "arm64" -> "aarch64"
+        "amd64", "x86_64", "x64" -> "x64"
+        else -> "unsupported"
+    }
+
+val stageResearchProxy =
+    tasks.register("stageResearchProxy") {
+        group = "build"
+        description =
+            "Stages the digest-pinned research ACP proxy runtime into plugin resources. " +
+            "Override the packaged agent with -PresearchAgentDir/-PresearchAgentBinary."
+        inputs.dir(researchProxySourceRoot).withPathSensitivity(PathSensitivity.RELATIVE)
+        if (researchProxyDistRoot.asFile.isDirectory) {
+            inputs.dir(researchProxyDistRoot).withPathSensitivity(PathSensitivity.RELATIVE)
+        }
+        outputs.dir(researchRuntimeStagingDir)
+        // Capture plain values (no script/Provider references) so the task action
+        // is safe to store in the configuration cache.
+        val sourceRootFile = researchProxySourceRoot.asFile
+        val distRootFile = researchProxyDistRoot.asFile
+        val stagingRootFile = researchRuntimeStagingDir.get().asFile
+        val runtimeResourceRootPath = participantRuntimeResourceRoot
+        val targetOs = hostResearchOs
+        val targetArch = hostResearchArch
+        // Supported packaged-agent staging overrides (Issue 11 / Gap 5). They let
+        // an operator stage a real agent without touching the dev tree; the
+        // `agent` block is still populated only with real digests.
+        val agentDirOption = providers.gradleProperty("researchAgentDir").orNull
+        val agentBinaryOption = providers.gradleProperty("researchAgentBinary").orNull
+        val agentDigestOption = providers.gradleProperty("researchAgentDigest").orNull
+        val agentArgsOption = providers.gradleProperty("researchAgentArgs").orNull
+        agentDirOption?.let { inputs.dir(it).withPathSensitivity(PathSensitivity.RELATIVE) }
+        agentBinaryOption?.let { inputs.file(it) }
+        // The declared pin is a task input so changing it re-runs the task and a
+        // wrong pin is never silently skipped by an up-to-date output.
+        inputs.property("researchAgentDigest", agentDigestOption ?: "")
+        inputs.property("researchAgentArgs", agentArgsOption ?: "")
+        doLast {
+            fun sha256Of(file: File): String {
+                val digest = MessageDigest.getInstance("SHA-256")
+                DigestInputStream(file.inputStream().buffered(), digest).use {
+                    it.transferTo(OutputStream.nullOutputStream())
+                }
+                return digest.digest().joinToString("") { "%02x".format(it) }
+            }
+
+            fun copyTree(
+                source: File,
+                destination: File,
+                skipDirectoryNames: Set<String> = emptySet(),
+            ) {
+                if (!source.exists()) return
+                source.walkTopDown().forEach { file ->
+                    val relative = file.relativeTo(source).path.replace(File.separatorChar, '/')
+                    if (relative.split('/').any { it in skipDirectoryNames }) return@forEach
+                    val target = File(destination, relative)
+                    if (file.isDirectory) {
+                        target.mkdirs()
+                    } else if (!file.name.endsWith(".pyc")) {
+                        target.parentFile?.mkdirs()
+                        file.copyTo(target, overwrite = true)
+                    }
+                }
+            }
+
+            val staging = stagingRootFile
+            staging.walkBottomUp().forEach { it.delete() }
+            staging.mkdirs()
+
+            val proxyExecutableName =
+                if (targetOs == "windows") "telemetry-acp-proxy.exe" else "telemetry-acp-proxy"
+            val prebuilt = File(distRootFile, "$targetOs-$targetArch")
+            val selfContained = prebuilt.isDirectory && File(prebuilt, proxyExecutableName).isFile
+
+            val entrypoint: List<String>
+            if (selfContained) {
+                copyTree(prebuilt, staging)
+                entrypoint = listOf(proxyExecutableName)
+            } else {
+                copyTree(
+                    File(sourceRootFile, "telemetry_acp_proxy"),
+                    File(staging, "py/telemetry_acp_proxy"),
+                    skipDirectoryNames = setOf("__pycache__"),
+                )
+                // A small launcher so a configured development interpreter can run
+                // the source package (`python <runtime>/run.py ...`). It is never
+                // used unless the dev runtime is explicitly enabled.
+                File(staging, "run.py")
+                    .writeText(
+                        """
+                        |#!/usr/bin/env python3
+                        |# Development launcher for the source-bundled telemetry ACP proxy.
+                        |import sys
+                        |from pathlib import Path
+                        |
+                        |sys.path.insert(0, str(Path(__file__).resolve().parent / "py"))
+                        |
+                        |from telemetry_acp_proxy.main import main  # noqa: E402
+                        |
+                        |if __name__ == "__main__":
+                        |    raise SystemExit(main())
+                        |
+                        """.trimMargin(),
+                    )
+                entrypoint = listOf("run.py")
+            }
+
+            fun normalizeDigest(raw: String?): String? {
+                if (raw == null) return null
+                val text = raw.trim().lowercase()
+                val stripped = text.removePrefix("sha256:")
+                return if (Regex("^[0-9a-f]{64}$").matches(stripped)) stripped else null
+            }
+
+            val agentStagedPrefix = "agents/$targetOs-$targetArch/"
+
+            // If the runtime manifest names a host-platform archive that actually
+            // exists on disk, prefer its declared executable name so the staged
+            // agent is named correctly. When the archive is absent this is empty
+            // and detection behaves exactly as before.
+            val runtimeManifestFile = File(runtimeResourceRootPath, "code4me-runtime/manifest.json")
+            val manifestAgentExecutables: Set<String> =
+                if (runtimeManifestFile.isFile) {
+                    runCatching {
+                        @Suppress("UNCHECKED_CAST")
+                        val manifest = JsonSlurper().parse(runtimeManifestFile) as Map<String, Any?>
+                        @Suppress("UNCHECKED_CAST")
+                        val artifacts = manifest["artifacts"] as? List<Map<String, Any?>> ?: emptyList()
+                        fun normalizeManifestArch(raw: Any?): String =
+                            when (raw?.toString()?.lowercase()) {
+                                "aarch64", "arm64" -> "aarch64"
+                                "x64", "amd64", "x86_64" -> "x64"
+                                else -> raw?.toString()?.lowercase().orEmpty()
+                            }
+                        artifacts
+                            .filter {
+                                it["platform"]?.toString() == targetOs &&
+                                    normalizeManifestArch(it["architecture"]) == targetArch
+                            }.mapNotNull { artifact ->
+                                val archive = artifact["archive"]?.toString()
+                                val executable = artifact["executable"]?.toString()
+                                if (archive != null &&
+                                    executable != null &&
+                                    File(runtimeResourceRootPath, archive).isFile
+                                ) {
+                                    executable
+                                } else {
+                                    null
+                                }
+                            }.toSet()
+                    }.getOrElse { emptySet() }
+                } else {
+                    emptySet()
+                }
+
+            val agentCandidates =
+                setOf("code4me-agent", "code4me-agent.exe", "codex-acp", "codex-acp.exe") +
+                    manifestAgentExecutables
+
+            fun detectAgentEntrypoint(directory: File, allowSingleFile: Boolean = false): String? {
+                val allFiles = directory.walkTopDown().filter { it.isFile }.sortedBy { it.path }.toList()
+                val entry = allFiles.firstOrNull { it.name in agentCandidates }
+                    ?: allFiles.singleOrNull().takeIf { allowSingleFile }
+                return entry?.relativeTo(directory)?.invariantSeparatorsPath
+            }
+
+            // Optional packaged agent. A real agent is staged only from an explicit
+            // `-PresearchAgentDir`/`-PresearchAgentBinary` or from the dev
+            // auto-detection path; otherwise the `agent` block is omitted (never
+            // invented) and the runtime is refused at launch.
+            val agentTargetDir = File(staging, "agents/$targetOs-$targetArch")
+            val explicitAgentDir = agentDirOption?.let { File(it) }
+            val explicitAgentBinary = agentBinaryOption?.let { File(it) }
+            val autoAgentSource = File(sourceRootFile, "agents/$targetOs-$targetArch")
+
+            val agentEntryRelative: String? =
+                when {
+                    explicitAgentDir != null -> {
+                        if (!explicitAgentDir.isDirectory) {
+                            throw GradleException("-PresearchAgentDir is not a directory: ${explicitAgentDir.absolutePath}")
+                        }
+                        if (explicitAgentBinary != null && !explicitAgentBinary.isFile) {
+                            throw GradleException("-PresearchAgentBinary is not a file: ${explicitAgentBinary.absolutePath}")
+                        }
+                        copyTree(explicitAgentDir, agentTargetDir)
+                        if (explicitAgentBinary != null) {
+                            val relative = explicitAgentBinary.relativeTo(explicitAgentDir)
+                            if (relative.path.startsWith("..")) {
+                                throw GradleException(
+                                    "-PresearchAgentBinary must live inside -PresearchAgentDir; got " +
+                                        "${explicitAgentBinary.absolutePath} outside ${explicitAgentDir.absolutePath}",
+                                )
+                            }
+                            relative.path.replace(File.separatorChar, '/')
+                        } else {
+                            detectAgentEntrypoint(agentTargetDir, allowSingleFile = true)
+                                ?: throw GradleException(
+                                    "could not determine the agent entrypoint in ${agentTargetDir.absolutePath}; " +
+                                        "pass -PresearchAgentBinary=<path> or name it one of $agentCandidates",
+                                )
+                        }
+                    }
+                    explicitAgentBinary != null -> {
+                        if (!explicitAgentBinary.isFile) {
+                            throw GradleException("-PresearchAgentBinary is not a file: ${explicitAgentBinary.absolutePath}")
+                        }
+                        agentTargetDir.mkdirs()
+                        explicitAgentBinary.copyTo(File(agentTargetDir, explicitAgentBinary.name), overwrite = true)
+                        explicitAgentBinary.name
+                    }
+                    autoAgentSource.isDirectory -> {
+                        detectAgentEntrypoint(autoAgentSource)?.also {
+                            copyTree(autoAgentSource, agentTargetDir)
+                        }
+                    }
+                    else -> null
+                }
+
+            // A managed Code4Me agent must run in `--managed` mode; other agents
+            // keep an argument-free entrypoint unless -PresearchAgentArgs overrides.
+            val managedAgentExecutableNames =
+                setOf("code4me-agent", "code4me-agent.exe", "code4me2-agent", "code4me2-agent.exe")
+            val isManagedCode4MeAgent =
+                File(agentEntryRelative ?: "").name.lowercase() in managedAgentExecutableNames
+            val explicitAgentArgs =
+                agentArgsOption?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }
+            val researchAgentArgs: List<String> =
+                when {
+                    explicitAgentArgs != null -> explicitAgentArgs
+                    isManagedCode4MeAgent -> listOf("--managed")
+                    else -> emptyList()
+                }
+
+            val files = mutableListOf<Map<String, Any>>()
+            val agentFiles = mutableListOf<Map<String, Any>>()
+            staging
+                .walkTopDown()
+                .filter { it.isFile }
+                .sortedBy { it.path }
+                .forEach { file ->
+                    val relative = file.relativeTo(staging).invariantSeparatorsPath
+                    val isAgent = relative.startsWith(agentStagedPrefix)
+                    if (!isAgent && file.name == "proxy-manifest.json") return@forEach
+                    val record = linkedMapOf(
+                        "path" to relative,
+                        "sha256" to sha256Of(file),
+                        "size" to file.length(),
+                        "executable" to (isAgent || (selfContained && relative == entrypoint.first())),
+                    )
+                    if (isAgent) agentFiles.add(record) else files.add(record)
+                }
+
+            val platform =
+                linkedMapOf<String, Any?>(
+                    "os" to targetOs,
+                    "arch" to targetArch,
+                    "self_contained" to selfContained,
+                    "entrypoint" to entrypoint,
+                    "files" to files,
+                )
+
+            if (agentEntryRelative != null) {
+                val agentEntryFile = File(staging, agentStagedPrefix + agentEntryRelative)
+                agentEntryFile.parentFile?.mkdirs()
+                agentEntryFile.setExecutable(true, false)
+                val computedDigest = sha256Of(agentEntryFile)
+                val declaredDigest = normalizeDigest(agentDigestOption)
+                if (agentDigestOption != null && declaredDigest == null) {
+                    throw GradleException(
+                        "-PresearchAgentDigest must be a 64-hex sha256 (optionally prefixed with 'sha256:'): $agentDigestOption",
+                    )
+                }
+                if (declaredDigest != null && declaredDigest != computedDigest) {
+                    throw GradleException(
+                        "-PresearchAgentDigest $declaredDigest does not match the staged agent executable sha256 $computedDigest",
+                    )
+                }
+                platform["agent"] =
+                    linkedMapOf<String, Any?>(
+                        "entrypoint" to (listOf(agentStagedPrefix + agentEntryRelative) + researchAgentArgs),
+                        "digest" to computedDigest,
+                        "files" to agentFiles,
+                    )
+            }
+
+            val manifest =
+                linkedMapOf<String, Any?>(
+                    "schema_version" to "1",
+                    "platforms" to listOf(platform),
+                )
+            File(staging, "proxy-manifest.json")
+                .writeText(JsonOutput.prettyPrint(JsonOutput.toJson(manifest)))
+        }
+    }
+
+// DEV-ONLY helper: builds a self-contained PyInstaller bundle for the current
+// platform. It is deliberately NOT wired into `build`/`test`; it requires a
+// local Python with PyInstaller and only produces inputs for `stageResearchProxy`.
+//
+// This is a local-dev + CI helper. The absolute paths it passes to PyInstaller
+// (`--distpath`, `--workpath`, `--paths`) are BUILD inputs only: the produced
+// onedir bundle embeds its own interpreter and dependencies, so the staged
+// `telemetry-acp-proxy/dist/<os>-<arch>/` directory is self-contained and
+// relocatable. No absolute build path is required (or referenced) at runtime.
+val buildResearchProxyBundle =
+    tasks.register("buildResearchProxyBundle") {
+        group = "build"
+        description =
+            "Dev-only: builds a self-contained PyInstaller proxy bundle into " +
+            "telemetry-acp-proxy/dist/<os>-<arch>/. Not part of build/test."
+        val proxyDirFile = researchProxySourceRoot.asFile
+        val distRootFile = researchProxyDistRoot.asFile
+        val serverSrcFile = layout.projectDirectory.dir("../code4me2-server/src").asFile
+        val buildDirFile = layout.buildDirectory.dir("research-proxy-bundle").get().asFile
+        val targetOs = hostResearchOs
+        val targetArch = hostResearchArch
+        val pythonOverride = providers.environmentVariable("PYTHON").orNull
+        val pythonPropertyOverride = providers.gradleProperty("researchProxyPython").orNull
+        // Repo venvs are the common local-dev case (PyInstaller installed there);
+        // `PYTHON` / `-PresearchProxyPython` always win. Windows venvs put the
+        // interpreter under `Scripts/python.exe` instead of `bin/python`.
+        val repoRootDir = layout.projectDirectory.dir("..").asFile
+        val venvInterpreterPath =
+            if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
+                "Scripts/python.exe"
+            } else {
+                "bin/python"
+            }
+        val venvPythonCandidates =
+            listOf(
+                File(repoRootDir, ".venv/$venvInterpreterPath"),
+                File(repoRootDir, "code4me2-server/.venv/$venvInterpreterPath"),
+                File(repoRootDir, "code4me2/.venv/$venvInterpreterPath"),
+            ).map { it.absolutePath }
+        doLast {
+            fun runCommand(
+                command: List<String>,
+                workingDirectory: File,
+            ): Pair<Int, String> {
+                val process =
+                    ProcessBuilder(command)
+                        .directory(workingDirectory)
+                        .redirectErrorStream(true)
+                        .start()
+                val output = process.inputStream.bufferedReader().readText()
+                return process.waitFor() to output
+            }
+
+            fun works(candidate: String): Boolean =
+                try {
+                    runCommand(listOf(candidate, "-c", "import sys"), proxyDirFile).first == 0
+                } catch (_: Exception) {
+                    false
+                }
+
+            val python =
+                listOfNotNull(
+                    pythonOverride,
+                    pythonPropertyOverride,
+                    *venvPythonCandidates.toTypedArray(),
+                    "python3",
+                    "python",
+                ).firstOrNull { works(it) }
+                    ?: throw GradleException(
+                        "No usable Python interpreter found. Set PYTHON=/absolute/path/to/python, " +
+                            "pass -PresearchProxyPython=/absolute/path/to/python, or install " +
+                            "Python 3.10+, then re-run ./gradlew buildResearchProxyBundle.",
+                    )
+            logger.lifecycle("Research proxy builder using Python interpreter: $python")
+            val (pyinstallerCode, pyinstallerOutput) =
+                runCommand(listOf(python, "-c", "import PyInstaller"), proxyDirFile)
+            if (pyinstallerCode != 0) {
+                throw GradleException(
+                    "PyInstaller is not installed for $python. Install it with:\n" +
+                        "  $python -m pip install pyinstaller\n" +
+                        "then re-run ./gradlew buildResearchProxyBundle.\n" +
+                        pyinstallerOutput.trim(),
+                )
+            }
+            if (!File(serverSrcFile, "research").isDirectory) {
+                throw GradleException(
+                    "Shared research contracts were not found at $serverSrcFile; " +
+                        "check out code4me2-server next to code4me2 before bundling the proxy.",
+                )
+            }
+
+            val workDist = File(buildDirFile, "dist")
+            val workBuild = File(buildDirFile, "build")
+            val workSpec = File(buildDirFile, "spec")
+            workDist.deleteRecursively()
+            workBuild.deleteRecursively()
+            workSpec.deleteRecursively()
+            workDist.mkdirs()
+            workBuild.mkdirs()
+            workSpec.mkdirs()
+
+            val command =
+                listOf(
+                    python,
+                    "-m",
+                    "PyInstaller",
+                    "--noconfirm",
+                    "--clean",
+                    "--onedir",
+                    "--name",
+                    "telemetry-acp-proxy",
+                    "--distpath",
+                    workDist.absolutePath,
+                    "--workpath",
+                    workBuild.absolutePath,
+                    "--specpath",
+                    workSpec.absolutePath,
+                    "--paths",
+                    serverSrcFile.absolutePath,
+                    "--collect-submodules",
+                    "research",
+                    "packaging/pyinstaller_entry.py",
+                )
+            val (code, output) = runCommand(command, proxyDirFile)
+            if (code != 0) {
+                throw GradleException("PyInstaller failed with exit code $code:\n$output")
+            }
+            val built = File(workDist, "telemetry-acp-proxy")
+            if (!built.isDirectory) throw GradleException("PyInstaller did not produce $built")
+            val target = File(distRootFile, "$targetOs-$targetArch")
+            if (target.exists()) target.deleteRecursively()
+            target.mkdirs()
+            built.copyRecursively(target, overwrite = true)
+            logger.lifecycle("Research proxy bundle staged at $target")
+        }
+    }
+
+tasks.named<ProcessResources>("processResources") {
+    dependsOn(stageResearchProxy)
+    from(researchRuntimeStagingDir) { into("research-runtime") }
 }
 
 // When both tasks are selected by buildParticipantPlugin, reject incomplete or

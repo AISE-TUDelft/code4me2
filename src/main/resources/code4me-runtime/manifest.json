@@ -4,7 +4,6 @@
   "managed_protocol_version": "1",
   "server_commit": "038dbfc",
   "plugin_commit": "7e47ccd",
-  "expected_schema_revision": "f3c4d5e6a7b9",
   "tested_ide_version": "2026.2.2",
   "tested_platforms": [
     "macos-arm64"
@@ -16,7 +15,7 @@
       "platform": "macos",
       "architecture": "arm64",
       "archive": "code4me-runtime/code4me-agent-macos-arm64.zip",
-      "sha256": "fb70e1beb5e6967083da3d9edadb9a30745192f587d1dbeabff56219dcaa3181",
+      "sha256": "0386478ee09b73797b956a1dbece907e006f1920d3e5d5c9ac7e24180e81f5d1",
       "executable": "code4me2-agent",
       "managed_protocol": "1"
     },

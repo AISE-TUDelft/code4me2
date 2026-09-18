@@ -837,6 +837,11 @@ class AppService {
      */
     private fun clearLocalSession() {
         CookieAwareApiClient.clearCookies()
+        // Stop every owned research context and quarantine its spool before the
+        // account's auth is cleared, so nothing uploads under the next account.
+        runCatching {
+            me.code4me.research.lifecycle.ResearchLogoutHook.stopAllContexts()
+        }.onFailure { LOG.warn("Failed to stop research contexts on sign out", it) }
         runCatching {
             me.code4me.services.agent.getParticipantAgentSetupService().onLogout()
         }.onFailure { LOG.warn("Failed to stop managed grants on sign out", it) }

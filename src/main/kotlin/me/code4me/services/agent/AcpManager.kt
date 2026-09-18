@@ -8,9 +8,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import java.io.File
+import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
 
 /**
@@ -30,8 +30,10 @@ object AcpManager {
         get() = File(System.getProperty("user.home"), ".jetbrains/acp.json")
 
     /** Registers the participant runtime while preserving every unrelated ACP entry. */
-    fun registerManagedAgent(executable: String, bridgeDirectory: String): Result<Unit> =
-        AcpRegistryWriter(acpFile.toPath()).registerManagedAgent(executable, bridgeDirectory)
+    fun registerManagedAgent(
+        executable: String,
+        bridgeDirectory: String,
+    ): Result<Unit> = AcpRegistryWriter(acpFile.toPath()).registerManagedAgent(executable, bridgeDirectory)
 
     fun writeOrUpdate(
         goosePath: String?,
@@ -184,32 +186,44 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
     private val log = thisLogger()
     private val json = Json { prettyPrint = true }
 
-    fun registerManagedAgent(executable: String, bridgeDirectory: String): Result<Unit> = runCatching {
-        Files.createDirectories(registryPath.parent)
-        val lockPath = registryPath.resolveSibling("${registryPath.fileName}.lock")
-        FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
-            channel.lock().use { updateRegistry(executable, bridgeDirectory) }
-        }
-    }
-
-    private fun updateRegistry(executable: String, bridgeDirectory: String) {
-        val root = if (Files.exists(registryPath)) {
-            try { json.parseToJsonElement(Files.readString(registryPath)).jsonObject }
-            catch (e: Exception) {
-                throw IllegalStateException(
-                    "The JetBrains ACP registry is invalid. Code4Me left it unchanged; repair ~/.jetbrains/acp.json and retry.",
-                    e,
-                )
+    fun registerManagedAgent(
+        executable: String,
+        bridgeDirectory: String,
+    ): Result<Unit> =
+        runCatching {
+            Files.createDirectories(registryPath.parent)
+            val lockPath = registryPath.resolveSibling("${registryPath.fileName}.lock")
+            FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
+                channel.lock().use { updateRegistry(executable, bridgeDirectory) }
             }
-        } else JsonObject(emptyMap())
+        }
+
+    private fun updateRegistry(
+        executable: String,
+        bridgeDirectory: String,
+    ) {
+        val root =
+            if (Files.exists(registryPath)) {
+                try {
+                    json.parseToJsonElement(Files.readString(registryPath)).jsonObject
+                } catch (e: Exception) {
+                    throw IllegalStateException(
+                        "The JetBrains ACP registry is invalid. Code4Me left it unchanged; repair ~/.jetbrains/acp.json and retry.",
+                        e,
+                    )
+                }
+            } else {
+                JsonObject(emptyMap())
+            }
         val servers = (root["agent_servers"]?.jsonObject ?: JsonObject(emptyMap())).toMutableMap()
-        val managed = JsonObject(
-            mapOf(
-                "command" to JsonPrimitive(executable),
-                "args" to JsonArray(listOf(JsonPrimitive("--managed"))),
-                "env" to JsonObject(mapOf("CODE4ME_BRIDGE_DIR" to JsonPrimitive(bridgeDirectory))),
-            ),
-        )
+        val managed =
+            JsonObject(
+                mapOf(
+                    "command" to JsonPrimitive(executable),
+                    "args" to JsonArray(listOf(JsonPrimitive("--managed"))),
+                    "env" to JsonObject(mapOf("CODE4ME_BRIDGE_DIR" to JsonPrimitive(bridgeDirectory))),
+                ),
+            )
 
         val existing = servers[MANAGED_ENTRY_NAME]
         if (isLegacyLocalDev(existing)) {
@@ -223,9 +237,16 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
         val temp = Files.createTempFile(registryPath.parent, "acp", ".tmp")
         try {
             Files.writeString(temp, json.encodeToString(JsonObject.serializer(), updated))
-            try { Files.move(temp, registryPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE) }
-            catch (_: Exception) { Files.move(temp, registryPath, StandardCopyOption.REPLACE_EXISTING) }
-        } finally { Files.deleteIfExists(temp) }
+            try {
+                Files.move(temp, registryPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            } catch (
+                _: Exception,
+            ) {
+                Files.move(temp, registryPath, StandardCopyOption.REPLACE_EXISTING)
+            }
+        } finally {
+            Files.deleteIfExists(temp)
+        }
         log.info("Code4Me managed ACP agent registered in $registryPath")
     }
 
@@ -234,5 +255,100 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
         return text.contains("local-dev") || text.contains(".venv/bin/python") || text.contains("configure-agent")
     }
 
-    companion object { const val MANAGED_ENTRY_NAME = "Code4Me Agent" }
+    /**
+     * Write (or refresh) the generic `agent_servers[name]` entry atomically,
+     * preserving every unrelated entry. Idempotent: an already-correct entry is
+     * left untouched. The registry is never rewritten when it cannot be parsed.
+     */
+    fun registerProxyEntry(
+        name: String,
+        command: String,
+        args: List<String>,
+        env: Map<String, String>,
+    ): Result<Unit> =
+        runCatching {
+            require(name.isNotBlank()) { "ACP entry name must not be blank" }
+            require(command.isNotBlank()) { "ACP entry command must not be blank" }
+            Files.createDirectories(registryPath.parent)
+            withRegistryLock {
+                val root = readRootOrThrow()
+                val servers = (root["agent_servers"]?.jsonObject ?: JsonObject(emptyMap())).toMutableMap()
+                val entry =
+                    JsonObject(
+                        mapOf(
+                            "command" to JsonPrimitive(command),
+                            "args" to JsonArray(args.map { JsonPrimitive(it) }),
+                            "env" to JsonObject(env.mapValues { JsonPrimitive(it.value) }),
+                        ),
+                    )
+                if (servers[name] == entry) return@withRegistryLock
+                servers[name] = entry
+                writeAtomic(JsonObject(root.toMutableMap().also { it["agent_servers"] = JsonObject(servers) }))
+            }
+        }
+
+    /** Remove exactly `agent_servers[name]`, preserving every unrelated entry. */
+    fun removeEntry(name: String): Result<Unit> =
+        runCatching {
+            require(name.isNotBlank()) { "ACP entry name must not be blank" }
+            if (!Files.exists(registryPath)) return@runCatching
+            withRegistryLock {
+                val root = readRootOrThrow()
+                val servers = (root["agent_servers"]?.jsonObject ?: return@withRegistryLock).toMutableMap()
+                if (servers.remove(name) == null) return@withRegistryLock
+                writeAtomic(JsonObject(root.toMutableMap().also { it["agent_servers"] = JsonObject(servers) }))
+            }
+        }
+
+    /** Whether `agent_servers[name]` exists. Never throws; an unreadable file is `false`. */
+    fun hasEntry(name: String): Boolean =
+        try {
+            if (!Files.exists(registryPath)) {
+                false
+            } else {
+                val root = json.parseToJsonElement(Files.readString(registryPath)).jsonObject
+                (root["agent_servers"]?.jsonObject ?: JsonObject(emptyMap())).containsKey(name)
+            }
+        } catch (_: Exception) {
+            false
+        }
+
+    private fun readRootOrThrow(): JsonObject =
+        if (Files.exists(registryPath)) {
+            try {
+                json.parseToJsonElement(Files.readString(registryPath)).jsonObject
+            } catch (e: Exception) {
+                throw IllegalStateException(
+                    "The JetBrains ACP registry is invalid. Code4Me left it unchanged; repair ~/.jetbrains/acp.json and retry.",
+                    e,
+                )
+            }
+        } else {
+            JsonObject(emptyMap())
+        }
+
+    private fun <T> withRegistryLock(action: () -> T): T {
+        val lockPath = registryPath.resolveSibling("${registryPath.fileName}.lock")
+        FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
+            return channel.lock().use { action() }
+        }
+    }
+
+    private fun writeAtomic(root: JsonObject) {
+        val temp = Files.createTempFile(registryPath.parent, "acp", ".tmp")
+        try {
+            Files.writeString(temp, json.encodeToString(JsonObject.serializer(), root))
+            try {
+                Files.move(temp, registryPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            } catch (_: Exception) {
+                Files.move(temp, registryPath, StandardCopyOption.REPLACE_EXISTING)
+            }
+        } finally {
+            Files.deleteIfExists(temp)
+        }
+    }
+
+    companion object {
+        const val MANAGED_ENTRY_NAME = "Code4Me Agent"
+    }
 }
