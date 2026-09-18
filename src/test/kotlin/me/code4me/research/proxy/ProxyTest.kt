@@ -461,6 +461,29 @@ class ByoaAgentResolverTest {
     }
 
     @Test
+    fun `the codex package resolves codex before codex-acp`() {
+        val directory = Files.createTempDirectory("byoa-codex-order")
+        val codex = executable(directory, "codex")
+        executable(directory, "codex-acp")
+        val byoa = resolver(pathEnv = directory.toString())
+
+        val result = byoa.resolve(ByoaAgentSpec(agentPackage = "codex")) as ByoaAgentResolution.Resolved
+
+        assertEquals(codex.toAbsolutePath().normalize(), result.identity.executable)
+    }
+
+    @Test
+    fun `the codex package falls back to codex-acp when codex is absent`() {
+        val directory = Files.createTempDirectory("byoa-codex-acp")
+        val codexAcp = executable(directory, "codex-acp")
+        val byoa = resolver(pathEnv = directory.toString())
+
+        val result = byoa.resolve(ByoaAgentSpec(agentPackage = "codex")) as ByoaAgentResolution.Resolved
+
+        assertEquals(codexAcp.toAbsolutePath().normalize(), result.identity.executable)
+    }
+
+    @Test
     fun `an unknown or absent package is not found`() {
         val byoa = resolver()
 
@@ -496,6 +519,7 @@ class ProxyLaunchSpecTest {
         sessionId: String = "session-1",
         policyDigest: String = "policy-digest",
         capability: String = "ipc-capability-1",
+        adapterId: String? = "acp-adapter",
         adapterVersion: String? = "codex-v1",
     ): ProxyLaunchRequest =
         ProxyLaunchRequest(
@@ -507,6 +531,7 @@ class ProxyLaunchSpecTest {
             telemetryPolicyDigest = policyDigest,
             workspace = root.resolveSibling("workspace"),
             ipcCapability = capability,
+            adapterId = adapterId,
             adapterVersion = adapterVersion,
         )
 
@@ -526,8 +551,25 @@ class ProxyLaunchSpecTest {
         assertTrue(spec.arguments.contains("policy-digest"))
         assertTrue(spec.arguments.contains("--ipc-capability"))
         assertTrue(spec.arguments.contains("ipc-capability-1"))
-        assertTrue(spec.arguments.contains("--adapter-version"))
-        assertTrue(spec.arguments.contains("codex-v1"))
+        // Adapter identity is env-only: the proxy CLI accepts only `--adapter`,
+        // so no adapter flag may ride on argv.
+        assertFalse(spec.arguments.contains("--adapter-id"))
+        assertFalse(spec.arguments.contains("--adapter-version"))
+    }
+
+    @Test
+    fun `adapter identity is carried as non-secret env markers only`() {
+        val root = Files.createTempDirectory("proxy-adapter")
+        val spec = ProxyLaunchSpecBuilder.build(request(root))
+
+        assertFalse(spec.arguments.contains("--adapter-id"), spec.arguments.toString())
+        assertFalse(spec.arguments.contains("--adapter-version"), spec.arguments.toString())
+        assertEquals("acp-adapter", spec.environment[AcpHostRegistration.ADAPTER_ID_ENV_VAR])
+        assertEquals("codex-v1", spec.environment[AcpHostRegistration.ADAPTER_VERSION_ENV_VAR])
+        assertEquals(
+            "acp-adapter",
+            spec.hostRegistration.env[AcpHostRegistration.ADAPTER_ID_ENV_VAR],
+        )
     }
 
     @Test

@@ -65,6 +65,10 @@ class AcpHostRegistration internal constructor(
      * @param capabilityValue an explicit one-time capability to write (for example
      * the value the local spool IPC server is already authenticating with). When
      * `null`, a fresh capability is minted.
+     * @param adapterId non-secret adapter identity from the bootstrap manifest, or
+     * `null` when the release declares none. It is carried in the entry `env`
+     * (never argv, so the proxy CLI contract is untouched).
+     * @param adapterVersion non-secret adapter version paired with [adapterId].
      */
     fun register(
         resolved: ResolvedProxyRuntime,
@@ -74,6 +78,8 @@ class AcpHostRegistration internal constructor(
         env: Map<String, String> = emptyMap(),
         agentDigest: String? = null,
         capabilityValue: String? = null,
+        adapterId: String? = null,
+        adapterVersion: String? = null,
     ): Result<Unit> =
         runCatching {
             require(resolved.proxyArgv.isNotEmpty()) { "resolved proxy argv must not be empty" }
@@ -90,7 +96,16 @@ class AcpHostRegistration internal constructor(
                 }
             // The capability travels with the entry: the proxy reads it from the
             // env when its fallback file is gone, so an entry can never dangle.
-            val entryEnv = if (capability != null) env + (CAPABILITY_ENV_VAR to capability) else env
+            // The adapter identity travels the same way: it is an opaque,
+            // non-secret marker the proxy ignores and never a CLI argument, so
+            // the proxy's argparse contract cannot break on it.
+            val entryEnv =
+                buildMap {
+                    putAll(env)
+                    adapterId?.takeIf { it.isNotBlank() }?.let { put(ADAPTER_ID_ENV_VAR, it) }
+                    adapterVersion?.takeIf { it.isNotBlank() }?.let { put(ADAPTER_VERSION_ENV_VAR, it) }
+                    if (capability != null) put(CAPABILITY_ENV_VAR, capability)
+                }
 
             // The proxy CLI treats `--agent-cmd` as an argparse REMAINDER: it
             // consumes every following token as the agent argv. It must therefore
@@ -173,6 +188,15 @@ class AcpHostRegistration internal constructor(
          * fallback capability file has been removed.
          */
         const val CAPABILITY_ENV_VAR: String = "CODE4ME_RESEARCH_CAPABILITY"
+
+        /**
+         * The ACP entry env key carrying the allowlisted adapter id. Non-secret
+         * and advisory: an unknown/absent id falls back to generic normalization.
+         */
+        const val ADAPTER_ID_ENV_VAR: String = "CODE4ME_AGENT_ADAPTER_ID"
+
+        /** The ACP entry env key carrying the adapter version paired with the id. */
+        const val ADAPTER_VERSION_ENV_VAR: String = "CODE4ME_AGENT_ADAPTER_VERSION"
 
         /** The default JetBrains ACP registry the AI Assistant reads. */
         fun defaultRegistryPath(): Path = Path.of(System.getProperty("user.home"), ".jetbrains", "acp.json")

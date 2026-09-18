@@ -141,6 +141,12 @@ data class AgentReleaseRef(
      */
     val version: String = "",
     val artifactDigest: String = "",
+    /**
+     * Non-secret identity of the adapter the release was qualified with. It is an
+     * opaque reference, not a launch path: the server-side allowlist resolves it
+     * and an unknown/absent id falls back to generic normalization.
+     */
+    val adapterId: String? = null,
     val adapterVersion: String? = null,
     val distributionMode: AgentDistributionMode = AgentDistributionMode.PACKAGED,
     /**
@@ -503,6 +509,7 @@ data class BootstrapManifest(
                     "agent_id" to agentRelease.agentId,
                     "release_id" to agentRelease.releaseId,
                     "artifact_digest" to agentRelease.artifactDigest,
+                    "adapter_id" to agentRelease.adapterId,
                     "adapter_version" to agentRelease.adapterVersion,
                     "distribution_mode" to agentRelease.distributionMode.wireValue,
                     "agent_command" to agentRelease.agentCommand,
@@ -623,6 +630,7 @@ data class BootstrapManifest(
                         // BYOA distribution legitimately carries none, so parsing is
                         // tolerant and the per-mode check is explicit.
                         artifactDigest = (agentRelease["artifact_digest"] as? String).orEmpty(),
+                        adapterId = agentRelease["adapter_id"] as? String,
                         adapterVersion = agentRelease["adapter_version"] as? String,
                         distributionMode = AgentDistributionMode.fromWire(agentRelease["distribution_mode"] as? String),
                         // The backend emits the canonical `agent_*` names; the

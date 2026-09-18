@@ -786,7 +786,16 @@ class ResearchSessionManager(
             return ProxyLaunchResult.Rejected(StudyBlockReason.SESSION_ENDED, "research collection is not active")
         }
         return try {
-            val spec = ProxyLaunchSpecBuilder.build(request.copy(researchSessionId = current.sessionId))
+            // The manifest is the authority for the pinned adapter identity; an
+            // explicit request value still wins so a caller can override it.
+            val release = manifest?.agentRelease
+            val effective =
+                request.copy(
+                    researchSessionId = current.sessionId,
+                    adapterId = request.adapterId ?: release?.adapterId,
+                    adapterVersion = request.adapterVersion ?: release?.adapterVersion,
+                )
+            val spec = ProxyLaunchSpecBuilder.build(effective)
             val handle = proxyLauncher.launch(spec)
             val previous = proxyHandle
             proxyHandle = handle
@@ -1614,6 +1623,10 @@ class ResearchSessionManager(
                     )
                 val result =
                     try {
+                        // Research-only, manifest-driven registration. The
+                        // non-research hard-coded Codex/Goose paths in
+                        // AcpManager.kt / LocalProxyServer.kt are a separate
+                        // boundary and are intentionally not touched here.
                         registration.register(
                             resolved = runtime,
                             agentArgv = ready.argv,
@@ -1622,6 +1635,8 @@ class ResearchSessionManager(
                             env = environment + agentEnvProvider(),
                             agentDigest = ready.digest,
                             capabilityValue = ipc?.capability,
+                            adapterId = validManifest.agentRelease.adapterId,
+                            adapterVersion = validManifest.agentRelease.adapterVersion,
                         )
                     } catch (exception: Exception) {
                         Result.failure(exception)

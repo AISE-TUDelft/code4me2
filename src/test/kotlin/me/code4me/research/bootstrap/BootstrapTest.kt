@@ -509,6 +509,42 @@ class BootstrapManifestTest {
     }
 
     @Test
+    fun `a codex BYOA manifest parses and serializes adapter identity without revision or secret keys`() {
+        val release =
+            linkedMapOf<String, Any?>(
+                "agent_id" to "codex",
+                "release_id" to "",
+                "artifact_digest" to "",
+                "distribution_mode" to "BYOA_EXTERNAL",
+                "agent_package" to "codex",
+                "adapter_id" to "acp-adapter",
+                "adapter_version" to "0.4.0",
+            )
+        val manifest = BootstrapManifest.parse(manifestJson(overrides = mapOf("agent_release" to release)))
+
+        assertTrue(manifest.validate(VALID_NOW, compatibility()).valid)
+        assertTrue(manifest.agentRelease.isByoa)
+        assertEquals("codex", manifest.agentRelease.agentId)
+        assertEquals("codex", manifest.agentRelease.agentPackage)
+        assertEquals("acp-adapter", manifest.agentRelease.adapterId)
+        assertEquals("0.4.0", manifest.agentRelease.adapterVersion)
+
+        val canonical = manifest.toCanonicalMap()
+        val canonicalRelease = canonical["agent_release"] as Map<*, *>
+        assertEquals("acp-adapter", canonicalRelease["adapter_id"])
+        assertEquals("0.4.0", canonicalRelease["adapter_version"])
+
+        val serialized = canonicalJson(canonical).lowercase()
+        assertFalse(serialized.contains("revision_id"), serialized)
+        assertFalse(serialized.contains("study_revision_id"), serialized)
+        assertFalse(serialized.contains("condition_id"), serialized)
+        assertFalse(serialized.contains("condition_exposure"), serialized)
+        // The adapter identity is opaque: no provider secret is ever projected.
+        assertFalse(serialized.contains("secret"), serialized)
+        assertFalse(serialized.contains("api_key"), serialized)
+    }
+
+    @Test
     fun `normalizeSha256Hex strips the prefix and rejects malformed digests`() {
         assertEquals(VALID_ARTIFACT_DIGEST, normalizeSha256Hex(VALID_ARTIFACT_DIGEST))
         assertEquals(VALID_ARTIFACT_DIGEST, normalizeSha256Hex("sha256:$VALID_ARTIFACT_DIGEST"))

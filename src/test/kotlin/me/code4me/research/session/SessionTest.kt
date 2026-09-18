@@ -1124,6 +1124,52 @@ class ResearchSessionRuntimeWiringTest {
         manager.stop()
     }
 
+    @Test
+    fun `a codex BYOA manifest registers the adapter identity in the ACP entry`() {
+        val registry = root.resolve("acp-codex-byoa.json")
+        val capabilityFile = root.resolve("capability-codex-byoa.txt")
+        val agent = root.resolve("byoa-codex/codex")
+        Files.createDirectories(agent.parent)
+        Files.writeString(agent, "codex-binary")
+        agent.toFile().setExecutable(true, false)
+        val observedDigest = ContentHasher.STREAMING.sha256(agent)
+        val byoa =
+            ByoaAgentResolver {
+                ByoaAgentResolution.Resolved(
+                    identity =
+                        ObservedAgentIdentity(
+                            executable = agent,
+                            digest = observedDigest,
+                            version = "codex 1.2.3",
+                            source = AgentDiscoverySource.PATH,
+                        ),
+                    argv = listOf(agent.toString()),
+                )
+            }
+        val registration = AcpHostRegistration(registry)
+        val manager =
+            manager(
+                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtimeWithoutAgent()) },
+                registration = registration,
+                capabilityFile = capabilityFile,
+                manifest = manifestWithCodexByoaRelease(),
+                byoaResolver = byoa,
+            )
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Activated, (result as? ResearchActivationResult.Blocked)?.detail)
+        assertTrue(registration.hasEntry())
+        // The manifest's non-secret adapter identity reached the ACP registration.
+        assertEquals("acp-adapter", registeredEnv(registry)[AcpHostRegistration.ADAPTER_ID_ENV_VAR])
+        assertEquals("0.4.0", registeredEnv(registry)[AcpHostRegistration.ADAPTER_VERSION_ENV_VAR])
+        // The observed BYOA digest is still recorded, not a pre-pinned artifact digest.
+        assertEquals(observedDigest, registeredAgentDigest(registry))
+
+        manager.stop()
+        assertFalse(registration.hasEntry())
+    }
+
     /**
      * Write an exploded runtime whose `proxy-manifest.json` declares exactly one
      * platform artifact (plus a bundled agent) and return the agent path.
@@ -1195,6 +1241,20 @@ class ResearchSessionRuntimeWiringTest {
         return flat.getOrNull(index + 1)
     }
 
+    /** Every env marker of this component's ACP entry. */
+    private fun registeredEnv(registry: Path): Map<String, String> {
+        val root = Json.parseToJsonElement(Files.readString(registry)).jsonObject
+        val env =
+            root["agent_servers"]
+                ?.jsonObject
+                ?.get(AcpHostRegistration.DEFAULT_ENTRY_NAME)
+                ?.jsonObject
+                ?.get("env")
+                ?.jsonObject
+                ?: return emptyMap()
+        return env.mapValues { (_, value) -> value.jsonPrimitive.content }
+    }
+
     private fun manifestWithArtifactDigest(digest: String): String =
         manifestJson(
             overrides =
@@ -1224,6 +1284,24 @@ class ResearchSessionRuntimeWiringTest {
                             "agent_command" to command,
                             "agent_command_args" to listOf("acp"),
                             "agent_package" to "goose",
+                        ),
+                ),
+        )
+
+    private fun manifestWithCodexByoaRelease(): String =
+        manifestJson(
+            overrides =
+                mapOf(
+                    "agent_release" to
+                        linkedMapOf<String, Any?>(
+                            "agent_id" to "codex",
+                            // A BYOA distribution with no registered release freezes
+                            // no release id; the backend projects an empty string.
+                            "release_id" to "",
+                            "distribution_mode" to "BYOA_EXTERNAL",
+                            "agent_package" to "codex",
+                            "adapter_id" to "acp-adapter",
+                            "adapter_version" to "0.4.0",
                         ),
                 ),
         )
@@ -2550,6 +2628,37 @@ class ResearchSessionMaintenanceTest {
         val second = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
         assertTrue(second is ResearchMaintenanceResult.Inactive)
         assertEquals(requestsAfterTerminal, http.requests.size, "a terminal revocation must never retry")
+    }
+
+    @Test
+    fun `a local stop or revocation is terminal and the maintenance loop never retries`() {
+        // Explicit stop: the scheduled loop is cancelled and later ticks are inert.
+        val http = sessionsHttp { 30L }
+        val scheduler = FakeScheduler()
+        val manager = manager(http, singleManifestTransport(), FakeDelivery(), scheduler)
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        manager.stop()
+
+        assertTrue(scheduler.cancelled.isNotEmpty(), "stop must cancel the maintenance loop")
+        val requestsAfterStop = http.requests.size
+        repeat(3) {
+            assertTrue(manager.performMaintenance() is ResearchMaintenanceResult.Inactive)
+        }
+        assertEquals(requestsAfterStop, http.requests.size, "a stopped session must never retry")
+
+        // Local revocation: same terminal contract, no further heartbeat.
+        val revokedHttp = sessionsHttp { 30L }
+        val revokedScheduler = FakeScheduler()
+        val revokedManager = manager(revokedHttp, singleManifestTransport(), FakeDelivery(), revokedScheduler)
+        assertTrue(revokedManager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        revokedManager.onRevoked()
+
+        assertTrue(revokedScheduler.cancelled.isNotEmpty(), "revocation must cancel the maintenance loop")
+        val requestsAfterRevoke = revokedHttp.requests.size
+        repeat(3) {
+            assertTrue(revokedManager.performMaintenance() is ResearchMaintenanceResult.Inactive)
+        }
+        assertEquals(requestsAfterRevoke, revokedHttp.requests.size, "a revoked session must never retry")
     }
 
     // ------------------------------------------------------------------

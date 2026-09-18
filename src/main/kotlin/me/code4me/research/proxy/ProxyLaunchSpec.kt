@@ -94,6 +94,8 @@ data class ProxyLaunchRequest(
     val telemetryPolicyDigest: String,
     val workspace: Path,
     val ipcCapability: String,
+    /** Non-secret adapter identity resolved from the bootstrap manifest. */
+    val adapterId: String? = null,
     val adapterVersion: String? = null,
 )
 
@@ -174,17 +176,23 @@ object ProxyLaunchSpecBuilder {
                 add(request.workspace.toString())
                 add("--ipc-capability")
                 add(capability.value)
-                request.adapterVersion?.let {
-                    add("--adapter-version")
-                    add(it)
-                }
+                // Adapter identity travels via the environment below, never
+                // argv: the proxy CLI contract accepts only `--adapter`, and the
+                // production ACP registration path is env-only too.
             }
 
         val environment =
             linkedMapOf(
                 "CODE4ME_PROXY_RUNTIME_ROOT" to root.toString(),
                 "CODE4ME_RESEARCH_SESSION" to request.researchSessionId,
-            )
+            ).apply {
+                request.adapterId?.takeIf { it.isNotBlank() }?.let {
+                    put(AcpHostRegistration.ADAPTER_ID_ENV_VAR, it)
+                }
+                request.adapterVersion?.takeIf { it.isNotBlank() }?.let {
+                    put(AcpHostRegistration.ADAPTER_VERSION_ENV_VAR, it)
+                }
+            }
 
         return ProxyLaunchSpec(
             executable = executable,
