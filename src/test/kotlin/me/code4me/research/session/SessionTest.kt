@@ -19,6 +19,7 @@ import me.code4me.research.bootstrap.BootstrapManifest
 import me.code4me.research.bootstrap.BootstrapRejection
 import me.code4me.research.bootstrap.BootstrapTransport
 import me.code4me.research.bootstrap.BootstrapTransportResult
+import me.code4me.research.bootstrap.EnrollmentDiscovery
 import me.code4me.research.bootstrap.HttpBootstrapTransport
 import me.code4me.research.bootstrap.VALID_ARTIFACT_DIGEST
 import me.code4me.research.bootstrap.VALID_NOW
@@ -2562,12 +2563,14 @@ class ResearchSessionMaintenanceTest {
         capabilityId: String,
         expiresAt: String,
         sessionId: String,
+        manifestExpiresAt: String? = null,
     ): String =
         manifestJson(
             researchSessionId = sessionId,
             overrides =
-                mapOf(
-                    "session_capability" to
+                buildMap {
+                    put(
+                        "session_capability",
                         linkedMapOf<String, Any?>(
                             "capability_id" to capabilityId,
                             "audience" to "research-runtime",
@@ -2575,7 +2578,9 @@ class ResearchSessionMaintenanceTest {
                             "issued_at" to "2026-01-01T00:00:00Z",
                             "expires_at" to expiresAt,
                         ),
-                ),
+                    )
+                    manifestExpiresAt?.let { put("expires_at", it) }
+                },
         )
 
     private fun bodyOf(request: Request): Map<*, *> {
@@ -2593,6 +2598,7 @@ class ResearchSessionMaintenanceTest {
         transport: BootstrapTransport,
         delivery: SpoolDelivery,
         scheduler: MaintenanceScheduler,
+        discovery: (() -> EnrollmentDiscovery)? = null,
     ): ResearchSessionManager =
         ResearchSessionManager(
             projectKey = "project-under-test",
@@ -2608,6 +2614,7 @@ class ResearchSessionMaintenanceTest {
             instantClock = { VALID_NOW },
             sessionIdFactory = { "session-1" },
             runIdFactory = { "run-1" },
+            enrollmentDiscoveryProvider = discovery,
         )
 
     // ------------------------------------------------------------------
@@ -2807,5 +2814,443 @@ class ResearchSessionMaintenanceTest {
         assertEquals(SessionState.REVOKED, manager.currentSession?.state)
         assertTrue(delivery.closed, "revocation must tear the uploader down")
         assertTrue(scheduler.cancelled.isNotEmpty())
+    }
+
+    // ------------------------------------------------------------------
+    // Enrollment discovery gates activation (plan 05.5 step 1)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `a stopped-study discovery blocks activation before any bootstrap or session request`() {
+        val http = sessionsHttp { 30L }
+        val scheduler = FakeScheduler()
+        val transport =
+            SequenceTransport(listOf(manifestWithCapability("capability-1", "2026-01-01T01:00:00Z", "session-1")))
+        val manager =
+            manager(http, transport, FakeDelivery(), scheduler, discovery = { EnrollmentDiscovery.Terminal("STUDY_STOPPED") })
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Blocked)
+        assertEquals(StudyBlockReason.REVOKED, (result as ResearchActivationResult.Blocked).reason)
+        assertTrue(result.detail?.contains("study_stopped") == true, result.detail)
+        assertEquals(0, transport.fetches.get(), "a terminal enrollment must never reach bootstrap")
+        assertTrue(http.requests.isEmpty(), "a terminal enrollment must never reach the session endpoints")
+        assertFalse(manager.isActive)
+        assertEquals(StudyBlockReason.REVOKED, manager.state().blockReason)
+    }
+
+    @Test
+    fun `a revoked discovery blocks activation before any bootstrap or session request`() {
+        val http = sessionsHttp { 30L }
+        val scheduler = FakeScheduler()
+        val transport =
+            SequenceTransport(listOf(manifestWithCapability("capability-1", "2026-01-01T01:00:00Z", "session-1")))
+        val manager =
+            manager(http, transport, FakeDelivery(), scheduler, discovery = { EnrollmentDiscovery.Terminal("REVOKED") })
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Blocked)
+        assertEquals(StudyBlockReason.REVOKED, (result as ResearchActivationResult.Blocked).reason)
+        assertEquals(0, transport.fetches.get(), "a terminal enrollment must never reach bootstrap")
+        assertTrue(http.requests.isEmpty(), "a terminal enrollment must never reach the session endpoints")
+        assertFalse(manager.isActive)
+    }
+
+    @Test
+    fun `an active discovery proceeds to bootstrap and the session endpoints`() {
+        val http = sessionsHttp { 30L }
+        val scheduler = FakeScheduler()
+        val transport =
+            SequenceTransport(listOf(manifestWithCapability("capability-1", "2026-01-01T01:00:00Z", "session-1")))
+        val manager =
+            manager(http, transport, FakeDelivery(), scheduler, discovery = { EnrollmentDiscovery.Active("enrollment-1") })
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Activated)
+        assertEquals(1, transport.fetches.get())
+        val paths = http.requests.map { it.url.encodedPath }
+        assertTrue(paths.contains("/api/research/sessions/"), paths.toString())
+        assertTrue(paths.contains("/api/research/sessions/heartbeat"), paths.toString())
+    }
+
+    @Test
+    fun `an unavailable discovery fails soft to the bootstrap authority`() {
+        val http = sessionsHttp { 30L }
+        val scheduler = FakeScheduler()
+        val transport =
+            SequenceTransport(listOf(manifestWithCapability("capability-1", "2026-01-01T01:00:00Z", "session-1")))
+        val manager =
+            manager(http, transport, FakeDelivery(), scheduler, discovery = { EnrollmentDiscovery.Unavailable("backend down") })
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Activated, "discovery must never block when the server cannot be reached")
+        assertEquals(1, transport.fetches.get())
+    }
+
+    // ------------------------------------------------------------------
+    // Terminal study and refresh-failure maintenance
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `a stopped-study heartbeat ends the session as revoked and never resurrects it`() {
+        var stopped = false
+        val http =
+            MaintenanceHttp { request ->
+                when {
+                    request.url.encodedPath.endsWith("/heartbeat") && stopped ->
+                        jsonResponse(request, 409, terminalBody("STUDY_STOPPED"))
+                    request.url.encodedPath.endsWith("/heartbeat") ->
+                        jsonResponse(request, 200, heartbeatBody(30L))
+                    else ->
+                        jsonResponse(request, 201, createBody(30L))
+                }
+            }
+        val scheduler = FakeScheduler()
+        val delivery = FakeDelivery()
+        val transport = SequenceTransport(listOf(manifestWithCapability("capability-1", "2026-01-01T01:00:00Z", "session-1")))
+        val manager = manager(http, transport, delivery, scheduler)
+        manager.activate("enrollment-1")
+        val sessionId = manager.currentSession?.sessionId
+        assertNotNull(sessionId)
+        stopped = true
+
+        val maintenance = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
+
+        assertTrue(maintenance is ResearchMaintenanceResult.Ended)
+        assertEquals(StudyBlockReason.REVOKED, (maintenance as ResearchMaintenanceResult.Ended).reason)
+        val heartbeat = http.requests.last { it.url.encodedPath.endsWith("/heartbeat") }
+        assertEquals("POST", heartbeat.method)
+        assertEquals("/api/research/sessions/heartbeat", heartbeat.url.encodedPath)
+        assertEquals(sessionId, bodyOf(heartbeat)["research_session_id"])
+        assertFalse(manager.isActive)
+        assertEquals(SessionState.REVOKED, manager.currentSession?.state)
+        assertTrue(delivery.closed, "a stopped study must tear the uploader down")
+        assertTrue(scheduler.cancelled.isNotEmpty())
+    }
+
+    @Test
+    fun `an expired capability whose refresh fails is retryable and keeps the session`() {
+        val fetches = AtomicInteger()
+        val transport =
+            BootstrapTransport { _, _ ->
+                if (fetches.getAndIncrement() == 0) {
+                    BootstrapTransportResult.Success(manifestWithCapability("capability-1", "2026-01-01T01:00:00Z", "session-1"))
+                } else {
+                    BootstrapTransportResult.Failure("backend down", retryable = true)
+                }
+            }
+        var expired = false
+        val http =
+            MaintenanceHttp { request ->
+                when {
+                    request.url.encodedPath.endsWith("/heartbeat") && expired ->
+                        jsonResponse(request, 401, terminalBody("CAPABILITY_INVALID"))
+                    request.url.encodedPath.endsWith("/heartbeat") ->
+                        jsonResponse(request, 200, heartbeatBody(30L))
+                    else ->
+                        jsonResponse(request, 201, createBody(30L))
+                }
+            }
+        val scheduler = FakeScheduler()
+        val delivery = FakeDelivery()
+        val manager = manager(http, transport, delivery, scheduler)
+        manager.activate("enrollment-1")
+        expired = true
+
+        val maintenance = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
+
+        assertTrue(maintenance is ResearchMaintenanceResult.Retryable, "a failed re-bootstrap must not end the session")
+        assertEquals(2, fetches.get(), "the stale capability must trigger exactly one forced refresh")
+        assertTrue(delivery.adoptedCapabilities.isEmpty(), "a failed refresh must not push a bogus capability")
+        assertTrue(manager.isActive)
+        assertFalse(manager.currentSession?.isTerminal ?: true)
+        assertFalse(delivery.closed)
+        val heartbeat = http.requests.last { it.url.encodedPath.endsWith("/heartbeat") }
+        assertEquals("/api/research/sessions/heartbeat", heartbeat.url.encodedPath)
+        assertEquals("session-1", bodyOf(heartbeat)["research_session_id"])
+    }
+
+    @Test
+    fun `a malformed refresh manifest ends maintenance without adopting anything`() {
+        val http = sessionsHttp { 30L }
+        val scheduler = FakeScheduler()
+        val delivery = FakeDelivery()
+        val transport =
+            SequenceTransport(
+                listOf(
+                    manifestWithCapability("capability-1", "2026-01-01T00:31:00Z", "session-1"),
+                    "{not json",
+                ),
+            )
+        val manager = manager(http, transport, delivery, scheduler)
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+
+        val maintenance = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
+
+        assertTrue(maintenance is ResearchMaintenanceResult.Ended)
+        assertEquals(StudyBlockReason.MANIFEST_INVALID, (maintenance as ResearchMaintenanceResult.Ended).reason)
+        assertEquals(2, transport.fetches.get(), "the near-expiry capability must trigger a re-bootstrap")
+        assertTrue(delivery.adoptedCapabilities.isEmpty(), "a malformed manifest must never reach the uploader")
+        assertFalse(manager.isActive)
+        assertTrue(delivery.closed)
+    }
+
+    @Test
+    fun `an expired refresh manifest is not adopted and the session stays alive`() {
+        val http = sessionsHttp { 30L }
+        val scheduler = FakeScheduler()
+        val delivery = FakeDelivery()
+        val transport =
+            SequenceTransport(
+                listOf(
+                    manifestWithCapability("capability-1", "2026-01-01T00:31:00Z", "session-1"),
+                    manifestWithCapability("capability-2", "2026-01-01T00:10:00Z", "session-2", manifestExpiresAt = "2026-01-01T00:10:00Z"),
+                ),
+            )
+        val manager = manager(http, transport, delivery, scheduler)
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+
+        val maintenance = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
+
+        assertTrue(maintenance is ResearchMaintenanceResult.Maintained)
+        assertFalse((maintenance as ResearchMaintenanceResult.Maintained).capabilityRefreshed)
+        assertEquals(2, transport.fetches.get(), "the near-expiry capability must trigger a re-bootstrap")
+        assertTrue(delivery.adoptedCapabilities.isEmpty(), "an expired manifest must never reach the uploader")
+        assertTrue(manager.isActive)
+    }
+}
+
+// --------------------------------------------------------------------------
+// ResearchSessionBootstrapSessionTelemetryTest.kt
+// --------------------------------------------------------------------------
+
+/**
+ * Post-enrollment end-to-end lifecycle over recording fakes (no real ACP host).
+ *
+ * A pre-enrolled active participant bootstraps, opens (or reuses) the server
+ * session, heartbeats it, and delivers one spooled telemetry batch that the
+ * fake server accepts. Every hop asserts its exact method/path/body plus the
+ * resulting state transition.
+ */
+class ResearchSessionBootstrapSessionTelemetryTest {
+    private lateinit var root: Path
+
+    @BeforeEach
+    fun setUp() {
+        root = Files.createTempDirectory("research-session-e2e")
+    }
+
+    private class FakeSource : IdeActivitySource {
+        private var callback: ((IdeActivitySignal) -> Unit)? = null
+
+        override fun onActivity(callback: (IdeActivitySignal) -> Unit) {
+            this.callback = callback
+        }
+
+        fun push(signal: IdeActivitySignal) {
+            callback?.let { runCatching { it(signal) } }
+        }
+    }
+
+    private class RecordingHttp(
+        private val responder: (Request) -> Response,
+    ) : Call.Factory {
+        val requests = CopyOnWriteArrayList<Request>()
+
+        override fun newCall(request: Request): Call = RecordingCall(request, responder, requests)
+
+        private class RecordingCall(
+            private val request: Request,
+            private val responder: (Request) -> Response,
+            private val requests: MutableList<Request>,
+        ) : Call {
+            override fun request(): Request = request
+
+            override fun execute(): Response {
+                requests.add(request)
+                return responder(request)
+            }
+
+            override fun enqueue(responseCallback: Callback) = throw UnsupportedOperationException("async not used")
+
+            override fun cancel() = Unit
+
+            override fun isExecuted(): Boolean = false
+
+            override fun isCanceled(): Boolean = false
+
+            override fun timeout(): Timeout = Timeout.NONE
+
+            override fun clone(): Call = RecordingCall(request, responder, requests)
+        }
+    }
+
+    private fun jsonResponse(
+        request: Request,
+        code: Int,
+        body: String,
+    ): Response =
+        Response
+            .Builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .code(code)
+            .message("test")
+            .body(body.toResponseBody("application/json".toMediaType()))
+            .build()
+
+    private fun bodyOf(request: Request): Map<*, *> {
+        val buffer = Buffer()
+        request.body?.writeTo(buffer)
+        return parseCanonicalJson(buffer.readUtf8()) as Map<*, *>
+    }
+
+    private fun acceptAllAck(request: Request): Response {
+        val body = bodyOf(request)
+        val ids =
+            (body["events"] as? List<*>)?.mapNotNull { (it as? Map<*, *>)?.get("event_id") as? String }
+                ?: emptyList()
+        return jsonResponse(
+            request,
+            200,
+            canonicalJson(
+                linkedMapOf(
+                    "receipt_id" to "receipt-e2e",
+                    "server_time" to "2026-01-01T00:35:00Z",
+                    "accepted" to ids,
+                    "duplicate" to emptyList<String>(),
+                    "rejected" to emptyList<String>(),
+                    "retryable" to emptyList<String>(),
+                ),
+            ),
+        )
+    }
+
+    private fun manager(
+        http: Call.Factory,
+        source: IdeActivitySource,
+        spool: DurableSpool,
+        bootstrapCalls: MutableList<Pair<String, String>> = mutableListOf(),
+    ): ResearchSessionManager =
+        ResearchSessionManager(
+            projectKey = "project-e2e",
+            transport =
+                BootstrapTransport { enrollmentId, contextId ->
+                    bootstrapCalls.add(enrollmentId to contextId)
+                    BootstrapTransportResult.Success(manifestJson(researchSessionId = "session-e2e"))
+                },
+            compatibility = compatibility(),
+            spoolProvider = { spool },
+            source = source,
+            serverBaseUrlProvider = { "http://127.0.0.1:9" },
+            httpClient = http,
+            sessionStore = InMemoryResearchSessionStore(),
+            clock = { VALID_NOW.toEpochMilli() },
+            instantClock = { VALID_NOW },
+            enrollmentDiscoveryProvider = { EnrollmentDiscovery.Active("enrollment-1") },
+        )
+
+    @Test
+    fun `an enrolled participant bootstraps, opens, heartbeats and delivers telemetry`() {
+        val source = FakeSource()
+        val spool = DurableSpool(root.resolve("spool-e2e"))
+        val http =
+            RecordingHttp { request ->
+                when {
+                    request.url.encodedPath == "/api/research/telemetry/batches" -> acceptAllAck(request)
+                    request.url.encodedPath.endsWith("/heartbeat") ->
+                        jsonResponse(
+                            request,
+                            200,
+                            canonicalJson(
+                                linkedMapOf(
+                                    "session" to linkedMapOf("state" to "running"),
+                                    "next_actions" to listOf("heartbeat"),
+                                    "heartbeat_seconds" to 30L,
+                                ),
+                            ),
+                        )
+                    else ->
+                        jsonResponse(
+                            request,
+                            201,
+                            canonicalJson(
+                                linkedMapOf(
+                                    "created" to true,
+                                    "session" to linkedMapOf("state" to "not_started"),
+                                    "next_actions" to listOf("report_activity"),
+                                    "heartbeat_seconds" to 30L,
+                                ),
+                            ),
+                        )
+                }
+            }
+        val bootstrapCalls = mutableListOf<Pair<String, String>>()
+        val manager = manager(http, source, spool, bootstrapCalls)
+        try {
+            val activation = manager.activate("enrollment-1")
+
+            assertTrue(activation is ResearchActivationResult.Activated)
+            assertEquals("session-e2e", (activation as ResearchActivationResult.Activated).sessionId)
+            assertTrue(activation.manifestDigest.isNotBlank())
+            assertTrue(manager.isActive)
+
+            // Bootstrap request shape: the enrollment is fetched exactly once for
+            // this project's opaque execution context, and nothing revision-shaped
+            // rides along in the request identity.
+            assertEquals(listOf("enrollment-1" to ResearchSessionManager.opaqueContextId("project-e2e")), bootstrapCalls)
+
+            val create = http.requests.single { it.url.encodedPath == "/api/research/sessions/" }
+            assertEquals("POST", create.method)
+            val createBody = bodyOf(create)
+            assertEquals("enrollment-1", createBody["enrollment_id"])
+            assertEquals("study-1", createBody["study_id"])
+            assertFalse(createBody.containsKey("revision_id"), createBody.keys.toString())
+            assertFalse(createBody.containsKey("study_revision_id"), createBody.keys.toString())
+            assertTrue((createBody["capability"] as? Map<*, *>)?.isNotEmpty() == true)
+
+            val heartbeat = http.requests.first { it.url.encodedPath == "/api/research/sessions/heartbeat" }
+            assertEquals("POST", heartbeat.method)
+            assertEquals("session-e2e", bodyOf(heartbeat)["research_session_id"])
+
+            source.push(
+                IdeActivitySignal(
+                    kind = "opened",
+                    projectKey = "project-e2e",
+                    metadata = mapOf("file_extension" to "kt"),
+                ),
+            )
+            assertEquals(SessionState.RUNNING, manager.currentSession?.state)
+
+            manager.flushBounded(5_000L)
+
+            val batches = http.requests.filter { it.url.encodedPath == "/api/research/telemetry/batches" }
+            assertTrue(batches.isNotEmpty(), "the spooled event must be delivered")
+            val batchBody = bodyOf(batches.first())
+            assertEquals("POST", batches.first().method)
+            val events = batchBody["events"] as? List<*> ?: emptyList<Any>()
+            assertTrue(events.isNotEmpty())
+            assertTrue((batchBody["session_capability"] as? Map<*, *>)?.isNotEmpty() == true)
+            // Telemetry provenance is study/enrollment/session identity only.
+            val firstEvent = events.first() as? Map<*, *> ?: emptyMap<Any, Any>()
+            assertFalse(firstEvent.containsKey("revision_id"), firstEvent.keys.toString())
+            assertFalse(firstEvent.containsKey("study_revision_id"), firstEvent.keys.toString())
+            assertEquals("study-1", firstEvent["study_id"])
+            assertEquals("enrollment-1", firstEvent["enrollment_id"])
+            assertEquals("session-e2e", firstEvent["research_session_id"])
+            assertTrue(spool.pending().isEmpty(), "the accepted batch must drain the spool")
+
+            val maintenance = manager.performMaintenance()
+
+            assertTrue(maintenance is ResearchMaintenanceResult.Maintained)
+            assertTrue(manager.isActive)
+            assertEquals(SessionState.RUNNING, manager.currentSession?.state)
+        } finally {
+            manager.stop()
+        }
     }
 }

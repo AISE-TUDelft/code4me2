@@ -9,6 +9,7 @@ import me.code4me.research.bootstrap.BootstrapRejection
 import me.code4me.research.bootstrap.BootstrapResult
 import me.code4me.research.bootstrap.BootstrapStatus
 import me.code4me.research.bootstrap.BootstrapTransport
+import me.code4me.research.bootstrap.EnrollmentDiscovery
 import me.code4me.research.bootstrap.InMemoryManifestCache
 import me.code4me.research.bootstrap.ManifestCache
 import me.code4me.research.bootstrap.ManifestValidationReason
@@ -384,6 +385,16 @@ class ResearchSessionManager(
     private val defaultIdleTimeoutMs: Long = DEFAULT_IDLE_TIMEOUT_MS,
     private val maintenanceScheduler: MaintenanceScheduler = ThreadedMaintenanceScheduler(),
     private val capabilityRefreshMargin: Duration = DEFAULT_CAPABILITY_REFRESH_MARGIN,
+    /**
+     * Membership authority checked before any bootstrap/session request.
+     *
+     * When present (the IDE service wires [ResearchJoinCodeResolver.discover]),
+     * a terminal enrollment (revoked, stopped, completed) blocks activation
+     * without touching the bootstrap or session endpoints. `null` keeps the
+     * pure bootstrap path (tests and builds without discovery). A discovery
+     * failure never blocks: the bootstrap API remains authoritative.
+     */
+    private val enrollmentDiscoveryProvider: (() -> EnrollmentDiscovery)? = null,
 ) {
     init {
         require(projectKey.isNotBlank()) { "projectKey must not be blank" }
@@ -521,6 +532,16 @@ class ResearchSessionManager(
         }
         if (stopped) {
             return ResearchActivationResult.Blocked(StudyBlockReason.REVOKED, "research session manager is stopped")
+        }
+        // Membership first (plan 05.5 step 1): a terminal enrollment never
+        // reaches the bootstrap or session endpoints.
+        when (val discovery = safeDiscovery()) {
+            is EnrollmentDiscovery.Terminal -> {
+                val detail = "This enrollment is ${discovery.status.lowercase()}; it cannot be activated."
+                markBlocked(StudyBlockReason.REVOKED, detail)
+                return ResearchActivationResult.Blocked(StudyBlockReason.REVOKED, detail)
+            }
+            else -> Unit
         }
         deactivateRuntime()
         return try {
@@ -1274,12 +1295,13 @@ class ResearchSessionManager(
     private fun isTerminalServerCode(code: String?): Boolean =
         code == REVOKED_CODE ||
             code == ENROLLMENT_NOT_ACTIVE_CODE ||
+            code == STUDY_STOPPED_CODE ||
             code == KILL_SWITCH_CODE ||
             code == SESSION_TERMINAL_CODE
 
     private fun serverTerminalReason(code: String?): StudyBlockReason =
         when (code) {
-            REVOKED_CODE, ENROLLMENT_NOT_ACTIVE_CODE -> StudyBlockReason.REVOKED
+            REVOKED_CODE, ENROLLMENT_NOT_ACTIVE_CODE, STUDY_STOPPED_CODE -> StudyBlockReason.REVOKED
             SESSION_TERMINAL_CODE -> StudyBlockReason.SESSION_ENDED
             else -> StudyBlockReason.REVOKED
         }
@@ -1962,6 +1984,20 @@ class ResearchSessionManager(
             null
         }
 
+    /**
+     * Best-effort membership check. `null` means "no discovery configured" or
+     * "discovery failed": the caller proceeds to the bootstrap API, which
+     * stays authoritative. Never throws.
+     */
+    private fun safeDiscovery(): EnrollmentDiscovery? {
+        val provider = enrollmentDiscoveryProvider ?: return null
+        return try {
+            provider()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun onSessionEnded() {
         deactivateRuntime()
         synchronized(lock) { active = false }
@@ -2148,6 +2184,7 @@ class ResearchSessionManager(
 
         private const val REVOKED_CODE = "REVOKED"
         private const val ENROLLMENT_NOT_ACTIVE_CODE = "ENROLLMENT_NOT_ACTIVE"
+        private const val STUDY_STOPPED_CODE = "STUDY_STOPPED"
         private const val KILL_SWITCH_CODE = "KILL_SWITCH_ENGAGED"
         private const val SESSION_TERMINAL_CODE = "SESSION_TERMINAL"
 

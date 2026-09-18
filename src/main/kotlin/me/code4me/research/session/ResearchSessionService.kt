@@ -74,6 +74,22 @@ class ResearchSessionService(private val project: Project) : Disposable {
     }
 
     /**
+     * Membership authority for the manager's pre-bootstrap gate: the signed-in
+     * account's enrollment state from `GET /api/research/participants/me`.
+     * Never throws; an unconfigured backend or a failed check yields
+     * [EnrollmentDiscovery.Unavailable] so the bootstrap API stays
+     * authoritative.
+     */
+    private fun discoverEnrollment(): EnrollmentDiscovery {
+        val baseUrl = resolveConfiguredBaseUrl() ?: return EnrollmentDiscovery.Unavailable("research backend is not configured")
+        return try {
+            ResearchJoinCodeResolver(baseUrl).discover()
+        } catch (_: Exception) {
+            EnrollmentDiscovery.Unavailable("enrollment discovery failed")
+        }
+    }
+
+    /**
      * Discover the account's server-side membership and act on it (Issue 03 E09).
      *
      * The project-local enrollment id is a hint only: the server's active
@@ -167,6 +183,7 @@ class ResearchSessionService(private val project: Project) : Disposable {
             byoaAgentCommandProvider = { runtimeSettings()?.byoaAgentCommand() },
             serverBaseUrlProvider = { resolveConfiguredBaseUrl() },
             environmentProvider = { environment() },
+            enrollmentDiscoveryProvider = { discoverEnrollment() },
             sessionStore = FileResearchSessionStore(),
             httpClient = CookieAwareApiClient.sharedOkHttpClient,
         )

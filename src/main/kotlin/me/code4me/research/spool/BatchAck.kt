@@ -33,7 +33,7 @@ data class TelemetryBatchAckV1(
 
     companion object {
         /** Permanent, revocation-class reasons that must stop further uploads. */
-        val REVOCATION_REASONS: Set<String> = setOf("REVOKED", "ENROLLMENT_NOT_ACTIVE")
+        val REVOCATION_REASONS: Set<String> = setOf("REVOKED", "ENROLLMENT_NOT_ACTIVE", "STUDY_STOPPED")
 
         /**
          * Parse the server's `TelemetryBatchAckV1` wire JSON.

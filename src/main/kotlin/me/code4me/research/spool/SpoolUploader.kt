@@ -100,8 +100,8 @@ data class SpoolUploadResult(
  *   never retried forever;
  * - `retryable` ids, transport failures, and `5xx` retain everything and retry
  *   with capped exponential backoff + jitter ([RetryBackoff]);
- * - a `401`/`403` or a `REVOKED`/`ENROLLMENT_NOT_ACTIVE` disposition stops
- *   uploads and deletes nothing unacknowledged.
+ * - a `401`/`403` or a `REVOKED`/`ENROLLMENT_NOT_ACTIVE`/`STUDY_STOPPED`
+ *   disposition stops uploads and deletes nothing unacknowledged.
  *
  * Restart recovery is purely from persisted spool state: there is no in-memory
  * delivery cursor. `previous_ack_cursor` is omitted (null) because a deterministic

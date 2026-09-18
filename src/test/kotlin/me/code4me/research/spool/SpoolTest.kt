@@ -786,6 +786,59 @@ class SpoolUploaderTest {
     }
 
     @Test
+    fun `an enrollment-not-active rejection stops uploads and deletes nothing unacknowledged`() {
+        val spool = tempSpool()
+        val (first, second) = events(2)
+        spool.append(first)
+        spool.append(second)
+        val (uploader, factory) =
+            uploader(spool) { response(200, ack(rejected = listOf(first.eventId to "ENROLLMENT_NOT_ACTIVE"))) }
+
+        val result = uploader.uploadOnce()
+
+        assertTrue(result.revoked)
+        assertEquals(0, result.acknowledged)
+        assertEquals(0, result.rejected, "a revocation-class rejection is never discarded as permanent")
+        assertEquals(0, result.discarded)
+        assertEquals(2, spool.pending().size, "revocation must never delete unacknowledged data")
+        assertTrue(uploader.state().revoked)
+        val request = factory.requests.single()
+        assertEquals("POST", request.method)
+        assertEquals("/api/research/telemetry/batches", request.url.encodedPath)
+    }
+
+    @Test
+    fun `a stopped-study rejection stops polling and is never discarded`() {
+        val spool = tempSpool()
+        val (first, second) = events(2)
+        spool.append(first)
+        spool.append(second)
+        val (uploader, factory) =
+            uploader(spool) { response(200, ack(rejected = listOf(first.eventId to "STUDY_STOPPED"))) }
+
+        val result = uploader.uploadOnce()
+
+        assertTrue(result.attempted)
+        assertTrue(result.revoked)
+        assertEquals(0, result.acknowledged)
+        assertEquals(0, result.rejected, "a terminal-study rejection is never discarded as permanent")
+        assertEquals(0, result.discarded)
+        assertEquals(2, spool.pending().size, "a stopped study must never delete unacknowledged data")
+        assertTrue(uploader.state().revoked)
+
+        val request = factory.requests.single()
+        assertEquals("POST", request.method)
+        assertEquals("/api/research/telemetry/batches", request.url.encodedPath)
+
+        val after = uploader.uploadOnce()
+
+        assertTrue(after.revoked)
+        assertFalse(after.attempted)
+        assertEquals(1, factory.requests.size, "a stopped-study uploader must not keep polling")
+        assertEquals(2, spool.pending().size)
+    }
+
+    @Test
     fun `a revocation reason stops uploads and deletes nothing unacknowledged`() {
         val spool = tempSpool()
         val (first, second) = events(2)
