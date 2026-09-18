@@ -288,6 +288,9 @@ class CanonicalEventSerializationTest {
 
         assertFalse(parsed.containsKey("revision_id"), parsed.keys.toString())
         assertFalse(parsed.containsKey("study_revision_id"), parsed.keys.toString())
+        // Enrollment is web-only: no join-code key may ride on telemetry.
+        assertFalse(parsed.containsKey("join_code"), parsed.keys.toString())
+        assertFalse(parsed.containsKey("joinCode"), parsed.keys.toString())
     }
 
     @Test

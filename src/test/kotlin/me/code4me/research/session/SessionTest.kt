@@ -2490,6 +2490,68 @@ class ResearchSessionMaintenanceTest {
         assertTrue(scheduler.cancelled.isNotEmpty())
     }
 
+    @Test
+    fun `a stale revocation epoch forces a terminal revocation and never retries`() {
+        val fetches = AtomicInteger()
+        val transport =
+            BootstrapTransport { _, _ ->
+                if (fetches.getAndIncrement() == 0) {
+                    BootstrapTransportResult.Success(
+                        manifestWithCapability("capability-1", "2026-01-01T01:00:00Z", "session-1"),
+                    )
+                } else {
+                    // The enrollment's revocation epoch advanced, so the server
+                    // refuses to mint a fresh capability.
+                    BootstrapTransportResult.Revoked(
+                        "capability revocation epoch is stale",
+                        BootstrapRejection.REVOKED,
+                    )
+                }
+            }
+        val http =
+            MaintenanceHttp { request ->
+                when {
+                    request.url.encodedPath.endsWith("/heartbeat") ->
+                        jsonResponse(
+                            request,
+                            403,
+                            canonicalJson(
+                                linkedMapOf(
+                                    "detail" to
+                                        linkedMapOf(
+                                            "code" to "CAPABILITY_INVALID",
+                                            "capability_reason" to "REVOKED",
+                                            "message" to "capability revocation epoch is stale",
+                                        ),
+                                ),
+                            ),
+                        )
+                    else -> jsonResponse(request, 201, createBody(30L))
+                }
+            }
+        val scheduler = FakeScheduler()
+        val delivery = FakeDelivery()
+        val manager = manager(http, transport, delivery, scheduler)
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+
+        val maintenance = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
+
+        assertTrue(maintenance is ResearchMaintenanceResult.Ended)
+        assertEquals(StudyBlockReason.REVOKED, (maintenance as ResearchMaintenanceResult.Ended).reason)
+        assertEquals(2, fetches.get(), "the stale epoch must trigger exactly one forced re-bootstrap")
+        assertFalse(manager.isActive)
+        assertEquals(SessionState.REVOKED, manager.currentSession?.state)
+        assertTrue(delivery.closed, "a stale revocation epoch must tear the uploader down")
+        assertTrue(scheduler.cancelled.isNotEmpty(), "the maintenance loop must stop")
+
+        // A later tick is inert: the terminal session is never retried and no
+        // further heartbeat is emitted.
+        val requestsAfterTerminal = http.requests.size
+        val second = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
+        assertTrue(second is ResearchMaintenanceResult.Inactive)
+        assertEquals(requestsAfterTerminal, http.requests.size, "a terminal revocation must never retry")
+    }
+
     // ------------------------------------------------------------------
     // Enrollment discovery gates activation (plan 05.5 step 1)
     // ------------------------------------------------------------------
@@ -2885,6 +2947,8 @@ class ResearchSessionBootstrapSessionTelemetryTest {
             assertEquals("study-1", createBody["study_id"])
             assertFalse(createBody.containsKey("revision_id"), createBody.keys.toString())
             assertFalse(createBody.containsKey("study_revision_id"), createBody.keys.toString())
+            assertFalse(createBody.containsKey("join_code"), createBody.keys.toString())
+            assertFalse(createBody.containsKey("joinCode"), createBody.keys.toString())
             assertTrue((createBody["capability"] as? Map<*, *>)?.isNotEmpty() == true)
 
             val heartbeat = http.requests.first { it.url.encodedPath == "/api/research/sessions/heartbeat" }
