@@ -23,7 +23,137 @@ on:
         required: true
 
 jobs:
+  # The research proxy is a per-platform PyInstaller bundle; there is no
+  # cross-compile. The release's platform list is the native agent platform set
+  # declared by the managed runtime release manifest
+  # (code4me-managed-runtime-release.json): its `code4me-agent-<os>-<arch>.zip`
+  # artifacts are mapped onto the supported proxy matrix and runner labels by
+  # scripts/research-proxy-platforms.py (see docs/RESEARCH_PROXY_RELEASE.md).
+  prepare-proxy-matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.platforms.outputs.matrix }}
+      platforms: ${{ steps.platforms.outputs.platforms }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.pluginCommit }}
+      - name: Download managed runtime release manifest
+        env:
+          GH_TOKEN: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/runtimes"
+          gh release download "${{ inputs.runtimeTag }}" \
+            --repo "${{ inputs.runtimeRepository }}" \
+            --pattern 'code4me-managed-runtime-release.json' \
+            --dir "$RUNNER_TEMP/runtimes"
+      - name: Derive research proxy platform matrix
+        id: platforms
+        run: |
+          python3 scripts/research-proxy-platforms.py \
+            "$RUNNER_TEMP/runtimes/code4me-managed-runtime-release.json" \
+            --github-output "$GITHUB_OUTPUT"
+
+  # One PyInstaller-capable runner per declared platform. Each job checks out
+  # the pinned server contracts (PyInstaller packages the shared `research`
+  # modules) and uploads telemetry-acp-proxy/dist/<os>-<arch>/ for the release
+  # job to stage. Do not rely on the checked-in dist/ directory: it is ignored
+  # by git and absent on a clean runner.
+  build-research-proxy:
+    needs: prepare-proxy-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare-proxy-matrix.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out plugin
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.pluginCommit }}
+          path: code4me2
+      - name: Check out pinned server contracts
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.runtimeRepository }}
+          ref: ${{ inputs.serverCommit }}
+          path: code4me2-server
+          token: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install locked proxy build toolchain
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check \
+            -r code4me2-server/packaging/requirements-runtime.lock \
+            -r code4me2-server/packaging/requirements-build.lock
+          python -m pip install --disable-pip-version-check --no-deps ./code4me2-server
+      - name: Build self-contained proxy bundle
+        working-directory: code4me2
+        shell: bash
+        env:
+          PYTHON: python
+        run: |
+          ./gradlew --no-daemon --no-configuration-cache buildResearchProxyBundle \
+            "-PresearchProxyPlatforms=${{ matrix.platform }}"
+      - name: Verify bundle layout
+        working-directory: code4me2
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="telemetry-acp-proxy/dist/${{ matrix.platform }}"
+          test -d "$bundle"
+          test -f "$bundle/${{ matrix.executable }}"
+      - name: Upload proxy bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-proxy-${{ matrix.platform }}
+          path: code4me2/telemetry-acp-proxy/dist/${{ matrix.platform }}
+          if-no-files-found: error
+
+  # Negative control: the release's strict staging flags must reject a runner
+  # without prebuilt bundles instead of silently packaging proxy source. A clean
+  # ubuntu runner has no telemetry-acp-proxy/dist/ directory.
+  negative-control-missing-proxy:
+    needs: prepare-proxy-matrix
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.pluginCommit }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Strict staging must fail without proxy bundles
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          ./gradlew --no-daemon --no-configuration-cache stageResearchProxy \
+            "-PresearchProxyPlatforms=${{ needs.prepare-proxy-matrix.outputs.platforms }}" \
+            "-PrequireResearchProxyBundles=true" 2>&1 | tee "$RUNNER_TEMP/strict-staging.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "strict staging succeeded without proxy bundles; the release would ship source-only" >&2
+            exit 1
+          fi
+          if ! grep -q "Missing self-contained research proxy bundle" "$RUNNER_TEMP/strict-staging.log"; then
+            echo "strict staging failed for an unexpected reason" >&2
+            exit 1
+          fi
+
   build:
+    needs:
+      - prepare-proxy-matrix
+      - build-research-proxy
+      - negative-control-missing-proxy
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -59,11 +189,44 @@ jobs:
             --release-manifest "$RUNNER_TEMP/runtimes/code4me-managed-runtime-release.json"
       - name: Run plugin tests
         run: ./gradlew --no-daemon test
+      - name: Download research proxy bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: research-proxy-*
+          path: ${{ runner.temp }}/research-proxies
+      - name: Stage research proxy bundles into dist/
+        shell: bash
+        run: |
+          set -euo pipefail
+          platforms="${{ needs.prepare-proxy-matrix.outputs.platforms }}"
+          IFS=',' read -r -a requested <<< "$platforms"
+          for platform in "${requested[@]}"; do
+            source_dir="$RUNNER_TEMP/research-proxies/research-proxy-$platform"
+            if [ ! -d "$source_dir" ]; then
+              echo "research proxy artifact for $platform is missing" >&2
+              exit 1
+            fi
+            executable="telemetry-acp-proxy"
+            if [ "$platform" = "windows-x64" ]; then
+              executable="telemetry-acp-proxy.exe"
+            fi
+            if [ ! -f "$source_dir/$executable" ]; then
+              echo "research proxy artifact for $platform does not contain $executable" >&2
+              exit 1
+            fi
+            if [ "$executable" = "telemetry-acp-proxy" ]; then
+              chmod +x "$source_dir/$executable"
+            fi
+            mkdir -p "telemetry-acp-proxy/dist/$platform"
+            cp -R "$source_dir/." "telemetry-acp-proxy/dist/$platform/"
+          done
       - name: Build participant ZIP
         run: |
           ./gradlew --no-daemon --no-configuration-cache buildParticipantPlugin \
             "-PpluginVersion=${{ inputs.version }}" \
-            "-Pcode4me.serverUrl=${{ inputs.serverUrl }}"
+            "-Pcode4me.serverUrl=${{ inputs.serverUrl }}" \
+            "-PresearchProxyPlatforms=${{ needs.prepare-proxy-matrix.outputs.platforms }}" \
+            "-PrequireResearchProxyBundles=true"
       - name: Verify participant artifact
         run: |
           python3 scripts/verify-participant-artifact.py \

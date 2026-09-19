@@ -2,7 +2,8 @@
 
 PyInstaller cannot follow a package-relative ``python -m`` invocation, so this
 thin module imports the real CLI from the installed package. It is used only by
-`.github/workflows/research-proxy-package.yml`; the runtime consumes the
+the ``build-research-proxy`` matrix job in
+``.github/workflows/build-participant-plugin.yml``; the runtime consumes the
 resulting self-contained bundle, never this source file.
 """
 
