@@ -74,4 +74,22 @@ class AcpRegistryWriterTest {
             Files.getPosixFilePermissions(registry),
         )
     }
+
+    @Test
+    fun `an idempotent managed registration also leaves the registry owner only`() {
+        val directory = Files.createTempDirectory("acp-registry-managed-perms")
+        val registry = directory.resolve("acp.json")
+        val writer = AcpRegistryWriter(registry)
+
+        assertTrue(writer.registerManagedAgent("/runtime/agent", "/bridges").isSuccess)
+        // A registry copied from an older install may be loose; the no-op
+        // refresh must restore the owner-only invariant.
+        Files.setPosixFilePermissions(registry, PosixFilePermission.values().toSet())
+        assertTrue(writer.registerManagedAgent("/runtime/agent", "/bridges").isSuccess)
+
+        assertEquals(
+            setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE),
+            Files.getPosixFilePermissions(registry),
+        )
+    }
 }

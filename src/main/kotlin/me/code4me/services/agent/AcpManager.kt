@@ -231,7 +231,12 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
             val backupName = "$MANAGED_ENTRY_NAME (local-dev backup)"
             if (!servers.containsKey(backupName)) servers[backupName] = existing!!
         }
-        if (existing == managed) return
+        if (existing == managed) {
+            // Keep the owner-only invariant on an idempotent refresh too: the
+            // registry can carry the research entry's capability secret.
+            restrictToOwner(registryPath)
+            return
+        }
         servers[MANAGED_ENTRY_NAME] = managed
 
         val updated = JsonObject(root.toMutableMap().also { it["agent_servers"] = JsonObject(servers) })
