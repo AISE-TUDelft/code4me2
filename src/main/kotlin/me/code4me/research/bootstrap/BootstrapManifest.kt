@@ -111,6 +111,36 @@ enum class AgentDistributionMode(val wireValue: String) {
 }
 
 /**
+ * One release-declared BYOA configuration binding (ISSUE-03 Path A).
+ *
+ * The release owns the external agent's configuration vocabulary; the frozen
+ * profile supplies the values. [transport] is `env` (set [key] in the child
+ * environment) or `arg` (append `[key, value]` to the agent argv). [valueMap]
+ * translates the server vocabulary into the agent's, and [format] renders a
+ * list field (`tools`) as `csv` or `json`.
+ */
+data class AgentConfigBindingRef(
+    val field: String,
+    val transport: String,
+    val key: String,
+    val format: String = "string",
+    val valueMap: Map<String, String> = emptyMap(),
+)
+
+/**
+ * The frozen, non-secret profile projection used by BYOA configuration
+ * bindings. `null` on a manifest produced before the contract landed.
+ */
+data class ManifestAgentProfile(
+    val profileId: String,
+    val model: String = "",
+    val temperature: Double? = null,
+    val toolsJson: String = "[]",
+    val approvalPolicy: String = "auto",
+    val maxSteps: Int = 1,
+)
+
+/**
  * The pinned agent distribution projection embedded in the manifest's
  * `agent_release` object.
  *
@@ -162,6 +192,12 @@ data class AgentReleaseRef(
      * or `codex`) used for discovery when no explicit [agentCommand] is pinned.
      */
     val agentPackage: String? = null,
+    /**
+     * BYOA only: the declared translation of frozen profile fields into the
+     * external agent's configuration. Empty when the release declares none; the
+     * plugin then refuses to launch a profile whose fields would not govern.
+     */
+    val configBindings: List<AgentConfigBindingRef> = emptyList(),
 ) {
     /**
      * The bare lowercase hex artifact digest. The server carries the digest as
@@ -240,6 +276,8 @@ data class BootstrapManifest(
     val researchSession: ResearchSessionDescriptor,
     val assignment: ManifestAssignment,
     val agentRelease: AgentReleaseRef,
+    /** Frozen profile projection for BYOA config bindings; null on old manifests. */
+    val agentProfile: ManifestAgentProfile? = null,
     val policies: ManifestPolicies,
     val compatibilityReceiptRef: String? = null,
     val sessionCapability: SessionCapabilityRef,
@@ -643,7 +681,47 @@ data class BootstrapManifest(
                             )?.mapNotNull { it as? String }
                                 .orEmpty(),
                         agentPackage = (agentRelease["agent_package"] ?: agentRelease["package"]) as? String,
+                        configBindings =
+                            (agentRelease["config_bindings"] as? List<*>)
+                                .orEmpty()
+                                .mapNotNull { raw ->
+                                    val binding = raw as? Map<*, *> ?: return@mapNotNull null
+                                    val field = (binding["field"] as? String)?.trim().orEmpty()
+                                    val transport = (binding["transport"] as? String)?.trim().orEmpty()
+                                    val key = (binding["key"] as? String)?.trim().orEmpty()
+                                    if (field.isBlank() || transport.isBlank() || key.isBlank()) {
+                                        return@mapNotNull null
+                                    }
+                                    AgentConfigBindingRef(
+                                        field = field.lowercase(),
+                                        transport = transport.lowercase(),
+                                        key = key,
+                                        format = (binding["format"] as? String)?.trim()?.lowercase() ?: "string",
+                                        valueMap =
+                                            (binding["value_map"] as? Map<*, *>)
+                                                ?.mapNotNull { (rawKey, rawValue) ->
+                                                    val mapKey = rawKey as? String ?: return@mapNotNull null
+                                                    val mapValue = rawValue as? String ?: return@mapNotNull null
+                                                    mapKey to mapValue
+                                                }
+                                                ?.toMap()
+                                                .orEmpty(),
+                                    )
+                                },
                     ),
+                agentProfile =
+                    (map["agent_profile"] as? Map<*, *>)?.let { profile ->
+                        ManifestAgentProfile(
+                            profileId = (profile["profile_id"] as? String).orEmpty(),
+                            model = (profile["model"] as? String).orEmpty(),
+                            temperature = (profile["temperature"] as? Number)?.toDouble(),
+                            toolsJson =
+                                (profile["tools_json"] as? String)
+                                    ?: canonicalJson((profile["tools_json"] as? List<*>) ?: emptyList<String>()),
+                            approvalPolicy = (profile["approval_policy"] as? String) ?: "auto",
+                            maxSteps = (profile["max_steps"] as? Number)?.toInt() ?: 1,
+                        )
+                    },
                 policies = parsePolicies(policies),
                 compatibilityReceiptRef = map["compatibility_receipt_ref"] as? String,
                 sessionCapability =

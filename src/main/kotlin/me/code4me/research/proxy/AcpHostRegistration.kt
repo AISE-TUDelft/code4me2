@@ -42,7 +42,7 @@ class AcpHostRegistration internal constructor(
         registryPath = registryPath,
         entryName = entryName,
         registryWriterFactory = { AcpRegistryWriter(it) },
-        capabilityWriter = ::writeOwnerOnlyCapability,
+        capabilityWriter = ::writeOwnerOnlyFile,
         capabilityFactory = { UUID.randomUUID().toString().replace("-", "") },
         digestFactory = { ContentHasher.STREAMING.sha256(it) },
     )
@@ -210,10 +210,14 @@ class AcpHostRegistration internal constructor(
 }
 
 /**
- * Write a one-time capability to [path] with owner-only permissions where the
- * filesystem supports POSIX permissions (Windows relies on the user ACL).
+ * Write [value] to [path] with owner-only permissions where the filesystem
+ * supports POSIX permissions (Windows relies on the user ACL).
+ *
+ * Shared by the one-time capability and the frozen telemetry policy: both are
+ * plugin-owned, rewritten on every activation, and read but never deleted by
+ * the proxy.
  */
-internal fun writeOwnerOnlyCapability(
+internal fun writeOwnerOnlyFile(
     path: Path,
     value: String,
 ) {
