@@ -29,7 +29,8 @@ data class BootstrapEnvironment(
  *
  * It POSTs the enrollment id plus a non-identifying environment report to
  * `POST {baseUrl}/api/research/bootstrap/research-sessions` and returns the
- * server's signed manifest. The request must run against an **authenticated
+ * server's signed manifest after an authenticated `/verify` exchange checks
+ * its HMAC and current session. The request must run against an **authenticated
  * client**: [CookieAwareApiClient.sharedOkHttpClient] is the default, which
  * attaches the `auth_token` cookie. The transport never inspects editor content
  * and never throws out of [fetch]: every network/stream/parse failure is mapped
@@ -60,6 +61,7 @@ class HttpBootstrapTransport(
     private val log = thisLogger()
 
     private val endpoint: String = baseUrl.trim().trimEnd('/') + RESEARCH_SESSIONS_PATH
+    private val verificationEndpoint: String = baseUrl.trim().trimEnd('/') + "/api/research/bootstrap/verify"
 
     override fun fetch(
         enrollmentId: String,
@@ -73,7 +75,8 @@ class HttpBootstrapTransport(
                     .post(buildRequestPayload(enrollmentId, contextId).toString().toRequestBody(JSON_MEDIA_TYPE))
                     .header("Accept", "application/json")
                     .build()
-            httpClient.newCall(request).execute().use { response -> mapResponse(response) }
+            val result = httpClient.newCall(request).execute().use { response -> mapResponse(response) }
+            if (result is BootstrapTransportResult.Success) verify(result, enrollmentId, contextId) else result
         } catch (exception: IOException) {
             BootstrapTransportResult.Failure(
                 message = "Bootstrap request failed: ${exception.message ?: "network error"}",
@@ -85,6 +88,47 @@ class HttpBootstrapTransport(
                 retryable = false,
             )
         }
+
+    private fun verify(
+        result: BootstrapTransportResult.Success,
+        enrollmentId: String,
+        contextId: String,
+    ): BootstrapTransportResult {
+        val manifest = json.parseToJsonElement(result.manifestJson) as JsonObject
+        val digest = manifest.textOrNull("manifest_digest")
+        if (digest.isNullOrBlank() || manifest.textOrNull("enrollment_id") != enrollmentId) {
+            return BootstrapTransportResult.Failure("Manifest identity is invalid.", retryable = false)
+        }
+        val payload = buildJsonObject {
+            put("manifest", manifest)
+            put("enrollment_id", enrollmentId)
+            put("context_id", contextId)
+        }
+        val request = Request.Builder()
+            .url(verificationEndpoint)
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .header("Accept", "application/json")
+            .build()
+        return httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                BootstrapTransportResult.Failure(
+                    "Manifest verification failed with HTTP ${response.code}.",
+                    retryable = response.code >= 500,
+                )
+            } else {
+                val proof = json.parseToJsonElement(response.body?.string().orEmpty()) as? JsonObject
+                if (proof?.get("verified") == JsonPrimitive(true) &&
+                    proof.textOrNull("manifest_digest") == digest &&
+                    proof.textOrNull("enrollment_id") == enrollmentId &&
+                    proof.textOrNull("context_id") == contextId
+                ) {
+                    result
+                } else {
+                    BootstrapTransportResult.Failure("Manifest verification response did not match the request.", retryable = false)
+                }
+            }
+        }
+    }
 
     private fun buildRequestPayload(
         enrollmentId: String,

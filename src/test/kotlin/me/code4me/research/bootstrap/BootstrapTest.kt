@@ -842,7 +842,11 @@ class HttpBootstrapTransportTest {
     )
 
     private class TestBackend(private val responder: (String) -> Response) {
+        data class RecordedRequest(val method: String, val path: String, val body: String, val cookie: String?)
+
         val server: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+
+        private val recorded = java.util.Collections.synchronizedList(mutableListOf<RecordedRequest>())
 
         @Volatile var lastMethod: String? = null
 
@@ -852,6 +856,11 @@ class HttpBootstrapTransportTest {
 
         @Volatile var lastCookie: String? = null
 
+        /** Overrides the automatic manifest-verification response. */
+        @Volatile var verifyResponder: ((String) -> Response)? = null
+
+        val requests: List<RecordedRequest> get() = recorded.toList()
+
         init {
             server.createContext("/") { exchange -> handle(exchange) }
             server.executor = null
@@ -859,21 +868,50 @@ class HttpBootstrapTransportTest {
         }
 
         private fun handle(exchange: HttpExchange) {
-            lastMethod = exchange.requestMethod
-            lastPath = exchange.requestURI.path
-            lastBody = exchange.requestBody.readBytes().decodeToString()
-            lastCookie = exchange.requestHeaders.getFirst("Cookie")
-            val response = responder(lastBody.orEmpty())
+            val method = exchange.requestMethod
+            val path = exchange.requestURI.path
+            val body = exchange.requestBody.readBytes().decodeToString()
+            val cookie = exchange.requestHeaders.getFirst("Cookie")
+            lastMethod = method
+            lastPath = path
+            lastBody = body
+            lastCookie = cookie
+            recorded.add(RecordedRequest(method, path, body, cookie))
+            // The transport authenticates every fetched manifest with the server
+            // before accepting it; answer that exchange by echoing the identity
+            // the transport must match.
+            val response =
+                if (path == VERIFY_PATH) {
+                    (verifyResponder ?: ::verifyResponse)(body)
+                } else {
+                    responder(body)
+                }
             val bytes = response.body.toByteArray(Charsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", response.contentType)
             exchange.sendResponseHeaders(response.status, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }
 
+        private fun verifyResponse(body: String): Response {
+            val obj = Json.parseToJsonElement(body).jsonObject
+            val manifest = obj.getValue("manifest").jsonObject
+            val digest = manifest.getValue("manifest_digest").jsonPrimitive.content
+            val enrollment = obj.getValue("enrollment_id").jsonPrimitive.content
+            val context = obj.getValue("context_id").jsonPrimitive.content
+            return Response(
+                200,
+                """{"verified":true,"manifest_digest":"$digest","enrollment_id":"$enrollment","context_id":"$context"}""",
+            )
+        }
+
         val baseUrl: String
             get() = "http://127.0.0.1:${server.address.port}"
 
         fun stop() = server.stop(0)
+
+        companion object {
+            const val VERIFY_PATH = "/api/research/bootstrap/verify"
+        }
     }
 
     private var backend: TestBackend? = null
@@ -902,9 +940,9 @@ class HttpBootstrapTransportTest {
         assertEquals("study-1", parsed.studyId)
         assertEquals("enrollment-1", parsed.enrollmentId)
 
-        assertEquals("POST", server.lastMethod)
-        assertEquals("/api/research/bootstrap/research-sessions", server.lastPath)
-        val body = json.parseToJsonElement(server.lastBody.orEmpty()).jsonObject
+        val manifestRequest = server.requests.first { it.path == "/api/research/bootstrap/research-sessions" }
+        assertEquals("POST", manifestRequest.method)
+        val body = json.parseToJsonElement(manifestRequest.body).jsonObject
         assertEquals("enrollment-1", body.getValue("enrollment_id").jsonPrimitive.content)
         // The opaque execution context travels with every bootstrap request so
         // simultaneous windows get distinct sessions.
@@ -915,6 +953,53 @@ class HttpBootstrapTransportTest {
         assertEquals("IC-262.1234.5", reported.getValue("ide_build").jsonPrimitive.content)
         assertEquals("1.2.3", reported.getValue("plugin_version").jsonPrimitive.content)
         assertEquals("IntelliJ IDEA", reported.getValue("host_kind").jsonPrimitive.content)
+        // The fetched manifest is then authenticated by the server before use.
+        val verifyRequest = server.requests.first { it.path == TestBackend.VERIFY_PATH }
+        val verifyBody = json.parseToJsonElement(verifyRequest.body).jsonObject
+        assertEquals("enrollment-1", verifyBody.getValue("enrollment_id").jsonPrimitive.content)
+        assertEquals("ctx-test", verifyBody.getValue("context_id").jsonPrimitive.content)
+        assertEquals(
+            parsed.manifestDigest,
+            verifyBody.getValue("manifest").jsonObject.getValue("manifest_digest").jsonPrimitive.content,
+        )
+    }
+
+    @Test
+    fun `a verification mismatch is a non-retryable failure`() {
+        val server = start { Response(201, """{"manifest":${manifestJson()}}""") }
+        server.verifyResponder = {
+            Response(
+                200,
+                """{"verified":true,"manifest_digest":"${"0".repeat(64)}","enrollment_id":"enrollment-1","context_id":"ctx-test"}""",
+            )
+        }
+
+        val result = transport(server).fetch("enrollment-1", "ctx-test")
+
+        val failure = result as BootstrapTransportResult.Failure
+        assertFalse(failure.retryable)
+    }
+
+    @Test
+    fun `a rejected verification is a non-retryable failure`() {
+        val server = start { Response(201, """{"manifest":${manifestJson()}}""") }
+        server.verifyResponder = { Response(409, """{"detail":{"code":"SIGNATURE_MISMATCH"}}""") }
+
+        val result = transport(server).fetch("enrollment-1", "ctx-test")
+
+        val failure = result as BootstrapTransportResult.Failure
+        assertFalse(failure.retryable)
+    }
+
+    @Test
+    fun `a verification server error is retryable`() {
+        val server = start { Response(201, """{"manifest":${manifestJson()}}""") }
+        server.verifyResponder = { Response(503, """{"detail":"unavailable"}""") }
+
+        val result = transport(server).fetch("enrollment-1", "ctx-test")
+
+        val failure = result as BootstrapTransportResult.Failure
+        assertTrue(failure.retryable)
     }
 
     @Test
@@ -926,7 +1011,8 @@ class HttpBootstrapTransportTest {
         val result = trailing.fetch("enrollment-1", "ctx-test")
 
         assertTrue(result is BootstrapTransportResult.Success)
-        assertEquals("/api/research/bootstrap/research-sessions", server.lastPath)
+        assertTrue(server.requests.any { it.path == "/api/research/bootstrap/research-sessions" })
+        assertTrue(server.requests.any { it.path == TestBackend.VERIFY_PATH })
     }
 
     @Test
