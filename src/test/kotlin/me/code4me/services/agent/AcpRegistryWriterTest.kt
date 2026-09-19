@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermission
 
 class AcpRegistryWriterTest {
     @Test
@@ -37,5 +38,40 @@ class AcpRegistryWriterTest {
         assertTrue(result.isFailure)
         assertEquals("not json", Files.readString(registry))
         assertFalse(Files.exists(directory.resolve("acp.json.tmp")))
+    }
+
+    @Test
+    fun `a proxy registration leaves the registry owner only`() {
+        val directory = Files.createTempDirectory("acp-registry-perms")
+        val registry = directory.resolve("acp.json")
+        val writer = AcpRegistryWriter(registry)
+        val env = mapOf("CODE4ME_RESEARCH_CAPABILITY" to "one-time-secret")
+
+        assertTrue(
+            writer.registerProxyEntry(
+                name = "Code4Me Research Proxy",
+                command = "/runtime/proxy",
+                args = listOf("--agent-digest", "a".repeat(64), "--agent-cmd", "agent"),
+                env = env,
+            ).isSuccess,
+        )
+
+        // A registry written by an older plugin (or a copy) may be loose while
+        // still carrying the capability in the entry env; an idempotent refresh
+        // must tighten it even though the entry itself is already correct.
+        Files.setPosixFilePermissions(registry, PosixFilePermission.values().toSet())
+        assertTrue(
+            writer.registerProxyEntry(
+                name = "Code4Me Research Proxy",
+                command = "/runtime/proxy",
+                args = listOf("--agent-digest", "a".repeat(64), "--agent-cmd", "agent"),
+                env = env,
+            ).isSuccess,
+        )
+
+        assertEquals(
+            setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE),
+            Files.getPosixFilePermissions(registry),
+        )
     }
 }

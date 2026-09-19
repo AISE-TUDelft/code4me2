@@ -38,8 +38,6 @@ import me.code4me.research.proxy.ByoaAgentResolver
 import me.code4me.research.proxy.ByoaAgentSpec
 import me.code4me.research.proxy.ObservedAgentIdentity
 import me.code4me.research.proxy.PackagedProxyRuntimeResolver
-import me.code4me.research.proxy.ProxyLaunchRequest
-import me.code4me.research.proxy.ProxyLaunchSpec
 import me.code4me.research.proxy.ProxyRuntimeError
 import me.code4me.research.proxy.ProxyRuntimeErrorCode
 import me.code4me.research.proxy.ProxyRuntimeResolution
@@ -259,7 +257,6 @@ class ResearchSessionManagerTest {
         store: ResearchSessionStore = InMemoryResearchSessionStore(),
         source: IdeActivitySource? = null,
         spoolProvider: (String) -> DurableSpool = { enrollmentId -> DurableSpool(root.resolve(enrollmentId)) },
-        launcher: ProxyLauncher = ProxyLauncher { _ -> ProxyHandle { } },
         projectKey: String = "project-under-test",
     ): ResearchSessionManager =
         ResearchSessionManager(
@@ -268,7 +265,6 @@ class ResearchSessionManagerTest {
             compatibility = manifestCompatibility(),
             spoolProvider = spoolProvider,
             source = source,
-            proxyLauncher = launcher,
             sessionStore = store,
             clock = clock::nowMs,
             instantClock = clock::nowInstant,
@@ -283,18 +279,6 @@ class ResearchSessionManagerTest {
             metadata = mapOf("file_extension" to "kt"),
         )
 
-    private fun proxyRequest(): ProxyLaunchRequest =
-        ProxyLaunchRequest(
-            runtimeRoot = root.resolve("runtime"),
-            executableRelativePath = "bin/code4me-proxy",
-            expectedArtifactDigest = ARTIFACT_DIGEST,
-            actualArtifactDigest = ARTIFACT_DIGEST,
-            researchSessionId = "placeholder",
-            telemetryPolicyDigest = "policy-digest",
-            workspace = root.resolve("workspace"),
-            ipcCapability = "ipc-capability",
-        )
-
     // ------------------------------------------------------------------
     // Activation gating
     // ------------------------------------------------------------------
@@ -302,16 +286,10 @@ class ResearchSessionManagerTest {
     @Test
     fun `revoked manifest blocks with no collectors and no proxy`() {
         val source = FakeIdeSource()
-        var launched = false
         val manager =
             manager(
                 transport = BootstrapTransport { _, _ -> BootstrapTransportResult.Revoked("withdrawn") },
                 source = source,
-                launcher =
-                    ProxyLauncher { _ ->
-                        launched = true
-                        ProxyHandle { }
-                    },
             )
 
         val result = manager.activate("enrollment-1")
@@ -325,10 +303,6 @@ class ResearchSessionManagerTest {
         assertEquals(StudyComponentState.BLOCKED, state.consentState)
         assertFalse(state.isCollecting)
         assertEquals(StudyBlockReason.REVOKED, state.blockReason)
-
-        val proxy = manager.launchProxy(proxyRequest())
-        assertTrue(proxy is ProxyLaunchResult.Rejected)
-        assertFalse(launched)
     }
 
     @Test
@@ -716,36 +690,6 @@ class ResearchSessionManagerTest {
         assertNotEquals(activationA.sessionId, activationB.sessionId)
         assertNotEquals(eventA.emitterId, eventB.emitterId)
         assertNotEquals(eventA.researchSessionId, eventB.researchSessionId)
-    }
-
-    @Test
-    fun `proxy launch requires a validated active session and tears down on stop`() {
-        val source = FakeIdeSource()
-        var launchedSpec: ProxyLaunchSpec? = null
-        var proxyStopped = false
-        val manager =
-            manager(
-                validTransport(),
-                source = source,
-                launcher =
-                    ProxyLauncher { spec ->
-                        launchedSpec = spec
-                        ProxyHandle { proxyStopped = true }
-                    },
-            )
-
-        // Before a validated activation, no launch may happen.
-        assertTrue(manager.launchProxy(proxyRequest()) is ProxyLaunchResult.Rejected)
-
-        manager.activate("enrollment-1")
-        val result = manager.launchProxy(proxyRequest())
-
-        assertTrue(result is ProxyLaunchResult.Running)
-        assertNotNull(launchedSpec)
-        assertEquals(manager.currentSession?.sessionId, launchedSpec?.researchSessionId)
-
-        manager.stop()
-        assertTrue(proxyStopped)
     }
 
     @Test

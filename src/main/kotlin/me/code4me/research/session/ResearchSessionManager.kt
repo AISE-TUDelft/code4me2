@@ -34,10 +34,6 @@ import me.code4me.research.proxy.AcpHostRegistration
 import me.code4me.research.proxy.ByoaAgentResolution
 import me.code4me.research.proxy.ByoaAgentResolver
 import me.code4me.research.proxy.ByoaAgentSpec
-import me.code4me.research.proxy.ProxyLaunchException
-import me.code4me.research.proxy.ProxyLaunchRequest
-import me.code4me.research.proxy.ProxyLaunchSpec
-import me.code4me.research.proxy.ProxyLaunchSpecBuilder
 import me.code4me.research.proxy.ProxyRuntimeResolution
 import me.code4me.research.proxy.ProxyRuntimeResolver
 import me.code4me.research.proxy.ResolvedProxyRuntime
@@ -66,31 +62,6 @@ import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
-
-/** A handle to a running proxy process; [stop] tears it down (and is idempotent). */
-fun interface ProxyHandle {
-    fun stop()
-}
-
-/**
- * Launches a resolved proxy spec. Injectable so tests and builds that have not
- * resolved a runtime never spawn a process.
- */
-fun interface ProxyLauncher {
-    fun launch(spec: ProxyLaunchSpec): ProxyHandle
-}
-
-/** Typed result of a proxy launch attempt. */
-sealed interface ProxyLaunchResult {
-    /** The proxy is running for [sessionId]. */
-    data class Running(val sessionId: String) : ProxyLaunchResult
-
-    /** No launch was attempted because the manifest/session is not launchable. */
-    data class Rejected(val reason: StudyBlockReason, val detail: String? = null) : ProxyLaunchResult
-
-    /** The launch was attempted and failed. */
-    data class Failed(val detail: String? = null) : ProxyLaunchResult
-}
 
 /** Typed result of an activation attempt; never thrown. */
 sealed interface ResearchActivationResult {
@@ -320,10 +291,10 @@ class FileResearchSessionStore(
 /**
  * Project-scoped research lifecycle coordinator (Issue 10).
  *
- * It owns one project's manifest/session/spool/collector/proxy lifecycle and
- * composes the existing research core:
+ * It owns one project's manifest/session/spool/collector/ACP-registration
+ * lifecycle and composes the existing research core:
  * [BootstrapClient], [SessionStateMachine]/[ResearchSession]/[AgentRun],
- * [DurableSpool], `ProxyLaunchSpec`, [IdeActivityCollector], and
+ * [DurableSpool], [IdeActivityCollector], and
  * [ParticipantStudyStateV1].
  *
  * Invariants:
@@ -342,7 +313,6 @@ class ResearchSessionManager(
         DurableSpool(defaultSpoolRoot().resolve(opaqueSpoolKey(enrollmentId)))
     },
     private val source: IdeActivitySource? = null,
-    private val proxyLauncher: ProxyLauncher = ProxyLauncher { _ -> ProxyHandle { } },
     private val proxyRuntimeResolver: ProxyRuntimeResolver? = null,
     private val acpHostRegistration: AcpHostRegistration? = null,
     private val agentEnvProvider: () -> Map<String, String> = { emptyMap() },
@@ -413,8 +383,6 @@ class ResearchSessionManager(
     @Volatile private var spool: DurableSpool? = null
 
     @Volatile private var collector: IdeActivityCollector? = null
-
-    @Volatile private var proxyHandle: ProxyHandle? = null
 
     @Volatile private var capabilityFile: Path? = null
 
@@ -775,47 +743,6 @@ class ResearchSessionManager(
     }
 
     /**
-     * Build and launch the pinned proxy for the active session.
-     *
-     * The launch is refused (typed [ProxyLaunchResult.Rejected]) whenever the
-     * manifest has not validated or the session is not active; a spec/runtime
-     * failure is reported as [ProxyLaunchResult.Failed].
-     */
-    fun launchProxy(request: ProxyLaunchRequest): ProxyLaunchResult {
-        val current = session
-        if (!isActive || current == null || current.isTerminal) {
-            return ProxyLaunchResult.Rejected(StudyBlockReason.SESSION_ENDED, "research collection is not active")
-        }
-        return try {
-            // The manifest is the authority for the pinned adapter identity; an
-            // explicit request value still wins so a caller can override it.
-            val release = manifest?.agentRelease
-            val effective =
-                request.copy(
-                    researchSessionId = current.sessionId,
-                    adapterId = request.adapterId ?: release?.adapterId,
-                    adapterVersion = request.adapterVersion ?: release?.adapterVersion,
-                )
-            val spec = ProxyLaunchSpecBuilder.build(effective)
-            val handle = proxyLauncher.launch(spec)
-            val previous = proxyHandle
-            proxyHandle = handle
-            runCatching { previous?.stop() }
-            ProxyLaunchResult.Running(current.sessionId)
-        } catch (exception: ProxyLaunchException) {
-            ProxyLaunchResult.Rejected(StudyBlockReason.RUNTIME_UNAVAILABLE, exception.message)
-        } catch (exception: Exception) {
-            ProxyLaunchResult.Failed(exception.message)
-        }
-    }
-
-    /**
-     * Stop the manager: tear down collectors/proxy, flush the bounded pending
-     * spool, and terminally stop the runtime. A live session is suspended (not
-     * discarded) so a restart inside the revision grace window may resume it;
-     * [close] is the explicit participant completion.
-     */
-    /**
      * One bounded pre-withdrawal delivery attempt (Issue 03 F09).
      *
      * Runs the active spool uploader's single manual pass on a worker thread and
@@ -845,6 +772,12 @@ class ResearchSessionManager(
         return runCatching { spool?.quarantine() }.getOrNull()
     }
 
+    /**
+     * Stop the manager: tear down the collectors, flush the bounded pending
+     * spool, and terminally stop the runtime. A live session is suspended (not
+     * discarded) so a restart inside the revision grace window may resume it;
+     * [close] is the explicit participant completion.
+     */
     fun stop(): ResearchStopResult {
         if (!stopped) {
             deactivateRuntime()
@@ -1513,15 +1446,12 @@ class ResearchSessionManager(
         stopMaintenance()
         val currentCollector = collector
         collector = null
-        val currentProxy = proxyHandle
-        proxyHandle = null
         val currentUploader = uploader
         uploader = null
         val currentIpc = ipcServer
         ipcServer = null
         runCatching { currentCollector?.deactivate() }
         runCatching { currentCollector?.stop() }
-        runCatching { currentProxy?.stop() }
         runCatching { currentUploader?.close() }
         runCatching { currentIpc?.close() }
         runCatching { acpHostRegistration?.unregister() }

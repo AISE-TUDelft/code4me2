@@ -19,7 +19,6 @@ import me.code4me.research.actions.ResearchEnrollmentSettings
 import me.code4me.research.ide.IntellijIdeActivitySource
 import me.code4me.research.proxy.AcpHostRegistration
 import me.code4me.research.proxy.PackagedProxyRuntimeResolver
-import me.code4me.research.proxy.ProxyProcessLauncher
 import me.code4me.research.spool.DurableSpool
 import me.code4me.research.spool.SpoolUploadResult
 import me.code4me.research.session.ParticipantStudyStateV1
@@ -163,7 +162,6 @@ class ResearchSessionService(private val project: Project) : Disposable {
             compatibility = pluginCompatibility(),
             spoolProvider = { enrollmentId -> DurableSpool(spoolDirectory(enrollmentId)) },
             source = project.getService(IntellijIdeActivitySource::class.java),
-            proxyLauncher = ProxyProcessLauncher(),
             proxyRuntimeResolver =
                 PackagedProxyRuntimeResolver.forPlugin(
                     allowDevelopmentRuntime = runtimeSettings()?.allowDevelopmentRuntime() ?: false,

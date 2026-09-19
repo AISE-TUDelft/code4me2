@@ -12,6 +12,7 @@ import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.PosixFilePermission
 
 /**
  * Registers Code4Me-managed agent runtimes in `~/.jetbrains/acp.json`, the registry JetBrains'
@@ -237,6 +238,7 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
         val temp = Files.createTempFile(registryPath.parent, "acp", ".tmp")
         try {
             Files.writeString(temp, json.encodeToString(JsonObject.serializer(), updated))
+            restrictToOwner(temp)
             try {
                 Files.move(temp, registryPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
             } catch (
@@ -281,7 +283,13 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
                             "env" to JsonObject(env.mapValues { JsonPrimitive(it.value) }),
                         ),
                     )
-                if (servers[name] == entry) return@withRegistryLock
+                if (servers[name] == entry) {
+                    // An already-correct entry still gets the owner-only fix-up:
+                    // a registry written by an older plugin version may be
+                    // group/world readable while carrying the capability secret.
+                    restrictToOwner(registryPath)
+                    return@withRegistryLock
+                }
                 servers[name] = entry
                 writeAtomic(JsonObject(root.toMutableMap().also { it["agent_servers"] = JsonObject(servers) }))
             }
@@ -338,6 +346,7 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
         val temp = Files.createTempFile(registryPath.parent, "acp", ".tmp")
         try {
             Files.writeString(temp, json.encodeToString(JsonObject.serializer(), root))
+            restrictToOwner(temp)
             try {
                 Files.move(temp, registryPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
             } catch (_: Exception) {
@@ -345,6 +354,25 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
             }
         } finally {
             Files.deleteIfExists(temp)
+        }
+    }
+
+    /**
+     * Restrict the registry to its owner before it is moved into place.
+     *
+     * The research proxy entry carries the one-time local IPC capability in its
+     * `env`, so `~/.jetbrains/acp.json` must never be group/world readable.
+     * POSIX filesystems get `0600`; Windows and non-POSIX filesystems rely on the
+     * per-user ACL (setting POSIX permissions throws there and is ignored).
+     */
+    private fun restrictToOwner(path: java.nio.file.Path) {
+        try {
+            Files.setPosixFilePermissions(
+                path,
+                setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE),
+            )
+        } catch (_: UnsupportedOperationException) {
+            // Windows and non-POSIX filesystems: the user ACL keeps it user-scoped.
         }
     }
 
