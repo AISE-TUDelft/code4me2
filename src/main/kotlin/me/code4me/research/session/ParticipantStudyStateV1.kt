@@ -58,6 +58,13 @@ enum class StudyBlockReason(val value: String) {
     SESSION_ENDED("SESSION_ENDED"),
     RUNTIME_UNAVAILABLE("RUNTIME_UNAVAILABLE"),
     /**
+     * The study does not declare a usable session policy, so the server refuses
+     * to open or maintain the authoritative session (ISSUE-05). The block is
+     * terminal for this activation: retrying cannot succeed until a researcher
+     * fixes the study's session policy.
+     */
+    POLICY_INVALID("POLICY_INVALID"),
+    /**
      * A BYOA (`BYOA_EXTERNAL`) agent could not be resolved on this participant
      * host. The participant must install it (or point the settings at it); the
      * plugin never falls back silently to another executable.

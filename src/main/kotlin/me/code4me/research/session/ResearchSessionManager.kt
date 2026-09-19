@@ -399,6 +399,13 @@ class ResearchSessionManager(
 
     @Volatile private var scheduledHeartbeatMs: Long? = null
 
+    /**
+     * True when a real qualifying activity event was recorded locally since the
+     * last activity report. Only the explicit activity channel consumes it;
+     * periodic liveness heartbeats never set it (ISSUE-06).
+     */
+    @Volatile private var pendingActivityReport = false
+
     @Volatile private var activePrivacyPolicy: PrivacyPolicy = PrivacyPolicy.default()
 
     @Volatile private var privacyFilter: PrivacyFilter = PrivacyFilter(PrivacyPolicy.default())
@@ -578,18 +585,32 @@ class ResearchSessionManager(
     }
 
     /**
-     * One periodic maintenance tick: refresh the telemetry capability before it
-     * expires, then heartbeat the server session at its declared cadence.
+     * One periodic maintenance tick: expire the session locally when idle,
+     * refresh the telemetry capability before it expires, report any real
+     * qualifying activity, then heartbeat the server session at its declared
+     * cadence.
      *
      * Fail-soft by construction: every transport failure becomes a typed
      * [ResearchMaintenanceResult.Retryable] and never affects ordinary plugin
-     * behaviour. A terminal server answer (session ended/revoked, kill switch)
-     * tears the runtime down and is never resurrected by a later tick.
+     * behaviour. A terminal server answer (session ended/revoked, kill switch,
+     * missing/invalid policy) tears the runtime down and is never resurrected
+     * by a later tick.
      */
     fun performMaintenance(): ResearchMaintenanceResult {
         val current = session
         if (stopped || !isActive || current == null || current.isTerminal) {
             return ResearchMaintenanceResult.Inactive("no active research session")
+        }
+        // Local idle expiry: only real qualifying activity keeps a session
+        // alive, and the periodic heartbeat never refreshes it. Once the
+        // manifest idle policy is exceeded, end the session locally and stop
+        // heartbeating; the server remains authoritative for final expiry.
+        val idle = checkIdle()
+        if (session?.isTerminal == true) {
+            return ResearchMaintenanceResult.Ended(
+                StudyBlockReason.SESSION_ENDED,
+                (idle as? ResearchSessionResult.Applied)?.detail ?: "idle timeout",
+            )
         }
         var capabilityRefreshed = false
         when (val refresh = refreshCapabilityIfNeeded(force = false)) {
@@ -610,19 +631,36 @@ class ResearchSessionManager(
         if (stopped || !isActive || afterRefresh == null || afterRefresh.isTerminal || held == null) {
             return ResearchMaintenanceResult.Inactive("research session is no longer active")
         }
+        // Real qualifying activity observed locally is reported explicitly; a
+        // plain heartbeat is liveness only and must never fabricate activity.
+        var activitySeconds: Long? = null
+        when (val activity = flushPendingActivityReport(held, afterRefresh)) {
+            null, is SessionHeartbeat.ExpiredCapability, is SessionHeartbeat.Retryable -> Unit
+            is SessionHeartbeat.Terminal -> {
+                handleServerTerminal(activity.reason, activity.detail)
+                return ResearchMaintenanceResult.Ended(activity.reason, activity.detail)
+            }
+            is SessionHeartbeat.Ok -> {
+                val stateBlock = serverStateBlockReason(activity.sessionState)
+                if (stateBlock != null) {
+                    handleServerTerminal(stateBlock, "the research server reports session state '${activity.sessionState}'")
+                    return ResearchMaintenanceResult.Ended(stateBlock, activity.sessionState)
+                }
+                activitySeconds = activity.heartbeatSeconds
+            }
+        }
         return when (val heartbeat = sendHeartbeatRequest(held, afterRefresh)) {
             is SessionHeartbeat.Ok -> {
                 if (stopped || !isActive) {
                     return ResearchMaintenanceResult.Inactive("research session is no longer active")
                 }
                 heartbeat.heartbeatSeconds?.let { rescheduleMaintenance(it) }
-                val state = heartbeat.sessionState
-                if (state == SERVER_STATE_ENDED || state == SERVER_STATE_REVOKED) {
-                    val reason = if (state == SERVER_STATE_REVOKED) StudyBlockReason.REVOKED else StudyBlockReason.SESSION_ENDED
-                    handleServerTerminal(reason, "the research server reports session state '$state'")
-                    ResearchMaintenanceResult.Ended(reason, state)
+                val stateBlock = serverStateBlockReason(heartbeat.sessionState)
+                if (stateBlock != null) {
+                    handleServerTerminal(stateBlock, "the research server reports session state '${heartbeat.sessionState}'")
+                    ResearchMaintenanceResult.Ended(stateBlock, heartbeat.sessionState)
                 } else {
-                    ResearchMaintenanceResult.Maintained(heartbeat.heartbeatSeconds, capabilityRefreshed)
+                    ResearchMaintenanceResult.Maintained(heartbeat.heartbeatSeconds ?: activitySeconds, capabilityRefreshed)
                 }
             }
             is SessionHeartbeat.ExpiredCapability -> when (val forced = refreshCapabilityIfNeeded(force = true)) {
@@ -973,10 +1011,13 @@ class ResearchSessionManager(
      * Open (or reuse) the server-side session for a freshly activated manifest and
      * return the server-declared heartbeat cadence.
      *
-     * The server opens a session in `NOT_STARTED`; a `report_activity` heartbeat
-     * is the documented transition to `RUNNING`, so one is sent immediately.
-     * Every failure is fail-soft: a transient error leaves the session active and
-     * the periodic loop retries; a terminal server answer tears the runtime down.
+     * The server opens a session in `NOT_STARTED`; the immediate signal here is
+     * a liveness heartbeat only. Qualifying activity is reported separately
+     * through `/api/research/sessions/activity` once the collector observes it
+     * (ISSUE-06). Every failure is fail-soft: a transient error leaves the
+     * session active and the periodic loop retries; a terminal server answer
+     * (including a missing/invalid study policy, ISSUE-05) tears the runtime
+     * down and blocks activation instead of reporting `Activated`.
      */
     private fun establishServerSession(
         validManifest: BootstrapManifest,
@@ -1131,19 +1172,53 @@ class ResearchSessionManager(
             false
         }
 
-    /** POST the heartbeat for [held]/[current]; never throws. */
+    /** POST the liveness heartbeat for [held]/[current]; never throws. */
     private fun sendHeartbeatRequest(
+        held: BootstrapManifest,
+        current: ResearchSession,
+    ): SessionHeartbeat = sendSessionSignal(HEARTBEAT_PATH, held, current)
+
+    /** POST one qualifying-activity report for [held]/[current]; never throws. */
+    private fun sendActivityRequest(
+        held: BootstrapManifest,
+        current: ResearchSession,
+    ): SessionHeartbeat = sendSessionSignal(ACTIVITY_PATH, held, current)
+
+    /**
+     * Flush the pending qualifying-activity report, if any (ISSUE-06).
+     *
+     * Returns `null` when no real activity was observed locally since the last
+     * flush. The pending flag survives a retryable/expired-capability answer so
+     * the next tick re-reports the same activity; a terminal answer clears it
+     * because the session must not be resurrected.
+     */
+    private fun flushPendingActivityReport(
+        held: BootstrapManifest,
+        current: ResearchSession,
+    ): SessionHeartbeat? {
+        if (!pendingActivityReport) return null
+        pendingActivityReport = false
+        val outcome = sendActivityRequest(held, current)
+        if (outcome !is SessionHeartbeat.Ok && outcome !is SessionHeartbeat.Terminal) {
+            pendingActivityReport = true
+        }
+        return outcome
+    }
+
+    /** POST one session lifecycle signal at [path] and classify the answer; never throws. */
+    private fun sendSessionSignal(
+        path: String,
         held: BootstrapManifest,
         current: ResearchSession,
     ): SessionHeartbeat {
         val response =
             postSessionJson(
-                HEARTBEAT_PATH,
+                path,
                 linkedMapOf<String, Any?>(
                     "capability" to held.sessionCapabilityObject(),
                     "research_session_id" to current.sessionId,
                 ),
-            ) ?: return SessionHeartbeat.Retryable("the heartbeat request could not be delivered")
+            ) ?: return SessionHeartbeat.Retryable("the session request to $path could not be delivered")
         val reason = reasonCodeFrom(response.body)
         return when {
             response.code in 200..299 -> SessionHeartbeat.Ok(heartbeatSecondsFrom(response.body), sessionStateFrom(response.body))
@@ -1216,18 +1291,34 @@ class ResearchSessionManager(
             null
         }
 
+    /**
+     * True for server reason codes that cannot succeed on retry: the session or
+     * enrollment is terminal, or the study policy itself is missing/invalid so
+     * every session endpoint will keep refusing until a researcher fixes it.
+     */
     private fun isTerminalServerCode(code: String?): Boolean =
         code == REVOKED_CODE ||
             code == ENROLLMENT_NOT_ACTIVE_CODE ||
             code == STUDY_STOPPED_CODE ||
             code == KILL_SWITCH_CODE ||
-            code == SESSION_TERMINAL_CODE
+            code == SESSION_TERMINAL_CODE ||
+            code == POLICY_MISSING_CODE ||
+            code == SESSION_POLICY_INVALID_CODE
 
     private fun serverTerminalReason(code: String?): StudyBlockReason =
         when (code) {
             REVOKED_CODE, ENROLLMENT_NOT_ACTIVE_CODE, STUDY_STOPPED_CODE -> StudyBlockReason.REVOKED
             SESSION_TERMINAL_CODE -> StudyBlockReason.SESSION_ENDED
+            POLICY_MISSING_CODE, SESSION_POLICY_INVALID_CODE -> StudyBlockReason.POLICY_INVALID
             else -> StudyBlockReason.REVOKED
+        }
+
+    /** The block reason for a server-reported terminal session state, if any. */
+    private fun serverStateBlockReason(state: String?): StudyBlockReason? =
+        when (state) {
+            SERVER_STATE_REVOKED -> StudyBlockReason.REVOKED
+            SERVER_STATE_ENDED -> StudyBlockReason.SESSION_ENDED
+            else -> null
         }
 
     /**
@@ -1431,6 +1522,9 @@ class ResearchSessionManager(
                 }
             session = advanced
             sessionStore.save(advanced)
+            // This is real qualifying activity: report it to the server on the
+            // next maintenance tick. A heartbeat alone never sets this flag.
+            pendingActivityReport = true
         }
     }
 
@@ -1449,6 +1543,7 @@ class ResearchSessionManager(
      */
     private fun deactivateRuntime() {
         stopMaintenance()
+        pendingActivityReport = false
         val currentCollector = collector
         collector = null
         val currentUploader = uploader
@@ -1761,6 +1856,7 @@ class ResearchSessionManager(
                     StudyBlockReason.MANIFEST_EXPIRED,
                     StudyBlockReason.MANIFEST_INVALID,
                     StudyBlockReason.INCOMPATIBLE_ENVIRONMENT,
+                    StudyBlockReason.POLICY_INVALID,
                     -> StudyComponentState.BLOCKED
                     else -> StudyComponentState.UNAVAILABLE
                 }
@@ -1904,6 +2000,7 @@ class ResearchSessionManager(
 
         private const val SESSIONS_PATH = "/api/research/sessions/"
         private const val HEARTBEAT_PATH = "/api/research/sessions/heartbeat"
+        private const val ACTIVITY_PATH = "/api/research/sessions/activity"
 
         private const val HTTP_UNAUTHORIZED = 401
         private const val HTTP_FORBIDDEN = 403
@@ -1914,6 +2011,15 @@ class ResearchSessionManager(
         private const val STUDY_STOPPED_CODE = "STUDY_STOPPED"
         private const val KILL_SWITCH_CODE = "KILL_SWITCH_ENGAGED"
         private const val SESSION_TERMINAL_CODE = "SESSION_TERMINAL"
+
+        /**
+         * The study declares no usable session policy, so session create and
+         * heartbeat are refused non-retryably until a researcher fixes it
+         * (ISSUE-05). `SESSION_POLICY_INVALID` is the sibling study-creation
+         * code for the same contract.
+         */
+        private const val POLICY_MISSING_CODE = "POLICY_MISSING"
+        private const val SESSION_POLICY_INVALID_CODE = "SESSION_POLICY_INVALID"
 
         private const val SERVER_STATE_ENDED = "ended"
         private const val SERVER_STATE_REVOKED = "revoked"

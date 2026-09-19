@@ -113,6 +113,13 @@ object ParticipantStatusPresentation {
                     StudyBlockReason.INCOMPATIBLE_ENVIRONMENT.value,
                     "Update the Code4Me plugin to the study-required version.",
                 )
+            StudyBlockReason.POLICY_INVALID ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.ERROR,
+                    StudyBlockReason.POLICY_INVALID.value,
+                    "The study session policy is not configured; contact study support with the reason code.",
+                )
             StudyBlockReason.RUNTIME_UNAVAILABLE ->
                 Resolved(
                     FAILED_HEADLINE,

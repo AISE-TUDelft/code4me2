@@ -2343,6 +2343,19 @@ class ResearchSessionMaintenanceTest {
         }
     }
 
+    /** An IDE source whose qualifying signals can be pushed deterministically. */
+    private class FakeIdeSource : IdeActivitySource {
+        private var callback: ((IdeActivitySignal) -> Unit)? = null
+
+        override fun onActivity(callback: (IdeActivitySignal) -> Unit) {
+            this.callback = callback
+        }
+
+        fun push(signal: IdeActivitySignal) {
+            callback?.invoke(signal)
+        }
+    }
+
     private class MaintenanceHttp(
         private val responder: (Request) -> Response,
     ) : Call.Factory {
@@ -2472,18 +2485,21 @@ class ResearchSessionMaintenanceTest {
         delivery: SpoolDelivery,
         scheduler: MaintenanceScheduler,
         discovery: (() -> EnrollmentDiscovery)? = null,
+        source: IdeActivitySource? = null,
+        clockMs: () -> Long = { VALID_NOW.toEpochMilli() },
     ): ResearchSessionManager =
         ResearchSessionManager(
             projectKey = "project-under-test",
             transport = transport,
             compatibility = compatibility(),
             spoolProvider = { DurableSpool(root.resolve("spool")) },
+            source = source,
             serverBaseUrlProvider = { "http://localhost:8008" },
             httpClient = http,
             uploaderFactory = { delivery },
             maintenanceScheduler = scheduler,
             sessionStore = InMemoryResearchSessionStore(),
-            clock = { VALID_NOW.toEpochMilli() },
+            clock = clockMs,
             instantClock = { VALID_NOW },
             sessionIdFactory = { "session-1" },
             runIdFactory = { "run-1" },
@@ -2505,15 +2521,105 @@ class ResearchSessionMaintenanceTest {
         assertTrue(result is ResearchActivationResult.Activated)
         val paths = http.requests.map { it.url.encodedPath }
         assertTrue(paths.contains("/api/research/sessions/"), paths.toString())
-        // The session opens NOT_STARTED, so a report-activity heartbeat moves it
-        // to RUNNING immediately.
+        // The activation heartbeat is liveness only: the session opens
+        // NOT_STARTED and is only started by a real qualifying-activity report.
         assertTrue(paths.contains("/api/research/sessions/heartbeat"), paths.toString())
+        assertFalse(paths.contains("/api/research/sessions/activity"), "activation must not fabricate activity")
         val create = http.requests.first { it.url.encodedPath == "/api/research/sessions/" }
         val createBody = bodyOf(create)
         assertEquals("enrollment-1", createBody["enrollment_id"])
         assertEquals("study-1", createBody["study_id"])
         assertEquals(30_000L, scheduler.periods.single())
         assertNotNull(scheduler.latestTask())
+    }
+
+    // ------------------------------------------------------------------
+    // Liveness vs qualifying activity (ISSUE-06)
+    // ------------------------------------------------------------------
+
+    private fun activitySignal(): IdeActivitySignal =
+        IdeActivitySignal(
+            kind = "opened",
+            projectKey = "project-under-test",
+            metadata = mapOf("file_extension" to "kt"),
+        )
+
+    @Test
+    fun `maintenance reports real qualifying activity but a bare heartbeat is never activity`() {
+        val source = FakeIdeSource()
+        val http =
+            MaintenanceHttp { request ->
+                when (request.url.encodedPath) {
+                    "/api/research/sessions/activity" -> jsonResponse(request, 200, heartbeatBody(30L))
+                    "/api/research/sessions/heartbeat" -> jsonResponse(request, 200, heartbeatBody(30L))
+                    else -> jsonResponse(request, 201, createBody(30L))
+                }
+            }
+        val scheduler = FakeScheduler()
+        val manager = manager(http, singleManifestTransport(), FakeDelivery(), scheduler, source = source)
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+
+        // Periodic liveness ticks alone must never report qualifying activity.
+        val heartbeatsAfterActivation = http.requests.count { it.url.encodedPath.endsWith("/heartbeat") }
+        repeat(2) { scheduler.latestTask()?.invoke() }
+        assertEquals(0, http.requests.count { it.url.encodedPath.endsWith("/activity") }, "heartbeats are liveness only")
+        assertEquals(heartbeatsAfterActivation + 2, http.requests.count { it.url.encodedPath.endsWith("/heartbeat") })
+
+        // One real qualifying IDE observation advances the session locally and
+        // is reported exactly once on the next maintenance tick.
+        source.push(activitySignal())
+        assertEquals(SessionState.RUNNING, manager.currentSession?.state)
+
+        scheduler.latestTask()?.invoke()
+
+        val reports = http.requests.filter { it.url.encodedPath.endsWith("/activity") }
+        assertEquals(1, reports.size)
+        assertEquals("POST", reports.single().method)
+        assertEquals("session-1", bodyOf(reports.single())["research_session_id"])
+        assertTrue((bodyOf(reports.single())["capability"] as? Map<*, *>)?.isNotEmpty() == true)
+
+        // A later bare tick must not fabricate a second activity report.
+        scheduler.latestTask()?.invoke()
+        assertEquals(1, http.requests.count { it.url.encodedPath.endsWith("/activity") })
+    }
+
+    @Test
+    fun `maintenance ends a locally idle session and stops heartbeating`() {
+        val source = FakeIdeSource()
+        val epochMs = AtomicLong(VALID_NOW.toEpochMilli())
+        val http = sessionsHttp { 30L }
+        val scheduler = FakeScheduler()
+        val manager =
+            manager(
+                http,
+                singleManifestTransport(),
+                FakeDelivery(),
+                scheduler,
+                source = source,
+                clockMs = { epochMs.get() },
+            )
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        source.push(activitySignal())
+
+        // A heartbeat before the policy boundary keeps the session live but must
+        // not reset the idle clock (the manifest idle timeout is 600 s).
+        epochMs.addAndGet(300_000L)
+        assertTrue(manager.performMaintenance() is ResearchMaintenanceResult.Maintained)
+
+        epochMs.addAndGet(300_001L)
+        val requestsBeforeIdle = http.requests.size
+        val idle = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
+
+        assertTrue(idle is ResearchMaintenanceResult.Ended)
+        assertEquals(StudyBlockReason.SESSION_ENDED, (idle as ResearchMaintenanceResult.Ended).reason)
+        assertEquals(SessionState.ENDED, manager.currentSession?.state)
+        assertEquals(requestsBeforeIdle, http.requests.size, "an idle session must stop heartbeating")
+        assertFalse(manager.isActive)
+        assertTrue(scheduler.cancelled.isNotEmpty(), "local idle expiry must cancel the maintenance loop")
+
+        // No retry loop: later ticks are inert and emit nothing.
+        repeat(3) { assertTrue(manager.performMaintenance() is ResearchMaintenanceResult.Inactive) }
+        assertEquals(requestsBeforeIdle, http.requests.size)
     }
 
     @Test
@@ -2780,6 +2886,89 @@ class ResearchSessionMaintenanceTest {
             assertTrue(revokedManager.performMaintenance() is ResearchMaintenanceResult.Inactive)
         }
         assertEquals(requestsAfterRevoke, revokedHttp.requests.size, "a revoked session must never retry")
+    }
+
+    // ------------------------------------------------------------------
+    // Missing/invalid study policy is a non-retryable block (ISSUE-05)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `a policy-missing session create blocks activation non-retryably`() {
+        val http =
+            MaintenanceHttp { request ->
+                if (request.url.encodedPath.endsWith("/heartbeat")) {
+                    jsonResponse(request, 200, heartbeatBody(30L))
+                } else {
+                    jsonResponse(request, 409, terminalBody("POLICY_MISSING"))
+                }
+            }
+        val scheduler = FakeScheduler()
+        val delivery = FakeDelivery()
+        val manager = manager(http, singleManifestTransport(), delivery, scheduler)
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Blocked, "a missing policy must not report Activated")
+        assertEquals(StudyBlockReason.POLICY_INVALID, (result as ResearchActivationResult.Blocked).reason)
+        assertFalse(manager.isActive)
+        assertFalse(manager.isCollecting, "the collector must be torn down with the block")
+        assertEquals(StudyBlockReason.POLICY_INVALID, manager.state().blockReason)
+        assertEquals(
+            1,
+            http.requests.count { it.url.encodedPath == "/api/research/sessions/" },
+            "a policy refusal must never be retried as a session create",
+        )
+        assertTrue(
+            http.requests.none { it.url.encodedPath.endsWith("/heartbeat") },
+            "no heartbeat may follow a create refusal",
+        )
+        assertTrue(scheduler.periods.isEmpty(), "a blocked activation must not schedule maintenance")
+
+        // Later ticks are inert: zero retries, no session resurrection.
+        val requestsAfterBlock = http.requests.size
+        assertTrue(manager.performMaintenance() is ResearchMaintenanceResult.Inactive)
+        assertEquals(requestsAfterBlock, http.requests.size)
+    }
+
+    @Test
+    fun `a policy-missing heartbeat ends maintenance non-retryably`() {
+        // POLICY_MISSING is what session endpoints return; SESSION_POLICY_INVALID
+        // is the sibling study-creation code for the same contract. Both must be
+        // terminal, never retried.
+        for (code in listOf("POLICY_MISSING", "SESSION_POLICY_INVALID")) {
+            var policyRefused = false
+            val http =
+                MaintenanceHttp { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/heartbeat") && policyRefused ->
+                            jsonResponse(request, 409, terminalBody(code))
+                        request.url.encodedPath.endsWith("/heartbeat") ->
+                            jsonResponse(request, 200, heartbeatBody(30L))
+                        else ->
+                            jsonResponse(request, 201, createBody(30L))
+                    }
+                }
+            val scheduler = FakeScheduler()
+            val delivery = FakeDelivery()
+            val manager = manager(http, singleManifestTransport(), delivery, scheduler)
+            assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+            policyRefused = true
+
+            val maintenance = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
+
+            assertTrue(maintenance is ResearchMaintenanceResult.Ended, code)
+            assertEquals(StudyBlockReason.POLICY_INVALID, (maintenance as ResearchMaintenanceResult.Ended).reason, code)
+            assertFalse(manager.isActive, code)
+            assertEquals(StudyBlockReason.POLICY_INVALID, manager.state().blockReason, code)
+            assertTrue(delivery.closed, "a policy block must tear the runtime down ($code)")
+            assertTrue(scheduler.cancelled.isNotEmpty(), "a policy block must stop the maintenance loop ($code)")
+
+            val requestsAfterBlock = http.requests.size
+            repeat(2) {
+                assertTrue(manager.performMaintenance() is ResearchMaintenanceResult.Inactive)
+            }
+            assertEquals(requestsAfterBlock, http.requests.size, "a policy block must never retry ($code)")
+        }
     }
 
     // ------------------------------------------------------------------

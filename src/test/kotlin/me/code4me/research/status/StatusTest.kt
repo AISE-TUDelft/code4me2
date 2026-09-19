@@ -110,6 +110,20 @@ class ParticipantStatusPresentationTest {
     }
 
     @Test
+    fun `a missing study policy is an actionable configuration block`() {
+        val view =
+            ParticipantStatusPresentation.of(
+                state(blockReason = StudyBlockReason.POLICY_INVALID),
+            )
+
+        assertEquals(ParticipantStatusPresentation.BLOCKED_HEADLINE, view.headline)
+        assertEquals(ParticipantStatusSeverity.ERROR, view.severity)
+        assertEquals(StudyBlockReason.POLICY_INVALID.value, view.reasonCode)
+        assertTrue(ParticipantStatusPresentation.shouldNotify(view))
+        assertTrue(view.actionHint?.contains("session policy") == true, view.actionHint)
+    }
+
+    @Test
     fun `transport failure with a held manifest is recovering`() {
         val view =
             ParticipantStatusPresentation.of(
