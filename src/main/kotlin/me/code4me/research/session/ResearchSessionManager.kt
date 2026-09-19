@@ -31,12 +31,17 @@ import me.code4me.research.telemetry.PrivacyFilter
 import me.code4me.research.telemetry.PrivacyPolicy
 import me.code4me.research.bootstrap.AgentDistributionMode
 import me.code4me.research.proxy.AcpHostRegistration
+import me.code4me.research.proxy.AgentReleaseIdentity
 import me.code4me.research.proxy.ByoaAgentResolution
 import me.code4me.research.proxy.ByoaAgentResolver
 import me.code4me.research.proxy.ByoaAgentSpec
+import me.code4me.research.proxy.ByoaConfiguration
 import me.code4me.research.proxy.ProxyRuntimeResolution
 import me.code4me.research.proxy.ProxyRuntimeResolver
 import me.code4me.research.proxy.ResolvedProxyRuntime
+import me.code4me.research.proxy.applyByoaConfiguration
+import me.code4me.research.proxy.missingByoaBindings
+import me.code4me.research.proxy.writeFrozenTelemetryPolicy
 import me.code4me.research.spool.DurableSpool
 import me.code4me.research.spool.ResearchSpoolIpcServer
 import me.code4me.research.spool.SpoolEventContext
@@ -1506,6 +1511,11 @@ class ResearchSessionManager(
     /**
      * Resolve the packaged proxy runtime and register it as the ACP agent entry.
      *
+     * The assigned release identity (`release_id` and/or the normalized
+     * `artifact_digest`) is handed to the resolver so a manifest that ships
+     * several packaged releases selects the agent entry matching this
+     * participant's release + platform.
+     *
      * Fail-closed: any typed resolution failure, an agent whose digest does not
      * match the bootstrap manifest's pinned `agent_release.artifact_digest`, or an
      * ACP registration failure yields [RuntimeSetup.Failed] so no launch happens.
@@ -1592,9 +1602,10 @@ class ResearchSessionManager(
     }
 
     /**
-     * PACKAGED agent contract: the runtime's bundled agent must be present and
-     * its digest must equal the bootstrap manifest's pinned artifact digest. A
-     * missing agent or a digest mismatch is terminal; PATH is never consulted.
+     * PACKAGED agent contract: the runtime's release-selected bundled agent must
+     * be present and its digest must equal the bootstrap manifest's pinned
+     * artifact digest. A release with no matching bundled agent, a missing agent,
+     * or a digest mismatch is terminal; PATH is never consulted.
      */
     private fun packagedAgentPlan(
         runtime: ResolvedProxyRuntime,
@@ -1609,7 +1620,9 @@ class ResearchSessionManager(
             if (!runtime.development) {
                 return AgentPlan.Failed(
                     StudyBlockReason.RUNTIME_UNAVAILABLE,
-                    "the packaged runtime declares no agent; refusing to launch without a digest-pinned agent",
+                    "the packaged runtime bundles no agent for release '${release.releaseId}' " +
+                        "(pinned artifact ${pinnedAgentDigest ?: "unpinned"}); " +
+                        "refusing to launch without a digest-pinned agent",
                 )
             }
             return AgentPlan.Ready(argv = null, digest = null)

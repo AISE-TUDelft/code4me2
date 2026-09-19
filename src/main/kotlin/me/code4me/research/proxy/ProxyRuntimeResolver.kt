@@ -4,6 +4,7 @@ import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.extensions.PluginId
+import me.code4me.research.bootstrap.normalizeSha256Hex
 import me.code4me.research.telemetry.parseCanonicalJsonObject
 import me.code4me.research.telemetry.sha256Hex
 import me.code4me.research.proxy.ProxyRuntimeErrorCode.ARTIFACT_MISSING
@@ -57,8 +58,14 @@ import java.security.MessageDigest
  *   (extract to a temp dir, then move into place);
  * - a non-self-contained platform is refused with `NOT_SELF_CONTAINED` unless an
  *   explicit development interpreter is configured *and* dev mode is enabled;
- * - the built-in agent is only used when the manifest declares one; otherwise
- *   `agentArgv` stays `null` and activation blocks (no host Goose/Codex lookup).
+ * - a platform entry may declare a legacy single `agent` or an `agents` array
+ *   keyed by release identity; resolution selects the entry matching the
+ *   caller's assigned release + platform (`release_id` and/or artifact digest),
+ *   while every declared file — including all per-release agent files — stays
+ *   contained and digest-verified;
+ * - an agent is only used when the manifest (or the [AgentBundleProvider] seam)
+ *   supplies one for the assigned release; otherwise `agentArgv` stays `null`
+ *   and activation blocks (no host Goose/Codex lookup, no PATH fallback).
  *
  * Every failure is a typed [ProxyRuntimeResolution.Failed]; no method returns a
  * fallback executable.
@@ -146,8 +153,9 @@ data class AgentBundleFile(
 
 /**
  * A packaged agent bundle a study package (Issue 11) can supply when the
- * manifest declares no `agent`. The resolver verifies it exactly like a
- * manifest-declared agent; it never substitutes a host Goose/Codex path.
+ * manifest declares no matching `agent`/`agents` entry. The resolver verifies it
+ * exactly like a manifest-declared agent; it never substitutes a host
+ * Goose/Codex path.
  */
 data class AgentBundle(
     val entrypoint: List<String>,
@@ -156,10 +164,40 @@ data class AgentBundle(
 )
 
 /**
- * Supplies an optional packaged agent bundle for the resolved runtime root.
+ * The release identity a bootstrap manifest pins for a PACKAGED distribution
+ * (`release_id` and/or the platform artifact digest). Resolution uses it to
+ * select the bundled agent entry that matches the assigned release; an
+ * unspecified identity behaves like the legacy single-`agent` contract.
  *
- * The default [NONE] returns `null`, so an agent-less runtime stays agent-less
- * and activation blocks. A future study package can provide a real bundle.
+ * Matching is fail-closed: every supplied field must be declared by the entry
+ * and compare equal (digests are normalized across the `sha256:` convention).
+ */
+data class AgentReleaseIdentity(
+    /** The pinned release id, or `null`/blank when the identity carries none. */
+    val releaseId: String? = null,
+    /** The pinned artifact digest (bare or `sha256:`-prefixed), or `null`. */
+    val artifactDigest: String? = null,
+) {
+    /** True when at least one identity field is present and non-blank. */
+    val isSpecified: Boolean
+        get() = !releaseId.isNullOrBlank() || !artifactDigest.isNullOrBlank()
+
+    companion object {
+        /** No release identity: legacy single-`agent` behavior. */
+        val NONE: AgentReleaseIdentity = AgentReleaseIdentity()
+    }
+}
+
+/**
+ * Supplies an optional packaged agent bundle for the resolved runtime root when
+ * the manifest declares no matching `agents` entry for the assigned release.
+ *
+ * [NONE] is the explicit seam: it returns `null` for every release, so an
+ * agent-less runtime stays agent-less and activation blocks with
+ * `RUNTIME_UNAVAILABLE`. A production participant build either supplies real
+ * bundles through a release-aware implementation of the 4-argument overload or
+ * refuses PACKAGED studies; nothing here ever substitutes a host Goose/Codex
+ * path.
  */
 fun interface AgentBundleProvider {
     fun agentBundle(
@@ -168,7 +206,23 @@ fun interface AgentBundleProvider {
         arch: String,
     ): AgentBundle?
 
+    /**
+     * Release-aware form, called by the resolver with the identity of the
+     * assigned release (`null` when none was supplied). The default ignores
+     * [release] and delegates to [agentBundle], so existing provider
+     * implementations keep their behavior unchanged; a multi-release
+     * participant build overrides this to supply the bundle matching the
+     * assigned release.
+     */
+    fun agentBundle(
+        runtimeRoot: Path,
+        os: String,
+        arch: String,
+        release: AgentReleaseIdentity? = null,
+    ): AgentBundle? = agentBundle(runtimeRoot, os, arch)
+
     companion object {
+        /** The explicit no-bundle seam; see the interface documentation. */
         val NONE: AgentBundleProvider = AgentBundleProvider { _, _, _ -> null }
     }
 }
@@ -183,9 +237,23 @@ object ClasspathRuntimeResources : RuntimeResourceSource {
     override fun open(resourcePath: String): InputStream? = PackagedProxyRuntimeResolver::class.java.getResourceAsStream(resourcePath)
 }
 
-/** Injectable runtime resolver so activation can fail closed without a process. */
+/**
+ * Injectable runtime resolver so activation can fail closed without a process.
+ *
+ * [resolve] is the identity-less contract (legacy single-`agent` manifests).
+ * [resolve] with an [AgentReleaseIdentity] is the release-aware contract: a
+ * resolver that understands multiple packaged releases selects the agent entry
+ * matching the assigned release. The default delegates to [resolve], so test
+ * doubles and identity-less resolvers keep working.
+ */
 fun interface ProxyRuntimeResolver {
     fun resolve(): ProxyRuntimeResolution
+
+    /**
+     * Release-aware resolution. [release] is `null` when the caller has no
+     * release identity; implementations must then behave like [resolve].
+     */
+    fun resolve(release: AgentReleaseIdentity?): ProxyRuntimeResolution = resolve()
 }
 
 /** Host `(os, arch)` detection in the manifest vocabulary. */
@@ -242,6 +310,13 @@ object ResearchRuntimeLocation {
  * Reads and verifies the packaged `research-runtime/proxy-manifest.json` from an
  * exploded root, the plugin classpath, or both.
  *
+ * A platform entry declares either the legacy single `agent` or an `agents`
+ * array of release-keyed entries (or both). [resolve] with an
+ * [AgentReleaseIdentity] selects the entry matching the assigned release and
+ * platform; every declared file (including all per-release agent files) is still
+ * contained, sized and digest-verified, so the caller's pinned-digest check
+ * remains the final, fail-closed gate.
+ *
  * @param explodedRoot an explicit on-disk runtime root (tests), or `null`.
  * @param cacheRoot destination root for classpath extraction (`null` disables it).
  * @param devRuntime explicit opt-in development-runtime configuration.
@@ -258,7 +333,9 @@ class PackagedProxyRuntimeResolver(
     private val agentBundleProvider: AgentBundleProvider = AgentBundleProvider.NONE,
     private val resources: RuntimeResourceSource = ClasspathRuntimeResources,
 ) : ProxyRuntimeResolver {
-    override fun resolve(): ProxyRuntimeResolution {
+    override fun resolve(): ProxyRuntimeResolution = resolve(null)
+
+    override fun resolve(release: AgentReleaseIdentity?): ProxyRuntimeResolution {
         val exploded = explodedRoot?.toAbsolutePath()?.normalize()
         if (exploded != null) {
             val manifestPath = exploded.resolve(ResearchRuntimeLocation.MANIFEST_FILE)
@@ -269,7 +346,7 @@ class PackagedProxyRuntimeResolver(
                     } catch (exception: Exception) {
                         return fail(MALFORMED_MANIFEST, "the exploded proxy manifest could not be read: ${exception.message}")
                     }
-                return resolveFrom(bytes, exploded)
+                return resolveFrom(bytes, exploded, release)
             }
         }
         val bytes =
@@ -281,12 +358,13 @@ class PackagedProxyRuntimeResolver(
                 ARTIFACT_MISSING,
                 "the packaged proxy manifest was not found on disk or on the plugin classpath",
             )
-        return resolveFrom(bytes, null)
+        return resolveFrom(bytes, null, release)
     }
 
     private fun resolveFrom(
         manifestBytes: ByteArray,
         explodedRuntimeRoot: Path?,
+        release: AgentReleaseIdentity?,
     ): ProxyRuntimeResolution {
         val document =
             try {
@@ -317,8 +395,19 @@ class PackagedProxyRuntimeResolver(
                 }
             }
 
-        val providerAgent = if (bundle.agent == null) agentBundleProvider.agentBundle(root, os, arch)?.toSpec() else null
-        val effective = if (providerAgent != null) bundle.copy(agent = providerAgent) else bundle
+        val bundledAgent =
+            try {
+                selectAgent(bundle, release)
+            } catch (exception: ManifestParseException) {
+                return fail(MALFORMED_MANIFEST, exception.message ?: "malformed proxy manifest")
+            }
+        val providerAgent =
+            if (bundledAgent == null) {
+                agentBundleProvider.agentBundle(root, os, arch, release)?.toSpec()
+            } else {
+                null
+            }
+        val effective = if (bundledAgent != null || providerAgent != null) bundle.copy(agent = bundledAgent ?: providerAgent) else bundle
 
         verifyBundle(root, effective)?.let { return ProxyRuntimeResolution.Failed(it) }
 
@@ -410,15 +499,68 @@ class PackagedProxyRuntimeResolver(
         if (entrypoint.isEmpty()) throw ManifestParseException("platform '$os-$arch' declares no entrypoint")
         val files = parseFiles(platform["files"], "files")
         val agent = (platform["agent"] as? Map<*, *>)?.let { parseAgent(stringKeyedMap(it)) }
-        return BundleSpec(selfContained = selfContained, entrypoint = entrypoint, files = files, agent = agent)
+        val agents = platform["agents"]?.let { parseReleaseAgents(it) }.orEmpty()
+        return BundleSpec(selfContained = selfContained, entrypoint = entrypoint, files = files, agent = agent, agents = agents)
     }
 
-    private fun parseAgent(map: Map<String, Any?>): AgentSpec {
-        val entrypoint = stringList(map["entrypoint"], "agent.entrypoint").filter { it.isNotEmpty() }
-        if (entrypoint.isEmpty()) throw ManifestParseException("agent.entrypoint must not be empty")
-        val digest = map["digest"] as? String ?: throw ManifestParseException("agent.digest is required")
-        val files = parseFiles(map["files"], "agent.files")
+    private fun parseAgent(
+        map: Map<String, Any?>,
+        field: String = "agent",
+    ): AgentSpec {
+        val entrypoint = stringList(map["entrypoint"], "$field.entrypoint").filter { it.isNotEmpty() }
+        if (entrypoint.isEmpty()) throw ManifestParseException("$field.entrypoint must not be empty")
+        val digest = map["digest"] as? String ?: throw ManifestParseException("$field.digest is required")
+        val files = parseFiles(map["files"], "$field.files")
         return AgentSpec(entrypoint = entrypoint, digest = digest, files = files)
+    }
+
+    /**
+     * Parse a platform `agents` array: release-keyed agent entries in addition
+     * to (or instead of) the legacy single `agent`. `release_id` and
+     * `artifact_digest` are optional individually, but an entry with neither is
+     * unreachable once a release identity is supplied. Unmodeled per-entry keys
+     * (for example `self_contained`) are accepted and ignored: the platform-level
+     * `self_contained` governs the proxy runtime.
+     */
+    private fun parseReleaseAgents(value: Any?): List<AgentSpec> {
+        val list = value as? List<*> ?: throw ManifestParseException("agents must be an array")
+        if (list.isEmpty()) throw ManifestParseException("agents must not be empty")
+        return list.mapIndexed { index, item ->
+            val map = item as? Map<*, *> ?: throw ManifestParseException("agents[$index] must be an object")
+            val entry = stringKeyedMap(map)
+            parseAgent(entry, "agents[$index]").copy(
+                releaseId = (entry["release_id"] as? String)?.takeIf { it.isNotBlank() },
+                artifactDigest = (entry["artifact_digest"] as? String)?.takeIf { it.isNotBlank() },
+            )
+        }
+    }
+
+    /**
+     * Select the agent for the assigned release identity.
+     *
+     * - No identity: today's behavior — the legacy single `agent`, or the single
+     *   unambiguous `agents` entry.
+     * - With an identity: exactly one `agents` entry must declare every supplied
+     *   field and compare equal; the legacy single `agent` is the fallback when
+     *   nothing matches (the caller's pinned-digest check stays fail-closed).
+     *   Multiple matches are malformed and fail closed.
+     */
+    private fun selectAgent(
+        bundle: BundleSpec,
+        release: AgentReleaseIdentity?,
+    ): AgentSpec? {
+        val declared = bundle.agents
+        if (declared.isEmpty()) return bundle.agent
+        val identity = release?.takeIf { it.isSpecified } ?: return bundle.agent ?: declared.singleOrNull()
+        val matches = declared.filter { it.matches(identity) }
+        if (matches.size > 1) {
+            throw ManifestParseException(
+                "manifest declares ${matches.size} agents matching release " +
+                    "'${identity.releaseId?.takeIf { it.isNotBlank() } ?: identity.artifactDigest}'; " +
+                    "one release identity must select exactly one agent",
+            )
+        }
+        return matches.singleOrNull() ?: bundle.agent
     }
 
     private fun parseFiles(
@@ -698,7 +840,8 @@ class PackagedProxyRuntimeResolver(
 
     private fun resourcePath(relative: String): String = "$RESOURCE_BASE/$relative"
 
-    private fun allFiles(bundle: BundleSpec): List<FileSpec> = bundle.files + bundle.agent?.files.orEmpty()
+    private fun allFiles(bundle: BundleSpec): List<FileSpec> =
+        (bundle.files + bundle.agent?.files.orEmpty() + bundle.agents.flatMap { it.files }).distinct()
 
     private fun AgentBundle.toSpec(): AgentSpec =
         AgentSpec(
@@ -726,13 +869,28 @@ class PackagedProxyRuntimeResolver(
         val entrypoint: List<String>,
         val digest: String,
         val files: List<FileSpec>,
-    )
+        val releaseId: String? = null,
+        val artifactDigest: String? = null,
+    ) {
+        /**
+         * Fail-closed release match: every field the identity supplies must be
+         * declared here and compare equal (digests normalized).
+         */
+        fun matches(identity: AgentReleaseIdentity): Boolean {
+            val identityRelease = identity.releaseId?.takeIf { it.isNotBlank() }
+            val identityDigest = identity.artifactDigest?.let { normalizeSha256Hex(it) }
+            if (identityRelease != null && releaseId != identityRelease) return false
+            if (identityDigest != null && artifactDigest?.let { normalizeSha256Hex(it) } != identityDigest) return false
+            return identityRelease != null || identityDigest != null
+        }
+    }
 
     private data class BundleSpec(
         val selfContained: Boolean,
         val entrypoint: List<String>,
         val files: List<FileSpec>,
         val agent: AgentSpec?,
+        val agents: List<AgentSpec> = emptyList(),
     )
 
     private sealed interface FileVerification {

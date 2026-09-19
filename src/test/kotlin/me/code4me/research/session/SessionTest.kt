@@ -1012,6 +1012,130 @@ class ResearchSessionRuntimeWiringTest {
     }
 
     @Test
+    fun `two packaged releases in one runtime launch the binary matching each assigned release`() {
+        val runtimeRoot = root.resolve("runtime-two-releases")
+        val (_, agents) = writeTwoReleaseRuntime(runtimeRoot, "macos", "aarch64")
+        val agentA = agents.getValue("release-a")
+        val agentB = agents.getValue("release-b")
+        val digestA = ContentHasher.STREAMING.sha256(agentA)
+        val digestB = ContentHasher.STREAMING.sha256(agentB)
+
+        val registryA = root.resolve("acp-release-a.json")
+        val managerA =
+            manager(
+                resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64"),
+                registration = AcpHostRegistration(registryA),
+                capabilityFile = root.resolve("capability-release-a.txt"),
+                manifest = manifestWithPackagedRelease("release-a", digestA),
+            )
+        val resultA = managerA.activate("enrollment-a")
+        assertTrue(resultA is ResearchActivationResult.Activated, (resultA as? ResearchActivationResult.Blocked)?.detail)
+        assertEquals(digestA, registeredAgentDigest(registryA), "release A must pin its own artifact digest")
+        assertEquals(agentA.toString(), registeredArgs(registryA).last(), "release A must launch its own binary")
+        managerA.stop()
+
+        val registryB = root.resolve("acp-release-b.json")
+        val managerB =
+            manager(
+                resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64"),
+                registration = AcpHostRegistration(registryB),
+                capabilityFile = root.resolve("capability-release-b.txt"),
+                manifest = manifestWithPackagedRelease("release-b", digestB),
+            )
+        val resultB = managerB.activate("enrollment-b")
+        assertTrue(resultB is ResearchActivationResult.Activated, (resultB as? ResearchActivationResult.Blocked)?.detail)
+        assertEquals(digestB, registeredAgentDigest(registryB), "release B must pin its own artifact digest")
+        assertEquals(agentB.toString(), registeredArgs(registryB).last(), "release B must launch its own binary")
+        managerB.stop()
+    }
+
+    @Test
+    fun `a release with no bundled agent blocks with RUNTIME_UNAVAILABLE and never falls back to PATH`() {
+        val registry = root.resolve("acp-release-missing.json")
+        val runtimeRoot = root.resolve("runtime-release-missing")
+        val (_, agents) = writeTwoReleaseRuntime(runtimeRoot, "macos", "aarch64")
+        val registration = AcpHostRegistration(registry)
+        val manager =
+            manager(
+                resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64"),
+                registration = registration,
+                // The pinned digest belongs to release A, but release C is not
+                // bundled: a release id mismatch must not select another arm.
+                manifest = manifestWithPackagedRelease("release-c", ContentHasher.STREAMING.sha256(agents.getValue("release-a"))),
+            )
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Blocked)
+        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, (result as ResearchActivationResult.Blocked).reason)
+        assertFalse(manager.isActive)
+        assertFalse(registration.hasEntry(), "a release with no bundled agent must not register an ACP entry")
+        assertFalse(Files.exists(registry), "no PATH fallback may write an ACP entry")
+    }
+
+    @Test
+    fun `a wrong-arm resolved binary is still blocked by the pinned digest check`() {
+        val registry = root.resolve("acp-wrong-arm.json")
+        val capabilityFile = root.resolve("capability-wrong-arm.txt")
+        val runtimeRoot = root.resolve("runtime-wrong-arm")
+        val (_, agents) = writeTwoReleaseRuntime(runtimeRoot, "macos", "aarch64")
+        val agentB = agents.getValue("release-b")
+        val digestA = ContentHasher.STREAMING.sha256(agents.getValue("release-a"))
+        val digestB = ContentHasher.STREAMING.sha256(agentB)
+        val proxy = runtimeRoot.resolve("bin/telemetry-acp-proxy")
+        // Resolution reports release B's binary; the manifest pins release A.
+        val runtime =
+            ResolvedProxyRuntime(
+                runtimeRoot = runtimeRoot,
+                proxyArgv = listOf(proxy.toString()),
+                proxyDigest = ContentHasher.STREAMING.sha256(proxy),
+                agentArgv = listOf(agentB.toString()),
+                agentDigest = digestB,
+            )
+        val registration = AcpHostRegistration(registry)
+        val manager =
+            manager(
+                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtime) },
+                registration = registration,
+                capabilityFile = capabilityFile,
+                manifest = manifestWithPackagedRelease("release-a", digestA),
+            )
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Blocked)
+        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, (result as ResearchActivationResult.Blocked).reason)
+        assertFalse(manager.isActive)
+        assertFalse(registration.hasEntry(), "the wrong arm must not register an ACP entry")
+        assertFalse(Files.exists(registry), "the wrong arm must write no ACP entry")
+        assertFalse(Files.exists(capabilityFile), "the wrong arm must leave no capability file behind")
+    }
+
+    @Test
+    fun `a legacy single agent whose digest does not match the assigned release still blocks`() {
+        val registry = root.resolve("acp-legacy-wrong-release.json")
+        val runtimeRoot = root.resolve("runtime-legacy-wrong-release")
+        // The legacy single-agent layout resolves as before; the assigned release
+        // pins a different digest, so the pinned-digest check must still block.
+        writePackagedRuntime(runtimeRoot, "macos", "aarch64")
+        val registration = AcpHostRegistration(registry)
+        val manager =
+            manager(
+                resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64"),
+                registration = registration,
+                manifest = manifestWithPackagedRelease("release-a", VALID_ARTIFACT_DIGEST),
+            )
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Blocked)
+        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, (result as ResearchActivationResult.Blocked).reason)
+        assertFalse(manager.isActive)
+        assertFalse(registration.hasEntry(), "a wrong-arm digest must not register an ACP entry")
+        assertFalse(Files.exists(registry), "a wrong-arm digest must write no ACP entry")
+    }
+
+    @Test
     fun `a BYOA distribution launches from the pinned identity with no digest`() {
         val registry = root.resolve("acp-byoa-identity.json")
         val capabilityFile = root.resolve("capability-byoa-identity.txt")
@@ -1142,6 +1266,42 @@ class ResearchSessionRuntimeWiringTest {
         return proxy to agent
     }
 
+    /**
+     * Write an exploded runtime whose `proxy-manifest.json` declares two
+     * release-keyed agents under `agents` and return their paths by release id.
+     */
+    private fun writeTwoReleaseRuntime(
+        runtimeRoot: Path,
+        os: String,
+        arch: String,
+    ): Pair<Path, Map<String, Path>> {
+        val proxy = runtimeRoot.resolve("bin/telemetry-acp-proxy")
+        Files.createDirectories(proxy.parent)
+        Files.writeString(proxy, "proxy-binary")
+        val agents = linkedMapOf<String, Path>()
+        val entries =
+            listOf("release-a" to "agent-a-binary", "release-b" to "agent-b-binary").joinToString(",") { (releaseId, content) ->
+                val agent = runtimeRoot.resolve("agents/$os-$arch/$releaseId/code4me-agent")
+                Files.createDirectories(agent.parent)
+                Files.writeString(agent, content)
+                agents[releaseId] = agent
+                val relative = "agents/$os-$arch/$releaseId/code4me-agent"
+                val digest = ContentHasher.STREAMING.sha256(agent)
+                """{"release_id":"$releaseId","artifact_digest":"$digest",""" +
+                    """"entrypoint":["$relative"],"digest":"$digest",""" +
+                    """"files":[{"path":"$relative","sha256":"$digest",""" +
+                    """"size":${Files.size(agent)},"executable":true}]}"""
+            }
+        val json =
+            """{"schema_version":"1","platforms":[{"os":"$os","arch":"$arch","self_contained":true,""" +
+                """"entrypoint":["bin/telemetry-acp-proxy"],""" +
+                """"files":[{"path":"bin/telemetry-acp-proxy","sha256":"${ContentHasher.STREAMING.sha256(proxy)}",""" +
+                """"size":${Files.size(proxy)},"executable":true}],""" +
+                """"agents":[$entries]}]}"""
+        Files.writeString(runtimeRoot.resolve("proxy-manifest.json"), json)
+        return proxy to agents
+    }
+
     private fun runtimeWithoutAgent(): ResolvedProxyRuntime {
         val proxyExecutable = root.resolve("runtime/bin/telemetry-acp-proxy")
         Files.createDirectories(proxyExecutable.parent)
@@ -1210,6 +1370,23 @@ class ResearchSessionRuntimeWiringTest {
                             "version" to "1.2.3",
                             "artifact_digest" to digest,
                             "adapter_version" to "codex-v1",
+                        ),
+                ),
+        )
+
+    /** A PACKAGED manifest pinning an explicit release id and artifact digest. */
+    private fun manifestWithPackagedRelease(
+        releaseId: String,
+        digest: String,
+    ): String =
+        manifestJson(
+            overrides =
+                mapOf(
+                    "agent_release" to
+                        linkedMapOf<String, Any?>(
+                            "agent_id" to "code4me2-agent",
+                            "release_id" to releaseId,
+                            "artifact_digest" to digest,
                         ),
                 ),
         )

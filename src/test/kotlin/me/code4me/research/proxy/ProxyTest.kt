@@ -734,6 +734,238 @@ class ProxyRuntimeResolverTest {
     }
 
     // ------------------------------------------------------------------
+    // Release-keyed agents (`agents` array)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `two declared releases resolve each assigned release to its own binary and digest`() {
+        val root = Files.createTempDirectory("proxy-runtime-releases")
+        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
+        val agentA = Fixture("agents/macos-aarch64/code4me-agent-a", "agent-a", executable = true)
+        val agentB = Fixture("agents/macos-aarch64/code4me-agent-b", "agent-b", executable = true)
+        val digestA = sha256Hex(agentA.content)
+        val digestB = sha256Hex(agentB.content)
+        writeManifest(
+            root,
+            files = listOf(proxy),
+            entrypoint = proxy.path,
+            agents =
+                listOf(
+                    ReleaseAgentFixture("release-a", digestA, AgentFixture(agentA.path, listOf(agentA)), selfContained = true),
+                    ReleaseAgentFixture("release-b", digestB, AgentFixture(agentB.path, listOf(agentB))),
+                ),
+        )
+
+        val resolvedA =
+            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-a", artifactDigest = digestA)) as
+                ProxyRuntimeResolution.Resolved
+        val resolvedB =
+            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-b", artifactDigest = "sha256:$digestB")) as
+                ProxyRuntimeResolution.Resolved
+
+        assertEquals(root.toRealPath().resolve(agentA.path), Path.of(resolvedA.runtime.agentArgv!!.first()).toRealPath())
+        assertEquals(digestA, resolvedA.runtime.agentDigest)
+        assertEquals(root.toRealPath().resolve(agentB.path), Path.of(resolvedB.runtime.agentArgv!!.first()).toRealPath())
+        assertEquals(digestB, resolvedB.runtime.agentDigest, "the sha256: display prefix must normalize")
+    }
+
+    @Test
+    fun `a release with no matching declared agent resolves no agent`() {
+        val root = Files.createTempDirectory("proxy-runtime-release-missing")
+        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
+        val agentA = Fixture("agents/macos-aarch64/code4me-agent-a", "agent-a", executable = true)
+        val agentB = Fixture("agents/macos-aarch64/code4me-agent-b", "agent-b", executable = true)
+        writeManifest(
+            root,
+            files = listOf(proxy),
+            entrypoint = proxy.path,
+            agents =
+                listOf(
+                    ReleaseAgentFixture("release-a", sha256Hex(agentA.content), AgentFixture(agentA.path, listOf(agentA))),
+                    ReleaseAgentFixture("release-b", sha256Hex(agentB.content), AgentFixture(agentB.path, listOf(agentB))),
+                ),
+        )
+
+        val resolved =
+            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-c", artifactDigest = null)) as
+                ProxyRuntimeResolution.Resolved
+
+        assertNull(resolved.runtime.agentArgv, "a release with no bundled agent must not fall back to another arm")
+        assertNull(resolved.runtime.agentDigest)
+    }
+
+    @Test
+    fun `a legacy single agent still resolves when a release identity is supplied`() {
+        val root = Files.createTempDirectory("proxy-runtime-legacy-with-identity")
+        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
+        val agent = Fixture("agents/macos-aarch64/code4me-agent", "agent-binary", executable = true)
+        writeManifest(root, files = listOf(proxy), entrypoint = proxy.path, agent = AgentFixture(agent.path, listOf(agent)))
+
+        val resolved =
+            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-1", artifactDigest = sha256Hex(agent.content))) as
+                ProxyRuntimeResolution.Resolved
+
+        assertEquals(root.toRealPath().resolve(agent.path), Path.of(resolved.runtime.agentArgv!!.first()).toRealPath())
+        assertEquals(sha256Hex(agent.content), resolved.runtime.agentDigest)
+    }
+
+    @Test
+    fun `without a release identity multiple declared agents resolve to none`() {
+        val root = Files.createTempDirectory("proxy-runtime-release-ambiguous")
+        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
+        val agentA = Fixture("agents/macos-aarch64/code4me-agent-a", "agent-a", executable = true)
+        val agentB = Fixture("agents/macos-aarch64/code4me-agent-b", "agent-b", executable = true)
+        writeManifest(
+            root,
+            files = listOf(proxy),
+            entrypoint = proxy.path,
+            agents =
+                listOf(
+                    ReleaseAgentFixture("release-a", sha256Hex(agentA.content), AgentFixture(agentA.path, listOf(agentA))),
+                    ReleaseAgentFixture("release-b", sha256Hex(agentB.content), AgentFixture(agentB.path, listOf(agentB))),
+                ),
+        )
+
+        val resolved = resolver(root).resolve() as ProxyRuntimeResolution.Resolved
+
+        assertNull(resolved.runtime.agentArgv, "an identity-less multi-release manifest cannot pick an arm")
+    }
+
+    @Test
+    fun `a tampered per-release agent file fails closed even when another release is selected`() {
+        val root = Files.createTempDirectory("proxy-runtime-release-tampered")
+        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
+        val agentA = Fixture("agents/macos-aarch64/code4me-agent-a", "agent-a", executable = true)
+        val agentB = Fixture("agents/macos-aarch64/code4me-agent-b", "agent-b", executable = true)
+        val digestA = sha256Hex(agentA.content)
+        writeManifest(
+            root,
+            files = listOf(proxy),
+            entrypoint = proxy.path,
+            agents =
+                listOf(
+                    ReleaseAgentFixture("release-a", digestA, AgentFixture(agentA.path, listOf(agentA))),
+                    ReleaseAgentFixture("release-b", sha256Hex(agentB.content), AgentFixture(agentB.path, listOf(agentB))),
+                ),
+        )
+        // Corrupt the file of the *other* release after staging: every declared
+        // per-release agent file is verified, so this fails closed.
+        writeFile(root, Fixture(agentB.path, "tampered"))
+
+        val failure =
+            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-a", artifactDigest = digestA)) as
+                ProxyRuntimeResolution.Failed
+
+        assertEquals(ProxyRuntimeErrorCode.DIGEST_MISMATCH, failure.error.code)
+    }
+
+    @Test
+    fun `an unsafe per-release agent path fails closed`() {
+        val root = Files.createTempDirectory("proxy-runtime-release-escape")
+        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
+        writeManifest(
+            root,
+            files = listOf(proxy),
+            entrypoint = proxy.path,
+            agents =
+                listOf(
+                    ReleaseAgentFixture(
+                        "release-a",
+                        "a".repeat(64),
+                        AgentFixture("../evil-agent", listOf(Fixture("../evil-agent", "evil", executable = true))),
+                    ),
+                ),
+            writePayloads = false,
+        )
+        // The proxy is staged; only the release agent's path is unsafe.
+        writeFile(root, proxy)
+
+        val failure =
+            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-a", artifactDigest = "a".repeat(64))) as
+                ProxyRuntimeResolution.Failed
+
+        assertEquals(ProxyRuntimeErrorCode.PATH_ESCAPE, failure.error.code)
+    }
+
+    @Test
+    fun `a release-aware agent bundle provider receives the assigned identity`() {
+        val root = Files.createTempDirectory("proxy-runtime-release-provider")
+        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
+        writeManifest(root, files = listOf(proxy), entrypoint = proxy.path)
+        val agent = Fixture("agents/macos-aarch64/code4me-agent", "provided-agent", executable = true)
+        writeFile(root, agent)
+        var seen: AgentReleaseIdentity? = null
+        val provider =
+            object : AgentBundleProvider {
+                override fun agentBundle(
+                    runtimeRoot: Path,
+                    os: String,
+                    arch: String,
+                ): AgentBundle? = null
+
+                override fun agentBundle(
+                    runtimeRoot: Path,
+                    os: String,
+                    arch: String,
+                    release: AgentReleaseIdentity?,
+                ): AgentBundle? {
+                    seen = release
+                    return AgentBundle(
+                        entrypoint = listOf(agent.path),
+                        digest = sha256Hex(agent.content),
+                        files =
+                            listOf(
+                                AgentBundleFile(
+                                    path = agent.path,
+                                    sha256 = sha256Hex(agent.content),
+                                    size = agent.content.toByteArray().size.toLong(),
+                                    executable = true,
+                                ),
+                            ),
+                    )
+                }
+            }
+        val identity = AgentReleaseIdentity(releaseId = "release-a", artifactDigest = sha256Hex(agent.content))
+
+        val resolved = resolver(root, agentBundleProvider = provider).resolve(identity) as ProxyRuntimeResolution.Resolved
+
+        assertEquals(identity, seen, "the provider must receive the assigned release identity")
+        assertEquals(sha256Hex(agent.content), resolved.runtime.agentDigest)
+    }
+
+    @Test
+    fun `a legacy three-argument agent bundle provider still supplies an agent`() {
+        val root = Files.createTempDirectory("proxy-runtime-legacy-provider")
+        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
+        writeManifest(root, files = listOf(proxy), entrypoint = proxy.path)
+        val agent = Fixture("agents/macos-aarch64/code4me-agent", "provided-agent", executable = true)
+        writeFile(root, agent)
+        val provider =
+            AgentBundleProvider { _, _, _ ->
+                AgentBundle(
+                    entrypoint = listOf(agent.path),
+                    digest = sha256Hex(agent.content),
+                    files =
+                        listOf(
+                            AgentBundleFile(
+                                path = agent.path,
+                                sha256 = sha256Hex(agent.content),
+                                size = agent.content.toByteArray().size.toLong(),
+                                executable = true,
+                            ),
+                        ),
+                )
+            }
+
+        val resolved =
+            resolver(root, agentBundleProvider = provider)
+                .resolve(AgentReleaseIdentity(releaseId = "release-a", artifactDigest = sha256Hex(agent.content))) as
+                ProxyRuntimeResolution.Resolved
+
+        assertEquals(sha256Hex(agent.content), resolved.runtime.agentDigest)
+    }
+
+    // ------------------------------------------------------------------
     // Development (source) runtime
     // ------------------------------------------------------------------
 
@@ -912,6 +1144,14 @@ class ProxyRuntimeResolverTest {
 
     private data class AgentFixture(val entrypoint: String, val files: List<Fixture>)
 
+    /** One release-keyed entry of a platform `agents` array. */
+    private data class ReleaseAgentFixture(
+        val releaseId: String?,
+        val artifactDigest: String?,
+        val agent: AgentFixture,
+        val selfContained: Boolean? = null,
+    )
+
     private fun resolver(
         root: Path?,
         os: String = this.os,
@@ -936,6 +1176,7 @@ class ProxyRuntimeResolverTest {
         files: List<Fixture>,
         entrypoint: String,
         agent: AgentFixture? = null,
+        agents: List<ReleaseAgentFixture>? = null,
         selfContained: Boolean = true,
         platformOs: String = os,
         platformArch: String = arch,
@@ -960,6 +1201,7 @@ class ProxyRuntimeResolverTest {
         platformArch: String,
         digestOverride: String?,
         agentDigestOverride: String?,
+        agents: List<ReleaseAgentFixture>? = null,
     ): String =
         buildJsonObject {
             put("schema_version", "1")
@@ -979,6 +1221,23 @@ class ProxyRuntimeResolverTest {
                             put("digest", agentDigestOverride ?: sha256Hex(agentEntry.content))
                             putJsonArray("files") {
                                 agent.files.forEach { add(fileJson(it, null)) }
+                            }
+                        }
+                    }
+                    if (agents != null) {
+                        putJsonArray("agents") {
+                            agents.forEach { release ->
+                                addJsonObject {
+                                    release.releaseId?.let { put("release_id", it) }
+                                    release.artifactDigest?.let { put("artifact_digest", it) }
+                                    release.selfContained?.let { put("self_contained", it) }
+                                    putJsonArray("entrypoint") { add(JsonPrimitive(release.agent.entrypoint)) }
+                                    val entry = release.agent.files.first { it.path == release.agent.entrypoint }
+                                    put("digest", sha256Hex(entry.content))
+                                    putJsonArray("files") {
+                                        release.agent.files.forEach { add(fileJson(it, null)) }
+                                    }
+                                }
                             }
                         }
                     }
