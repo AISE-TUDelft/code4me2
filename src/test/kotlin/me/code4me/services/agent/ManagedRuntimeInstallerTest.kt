@@ -1,7 +1,12 @@
 package me.code4me.services.agent
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
@@ -164,6 +169,40 @@ class ManagedRuntimeInstallerTest {
         }
 
         assertTrue(installer.ensureInstalled() is RuntimeInstallResult.Failed)
+    }
+
+    /**
+     * The bundled manifest and archive must agree, or `ensureInstalled` fails
+     * checksum verification in the IDE. A clean checkout has no staged archive,
+     * so the check is skipped there; a build that stages one must keep them in
+     * sync.
+     */
+    @Test
+    fun `the bundled manifest matches the bundled archive when a runtime is staged`() {
+        val installerClass = ManagedRuntimeInstaller::class.java
+        val manifestStream = installerClass.getResourceAsStream(ManagedRuntimeInstaller.MANIFEST_RESOURCE)
+        Assumptions.assumeTrue(manifestStream != null, "no bundled runtime manifest in this build")
+        val manifest = Json { ignoreUnknownKeys = true }
+            .parseToJsonElement(manifestStream!!.use { it.readBytes().decodeToString() })
+            .jsonObject
+        val artifact = manifest.getValue("artifacts").jsonArray
+            .map { it.jsonObject }
+            .firstOrNull {
+                it["platform"]?.jsonPrimitive?.content == ManagedRuntimeInstaller.platformId() &&
+                    it["architecture"]?.jsonPrimitive?.content == ManagedRuntimeInstaller.architectureId()
+            }
+        Assumptions.assumeTrue(artifact != null, "no artifact for this host platform")
+        val archivePath = "/${artifact!!.getValue("archive").jsonPrimitive.content}"
+        val archive = installerClass.getResourceAsStream(archivePath)
+        Assumptions.assumeTrue(archive != null, "runtime archive not staged in this build")
+
+        val actual = sha256(archive!!.use { it.readBytes() })
+
+        assertEquals(
+            artifact.getValue("sha256").jsonPrimitive.content,
+            actual,
+            "the bundled runtime archive does not match the bundled manifest ($archivePath)",
+        )
     }
 
     private fun manifest(executable: String, checksum: String): String = """

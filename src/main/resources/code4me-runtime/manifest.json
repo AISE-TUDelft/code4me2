@@ -1,9 +1,9 @@
 {
   "manifest_version": 1,
-  "runtime_version": "0.1.1-local.1",
+  "runtime_version": "0.0.0-dev",
   "managed_protocol_version": "1",
-  "server_commit": "038dbfc",
-  "plugin_commit": "7e47ccd",
+  "server_commit": "08d5797",
+  "plugin_commit": "dded34e",
   "tested_ide_version": "2026.2.2",
   "tested_platforms": [
     "macos-arm64"
@@ -11,13 +11,14 @@
   "artifacts": [
     {
       "runtime_id": "code4me-agent",
-      "version": "0.1.1-local.1",
+      "version": "0.0.0-dev",
       "platform": "macos",
       "architecture": "arm64",
       "archive": "code4me-runtime/code4me-agent-macos-arm64.zip",
-      "sha256": "0386478ee09b73797b956a1dbece907e006f1920d3e5d5c9ac7e24180e81f5d1",
+      "sha256": "74dd71f9c11e341f819d4d7417464a7de33d1a361103edf5e8a3124d5f92a9a5",
       "executable": "code4me2-agent",
-      "managed_protocol": "1"
+      "managed_protocol": "1",
+      "size": 24542238
     },
     {
       "runtime_id": "code4me-agent",
