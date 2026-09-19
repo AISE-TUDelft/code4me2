@@ -1193,6 +1193,126 @@ class ResearchSessionRuntimeWiringTest {
     }
 
     @Test
+    fun `a BYOA manifest applies the release-declared configuration contract`() {
+        val registry = root.resolve("acp-byoa-configured.json")
+        val capabilityFile = root.resolve("capability-byoa-configured.txt")
+        val agent = root.resolve("byoa-configured/goose")
+        Files.createDirectories(agent.parent)
+        Files.writeString(agent, "goose-binary")
+        agent.toFile().setExecutable(true, false)
+        val observedDigest = ContentHasher.STREAMING.sha256(agent)
+        val byoa =
+            ByoaAgentResolver {
+                ByoaAgentResolution.Resolved(
+                    identity =
+                        ObservedAgentIdentity(
+                            executable = agent,
+                            digest = observedDigest,
+                            version = "goose 2.0.0",
+                            source = AgentDiscoverySource.RELEASE_COMMAND,
+                        ),
+                    argv = listOf(agent.toString(), "acp"),
+                )
+            }
+        val manifest = manifestWithConfiguredByoaRelease(command = "goose")
+        val registration = AcpHostRegistration(registry)
+        val manager =
+            manager(
+                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtimeWithoutAgent()) },
+                registration = registration,
+                capabilityFile = capabilityFile,
+                manifest = manifest,
+                byoaResolver = byoa,
+            )
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Activated, (result as? ResearchActivationResult.Blocked)?.detail)
+        val args = registeredArgs(registry)
+        val agentCmdIndex = args.indexOf(AcpHostRegistration.AGENT_CMD_FLAG)
+        assertTrue(agentCmdIndex > 0, "the entry must still terminate with --agent-cmd")
+        // Env bindings travel as explicit --agent-env overrides.
+        assertTrue(args.contains("GOOSE_MODEL=gpt-5"))
+        assertTrue(args.contains("GOOSE_MAX_TURNS=4"))
+        assertTrue(args.contains("GOOSE_EXTENSIONS=shell,read"))
+        // Arg bindings append to the agent argv (after the release args).
+        assertEquals(
+            listOf(agent.toString(), "acp", "--approval", "on-request"),
+            args.subList(agentCmdIndex + 1, args.size),
+        )
+        assertTrue(
+            args.indexOf("GOOSE_MODEL=gpt-5") < agentCmdIndex,
+            "agent env flags must precede the --agent-cmd REMAINDER",
+        )
+
+        manager.stop()
+    }
+
+    @Test
+    fun `a BYOA manifest with an unmapped profile field blocks activation`() {
+        val registry = root.resolve("acp-byoa-unmapped.json")
+        val capabilityFile = root.resolve("capability-byoa-unmapped.txt")
+        val agent = root.resolve("byoa-unmapped/goose")
+        Files.createDirectories(agent.parent)
+        Files.writeString(agent, "goose-binary")
+        agent.toFile().setExecutable(true, false)
+        val byoa =
+            ByoaAgentResolver {
+                ByoaAgentResolution.Resolved(
+                    identity =
+                        ObservedAgentIdentity(
+                            executable = agent,
+                            digest = ContentHasher.STREAMING.sha256(agent),
+                            version = "goose 2.0.0",
+                            source = AgentDiscoverySource.RELEASE_COMMAND,
+                        ),
+                    argv = listOf(agent.toString(), "acp"),
+                )
+            }
+        val manifest =
+            manifestJson(
+                overrides =
+                    mapOf(
+                        "agent_release" to
+                            linkedMapOf<String, Any?>(
+                                "agent_id" to "goose",
+                                "release_id" to "",
+                                "distribution_mode" to "BYOA_EXTERNAL",
+                                "agent_command" to "goose",
+                                "agent_command_args" to listOf("acp"),
+                                "agent_package" to "goose",
+                            ),
+                        "agent_profile" to
+                            linkedMapOf<String, Any?>(
+                                "profile_id" to "11111111-1111-1111-1111-111111111111",
+                                "model" to "gpt-5",
+                                "tools_json" to "[]",
+                                "approval_policy" to "auto",
+                                "max_steps" to 1,
+                            ),
+                    ),
+            )
+        val manager =
+            manager(
+                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtimeWithoutAgent()) },
+                registration = AcpHostRegistration(registry),
+                capabilityFile = capabilityFile,
+                manifest = manifest,
+                byoaResolver = byoa,
+            )
+
+        val result = manager.activate("enrollment-1")
+
+        val blocked = result as? ResearchActivationResult.Blocked
+        assertTrue(blocked != null, "an unmapped BYOA profile must not activate")
+        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, blocked?.reason)
+        assertTrue(
+            blocked?.detail?.contains("model") == true,
+            "the block detail names the unmapped field: ${blocked?.detail}",
+        )
+    }
+
+    @Test
     fun `a codex BYOA manifest registers the adapter identity in the ACP entry`() {
         val registry = root.resolve("acp-codex-byoa.json")
         val capabilityFile = root.resolve("capability-codex-byoa.txt")
@@ -1405,6 +1525,55 @@ class ResearchSessionRuntimeWiringTest {
                             "agent_command" to command,
                             "agent_command_args" to listOf("acp"),
                             "agent_package" to "goose",
+                        ),
+                ),
+        )
+
+    private fun manifestWithConfiguredByoaRelease(command: String): String =
+        manifestJson(
+            overrides =
+                mapOf(
+                    "agent_release" to
+                        linkedMapOf<String, Any?>(
+                            "agent_id" to "goose",
+                            "release_id" to "",
+                            "distribution_mode" to "BYOA_EXTERNAL",
+                            "agent_command" to command,
+                            "agent_command_args" to listOf("acp"),
+                            "agent_package" to "goose",
+                            "config_bindings" to
+                                listOf(
+                                    linkedMapOf(
+                                        "field" to "model",
+                                        "transport" to "env",
+                                        "key" to "GOOSE_MODEL",
+                                    ),
+                                    linkedMapOf(
+                                        "field" to "approval_policy",
+                                        "transport" to "arg",
+                                        "key" to "--approval",
+                                        "value_map" to linkedMapOf("per_step" to "on-request"),
+                                    ),
+                                    linkedMapOf(
+                                        "field" to "max_steps",
+                                        "transport" to "env",
+                                        "key" to "GOOSE_MAX_TURNS",
+                                    ),
+                                    linkedMapOf(
+                                        "field" to "tools",
+                                        "transport" to "env",
+                                        "key" to "GOOSE_EXTENSIONS",
+                                        "format" to "csv",
+                                    ),
+                                ),
+                        ),
+                    "agent_profile" to
+                        linkedMapOf<String, Any?>(
+                            "profile_id" to "11111111-1111-1111-1111-111111111111",
+                            "model" to "gpt-5",
+                            "tools_json" to """["shell","read"]""",
+                            "approval_policy" to "per_step",
+                            "max_steps" to 4,
                         ),
                 ),
         )

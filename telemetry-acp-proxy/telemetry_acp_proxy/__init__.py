@@ -17,6 +17,7 @@ from ._bootstrap import ensure_research_on_path
 ensure_research_on_path()
 
 from .adapters import get_adapter  # noqa: E402
+from .delivery import DeliveryBatch, DeliveryQueue  # noqa: E402
 from .forwarder import AcpForwarder, ForwardResult  # noqa: E402
 from .framing import Frame, FrameReader, iter_frames  # noqa: E402
 from .lifecycle import (  # noqa: E402
@@ -50,6 +51,8 @@ __all__ = [
     "AcpForwarder",
     "ArtifactVerificationError",
     "CapabilityAlreadyConsumed",
+    "DeliveryBatch",
+    "DeliveryQueue",
     "ForwardResult",
     "Frame",
     "FrameReader",

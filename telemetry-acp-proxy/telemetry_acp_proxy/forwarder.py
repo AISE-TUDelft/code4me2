@@ -4,6 +4,11 @@ Every complete original frame is written to the other side immediately and
 verbatim. Diagnostics go to a stderr sink only; **stdout carries protocol frames
 and nothing else**.
 
+Forwarding never waits on telemetry: each chunk is written and flushed first,
+then handed to a non-blocking delivery sink (by default ``observer.observe``,
+whose callback only normalizes and enqueues). The spool POST and its retries run
+on the delivery worker thread, so a degraded spool cannot stall ACP streaming.
+
 Closing semantics:
 
 * when the child closes its stdout, the host side is closed (EOF);
@@ -16,7 +21,7 @@ from __future__ import annotations
 
 import sys
 import threading
-from typing import BinaryIO, Callable, Optional
+from typing import Any, BinaryIO, Callable, Optional
 
 from .framing import Frame, FrameReader
 from .observe import AcpDirection, Observer
@@ -27,6 +32,10 @@ DEFAULT_BUFFER_SIZE = 64 * 1024
 SELF_EXIT_GRACE_SECONDS = 5.0
 
 FrameCallback = Callable[[AcpDirection, bytes, list[Frame]], None]
+#: Handoff for one observed chunk. Must not block: production wires it to
+#: ``Observer.observe`` whose callback only normalizes and enqueues. Network
+#: I/O and retries happen on the delivery worker thread.
+DeliveryCallback = Callable[[AcpDirection, bytes], Any]
 
 
 def read_available(stream: BinaryIO, size: int) -> bytes:
@@ -66,17 +75,24 @@ class ForwardResult:
 
 
 class AcpForwarder:
-    """Pumps bytes between the host and the agent while observing frames."""
+    """Pumps bytes between the host and the agent while observing frames.
+
+    ``delivery`` is the test-visible seam for the observation sink. It defaults
+    to ``observer.observe`` and must be non-blocking; the pump forwards the next
+    chunk without waiting for telemetry transport.
+    """
 
     def __init__(
         self,
         *,
         observer: Observer,
+        delivery: Optional[DeliveryCallback] = None,
         diagnostics: Optional[Callable[[str], None]] = None,
         buffer_size: int = DEFAULT_BUFFER_SIZE,
         on_frame: Optional[FrameCallback] = None,
     ) -> None:
         self.observer = observer
+        self.delivery: DeliveryCallback = delivery or observer.observe
         self.buffer_size = buffer_size
         self.on_frame = on_frame
         self._diagnostics = diagnostics or (lambda message: print(message, file=sys.stderr))
@@ -116,13 +132,13 @@ class AcpForwarder:
                         counters[direction.value] += len(frames)
                         if self.on_frame is not None:
                             self.on_frame(direction, chunk, frames)
-                    # Forward first, observe second: the peer must never wait on
-                    # telemetry. Observation can do real I/O (canonicalization,
-                    # spool POST + fsync), so it is kept off the critical path of
-                    # the protocol. Bytes are written verbatim either way.
+                    # Forward first, deliver second: the peer must never wait on
+                    # telemetry. Delivery must be non-blocking (normalize +
+                    # enqueue); the spool POST + retries happen only on the
+                    # delivery worker thread.
                     writer_stream.write(chunk)
                     writer_stream.flush()
-                    self.observer.observe(direction, chunk)
+                    self.delivery(direction, chunk)
             except (BrokenPipeError, OSError, ValueError) as error:
                 self._emit(f"proxy: {direction.value} stream closed: {error}")
             finally:

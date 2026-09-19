@@ -321,6 +321,110 @@ class AcpHostRegistrationTest {
         assertFalse(registration().hasEntry())
     }
 
+    @Test
+    fun `register emits the adapter and frozen policy contract before the agent command`() {
+        val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
+        Files.createDirectories(proxyExecutable.parent)
+        Files.writeString(proxyExecutable, "proxy-binary")
+        val agentExecutable = directory.resolve("agent")
+        Files.writeString(agentExecutable, "agent-binary")
+        val capabilityFile = directory.resolve("capability.txt")
+        val policyFile = directory.resolve("telemetry-policy.json")
+        Files.writeString(policyFile, "{\"policy_digest\":\"abc\"}")
+
+        val result =
+            registration().register(
+                resolved = runtime(proxyExecutable),
+                agentArgv = listOf(agentExecutable.toString()),
+                spoolEndpoint = "file:///spool",
+                capabilityFile = capabilityFile,
+                adapterId = "codex-v1",
+                adapterVersion = "0.4.0",
+                policyFile = policyFile,
+                policyDigest = "abc",
+            )
+
+        assertTrue(result.isSuccess)
+        val entry = servers().getValue(AcpHostRegistration.DEFAULT_ENTRY_NAME).jsonObject
+        val args = entry.getValue("args").jsonArray.map { it.jsonPrimitive.content }
+        val agentCmdIndex = args.indexOf("--agent-cmd")
+        assertEquals(args.size - 2, agentCmdIndex)
+        assertTrue(
+            args.containsAll(
+                listOf(
+                    "--adapter",
+                    "codex-v1",
+                    "--telemetry-policy",
+                    policyFile.toAbsolutePath().normalize().toString(),
+                    "--telemetry-policy-digest",
+                    "abc",
+                )
+            )
+        )
+        assertTrue(args.indexOf("--adapter") in 0 until agentCmdIndex)
+        assertTrue(args.indexOf("--telemetry-policy") in 0 until agentCmdIndex)
+        assertTrue(args.indexOf("--telemetry-policy-digest") in 0 until agentCmdIndex)
+    }
+
+    @Test
+    fun `register omits the adapter flag when the manifest declares none`() {
+        val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
+        Files.createDirectories(proxyExecutable.parent)
+        Files.writeString(proxyExecutable, "proxy-binary")
+        val agentExecutable = directory.resolve("agent")
+        Files.writeString(agentExecutable, "agent-binary")
+
+        val result =
+            registration().register(
+                resolved = runtime(proxyExecutable),
+                agentArgv = listOf(agentExecutable.toString()),
+                spoolEndpoint = null,
+                capabilityFile = null,
+                adapterId = "   ",
+            )
+
+        assertTrue(result.isSuccess)
+        val entry = servers().getValue(AcpHostRegistration.DEFAULT_ENTRY_NAME).jsonObject
+        val args = entry.getValue("args").jsonArray.map { it.jsonPrimitive.content }
+        assertFalse(args.contains("--adapter"))
+    }
+
+    @Test
+    fun `register emits sorted agent env overrides before the agent command`() {
+        val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
+        Files.createDirectories(proxyExecutable.parent)
+        Files.writeString(proxyExecutable, "proxy-binary")
+        val agentExecutable = directory.resolve("agent")
+        Files.writeString(agentExecutable, "agent-binary")
+
+        val result =
+            registration().register(
+                resolved = runtime(proxyExecutable),
+                agentArgv = listOf(agentExecutable.toString()),
+                spoolEndpoint = null,
+                capabilityFile = null,
+                agentEnv = mapOf("GOOSE_MODEL" to "gpt-5", "GOOSE_MODE" to "auto"),
+            )
+
+        assertTrue(result.isSuccess)
+        val entry = servers().getValue(AcpHostRegistration.DEFAULT_ENTRY_NAME).jsonObject
+        val args = entry.getValue("args").jsonArray.map { it.jsonPrimitive.content }
+        val agentCmdIndex = args.indexOf("--agent-cmd")
+        assertTrue(agentCmdIndex > 0)
+        assertEquals(
+            listOf(
+                AcpHostRegistration.AGENT_ENV_FLAG,
+                "GOOSE_MODE=auto",
+                AcpHostRegistration.AGENT_ENV_FLAG,
+                "GOOSE_MODEL=gpt-5",
+            ),
+            args.subList(
+                args.indexOf(AcpHostRegistration.AGENT_ENV_FLAG),
+                agentCmdIndex,
+            ),
+        )
+    }
+
     private fun registration(): AcpHostRegistration = AcpHostRegistration(registry)
 
     private fun registration(entryName: String): AcpHostRegistration =
@@ -1187,8 +1291,20 @@ class ProxyRuntimeResolverTest {
         if (writePayloads) {
             files.forEach { writeFile(root, it) }
             agent?.files?.forEach { writeFile(root, it) }
+            agents?.forEach { release -> release.agent.files.forEach { writeFile(root, it) } }
         }
-        val json = manifestJson(files, entrypoint, agent, selfContained, platformOs, platformArch, digestOverride, agentDigestOverride)
+        val json =
+            manifestJson(
+                files,
+                entrypoint,
+                agent,
+                selfContained,
+                platformOs,
+                platformArch,
+                digestOverride,
+                agentDigestOverride,
+                agents,
+            )
         Files.writeString(root.resolve("proxy-manifest.json"), json)
     }
 

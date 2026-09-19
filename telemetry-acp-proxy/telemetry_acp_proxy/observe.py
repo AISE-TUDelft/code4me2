@@ -5,21 +5,31 @@ direction, opaque JSON-RPC id, method, local receive timing, a per-emitter
 sequence, the parse status and a ``sha256:`` source digest. The parsed envelope
 is kept in memory only long enough to normalize it; raw frames are never
 retained, written to disk, or written to stdout.
+
+Retention is bounded by construction: :attr:`Observer.records` is a small ring
+(``deque(maxlen=record_cap)``) of payload-free metadata copies, while malformed
+accounting lives in explicit counters (:attr:`Observer.malformed_count`,
+:attr:`Observer.parse_status_counts`). Full-transcript capture (an unbounded
+list that keeps payloads) exists only behind the explicit
+``capture_transcripts=True`` flag for test tooling; the participant path never
+enables it.
 """
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import time
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .framing import PARSE_FAILED_CODE, Frame, FrameReader
 
 __all__ = [
+    "DEFAULT_RECORD_CAP",
     "DIRECTION_AGENT_TO_HOST",
     "DIRECTION_HOST_TO_AGENT",
     "AcpDirection",
@@ -27,6 +37,10 @@ __all__ = [
     "Observer",
     "source_digest",
 ]
+
+#: Default bound on retained observation metadata. Small on purpose: records
+#: exist for diagnostics, not as a transcript.
+DEFAULT_RECORD_CAP = 64
 
 DIRECTION_HOST_TO_AGENT = "host_to_agent"
 DIRECTION_AGENT_TO_HOST = "agent_to_host"
@@ -92,7 +106,13 @@ def _default_clock() -> tuple[int, datetime]:
 
 
 class Observer:
-    """Buffers stream chunks into frames and records observations in memory."""
+    """Buffers stream chunks into frames and records bounded observations.
+
+    ``records`` is a bounded ring of payload-free metadata copies by default.
+    ``capture_transcripts=True`` switches it to an unbounded list that keeps the
+    parsed payloads; that mode is reserved for test tooling and is never used by
+    :func:`telemetry_acp_proxy.main.run_proxy`.
+    """
 
     def __init__(
         self,
@@ -100,15 +120,28 @@ class Observer:
         emitter_id: str = "acp-proxy",
         clock: Optional[Callable[[], tuple[int, datetime]]] = None,
         on_observation: Optional[Callable[[ObservedAcpMessageV1], Any]] = None,
+        record_cap: int = DEFAULT_RECORD_CAP,
+        capture_transcripts: bool = False,
     ) -> None:
+        if record_cap < 1:
+            raise ValueError("record_cap must be >= 1")
         self.emitter_id = emitter_id
         self._clock = clock or _default_clock
         self.on_observation = on_observation
+        self.record_cap = record_cap
+        self.capture_transcripts = capture_transcripts
         self._readers: dict[AcpDirection, FrameReader] = {
             direction: FrameReader() for direction in AcpDirection
         }
         self._sequence = 0
-        self.records: list[ObservedAcpMessageV1] = []
+        self.records: Union[
+            list[ObservedAcpMessageV1],
+            collections.deque[ObservedAcpMessageV1],
+        ] = [] if capture_transcripts else collections.deque(maxlen=record_cap)
+        # Explicit malformed accounting: durable across record pruning so no
+        # caller has to scan retained history.
+        self.malformed_count = 0
+        self.parse_status_counts: dict[str, int] = {}
 
     @property
     def buffered_bytes(self) -> int:
@@ -134,10 +167,21 @@ class Observer:
         self, direction: AcpDirection, frames: list[Frame]
     ) -> list[ObservedAcpMessageV1]:
         observations = [self._record(direction, frame) for frame in frames]
+        self._retain(observations)
         if self.on_observation is not None:
             for observation in observations:
                 self.on_observation(observation)
         return observations
+
+    def _retain(self, observations: list[ObservedAcpMessageV1]) -> None:
+        """Keep bounded metadata; never retain parsed payloads on the proxy path."""
+        if self.capture_transcripts:
+            self.records.extend(observations)
+            return
+        self.records.extend(
+            observation.model_copy(update={"payload": None})
+            for observation in observations
+        )
 
     def _record(self, direction: AcpDirection, frame: Frame) -> ObservedAcpMessageV1:
         monotonic_ns, received_at = self._clock()
@@ -155,14 +199,21 @@ class Observer:
             if raw_id is not None:
                 jsonrpc_id = str(raw_id)
 
-        observation = ObservedAcpMessageV1(
+        parse_status = "ok" if frame.parse_error is None else "error"
+        self.parse_status_counts[parse_status] = (
+            self.parse_status_counts.get(parse_status, 0) + 1
+        )
+        if parse_status != "ok":
+            self.malformed_count += 1
+
+        return ObservedAcpMessageV1(
             direction=direction,
             jsonrpc_id=jsonrpc_id,
             method=method,
             receive_monotonic_ns=monotonic_ns,
             receive_wall_time=received_at,
             emitter_sequence=self._sequence,
-            parse_status="ok" if frame.parse_error is None else "error",
+            parse_status=parse_status,
             source_digest=source_digest(frame.raw),
             framing=frame.framing,
             size=len(frame.raw),
@@ -170,5 +221,3 @@ class Observer:
             error_code=frame.error_code or (None if frame.ok else PARSE_FAILED_CODE),
             payload=payload,
         )
-        self.records.append(observation)
-        return observation

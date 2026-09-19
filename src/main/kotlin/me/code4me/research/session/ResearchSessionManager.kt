@@ -891,7 +891,7 @@ class ResearchSessionManager(
                 markFailed(StudyBlockReason.TRANSPORT_FAILED, exception.message)
                 return ResearchActivationResult.Failed(exception.message)
             }
-        val resolvedPolicy = privacyPolicyFor(validManifest)
+        val resolvedPolicy = privacyPolicyFor(validManifest).withComputedDigest()
 
         // Fail closed: without a live local spool IPC endpoint there is no
         // delivery authority, so nothing may be collected or launched.
@@ -915,7 +915,7 @@ class ResearchSessionManager(
 
         // The ACP entry must point the proxy at the live IPC endpoint and hand
         // it that server's capability (never the server session capability).
-        val runtimeSetup = prepareProxyRuntime(startedIpc, validManifest)
+        val runtimeSetup = prepareProxyRuntime(startedIpc, validManifest, resolvedPolicy)
         if (runtimeSetup is RuntimeSetup.Failed) {
             markBlocked(runtimeSetup.reason, runtimeSetup.detail)
             return ResearchActivationResult.Blocked(runtimeSetup.reason, runtimeSetup.detail)
@@ -1623,15 +1623,25 @@ class ResearchSessionManager(
      *
      * @param validManifest the validated bootstrap manifest whose pinned artifact
      * digest the resolved agent must match.
+     * @param policy the frozen resolved privacy policy (with its digest) the
+     * proxy must enforce; it is written owner-only beside the capability and
+     * pinned by `--telemetry-policy-digest`.
      */
     private fun prepareProxyRuntime(
         ipc: SpoolIpcServer?,
         validManifest: BootstrapManifest,
+        policy: PrivacyPolicy,
     ): RuntimeSetup {
         val resolver = proxyRuntimeResolver ?: return RuntimeSetup.Skipped
+        val release = validManifest.agentRelease
+        val releaseIdentity =
+            AgentReleaseIdentity(
+                releaseId = release.releaseId.takeIf { it.isNotBlank() },
+                artifactDigest = release.normalizedArtifactDigest,
+            ).takeIf { it.isSpecified }
         val resolution =
             try {
-                resolver.resolve()
+                resolver.resolve(releaseIdentity)
             } catch (exception: Exception) {
                 return runtimeSetupFailure(exception.message ?: "the packaged proxy runtime could not be resolved")
             }
@@ -1660,9 +1670,29 @@ class ResearchSessionManager(
                 if (spoolEndpoint != null && capability == null) {
                     return runtimeSetupFailure("the one-time capability file could not be created")
                 }
+                // Freeze the exact telemetry policy the session will stamp on
+                // its events. The file sits beside the one-time capability
+                // (owner-only) and only its path travels on the command line.
+                val telemetryPolicyFile = policyFileFor(validManifest.enrollmentId)
+                if (telemetryPolicyFile == null) {
+                    return runtimeSetupFailure("the frozen telemetry policy path could not be resolved")
+                }
+                val policyWrite = writeFrozenTelemetryPolicy(telemetryPolicyFile, policy)
+                if (policyWrite.isFailure) {
+                    return runtimeSetupFailure(
+                        policyWrite.exceptionOrNull()?.message
+                            ?: "the frozen telemetry policy could not be written",
+                    )
+                }
                 val environment =
                     mapOf(
                         "CODE4ME_RESEARCH_PROXY" to runtime.proxyDigest,
+                        // Canonical research attribution for a managed agent
+                        // running under a study (ISSUE-02). The proxy forwards
+                        // these to its child; the server re-validates them.
+                        "CODE4ME_RESEARCH_ENROLLMENT_ID" to validManifest.enrollmentId,
+                        "CODE4ME_RESEARCH_SESSION_ID" to
+                            validManifest.researchSession.researchSessionId,
                     )
                 val result =
                     try {
@@ -1678,8 +1708,11 @@ class ResearchSessionManager(
                             env = environment + agentEnvProvider(),
                             agentDigest = ready.digest,
                             capabilityValue = ipc?.capability,
-                            adapterId = validManifest.agentRelease.adapterId,
+                            adapterId = validManifest.agentRelease.adapterId?.takeIf { it.isNotBlank() },
                             adapterVersion = validManifest.agentRelease.adapterVersion,
+                            policyFile = telemetryPolicyFile,
+                            policyDigest = policy.policyDigest,
+                            agentEnv = ready.agentEnv,
                         )
                     } catch (exception: Exception) {
                         Result.failure(exception)
@@ -1756,6 +1789,19 @@ class ResearchSessionManager(
      */
     private fun byoaAgentPlan(validManifest: BootstrapManifest): AgentPlan {
         val release = validManifest.agentRelease
+        // Defensive parity with server-side study creation: a profile field the
+        // release does not translate must never silently not govern the agent.
+        validManifest.agentProfile?.let { profile ->
+            val missing = missingByoaBindings(release.configBindings, profile)
+            if (missing.isNotEmpty()) {
+                return AgentPlan.Failed(
+                    StudyBlockReason.RUNTIME_UNAVAILABLE,
+                    "the release declares no configuration translation for " +
+                        missing.joinToString(", ") +
+                        "; refusing to launch an agent whose profile would not govern it",
+                )
+            }
+        }
         val configured = safeValue { byoaAgentCommandProvider() }
         val resolution =
             try {
@@ -1773,13 +1819,18 @@ class ResearchSessionManager(
                     exception.message ?: "the BYOA agent could not be resolved",
                 )
             }
+        val mapping =
+            validManifest.agentProfile?.let { profile ->
+                applyByoaConfiguration(release.configBindings, profile)
+            } ?: ByoaConfiguration()
         return when (resolution) {
             is ByoaAgentResolution.NotFound ->
                 AgentPlan.Failed(StudyBlockReason.AGENT_NOT_FOUND, resolution.detail)
             is ByoaAgentResolution.Resolved ->
                 AgentPlan.Ready(
-                    argv = resolution.argv,
+                    argv = resolution.argv + mapping.args,
                     digest = resolution.identity.digest,
+                    agentEnv = mapping.env,
                 )
         }
     }
@@ -1789,6 +1840,7 @@ class ResearchSessionManager(
         data class Ready(
             val argv: List<String>?,
             val digest: String?,
+            val agentEnv: Map<String, String> = emptyMap(),
         ) : AgentPlan
 
         data class Failed(val reason: StudyBlockReason, val detail: String) : AgentPlan
@@ -1808,6 +1860,23 @@ class ResearchSessionManager(
             capabilityFilePathProvider()?.toAbsolutePath()?.normalize()
                 ?: capabilityRootProvider()
                     .resolve("$CAPABILITY_FILE_PREFIX${opaqueSessionKey(enrollmentId)}$CAPABILITY_FILE_EXTENSION")
+        } catch (_: Exception) {
+            null
+        }
+
+    /**
+     * Resolve the frozen telemetry policy file for [enrollmentId].
+     *
+     * It lives beside the one-time capability in the same owner-only root and is
+     * rewritten on every activation. The proxy reads it but never deletes it.
+     */
+    private fun policyFileFor(enrollmentId: String): Path? =
+        try {
+            val capability = capabilityFileFor(enrollmentId)
+            val root =
+                capability?.toAbsolutePath()?.normalize()?.parent
+                    ?: capabilityRootProvider().toAbsolutePath().normalize()
+            root.resolve("$POLICY_FILE_PREFIX${opaqueSessionKey(enrollmentId)}$POLICY_FILE_EXTENSION")
         } catch (_: Exception) {
             null
         }
@@ -2027,6 +2096,10 @@ class ResearchSessionManager(
         /** Stable, plugin-owned capability file name under the research root. */
         private const val CAPABILITY_FILE_PREFIX = "capability-"
         private const val CAPABILITY_FILE_EXTENSION = ".txt"
+
+        /** Stable, plugin-owned frozen telemetry policy file name. */
+        private const val POLICY_FILE_PREFIX = "telemetry-policy-"
+        private const val POLICY_FILE_EXTENSION = ".json"
 
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 

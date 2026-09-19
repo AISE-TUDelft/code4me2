@@ -25,6 +25,11 @@ import java.util.UUID
  * plugin-owned: it is rewritten on every activation (the ACP entry is
  * persistent, so the proxy may be launched repeatedly) and the proxy only reads
  * it. Env is authoritative when the file cannot be read.
+ *
+ * The study privacy policy and the selected adapter are passed as CLI flags
+ * (`--telemetry-policy`, `--telemetry-policy-digest`, `--adapter`), so the proxy
+ * enforces the frozen policy and resolves the allowlisted adapter from the same
+ * contract the manifest declares.
  */
 class AcpHostRegistration internal constructor(
     private val registryPath: Path,
@@ -66,9 +71,19 @@ class AcpHostRegistration internal constructor(
      * the value the local spool IPC server is already authenticating with). When
      * `null`, a fresh capability is minted.
      * @param adapterId non-secret adapter identity from the bootstrap manifest, or
-     * `null` when the release declares none. It is carried in the entry `env`
-     * (never argv, so the proxy CLI contract is untouched).
+     * `null` when the release declares none. It is passed to the proxy as
+     * `--adapter` (the proxy's validated allowlist) and also carried in the
+     * entry `env` as a durable, non-secret marker.
      * @param adapterVersion non-secret adapter version paired with [adapterId].
+     * @param policyFile the frozen telemetry policy JSON the proxy enforces; it
+     * is emitted as `--telemetry-policy` and is never inlined on the command
+     * line.
+     * @param policyDigest the digest the policy document declares; it is emitted
+     * as `--telemetry-policy-digest` and makes a tampered/stale policy fail
+     * closed at launch.
+     * @param agentEnv release-declared BYOA configuration overrides for the
+     * agent child, emitted as repeated `--agent-env KEY=VALUE`. Blank when the
+     * release declares none.
      */
     fun register(
         resolved: ResolvedProxyRuntime,
@@ -80,6 +95,9 @@ class AcpHostRegistration internal constructor(
         capabilityValue: String? = null,
         adapterId: String? = null,
         adapterVersion: String? = null,
+        policyFile: Path? = null,
+        policyDigest: String? = null,
+        agentEnv: Map<String, String> = emptyMap(),
     ): Result<Unit> =
         runCatching {
             require(resolved.proxyArgv.isNotEmpty()) { "resolved proxy argv must not be empty" }
@@ -96,9 +114,8 @@ class AcpHostRegistration internal constructor(
                 }
             // The capability travels with the entry: the proxy reads it from the
             // env when its fallback file is gone, so an entry can never dangle.
-            // The adapter identity travels the same way: it is an opaque,
-            // non-secret marker the proxy ignores and never a CLI argument, so
-            // the proxy's argparse contract cannot break on it.
+            // The adapter identity travels the same way as a durable, non-secret
+            // marker; the effective selection is the `--adapter` argv flag.
             val entryEnv =
                 buildMap {
                     putAll(env)
@@ -109,8 +126,8 @@ class AcpHostRegistration internal constructor(
 
             // The proxy CLI treats `--agent-cmd` as an argparse REMAINDER: it
             // consumes every following token as the agent argv. It must therefore
-            // be the LAST option on the command line, so `--agent-digest`,
-            // `--spool-endpoint`, and `--capability-file` are emitted before it.
+            // be the LAST option on the command line, so the digest, spool,
+            // policy, and adapter flags are emitted before it.
             val args =
                 buildList {
                     addAll(resolved.proxyArgv.drop(1))
@@ -125,6 +142,22 @@ class AcpHostRegistration internal constructor(
                         add(spoolEndpoint)
                         add(CAPABILITY_FILE_FLAG)
                         add(capabilityFile.toAbsolutePath().normalize().toString())
+                    }
+                    if (policyFile != null) {
+                        add(TELEMETRY_POLICY_FLAG)
+                        add(policyFile.toAbsolutePath().normalize().toString())
+                        policyDigest?.takeIf { it.isNotBlank() }?.let {
+                            add(TELEMETRY_POLICY_DIGEST_FLAG)
+                            add(it)
+                        }
+                    }
+                    adapterId?.takeIf { it.isNotBlank() }?.let {
+                        add(ADAPTER_FLAG)
+                        add(it)
+                    }
+                    agentEnv.toSortedMap().forEach { (key, value) ->
+                        add(AGENT_ENV_FLAG)
+                        add("$key=$value")
                     }
                     if (!effectiveAgent.isNullOrEmpty()) {
                         add(AGENT_CMD_FLAG)
@@ -181,6 +214,18 @@ class AcpHostRegistration internal constructor(
         const val AGENT_DIGEST_FLAG: String = "--agent-digest"
         const val SPOOL_ENDPOINT_FLAG: String = "--spool-endpoint"
         const val CAPABILITY_FILE_FLAG: String = "--capability-file"
+
+        /** Path to the frozen study privacy policy JSON the proxy enforces. */
+        const val TELEMETRY_POLICY_FLAG: String = "--telemetry-policy"
+
+        /** Expected digest of the frozen policy; a mismatch exits with a usage error. */
+        const val TELEMETRY_POLICY_DIGEST_FLAG: String = "--telemetry-policy-digest"
+
+        /** Allowlisted adapter id the proxy resolves for enrichment. */
+        const val ADAPTER_FLAG: String = "--adapter"
+
+        /** Release-declared BYOA configuration override for the agent child. */
+        const val AGENT_ENV_FLAG: String = "--agent-env"
 
         /**
          * The ACP entry env key carrying the one-time LOCAL IPC capability. It

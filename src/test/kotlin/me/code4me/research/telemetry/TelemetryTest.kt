@@ -522,6 +522,24 @@ class CanonicalJsonTest {
     }
 
     @Test
+    fun `telemetry policy digest matches the python reference`() {
+        val policy =
+            PrivacyPolicy(
+                allowedFieldClasses = setOf(FieldClass.SYSTEM, FieldClass.BEHAVIORAL, FieldClass.CODE_METADATA),
+                contentAllowed = false,
+                consentActive = true,
+                codeMetadataMode = CodeMetadataMode.HASH,
+            )
+
+        // Pinned against research.canonical.canonical_hash over the same five
+        // fields; the proxy verifies --telemetry-policy-digest with this value.
+        assertEquals(
+            "c8a07e0b35fed432330e6e91d6a58f36ee8c2eaa93693277fddcd0aa5515c797",
+            policy.computedDigest(),
+        )
+    }
+
+    @Test
     fun `numbers and booleans serialize deterministically`() {
         assertEquals(
             "{\"big\":9223372036854775807,\"flag\":false,\"small\":1}",

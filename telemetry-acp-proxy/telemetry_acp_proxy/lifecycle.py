@@ -43,6 +43,11 @@ DEFAULT_ENV_ALLOWLIST = (
     "PATHEXT",
     "USERPROFILE",
     "CODE4ME_BRIDGE_DIR",
+    # Research attribution handed to a managed agent running under a study
+    # (ISSUE-02). Not credentials: the ids are validated server-side against
+    # the authorized account.
+    "CODE4ME_RESEARCH_ENROLLMENT_ID",
+    "CODE4ME_RESEARCH_SESSION_ID",
 )
 
 DEFAULT_TERMINATE_TIMEOUT_SECONDS = 5.0
