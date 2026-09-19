@@ -1,5 +1,6 @@
 package me.code4me.actions
 
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -12,6 +13,7 @@ import me.code4me.services.app.ProjectAcpPreparation
 import me.code4me.services.agent.ParticipantSetupStatus
 import me.code4me.services.agent.ParticipantSetupStep
 import me.code4me.services.agent.getParticipantAgentSetupService
+import me.code4me.utils.notification.showAuthNotification
 import me.code4me.utils.notification.showAuthSuccessNotification
 import me.code4me.utils.notification.showErrorNotification
 
@@ -29,6 +31,7 @@ class PrepareAcpAgentSessionAction(
     private val backgroundRunner: ((() -> Unit) -> Unit) = { task ->
         ApplicationManager.getApplication().executeOnPooledThread(task)
     },
+    private val notify: (Project, ParticipantSetupStatus) -> Unit = ::showPrepareNotification,
 ) : AnAction() {
     private val log = thisLogger()
 
@@ -38,15 +41,10 @@ class PrepareAcpAgentSessionAction(
         backgroundRunner {
             try {
                 val status = setup(project, preparation)
-                if (status.step != ParticipantSetupStep.READY) {
+                if (status.step != ParticipantSetupStep.READY && status.step != ParticipantSetupStep.STUDY_ACTIVE) {
                     throw AcpPreparationException(status.message)
                 }
-                notifySafely {
-                    project.showAuthSuccessNotification(
-                        title = "Code4Me Agent Prepared",
-                        message = status.message,
-                    )
-                }
+                notifySafely { notify(project, status) }
             } catch (error: AcpPreparationException) {
                 notifySafely {
                     project.showErrorNotification(
@@ -79,5 +77,36 @@ class PrepareAcpAgentSessionAction(
     override fun update(event: AnActionEvent) {
         val hasProject = event.getData(CommonDataKeys.PROJECT) != null
         event.presentation.isEnabledAndVisible = hasProject
+    }
+}
+
+/**
+ * Participant-safe outcome notification for a prepare request.
+ *
+ * A study-active project gets an informational redirect to the authoritative
+ * research entry (never an error and never the direct managed agent); every
+ * other non-ready outcome stays an error, and ready stays the success balloon.
+ */
+private fun showPrepareNotification(
+    project: Project,
+    status: ParticipantSetupStatus,
+) {
+    when (status.step) {
+        ParticipantSetupStep.READY ->
+            project.showAuthSuccessNotification(
+                title = "Code4Me Agent Prepared",
+                message = status.message,
+            )
+        ParticipantSetupStep.STUDY_ACTIVE ->
+            project.showAuthNotification(
+                title = "Research study active",
+                message = status.message,
+                type = NotificationType.INFORMATION,
+                includeSettingsAction = false,
+            )
+        else -> project.showErrorNotification(
+            title = "ACP Agent Session Preparation Failed",
+            message = status.message,
+        )
     }
 }

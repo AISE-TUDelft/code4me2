@@ -174,8 +174,15 @@ class PluginStartupActivity : ProjectActivity {
                 // A fresh login stores the auth token just before its server
                 // session finishes initializing. Retry that short handoff so
                 // participants do not need to click Prepare after signing in.
+                // A study-active result is terminal: the research activation
+                // path owns the ACP entry and the direct path must not run.
                 repeat(2) { attempt ->
-                    if (status.step == me.code4me.services.agent.ParticipantSetupStep.READY) return@repeat
+                    if (
+                        status.step == me.code4me.services.agent.ParticipantSetupStep.READY ||
+                        status.step == me.code4me.services.agent.ParticipantSetupStep.STUDY_ACTIVE
+                    ) {
+                        return@repeat
+                    }
                     delay((attempt + 1) * 1_000L)
                     if (!project.isDisposed && getAuthState().isAuthenticated()) {
                         status = setup.prepareWithLegacyFallback(project)
@@ -183,7 +190,9 @@ class PluginStartupActivity : ProjectActivity {
                 }
                 LOG.info("Managed participant agent setup: ${status.step} (${status.message})")
                 // TODO: distribute and certify Goose/Codex as managed participant runtimes.
-                setup.prepareDeveloperAgents(project)
+                if (me.code4me.services.agent.mayPrepareDeveloperAgents(status)) {
+                    setup.prepareDeveloperAgents(project)
+                }
             } catch (e: Exception) {
                 LOG.warn("Managed participant agent setup failed — non-blocking", e)
             }

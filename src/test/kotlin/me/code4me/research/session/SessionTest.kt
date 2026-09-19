@@ -131,6 +131,32 @@ class ParticipantStudyStateV1Test {
     }
 
     @Test
+    fun `a study context is held while an enrollment manifest or block exists`() {
+        assertFalse(ParticipantStudyStateV1().holdsStudyContext, "a default state must not claim a study")
+
+        assertTrue(
+            ParticipantStudyStateV1(enrollmentId = "enrollment-1").holdsStudyContext,
+            "a held enrollment must keep the direct entry off",
+        )
+        assertTrue(
+            ParticipantStudyStateV1(manifestDigest = "digest").holdsStudyContext,
+            "a held manifest must keep the direct entry off",
+        )
+        assertTrue(
+            ParticipantStudyStateV1(blockReason = StudyBlockReason.MANIFEST_EXPIRED).holdsStudyContext,
+            "a blocked enrolled participant must be routed to the research entry",
+        )
+        assertTrue(
+            ParticipantStudyStateV1(
+                consentState = StudyComponentState.AVAILABLE,
+                compatibilityState = StudyComponentState.AVAILABLE,
+                sessionState = StudyComponentState.AVAILABLE,
+            ).holdsStudyContext,
+            "live collection must keep the direct entry off",
+        )
+    }
+
+    @Test
     fun `component states are exactly the five participant states`() {
         assertEquals(
             setOf("AVAILABLE", "UNAVAILABLE", "PAUSED", "BLOCKED", "FAILED"),

@@ -8,6 +8,8 @@ import me.code4me.services.app.PreparedAcpRuntimeHandoff
 import me.code4me.services.app.ProjectAcpPreparation
 import me.code4me.services.agent.ParticipantSetupStatus
 import me.code4me.services.agent.ParticipantSetupStep
+import me.code4me.services.agent.ParticipantAgentSetupService
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -71,6 +73,52 @@ class PrepareAcpAgentSessionActionTest {
         ).actionPerformed(event)
 
         verify(preparation).prepare(project)
+    }
+
+    @Test
+    fun `an active study shows the research redirect instead of the legacy prepare`() {
+        val project = mock<Project>()
+        whenever(event.getData(CommonDataKeys.PROJECT)).thenReturn(project)
+
+        val preparation = mock<ProjectAcpPreparation>()
+        val notified = mutableListOf<ParticipantSetupStatus>()
+
+        PrepareAcpAgentSessionAction(
+            preparation,
+            setup = { _, _ ->
+                ParticipantSetupStatus(
+                    ParticipantSetupStep.STUDY_ACTIVE,
+                    ParticipantAgentSetupService.STUDY_ACTIVE_MESSAGE,
+                )
+            },
+            backgroundRunner = { it() },
+            notify = { _, status -> notified += status },
+        ).actionPerformed(event)
+
+        // The legacy fallback must never run while a study owns the project.
+        verifyNoInteractions(preparation)
+        val status = notified.single()
+        assertEquals(ParticipantSetupStep.STUDY_ACTIVE, status.step)
+        assertTrue(status.message.contains("Code4Me Research Proxy"), status.message)
+        assertFalse(status.message.contains("Code4Me Agent is ready"), status.message)
+    }
+
+    @Test
+    fun `a ready outcome still shows the managed-agent success status`() {
+        val project = mock<Project>()
+        whenever(event.getData(CommonDataKeys.PROJECT)).thenReturn(project)
+
+        val preparation = mock<ProjectAcpPreparation>()
+        val notified = mutableListOf<ParticipantSetupStatus>()
+
+        PrepareAcpAgentSessionAction(
+            preparation,
+            setup = { _, _ -> ParticipantSetupStatus(ParticipantSetupStep.READY, "Code4Me Agent is ready.") },
+            backgroundRunner = { it() },
+            notify = { _, status -> notified += status },
+        ).actionPerformed(event)
+
+        assertEquals(ParticipantSetupStep.READY, notified.single().step)
     }
 
     @Test

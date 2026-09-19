@@ -122,6 +122,16 @@ data class ParticipantStudyStateV1(
     val canLaunch: Boolean
         get() = isCollecting && manifestDigest != null && manifestExpiry != null
 
+    /**
+     * True when a study context owns this project, even if collection is not
+     * currently active (a held session/manifest, a live collector, or a typed
+     * block). It decides whether the direct managed "Code4Me Agent" entry may be
+     * used at all, so a blocked-but-enrolled participant is still routed to the
+     * authoritative research entry (ISSUE-18).
+     */
+    val holdsStudyContext: Boolean
+        get() = enrollmentId != null || manifestDigest != null || blockReason != null || isCollecting
+
     /** The canonical map form, used for diagnostics and status surfaces. */
     fun toCanonicalMap(): Map<String, Any?> =
         linkedMapOf(

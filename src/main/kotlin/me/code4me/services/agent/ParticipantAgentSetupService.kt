@@ -8,6 +8,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.ide.plugins.PluginManagerCore
+import me.code4me.research.session.ResearchSessionService
 import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.app.AcpPreparationService
 import me.code4me.services.app.ProjectAcpPreparation
@@ -19,7 +20,19 @@ import java.nio.file.Path
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
-enum class ParticipantSetupStep { SIGN_IN, CHECK_SERVER, PREPARE_AGENT, READY }
+enum class ParticipantSetupStep {
+    SIGN_IN,
+    CHECK_SERVER,
+    PREPARE_AGENT,
+    READY,
+
+    /**
+     * A research study owns this project: the authoritative participant entry is
+     * the context-scoped research proxy registered by the research activation
+     * path. The direct "Code4Me Agent" entry must not be registered or offered.
+     */
+    STUDY_ACTIVE,
+}
 
 data class ParticipantSetupStatus(
     val step: ParticipantSetupStep,
@@ -43,6 +56,7 @@ class ParticipantAgentSetupService : Disposable {
 
     @Synchronized
     fun prepare(project: Project, repair: Boolean = false): ParticipantSetupStatus {
+        studyActive(project)?.let { return remember(it) }
         if (!getAuthState().isAuthenticated()) {
             bridge.unregister(project)
             return remember(ParticipantSetupStatus(ParticipantSetupStep.SIGN_IN, "Sign in to Code4Me to prepare the agent."))
@@ -174,6 +188,7 @@ class ParticipantAgentSetupService : Disposable {
         preparation: ProjectAcpPreparation = AcpPreparationService(),
         repair: Boolean = false,
     ): ParticipantSetupStatus {
+        studyActive(project)?.let { return remember(it) }
         val status = prepare(project, repair)
         if (!status.useLegacyAcpPreparation) return status
         return try {
@@ -208,6 +223,40 @@ class ParticipantAgentSetupService : Disposable {
         }
     }
 
+    /**
+     * The typed redirect returned while a research study owns [project], or
+     * `null` when this project has no study context.
+     *
+     * It consults only the already-created [ResearchSessionService], so opening a
+     * non-participant project never constructs the research service, and it never
+     * throws: a missing or failing research service means "no study context" and
+     * ordinary managed setup proceeds.
+     */
+    private fun studyActive(project: Project): ParticipantSetupStatus? {
+        if (!hasStudyContext(project)) return null
+        // A study is authoritative: never register the direct managed entry and
+        // never fall through to the legacy ACP handoff. The research activation
+        // path owns the ACP registration for this project. Dropping the bridge
+        // claim also means a stale direct entry cannot mint grants for it.
+        bridge.unregister(project)
+        return ParticipantSetupStatus(ParticipantSetupStep.STUDY_ACTIVE, STUDY_ACTIVE_MESSAGE)
+    }
+
+    /**
+     * Reads the project's study context without ever constructing the research
+     * service: only a service the platform (or research activation) already
+     * created is consulted. Any failure means "no study context", so ordinary
+     * managed setup is never blocked by a research error.
+     */
+    private fun hasStudyContext(project: Project): Boolean =
+        try {
+            project.getServiceIfCreated(ResearchSessionService::class.java)?.hasStudyContext() == true
+        } catch (_: Exception) {
+            false
+        } catch (_: LinkageError) {
+            false
+        }
+
     fun unregister(project: Project) {
         projects -= project
         bridge.unregister(project)
@@ -235,12 +284,33 @@ class ParticipantAgentSetupService : Disposable {
 
     /** TODO: managed Goose/Codex distribution, onboarding, policy enforcement and certification. */
     fun prepareDeveloperAgents(project: Project) {
-        if (!java.lang.Boolean.getBoolean("code4me.developerAgents")) return
-        com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
-            runCatching {
+        prepareDeveloperAgents(
+            project,
+            startDeveloperAgents = {
                 LocalProxyServer.start(project)
                 kotlinx.coroutines.runBlocking { AgentStartupManager.ensureActiveTask(project) }
-            }.onFailure { log.warn("Developer agent setup failed", it) }
+            },
+        )
+    }
+
+    /**
+     * Developer-only agent startup behind the `code4me.developerAgents` gate.
+     *
+     * [startDeveloperAgents] is injected so the gate can be asserted without
+     * starting the local proxy or provisioning a task.
+     */
+    internal fun prepareDeveloperAgents(
+        project: Project,
+        startDeveloperAgents: (Project) -> Unit,
+        runAsync: ((() -> Unit) -> Unit) = { task ->
+            com.intellij.openapi.application.ApplicationManager.getApplication()
+                .executeOnPooledThread(task)
+        },
+    ) {
+        if (!developerAgentsEnabled()) return
+        runAsync {
+            runCatching { startDeveloperAgents(project) }
+                .onFailure { log.warn("Developer agent setup failed", it) }
         }
     }
 
@@ -283,9 +353,33 @@ class ParticipantAgentSetupService : Disposable {
         "The bundled Code4Me runtime could not start (${e.message ?: "unknown error"})."
     }
 
-    private companion object {
-        const val AI_ASSISTANT_PLUGIN_ID = "com.intellij.ml.llm"
-        const val SELF_CHECK_TIMEOUT_SECONDS = 20L
-        const val MAX_SELF_CHECK_OUTPUT_BYTES = 8 * 1024
+    companion object {
+        private const val AI_ASSISTANT_PLUGIN_ID = "com.intellij.ml.llm"
+        private const val SELF_CHECK_TIMEOUT_SECONDS = 20L
+        private const val MAX_SELF_CHECK_OUTPUT_BYTES = 8 * 1024
+
+        /** Opt-in switch for the developer-only agent surfaces. Never set in participant builds. */
+        const val DEVELOPER_AGENTS_PROPERTY: String = "code4me.developerAgents"
+
+        /**
+         * Participant-safe redirect shown while a study owns the project. It
+         * names the authoritative research entry and never reveals enrollment,
+         * study, or session identifiers.
+         */
+        const val STUDY_ACTIVE_MESSAGE: String =
+            "A research study is active for this project. Use the Code4Me Research Proxy entry " +
+                "(registered by the research activation path); the direct Code4Me Agent entry " +
+                "is not used during the study."
     }
 }
+
+/** Whether the `code4me.developerAgents` developer gate is enabled. */
+internal fun developerAgentsEnabled(): Boolean =
+    java.lang.Boolean.getBoolean(ParticipantAgentSetupService.DEVELOPER_AGENTS_PROPERTY)
+
+/**
+ * Whether a participant setup surface may run developer-only agent startup after
+ * [status]. A study-active project must never reach the developer paths.
+ */
+internal fun mayPrepareDeveloperAgents(status: ParticipantSetupStatus): Boolean =
+    status.step != ParticipantSetupStep.STUDY_ACTIVE

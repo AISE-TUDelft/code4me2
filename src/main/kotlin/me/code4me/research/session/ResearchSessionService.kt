@@ -73,6 +73,23 @@ class ResearchSessionService(private val project: Project) : Disposable {
     }
 
     /**
+     * Whether a research study currently owns this project's participant setup.
+     *
+     * Reads only the participant state of this service (session, held manifest,
+     * typed block, or live collection), so the check is I/O-free and safe on a
+     * background thread. Never throws: any failure is reported as `false` so
+     * ordinary managed setup is unaffected.
+     */
+    fun hasStudyContext(): Boolean =
+        try {
+            state().holdsStudyContext
+        } catch (_: Exception) {
+            false
+        } catch (_: LinkageError) {
+            false
+        }
+
+    /**
      * Membership authority for the manager's pre-bootstrap gate: the signed-in
      * account's enrollment state from `GET /api/research/participants/me`.
      * Never throws; an unconfigured backend or a failed check yields

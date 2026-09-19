@@ -16,17 +16,42 @@ WSL, remote development, containers, and Windows/Linux ARM64 are not supported b
 2. Download the versioned Code4Me ZIP supplied by the study coordinator.
 3. In **Settings > Plugins**, choose **Install Plugin from Disk**, select the ZIP, and restart the IDE when prompted.
 4. Open the project you will use in the study.
-5. Open **Settings > Tools > Code4Me V2**, sign in with your study account, and wait for the agent status to show **Ready**.
-6. Open AI Chat and select **Code4Me Agent** from the agent picker.
+5. Open **Settings > Tools > Code4Me V2** and sign in with your study account.
+6. Join the study from the Code4Me research settings using the enrollment code
+   from your study coordinator. Code4Me activates the study and registers the
+   **Code4Me Research Proxy** entry for this project.
+7. Open AI Chat and select **Code4Me Research Proxy** from the agent picker.
+
+The research activation path is the one authoritative participant entry. While a
+study is active for your project, Code4Me does not register or offer the direct
+**Code4Me Agent** entry: choosing **Prepare agent** (or the
+**Prepare Code4Me Agent Session** action) shows a redirect to the research entry
+instead. A session started through any other entry is not observed by the study.
 
 Code4Me installs its matching agent runtime from the plugin. You do not need a Code4Me source checkout, Python, Node.js, Docker, or a model-provider API key. Your project may still require its normal compiler or build tools.
 
 ## Repair and diagnostics
 
-If setup does not reach **Ready**, use **Repair agent** in the Code4Me settings. Restart the IDE after a repair if AI Chat has already been opened.
+If the study does not become active, reopen the project or rejoin from the
+Code4Me research settings. If setup does not reach **Ready**, use **Repair
+agent** in the Code4Me settings; during an active study that action reports the
+research redirect instead of touching the managed entry. Restart the IDE after a
+repair if AI Chat has already been opened.
 
 When reporting a problem, include the Code4Me plugin version, runtime version, operating system, CPU architecture, and the status message shown in settings. Do not enable extended ACP logging or share project contents unless the study coordinator specifically requests it.
 
-Goose and Codex integrations are retained for development but are not participant-ready in this release.
+## Developer-only surfaces
+
+These paths are retained for development and are **not participant-ready** in
+this release. They are gated, are absent from participant flows, and must never
+be used for a study session:
+
+- **Local development proxy** (`LocalProxyServer`): starts only when the
+  developer `code4me.developerAgents` system property is enabled.
+- **Goose runtime** (`GooseRuntime`) and the **vendored developer Codex**
+  integration (`dev/codex-acp-proxy/`): not participant-ready.
+- **Developer agents** (`prepareDeveloperAgents()`): a no-op unless
+  `-Dcode4me.developerAgents=true` is set, and never run for a study-active
+  project.
 
 Study coordinators: distribute only the versioned artifact from the **Build participant plugin** release workflow. A ZIP produced by the ordinary Gradle `buildPlugin` task is a development artifact and must not be shared with participants.
