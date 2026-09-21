@@ -245,6 +245,7 @@ def verify_proxy_manifest(
     members: dict[str, zipfile.ZipInfo],
     findings: list[str],
     require_participant_release: bool = False,
+    allow_partial_platforms: bool = False,
 ) -> None:
     prefix = member_name[: len(member_name) - len("proxy-manifest.json")]
     try:
@@ -272,12 +273,19 @@ def verify_proxy_manifest(
         verify_platform(
             f"{member_name}#platforms[{index}]", platform, prefix, archive, members, findings
         )
-    if require_participant_release or "participant_release" in document:
-        verify_release_catalog(document, findings)
+    if require_participant_release or allow_partial_platforms or "participant_release" in document:
+        verify_release_catalog(document, findings, allow_partial_platforms=allow_partial_platforms)
 
 
-def verify_release_catalog(document: dict, findings: list[str]) -> None:
-    """Require all advertised releases/platforms; optional-agent checks are insufficient."""
+def verify_release_catalog(
+    document: dict, findings: list[str], *, allow_partial_platforms: bool = False
+) -> None:
+    """Require all advertised releases/platforms; optional-agent checks are insufficient.
+
+    ``allow_partial_platforms`` is the explicit local-test-release mode: the
+    artifact must declare exactly the platform subset its own inventory names
+    instead of the production four-platform matrix. It is never implied.
+    """
     inventory = document.get("participant_release")
     if not isinstance(inventory, dict) or inventory.get("schema_version") != "1":
         findings.append("participant release inventory is missing or unsupported")
@@ -285,7 +293,20 @@ def verify_release_catalog(document: dict, findings: list[str]) -> None:
     expected_platforms = {"macos-aarch64", "macos-x64", "linux-x64", "windows-x64"}
     platforms = document.get("platforms", [])
     actual = [f"{p.get('os')}-{p.get('arch')}" for p in platforms if isinstance(p, dict)]
-    if len(actual) != 4 or set(actual) != expected_platforms or set(inventory.get("platforms", [])) != expected_platforms:
+    if allow_partial_platforms:
+        declared = inventory.get("platforms", [])
+        if (
+            not isinstance(declared, list)
+            or not declared
+            or len(actual) != len(set(actual))
+            or set(actual) != set(declared)
+        ):
+            findings.append("local test release platforms must match its inventory exactly")
+    elif (
+        len(actual) != 4
+        or set(actual) != expected_platforms
+        or set(inventory.get("platforms", [])) != expected_platforms
+    ):
         findings.append("participant release must cover all four native platforms exactly once")
     releases = inventory.get("releases", [])
     if not isinstance(releases, list) or len(releases) != 3 or {
@@ -338,6 +359,7 @@ def inspect_zip(
     *,
     depth: int = 0,
     require_participant_release: bool = False,
+    allow_partial_platforms: bool = False,
 ) -> int:
     """Scan one archive; returns the number of proxy manifests found."""
     if depth > 4:
@@ -373,6 +395,7 @@ def inspect_zip(
                         manifests += inspect_zip(
                             f"{label}!{member.filename}", nested, findings, depth=depth + 1,
                             require_participant_release=require_participant_release,
+                            allow_partial_platforms=allow_partial_platforms,
                         )
                     except zipfile.BadZipFile:
                         findings.append(f"{label}!{member.filename}: invalid nested archive")
@@ -381,7 +404,10 @@ def inspect_zip(
                 if members is None:
                     members = {info.filename: info for info in archive.infolist()}
                 manifests += 1
-                verify_proxy_manifest(label, member.filename, archive, members, findings, require_participant_release)
+                verify_proxy_manifest(
+                    label, member.filename, archive, members, findings,
+                    require_participant_release, allow_partial_platforms,
+                )
             if member.file_size > MAX_TEXT_SCAN_BYTES:
                 continue
             data = archive.read(member)
@@ -401,11 +427,22 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path)
     parser.add_argument("--require-participant-release", action="store_true")
+    parser.add_argument(
+        "--allow-partial-platforms",
+        action="store_true",
+        help=(
+            "development-only local test release: require exactly the platform "
+            "subset the inventory declares instead of the production four-platform matrix"
+        ),
+    )
     args = parser.parse_args()
     findings: list[str] = []
     try:
-        manifests = inspect_zip(str(args.archive), args.archive, findings,
-                                require_participant_release=args.require_participant_release)
+        manifests = inspect_zip(
+            str(args.archive), args.archive, findings,
+            require_participant_release=args.require_participant_release,
+            allow_partial_platforms=args.allow_partial_platforms,
+        )
     except zipfile.BadZipFile as error:
         raise SystemExit(
             f"participant artifact verification failed:\n{args.archive}: not a valid ZIP archive: {error}"

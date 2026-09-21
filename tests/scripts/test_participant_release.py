@@ -73,6 +73,32 @@ def test_generated_catalog_passes_verifier_and_missing_agent_or_dependency_fails
     assert any("digest mismatch" in message for message in findings)
 
 
+def test_partial_local_catalog_requires_the_explicit_verification_mode(tmp_path):
+    recipe = fixtures.make_inputs(tmp_path / "inputs")
+    manifest_path = tmp_path / "inputs/runtime.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"] = [
+        artifact for artifact in manifest["artifacts"]
+        if artifact["archive"] == "code4me-agent-macos-arm64.zip"
+    ]
+    fixtures.write_json(manifest_path, manifest)
+    recipe.runtime.sha256 = fixtures.file_sha256(manifest_path)
+    prepare(recipe, tmp_path / "inputs", tmp_path / "prepared", platforms=("macos-aarch64",))
+    catalog = json.loads((tmp_path / "prepared/catalog.json").read_text())
+    findings = []
+    verifier.verify_release_catalog(catalog, findings)
+    assert any("four native platforms" in message for message in findings)
+    findings = []
+    verifier.verify_release_catalog(catalog, findings, allow_partial_platforms=True)
+    assert findings == []
+    # A platform the inventory does not declare is still rejected.
+    bad = copy.deepcopy(catalog)
+    bad["platforms"] = bad["platforms"] + copy.deepcopy(bad["platforms"])
+    findings = []
+    verifier.verify_release_catalog(bad, findings, allow_partial_platforms=True)
+    assert any("must match its inventory exactly" in message for message in findings)
+
+
 class MemoryApi:
     def __init__(self):
         self.releases = {}

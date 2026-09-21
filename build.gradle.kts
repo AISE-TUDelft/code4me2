@@ -380,6 +380,8 @@ val configuredParticipantServerUrl = participantServerUrl.orNull?.trim()?.trimEn
 val configuredPluginVersion = providers.gradleProperty("pluginVersion").get()
 val localRuntimeResourceDir = providers.gradleProperty("code4me.localRuntimeDir").orNull?.trim()?.takeIf { it.isNotEmpty() }
 val participantReleaseDir = providers.gradleProperty("participantReleaseDir").orNull?.let { file(it) }
+val participantLocalRelease =
+    providers.gradleProperty("participantLocalRelease").orNull?.trim()?.equals("true", ignoreCase = true) == true
 val participantRuntimeResourceRoot =
     participantReleaseDir?.resolve("resources")?.absolutePath
         ?: layout.projectDirectory.dir("src/main/resources").asFile.toPath().toString()
@@ -424,8 +426,14 @@ tasks.named<ProcessResources>("processResources") {
             runCatching { URI(url) }.getOrElse {
                 throw GradleException("Participant backend is not a valid HTTPS origin: $url", it)
             }
+        // A local test release may target loopback over plain HTTP, matching the
+        // CLI's apply rule. Production participant builds stay HTTPS-only.
+        val loopbackHttp =
+            participantLocalRelease &&
+                origin.scheme == "http" &&
+                origin.host in setOf("localhost", "127.0.0.1")
         require(
-            origin.scheme == "https" &&
+            (origin.scheme == "https" || loopbackHttp) &&
                 !origin.host.isNullOrBlank() &&
                 origin.userInfo == null &&
                 origin.query == null &&
@@ -457,7 +465,7 @@ tasks.register("buildParticipantPlugin") {
 
 tasks.register("verifyParticipantRuntimeResources") {
     group = "verification"
-    description = "Verifies all four native runtime archives before a participant build."
+    description = "Verifies the participant native runtime archives before a participant build."
     // JsonSlurper and digest verification run only for release assembly. This
     // task intentionally opts out instead of making the repository-wide
     // configuration-cache setting turn an otherwise valid release into a
@@ -482,10 +490,23 @@ tasks.register("verifyParticipantRuntimeResources") {
             runtimeVersion != "0.0.0-dev") { "Runtime version must be a real release version" }
         @Suppress("UNCHECKED_CAST")
         val artifacts = manifest["artifacts"] as? List<Map<String, Any?>> ?: error("Runtime manifest has no artifacts")
-        val expected = setOf("macos-arm64", "macos-x64", "windows-x64", "linux-x64")
+        val supported = setOf("macos-arm64", "macos-x64", "windows-x64", "linux-x64")
         val actual = artifacts.map { "${it["platform"]}-${it["architecture"]}" }.toSet()
-        require(artifacts.size == expected.size && actual == expected) {
-            "Runtime manifest platforms must be exactly $expected; found $actual"
+        if (participantLocalRelease) {
+            // A local test release may declare a native subset. Every declared
+            // platform must still be a supported platform exactly once; staging
+            // checks the subset against the prepared catalog's own coverage.
+            require(
+                artifacts.isNotEmpty() &&
+                    actual.size == artifacts.size &&
+                    actual.all { it in supported },
+            ) {
+                "Runtime manifest platforms must be supported native platforms exactly once; found $actual"
+            }
+        } else {
+            require(artifacts.size == supported.size && actual == supported) {
+                "Runtime manifest platforms must be exactly $supported; found $actual"
+            }
         }
         artifacts.forEach { artifact ->
             require(artifact["runtime_id"] == "code4me-agent") { "Unexpected runtime ID in manifest" }

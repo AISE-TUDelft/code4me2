@@ -129,6 +129,29 @@ models accept old records, but old clients cannot be assumed to launch new
 execution leaves. Deploy server changes first and require the corresponding
 participant ZIP for those studies.
 
+## Local test releases (development only)
+
+A production participant release always covers the four native platforms above.
+For local end-to-end testing on the current macOS arm64 host, an operator may
+prepare a real single-platform release from the one native runtime archive and
+research-proxy bundle that exist locally. This mode is explicit and never
+implied:
+
+- `prepare`/`validate` accept `--platforms macos-aarch64` only when
+  `CODE4ME_LOCAL_RELEASE=1` is set; the catalog, runtime manifest and inventory
+  then declare exactly that subset.
+- `build` passes `-PparticipantLocalRelease=true` (which permits a loopback HTTP
+  `--server-url` such as `http://localhost:8008` and relaxes only the
+  four-platform runtime-manifest coverage check) and verifies the ZIP with
+  `--allow-partial-platforms`, which requires the artifact platforms to match
+  its own inventory instead of the production matrix.
+- Without the environment variable and the subset flag, every phase keeps the
+  strict four-platform contract, and the strict verifier still rejects any
+  partial or non-self-contained artifact.
+
+The resulting ZIP is a local test artifact. It carries the release, profile and
+study records for one platform and must not be distributed to participants.
+
 ## Verification and limits
 
 Unit/contract tests use small synthetic native-shaped archives to exercise
