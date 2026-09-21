@@ -29,7 +29,11 @@ FORBIDDEN_NAMES = (".env", "local-dev", ".venv")
 FORBIDDEN_TEXT = (
     re.compile(rb"(?:/|\\)(?:local-dev|code4me2-server)(?:/|\\)", re.IGNORECASE),
     re.compile(rb"(?:file:/{2,3}|[A-Za-z]:\\Users\\)[^\r\n\x00]+code4me", re.IGNORECASE),
-    re.compile(rb"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    # OpenAI-style keys: `sk-` plus a long opaque body (legacy keys are 48
+    # characters; project/service/admin keys are longer and prefixed). The
+    # previous 20-character floor matched bundled library CSS identifiers such
+    # as `.sk-toggleable__label-arrow` in the packaged scikit-learn assets.
+    re.compile(rb"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{32,}\b"),
     re.compile(rb"\bgh[oprsu]_[A-Za-z0-9]{20,}\b"),
     re.compile(
         rb"\b(?:OPENAI|OPENROUTER|GROQ)_API_KEY\s*=\s*[\"']?(?:sk-|gsk_)[A-Za-z0-9_-]{16,}"

@@ -219,6 +219,35 @@ def test_forbidden_path_scan_still_fails(tmp_path: Path) -> None:
     assert "forbidden path" in result.stdout + result.stderr
 
 
+def test_openai_style_secret_still_fails(tmp_path: Path) -> None:
+    manifest, payloads = valid_manifest()
+    archive = write_plugin_zip(
+        tmp_path / "secret.zip",
+        manifest,
+        payloads,
+        extra_members={"client/notes.txt": b"key sk-" + b"A" * 48 + b"\n"},
+    )
+    result = run_verifier(archive)
+    assert result.returncode != 0
+    assert "sk-" in result.stdout + result.stderr
+
+
+def test_bundled_library_css_identifiers_are_not_secrets(tmp_path: Path) -> None:
+    manifest, payloads = valid_manifest()
+    archive = write_plugin_zip(
+        tmp_path / "css.zip",
+        manifest,
+        payloads,
+        extra_members={
+            "client/_internal/sklearn/utils/_repr_html/estimator.css": (
+                b".sk-global label.sk-toggleable__label-arrow:before { content: 'x'; }\n"
+            )
+        },
+    )
+    result = run_verifier(archive)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_non_zip_archive_fails(tmp_path: Path) -> None:
     archive = tmp_path / "not-a-zip.zip"
     archive.write_bytes(b"this is not a zip archive")
