@@ -1,0 +1,46 @@
+{
+  "schema_version": "1",
+  "plugin_version": "REPLACE_WITH_PLUGIN_VERSION",
+  "plugin_commit": "REPLACE_WITH_FULL_PLUGIN_COMMIT",
+  "server_commit": "REPLACE_WITH_FULL_SERVER_COMMIT",
+  "runtime": {
+    "manifest": "code4me-managed-runtime-release.json",
+    "sha256": "REPLACE_WITH_MANIFEST_FILE_SHA256"
+  },
+  "agents": [
+    {
+      "framework": "code4me2-agent",
+      "version": "REPLACE_WITH_NATIVE_RUNTIME_VERSION",
+      "adapter": {
+        "adapter_id": "REPLACE_WITH_MANAGED_ADAPTER_ID",
+        "version": "REPLACE_WITH_ADAPTER_VERSION",
+        "digest": "REPLACE_WITH_ADAPTER_SHA256"
+      }
+    },
+    {
+      "framework": "goose",
+      "version": "REPLACE_WITH_QUALIFIED_GOOSE_VERSION",
+      "adapter": {
+        "adapter_id": "REPLACE_WITH_GOOSE_ADAPTER_ID",
+        "version": "REPLACE_WITH_ADAPTER_VERSION",
+        "digest": "REPLACE_WITH_ADAPTER_SHA256"
+      },
+      "agent_command": "REPLACE_WITH_QUALIFIED_GOOSE_ACP_COMMAND",
+      "agent_command_args": [],
+      "byoa_config": []
+    },
+    {
+      "framework": "codex",
+      "version": "REPLACE_WITH_QUALIFIED_CODEX_VERSION",
+      "adapter": {
+        "adapter_id": "REPLACE_WITH_CODEX_ADAPTER_ID",
+        "version": "REPLACE_WITH_ADAPTER_VERSION",
+        "digest": "REPLACE_WITH_ADAPTER_SHA256"
+      },
+      "agent_command": "REPLACE_WITH_QUALIFIED_CODEX_ACP_COMMAND",
+      "agent_command_args": [],
+      "byoa_config": []
+    }
+  ],
+  "profiles": []
+}

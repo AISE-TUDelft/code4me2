@@ -3,6 +3,9 @@ name: Build participant plugin
 on:
   workflow_dispatch:
     inputs:
+      recipeJson:
+        description: Contents of the versioned participant recipe JSON (pins the source commits)
+        required: true
       serverUrl:
         description: Hosted backend origin (https://...)
         required: true
@@ -180,13 +183,44 @@ jobs:
             --pattern 'code4me-agent-*.zip' \
             --pattern 'code4me-managed-runtime-release.json' \
             --dir "$RUNNER_TEMP/runtimes"
-      - name: Stage native runtime bundles
+      - name: Check out release preparation contracts
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.runtimeRepository }}
+          ref: ${{ inputs.serverCommit }}
+          path: release-server
+          token: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install release preparation dependencies
+        run: python3 -m pip install -r release-server/packaging/requirements-runtime.lock
+      - name: Prepare the three agent releases from one recipe
+        env:
+          RELEASE_RECIPE_JSON: ${{ inputs.recipeJson }}
         run: |
-          python3 scripts/stage-runtime-bundles.py "$RUNNER_TEMP/runtimes" \
-            --version "${{ inputs.version }}" \
-            --server-commit "${{ inputs.serverCommit }}" \
-            --plugin-commit "${{ inputs.pluginCommit }}" \
-            --release-manifest "$RUNNER_TEMP/runtimes/code4me-managed-runtime-release.json"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          (Path(os.environ["RUNNER_TEMP"]) / "recipe.json").write_text(os.environ["RELEASE_RECIPE_JSON"])
+          PY
+          python3 scripts/participant-release.py --server-source release-server/src prepare \
+            "$RUNNER_TEMP/recipe.json" --inputs "$RUNNER_TEMP/runtimes" \
+            --output "$RUNNER_TEMP/participant-release"
+      - name: Verify recipe pins match the requested build
+        env:
+          EXPECTED_PLUGIN: ${{ inputs.pluginCommit }}
+          EXPECTED_SERVER: ${{ inputs.serverCommit }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          inventory = json.loads((Path(os.environ["RUNNER_TEMP"]) / "participant-release/registration.json").read_text())["inventory"]
+          assert inventory["plugin_commit"] == os.environ["EXPECTED_PLUGIN"]
+          assert inventory["server_commit"] == os.environ["EXPECTED_SERVER"]
+          assert inventory["plugin_version"] == os.environ["EXPECTED_VERSION"]
+          PY
       - name: Run plugin tests
         run: ./gradlew --no-daemon test
       - name: Download research proxy bundles
@@ -221,16 +255,21 @@ jobs:
             cp -R "$source_dir/." "telemetry-acp-proxy/dist/$platform/"
           done
       - name: Build participant ZIP
+        env:
+          PARTICIPANT_SERVER_URL: ${{ inputs.serverUrl }}
         run: |
-          ./gradlew --no-daemon --no-configuration-cache buildParticipantPlugin \
-            "-PpluginVersion=${{ inputs.version }}" \
-            "-Pcode4me.serverUrl=${{ inputs.serverUrl }}" \
-            "-PresearchProxyPlatforms=${{ needs.prepare-proxy-matrix.outputs.platforms }}" \
-            "-PrequireResearchProxyBundles=true"
-      - name: Verify participant artifact
-        run: |
-          python3 scripts/verify-participant-artifact.py \
-            $(ls -t build/distributions/*.zip | head -n 1)
+          python3 scripts/participant-release.py --server-source release-server/src build \
+            "$RUNNER_TEMP/participant-release" --server-url "$PARTICIPANT_SERVER_URL"
+      - name: Upload release registration plan and build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: participant-release-evidence
+          path: |
+            ${{ runner.temp }}/participant-release/registration.json
+            ${{ runner.temp }}/participant-release/recipe.json
+            ${{ runner.temp }}/participant-release/prepared-inputs.json
+            ${{ runner.temp }}/participant-release/build-report.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: code4me-participant-${{ inputs.version }}

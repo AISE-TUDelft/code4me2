@@ -27,3 +27,5 @@ src/main/resources/code4me-runtime/*.zip
 dist/
 telemetry-acp-proxy/agents/
 *.md
+!docs/PARTICIPANT_RELEASE.md
+!docs/PARTICIPANT_RELEASE_VERIFICATION.md

@@ -1731,8 +1731,9 @@ class ResearchSessionManager(
 
     /**
      * PACKAGED agent contract: the runtime's release-selected bundled agent must
-     * be present and its digest must equal the bootstrap manifest's pinned
-     * artifact digest. A release with no matching bundled agent, a missing agent,
+     * be present and its digest must equal the explicit executable pin. New
+     * execution contracts additionally bind release, archive, inventory and adapter.
+     * A release with no matching bundled agent, a missing agent,
      * or a digest mismatch is terminal; PATH is never consulted.
      */
     private fun packagedAgentPlan(
@@ -1740,10 +1741,28 @@ class ResearchSessionManager(
         validManifest: BootstrapManifest,
     ): AgentPlan {
         val release = validManifest.agentRelease
-        // The manifest pin: the exact artifact digest the server assigned to this
-        // participant's os/arch. `sha256:` is display convention.
-        val pinnedAgentDigest = release.normalizedArtifactDigest
+        // New leaves separate archive identity from the actual executable hash.
+        // Legacy non-archive leaves retain their existing executable pin.
+        val pinnedAgentDigest = normalizeSha256Hex(release.executableSha256) ?: release.normalizedArtifactDigest
         val resolvedAgentDigest = normalizeSha256Hex(runtime.agentDigest)
+        if (release.executionManifestDigest != null || release.executableSha256 != null || release.archiveSha256 != null) {
+            val executionDigest = normalizeSha256Hex(release.executionManifestDigest)
+            val archiveDigest = normalizeSha256Hex(release.archiveSha256)
+            if (normalizeSha256Hex(release.executableSha256) == null ||
+                executionDigest == null || archiveDigest == null ||
+                archiveDigest != release.normalizedArtifactDigest ||
+                runtime.agentReleaseId != release.releaseId ||
+                normalizeSha256Hex(runtime.agentArchiveDigest) != archiveDigest ||
+                normalizeSha256Hex(runtime.agentExecutionManifestDigest) != executionDigest ||
+                normalizeSha256Hex(release.adapterDigest) == null ||
+                normalizeSha256Hex(runtime.agentAdapterDigest) != normalizeSha256Hex(release.adapterDigest)
+            ) {
+                return AgentPlan.Failed(
+                    StudyBlockReason.RUNTIME_UNAVAILABLE,
+                    "the packaged agent does not match the assigned release, archive, execution manifest and adapter",
+                )
+            }
+        }
         if (runtime.agentArgv.isNullOrEmpty()) {
             if (!runtime.development) {
                 return AgentPlan.Failed(

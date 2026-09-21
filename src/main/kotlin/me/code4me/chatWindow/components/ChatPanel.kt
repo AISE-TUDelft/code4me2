@@ -50,8 +50,12 @@ import javax.swing.Timer
  * components, and provides the primary interface for AI-powered conversations. Includes
  * authentication overlay, message editing, regeneration capabilities, and persistent
  * session management.
+ *
+ * @param boundProject The project this panel belongs to. The factory always supplies the
+ *   tool window's project; the open-project fallback below applies only when no project was
+ *   supplied (platform contexts that genuinely lack one), never as a preference over it.
  */
-class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
+class ChatPanel(boundProject: Project? = null) : JBPanel<ChatPanel>(BorderLayout()) {
     companion object {
         private const val USER_NAME = "You"
         private const val AI_NAME = "Code4Me V2"
@@ -63,7 +67,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private val selectedFiles = mutableSetOf<VirtualFile>()
     private var welcomeShown = true
     private var useWeb = false
-    private var project: Project? = null
+    private var project: Project? = boundProject ?: ProjectManager.getInstance().openProjects.firstOrNull()
     private var stateService: ChatWindowStateService? = null
 
     private lateinit var inputPanel: InputPanel
@@ -299,6 +303,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     /**
+     * Returns the project this panel is bound to (the factory-supplied project when present).
+     */
+    fun getBoundProject(): Project? = project
+
+    /**
      * Initializes and arranges all major UI components with proper layout management.
      *
      * Sets up the project context, creates all panels (input, display, history, top bar),
@@ -306,7 +315,10 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
      */
     private fun setupPanelLayout() {
         border = JBUI.Borders.empty()
-        project = ProjectManager.getInstance().openProjects.firstOrNull()
+        // The project is resolved at construction (factory-supplied first, open-project
+        // fallback only when none was supplied). Bail out solely when the platform
+        // genuinely has no project; the factory path always carries a non-null project,
+        // so its panels are always initialized.
         if (project == null) return
 
         // Initialize the state service

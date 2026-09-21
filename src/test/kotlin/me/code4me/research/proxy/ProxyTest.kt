@@ -899,7 +899,7 @@ class ProxyRuntimeResolverTest {
     }
 
     @Test
-    fun `a legacy single agent still resolves when a release identity is supplied`() {
+    fun `a legacy single agent cannot satisfy an assigned release identity`() {
         val root = Files.createTempDirectory("proxy-runtime-legacy-with-identity")
         val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
         val agent = Fixture("agents/macos-aarch64/code4me-agent", "agent-binary", executable = true)
@@ -909,8 +909,8 @@ class ProxyRuntimeResolverTest {
             resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-1", artifactDigest = sha256Hex(agent.content))) as
                 ProxyRuntimeResolution.Resolved
 
-        assertEquals(root.toRealPath().resolve(agent.path), Path.of(resolved.runtime.agentArgv!!.first()).toRealPath())
-        assertEquals(sha256Hex(agent.content), resolved.runtime.agentDigest)
+        assertNull(resolved.runtime.agentArgv, "legacy entries cannot prove the assigned release ID")
+        assertNull(resolved.runtime.agentDigest)
     }
 
     @Test

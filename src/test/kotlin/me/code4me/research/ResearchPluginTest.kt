@@ -8,6 +8,7 @@ import me.code4me.research.telemetry.CanonicalEventBuilder
 import me.code4me.research.telemetry.EventSource
 import me.code4me.research.telemetry.LocalClock
 import me.code4me.research.telemetry.SequenceAllocator
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -58,6 +59,196 @@ class ResearchPluginRegistrationTest {
                 "<projectService[^>]*serviceImplementation=\"me\\.code4me\\.research\\.session\\.ResearchSessionService\"",
             ).containsMatchIn(xml),
             "ResearchSessionService must be registered as a projectService",
+        )
+    }
+
+    @Test
+    fun `research runtime settings is registered as a project service`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<projectService[^>]*serviceImplementation=\"me\\.code4me\\.research\\.session\\.ResearchRuntimeSettings\"",
+            ).containsMatchIn(xml),
+            "ResearchRuntimeSettings must be registered as a projectService",
+        )
+    }
+
+    @Test
+    fun `research enrollment settings is registered as a project service`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<projectService[^>]*serviceImplementation=\"me\\.code4me\\.research\\.actions\\.ResearchEnrollmentSettings\"",
+            ).containsMatchIn(xml),
+            "ResearchEnrollmentSettings must be registered as a projectService",
+        )
+    }
+
+    @Test
+    fun `research activation startup activity is registered`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<postStartupActivity[^>]*implementation=\"me\\.code4me\\.research\\.lifecycle\\.ResearchActivationStartupActivity\"",
+            ).containsMatchIn(xml),
+            "ResearchActivationStartupActivity must be registered as a postStartupActivity",
+        )
+    }
+
+    @Test
+    fun `research status bar widget factory is registered`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<statusBarWidgetFactory[^>]*implementation=\"me\\.code4me\\.research\\.status\\.ResearchStatusBarWidgetFactory\"",
+            ).containsMatchIn(xml),
+            "ResearchStatusBarWidgetFactory must be registered as a statusBarWidgetFactory",
+        )
+    }
+
+    @Test
+    fun `research editor notification provider is registered`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<editorNotificationProvider[^>]*implementation=\"me\\.code4me\\.research\\.status\\.ResearchEditorNotificationProvider\"",
+            ).containsMatchIn(xml),
+            "ResearchEditorNotificationProvider must be registered as an editorNotificationProvider",
+        )
+    }
+}
+
+// --------------------------------------------------------------------------
+// RegisteredSurfaceInventoryTest.kt (ISSUE-007)
+// --------------------------------------------------------------------------
+
+/**
+ * Pins the full registered-surface inventory (ISSUE-007): every plugin.xml
+ * implementation registration counted by the tag-agnostic enumeration
+ * (grep -cE 'implementation=|implementationClass=|serviceImplementation=|
+ * factoryClass=|<action |instance=' == 17) resolves to an intended,
+ * necessary surface. The research rows are pinned behaviorally by their
+ * package suites; the chat, lifecycle, settings, action and completion rows
+ * are pinned here by registration so a removed or renamed surface fails.
+ */
+class RegisteredSurfaceInventoryTest {
+    private fun pluginXml(): String {
+        val candidates =
+            listOf(
+                Path.of("src/main/resources/META-INF/plugin.xml"),
+                Path.of("build/resources/main/META-INF/plugin.xml"),
+            )
+        val path =
+            candidates.firstOrNull { Files.exists(it) }
+                ?: error("Could not locate plugin.xml from ${Path.of("").toAbsolutePath()}")
+        return Files.readString(path)
+    }
+
+    private fun countRegistrations(xml: String): Int =
+        Regex("implementation=|implementationClass=|serviceImplementation=|factoryClass=|<action |instance=").findAll(xml).count()
+
+    @Test
+    fun `implementation registration count matches the tag-agnostic enumeration`() {
+        assertEquals(17, countRegistrations(pluginXml()))
+    }
+
+    @Test
+    fun `chat tool window factory is registered`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<toolWindow[^>]*factoryClass=\"me\\.code4me\\.chatWindow\\.ChatWindowFactory\"",
+            ).containsMatchIn(xml),
+            "ChatWindowFactory must be registered as a toolWindow factoryClass",
+        )
+    }
+
+    @Test
+    fun `chat window state service is registered as a project service`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<projectService[^>]*serviceImplementation=\"me\\.code4me\\.chatWindow\\.components\\.persistence\\.ChatWindowStateService\"",
+            ).containsMatchIn(xml),
+            "ChatWindowStateService must be registered as a projectService",
+        )
+    }
+
+    @Test
+    fun `plugin startup activity is registered`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<postStartupActivity[^>]*implementation=\"me\\.code4me\\.lifecycle\\.PluginStartupActivity\"",
+            ).containsMatchIn(xml),
+            "PluginStartupActivity must be registered as a postStartupActivity",
+        )
+    }
+
+    @Test
+    fun `inline completion provider is registered`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<inline\\.completion\\.provider[^>]*implementation=\"me\\.code4me\\.completion\\.PluginInlineCompletionProvider\"",
+            ).containsMatchIn(xml),
+            "PluginInlineCompletionProvider must be registered as an inline.completion.provider",
+        )
+    }
+
+    @Test
+    fun `completion contributor is registered`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<completion\\.contributor[^>]*implementationClass=\"me\\.code4me\\.completion\\.PluginCompletionContributor\"",
+            ).containsMatchIn(xml),
+            "PluginCompletionContributor must be registered as a completion.contributor",
+        )
+    }
+
+    @Test
+    fun `trigger inline completion action is registered`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<action[^>]*id=\"me\\.code4me\\.actions\\.TriggerInlineCompletionAction\"",
+            ).containsMatchIn(xml),
+            "TriggerInlineCompletionAction must be registered as an action",
+        )
+    }
+
+    @Test
+    fun `prepare acp agent session action is registered`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<action[^>]*id=\"me\\.code4me\\.actions\\.PrepareAcpAgentSessionAction\"",
+            ).containsMatchIn(xml),
+            "PrepareAcpAgentSessionAction must be registered as an action",
+        )
+    }
+
+    @Test
+    fun `settings configurables are registered`() {
+        val xml = pluginXml()
+        assertTrue(
+            Regex(
+                "<applicationConfigurable[^>]*instance=\"me\\.code4me\\.settings\\.Code4MeConfigurable\"",
+            ).containsMatchIn(xml),
+            "Code4MeConfigurable must be registered as an applicationConfigurable",
+        )
+        assertTrue(
+            Regex(
+                "<applicationConfigurable[^>]*instance=\"me\\.code4me\\.settings\\.ConfigurationConfigurable\"",
+            ).containsMatchIn(xml),
+            "ConfigurationConfigurable must be registered as an applicationConfigurable",
+        )
+        assertTrue(
+            Regex(
+                "<applicationConfigurable[^>]*instance=\"me\\.code4me\\.settings\\.UserConfigurable\"",
+            ).containsMatchIn(xml),
+            "UserConfigurable must be registered as an applicationConfigurable",
         )
     }
 }

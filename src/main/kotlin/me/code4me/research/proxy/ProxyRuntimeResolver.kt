@@ -7,6 +7,7 @@ import com.intellij.openapi.extensions.PluginId
 import me.code4me.research.bootstrap.normalizeSha256Hex
 import me.code4me.research.telemetry.parseCanonicalJsonObject
 import me.code4me.research.telemetry.sha256Hex
+import me.code4me.research.telemetry.canonicalJson
 import me.code4me.research.proxy.ProxyRuntimeErrorCode.ARTIFACT_MISSING
 import me.code4me.research.proxy.ProxyRuntimeErrorCode.DIGEST_MISMATCH
 import me.code4me.research.proxy.ProxyRuntimeErrorCode.EXTRACTION_FAILED
@@ -131,6 +132,10 @@ data class ResolvedProxyRuntime(
     val agentDigest: String? = null,
     val selfContained: Boolean = true,
     val development: Boolean = false,
+    val agentReleaseId: String? = null,
+    val agentArchiveDigest: String? = null,
+    val agentExecutionManifestDigest: String? = null,
+    val agentAdapterDigest: String? = null,
 )
 
 /** Explicit, opt-in development-runtime configuration (never a production fallback). */
@@ -407,7 +412,7 @@ class PackagedProxyRuntimeResolver(
             } else {
                 null
             }
-        val effective = if (bundledAgent != null || providerAgent != null) bundle.copy(agent = bundledAgent ?: providerAgent) else bundle
+        val effective = bundle.copy(agent = bundledAgent ?: providerAgent)
 
         verifyBundle(root, effective)?.let { return ProxyRuntimeResolution.Failed(it) }
 
@@ -476,6 +481,10 @@ class PackagedProxyRuntimeResolver(
                 agentDigest = agentDigest,
                 selfContained = effective.selfContained,
                 development = development,
+                agentReleaseId = agentSpec?.releaseId,
+                agentArchiveDigest = agentSpec?.artifactDigest,
+                agentExecutionManifestDigest = agentSpec?.executionManifestDigest,
+                agentAdapterDigest = agentSpec?.adapterDigest,
             ),
         )
     }
@@ -511,7 +520,31 @@ class PackagedProxyRuntimeResolver(
         if (entrypoint.isEmpty()) throw ManifestParseException("$field.entrypoint must not be empty")
         val digest = map["digest"] as? String ?: throw ManifestParseException("$field.digest is required")
         val files = parseFiles(map["files"], "$field.files")
-        return AgentSpec(entrypoint = entrypoint, digest = digest, files = files)
+        val execution = (map["execution"] as? Map<*, *>)?.let { stringKeyedMap(it) }
+        val executionDigest = (map["execution_manifest_digest"] as? String)?.let { normalizeSha256Hex(it) }
+        if (execution != null || map.containsKey("execution_manifest_digest")) {
+            if (execution == null || executionDigest == null ||
+                executionDigest != sha256Hex(canonicalJson(execution)) || execution["schema_version"] != "1"
+            ) {
+                throw ManifestParseException("$field execution manifest digest/version mismatch")
+            }
+            val declaredEntrypoint = stringList(execution["entrypoint"], "$field.execution.entrypoint")
+            val declaredFiles = parseFiles(execution["files"], "$field.execution.files")
+            val sourceEntry = declaredEntrypoint.firstOrNull()
+                ?: throw ManifestParseException("$field execution entrypoint is empty")
+            if (!entrypoint.first().endsWith("/$sourceEntry") || entrypoint.drop(1) != declaredEntrypoint.drop(1)) {
+                throw ManifestParseException("$field execution argv differs from its inventory")
+            }
+            val prefix = entrypoint.first().removeSuffix(sourceEntry)
+            if (declaredFiles.map { it.copy(path = prefix + it.path) } != files) {
+                throw ManifestParseException("$field staged files differ from its execution inventory")
+            }
+        }
+        return AgentSpec(
+            entrypoint = entrypoint, digest = digest, files = files,
+            executionManifestDigest = executionDigest,
+            adapterDigest = (map["adapter_digest"] as? String)?.let { normalizeSha256Hex(it) },
+        )
     }
 
     /**
@@ -541,8 +574,8 @@ class PackagedProxyRuntimeResolver(
      * - No identity: today's behavior — the legacy single `agent`, or the single
      *   unambiguous `agents` entry.
      * - With an identity: exactly one `agents` entry must declare every supplied
-     *   field and compare equal; the legacy single `agent` is the fallback when
-     *   nothing matches (the caller's pinned-digest check stays fail-closed).
+     *   field and compare equal. A legacy single `agent` cannot establish the
+     *   assigned release identity and is never a fallback.
      *   Multiple matches are malformed and fail closed.
      */
     private fun selectAgent(
@@ -550,8 +583,8 @@ class PackagedProxyRuntimeResolver(
         release: AgentReleaseIdentity?,
     ): AgentSpec? {
         val declared = bundle.agents
-        if (declared.isEmpty()) return bundle.agent
         val identity = release?.takeIf { it.isSpecified } ?: return bundle.agent ?: declared.singleOrNull()
+        if (declared.isEmpty()) return null
         val matches = declared.filter { it.matches(identity) }
         if (matches.size > 1) {
             throw ManifestParseException(
@@ -560,7 +593,7 @@ class PackagedProxyRuntimeResolver(
                     "one release identity must select exactly one agent",
             )
         }
-        return matches.singleOrNull() ?: bundle.agent
+        return matches.singleOrNull()
     }
 
     private fun parseFiles(
@@ -871,6 +904,8 @@ class PackagedProxyRuntimeResolver(
         val files: List<FileSpec>,
         val releaseId: String? = null,
         val artifactDigest: String? = null,
+        val executionManifestDigest: String? = null,
+        val adapterDigest: String? = null,
     ) {
         /**
          * Fail-closed release match: every field the identity supplies must be

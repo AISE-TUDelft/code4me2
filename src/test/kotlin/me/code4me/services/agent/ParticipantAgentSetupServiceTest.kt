@@ -1,13 +1,21 @@
 package me.code4me.services.agent
 
+import com.intellij.ide.plugins.IdeaPluginDescriptor
+import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import me.code4me.research.session.ResearchSessionService
+import me.code4me.services.app.AppService
 import me.code4me.services.app.PreparedAcpRuntimeHandoff
 import me.code4me.services.app.ProjectAcpPreparation
+import me.code4me.services.app.getAppService
+import me.code4me.services.project.ProjectTokenService
+import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.AuthSettings
 import me.code4me.services.state.getAuthState
 import org.junit.jupiter.api.AfterEach
@@ -116,6 +124,85 @@ class ParticipantAgentSetupServiceTest {
         val status = service.prepare(project)
 
         assertNotEquals(ParticipantSetupStep.STUDY_ACTIVE, status.step)
+    }
+
+    /**
+     * ISSUE-005 F2 repair: prove the legacy-fallback trio actually executes. With a
+     * non-study project, an Unavailable install result, and the sandbox property
+     * unset (so [localDevelopmentRuntime] yields nothing), [prepare] must flag
+     * [useLegacyAcpPreparation], and [prepareWithLegacyFallback] must then really
+     * invoke the injected [ProjectAcpPreparation] and resolve READY via the
+     * development handoff — not merely reference the call sites. The installer is
+     * constructor-mocked (narrowest seam: the real flag-setting branch still runs);
+     * the handoff itself is a fake returning a well-formed result, which proves
+     * invocation, not handoff internals.
+     */
+    @Test
+    fun `an unavailable runtime outside the sandbox runs the legacy fallback and resolves ready`() {
+        val sandboxBefore = System.getProperty("idea.plugin.in.sandbox.mode")
+        System.clearProperty("idea.plugin.in.sandbox.mode")
+        try {
+            val project = mock<Project>()
+            whenever(project.getServiceIfCreated(ResearchSessionService::class.java)).thenReturn(null)
+
+            val auth = mockk<AuthSettings>()
+            every { auth.isAuthenticated() } returns true
+            mockkStatic("me.code4me.services.state.AuthStateKt")
+            every { getAuthState() } returns auth
+
+            mockkStatic(PluginManagerCore::class)
+            every { PluginManagerCore.getPlugin(any<PluginId>()) } returns mockk<IdeaPluginDescriptor>()
+            every { PluginManagerCore.isDisabled(any<PluginId>()) } returns false
+
+            val tokens = mock<ProjectTokenService>()
+            whenever(tokens.isActivated()).thenReturn(true)
+            whenever(tokens.hasProjectToken()).thenReturn(true)
+            mockkStatic("me.code4me.services.project.ProjectTokenServiceKt")
+            every { getProjectTokenService(any()) } returns tokens
+
+            val app = mock<AppService>()
+            whenever(app.checkManagedCapabilities()).thenReturn(Result.success(Unit))
+            mockkStatic("me.code4me.services.app.AppServiceKt")
+            every { getAppService() } returns app
+
+            mockkConstructor(ManagedRuntimeInstaller::class)
+            every { anyConstructed<ManagedRuntimeInstaller>().ensureInstalled(any()) } returns
+                RuntimeInstallResult.Unavailable("No managed runtime for this platform in tests.")
+
+            // NB: constructed AFTER mockkConstructor, so its installer is the mocked one
+            // (the shared field instance was built before this test's mocks existed).
+            val localService = ParticipantAgentSetupService()
+            try {
+                var fallbackRuns = 0
+                val preparation =
+                    ProjectAcpPreparation {
+                        fallbackRuns++
+                        PreparedAcpRuntimeHandoff(
+                            workspace = "/tmp/project",
+                            handoffPath = Path.of("/tmp/project/.idea/code4me/acp-runtime.env"),
+                            expiresInSeconds = 300,
+                        )
+                    }
+
+                val flagged = localService.prepare(project)
+
+                assertTrue(
+                    flagged.useLegacyAcpPreparation,
+                    "Unavailable with no sandbox runtime must flag the legacy handoff",
+                )
+
+                val status = localService.prepareWithLegacyFallback(project, preparation)
+
+                assertEquals(1, fallbackRuns, "the injected legacy ACP handoff must actually execute")
+                assertEquals(ParticipantSetupStep.READY, status.step)
+                assertTrue(status.message.contains("development ACP handoff"), status.message)
+                assertFalse(status.canRepair)
+            } finally {
+                localService.dispose()
+            }
+        } finally {
+            if (sandboxBefore != null) System.setProperty("idea.plugin.in.sandbox.mode", sandboxBefore)
+        }
     }
 
     private fun studyProject(): Project {

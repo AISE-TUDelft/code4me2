@@ -34,7 +34,7 @@ class ChatWindowFactory : ToolWindowFactory {
         project: Project,
         toolWindow: ToolWindow,
     ) {
-        val content = ContentFactory.getInstance().createContent(ChatPanel(), null, false)
+        val content = ContentFactory.getInstance().createContent(ChatPanel(project), null, false)
         toolWindow.contentManager.addContent(content)
     }
 

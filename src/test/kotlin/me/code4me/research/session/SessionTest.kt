@@ -983,7 +983,8 @@ class ResearchSessionRuntimeWiringTest {
         val registry = root.resolve("acp-packaged-host.json")
         val capabilityFile = root.resolve("capability-packaged-host.txt")
         val runtimeRoot = root.resolve("runtime-packaged-host")
-        val (_, agent) = writePackagedRuntime(runtimeRoot, "macos", "aarch64")
+        val (_, agents) = writeTwoReleaseRuntime(runtimeRoot, "macos", "aarch64")
+        val agent = agents.getValue("release-a")
         val agentDigest = ContentHasher.STREAMING.sha256(agent)
         val resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64")
         val registration = AcpHostRegistration(registry)
@@ -993,7 +994,7 @@ class ResearchSessionRuntimeWiringTest {
                 registration = registration,
                 capabilityFile = capabilityFile,
                 // The server pinned the host-platform artifact digest.
-                manifest = manifestWithArtifactDigest(agentDigest),
+                manifest = manifestWithPackagedRelease("release-a", agentDigest),
             )
 
         val result = manager.activate("enrollment-1")
@@ -1446,6 +1447,52 @@ class ResearchSessionRuntimeWiringTest {
                 """"agents":[$entries]}]}"""
         Files.writeString(runtimeRoot.resolve("proxy-manifest.json"), json)
         return proxy to agents
+    }
+
+    @Test
+    fun executionIdentitySeparatesArchiveFromEntrypoint() {
+        val archive = "de".repeat(32)
+        val executable = VALID_ARTIFACT_DIGEST
+        val execution = "ef".repeat(32)
+        val adapter = "cd".repeat(32)
+        val manifest = manifestJson(overrides = mapOf(
+            "agent_release" to mapOf(
+                "agent_id" to "code4me2-agent", "release_id" to "prepared-release",
+                "artifact_digest" to "sha256:$archive", "archive_sha256" to archive,
+                "executable_sha256" to executable, "execution_manifest_digest" to execution,
+                "adapter_digest" to adapter,
+            ),
+        ))
+        val runtime = runtimeWithAgent(executable).copy(
+            agentReleaseId = "prepared-release", agentArchiveDigest = archive,
+            agentExecutionManifestDigest = execution, agentAdapterDigest = adapter,
+        )
+        val variants = listOf(
+            runtime,
+            runtime.copy(agentReleaseId = "other-release"),
+            runtime.copy(agentArchiveDigest = executable),
+            runtime.copy(agentExecutionManifestDigest = archive),
+            runtime.copy(agentAdapterDigest = archive),
+            runtime.copy(agentDigest = archive),
+        )
+        variants.forEachIndexed { index, candidate ->
+            val registry = root.resolve("execution-identity-$index.json")
+            val registration = AcpHostRegistration(registry)
+            val manager = manager(
+                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(candidate) },
+                registration = registration, manifest = manifest,
+                capabilityFile = root.resolve("execution-capability-$index.txt"),
+            )
+            val result = manager.activate("enrollment-1")
+            if (index == 0) {
+                assertTrue(result is ResearchActivationResult.Activated)
+                assertEquals(executable, registeredAgentDigest(registry))
+            } else {
+                assertTrue(result is ResearchActivationResult.Blocked)
+                assertFalse(registration.hasEntry())
+            }
+            manager.stop()
+        }
     }
 
     private fun runtimeWithoutAgent(): ResolvedProxyRuntime {

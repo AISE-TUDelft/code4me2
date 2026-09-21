@@ -379,12 +379,18 @@ val participantServerUrl = providers.gradleProperty("code4me.serverUrl")
 val configuredParticipantServerUrl = participantServerUrl.orNull?.trim()?.trimEnd('/')
 val configuredPluginVersion = providers.gradleProperty("pluginVersion").get()
 val localRuntimeResourceDir = providers.gradleProperty("code4me.localRuntimeDir").orNull?.trim()?.takeIf { it.isNotEmpty() }
-val participantRuntimeResourceRoot = layout.projectDirectory.dir("src/main/resources").asFile.toPath().toString()
+val participantReleaseDir = providers.gradleProperty("participantReleaseDir").orNull?.let { file(it) }
+val participantRuntimeResourceRoot =
+    participantReleaseDir?.resolve("resources")?.absolutePath
+        ?: layout.projectDirectory.dir("src/main/resources").asFile.toPath().toString()
 val participantBuildRequested = gradle.startParameter.taskNames.any { it.endsWith("buildParticipantPlugin") }
 require(!(participantBuildRequested && localRuntimeResourceDir != null)) {
     "Local runtime overlays cannot be used for participant release builds."
 }
 if (participantBuildRequested) {
+    require(participantReleaseDir?.resolve("catalog.json")?.isFile == true) {
+        "Participant builds require -PparticipantReleaseDir=<prepared recipe>; run scripts/participant-release.py prepare."
+    }
     require(project.version.toString().matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?"))) {
         "Participant plugin version must be meaningful SemVer (for example 1.2.0)."
     }
@@ -392,7 +398,7 @@ if (participantBuildRequested) {
 tasks.named<ProcessResources>("processResources") {
     inputs.property("code4me.serverUrl", configuredParticipantServerUrl ?: "")
     inputs.property("code4me.localRuntimeDir", localRuntimeResourceDir ?: "")
-    localRuntimeResourceDir?.let { generatedResourcePath ->
+    (participantReleaseDir?.resolve("resources")?.absolutePath ?: localRuntimeResourceDir)?.let { generatedResourcePath ->
         val generatedResourceRoot = file(generatedResourcePath)
         inputs.dir(generatedResourceRoot)
         doLast {
@@ -442,6 +448,11 @@ tasks.register("buildParticipantPlugin") {
     group = "distribution"
     description = "Builds a study ZIP with an explicit HTTPS backend (-Pcode4me.serverUrl=...)."
     dependsOn("verifyParticipantRuntimeResources", "buildPlugin")
+    val zipFile = tasks.named<org.gradle.api.tasks.bundling.Zip>("buildPlugin").flatMap { it.archiveFile }
+    val artifactPath = layout.buildDirectory.file("participant-artifact-path.txt")
+    doLast {
+        artifactPath.get().asFile.writeText(zipFile.get().asFile.absolutePath + "\n")
+    }
 }
 
 tasks.register("verifyParticipantRuntimeResources") {
@@ -466,9 +477,9 @@ tasks.register("verifyParticipantRuntimeResources") {
         require(manifest["managed_protocol_version"].toString() == "1") {
             "Managed protocol version must be 1"
         }
-        require(manifest["runtime_version"].toString() == configuredPluginVersion) {
-            "Runtime and participant plugin versions must match"
-        }
+        val runtimeVersion = manifest["runtime_version"].toString()
+        require(runtimeVersion.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?")) &&
+            runtimeVersion != "0.0.0-dev") { "Runtime version must be a real release version" }
         @Suppress("UNCHECKED_CAST")
         val artifacts = manifest["artifacts"] as? List<Map<String, Any?>> ?: error("Runtime manifest has no artifacts")
         val expected = setOf("macos-arm64", "macos-x64", "windows-x64", "linux-x64")
@@ -478,8 +489,8 @@ tasks.register("verifyParticipantRuntimeResources") {
         }
         artifacts.forEach { artifact ->
             require(artifact["runtime_id"] == "code4me-agent") { "Unexpected runtime ID in manifest" }
-            require(artifact["version"].toString() == configuredPluginVersion) {
-                "Runtime artifact version does not match the participant plugin"
+            require(artifact["version"].toString() == runtimeVersion) {
+                "Runtime artifact version does not match the runtime manifest"
             }
             require(artifact["managed_protocol"].toString() == "1") {
                 "Runtime artifact does not support managed protocol v1"
@@ -508,7 +519,9 @@ tasks.register("verifyParticipantRuntimeResources") {
 // fallback is ever consulted.
 // ---------------------------------------------------------------------------
 val researchProxySourceRoot = layout.projectDirectory.dir("telemetry-acp-proxy")
-val researchProxyDistRoot = layout.projectDirectory.dir("telemetry-acp-proxy/dist")
+val researchProxyDistRoot = layout.projectDirectory.dir(
+    providers.gradleProperty("researchProxyDistDir").getOrElse("telemetry-acp-proxy/dist"),
+)
 val researchRuntimeStagingDir = layout.buildDirectory.dir("research-runtime-staging")
 
 val hostResearchOs: String =
@@ -568,6 +581,9 @@ val stageResearchProxy =
         val agentBinaryOption = providers.gradleProperty("researchAgentBinary").orNull
         val agentDigestOption = providers.gradleProperty("researchAgentDigest").orNull
         val agentArgsOption = providers.gradleProperty("researchAgentArgs").orNull
+        val preparedRelease = participantReleaseDir
+        preparedRelease?.let { inputs.dir(it).withPathSensitivity(PathSensitivity.RELATIVE) }
+        val participantVersion = configuredPluginVersion
         agentDirOption?.let { inputs.dir(it).withPathSensitivity(PathSensitivity.RELATIVE) }
         agentBinaryOption?.let { inputs.file(it) }
         // The declared pin is a task input so changing it re-runs the task and a
@@ -575,6 +591,20 @@ val stageResearchProxy =
         inputs.property("researchAgentDigest", agentDigestOption ?: "")
         inputs.property("researchAgentArgs", agentArgsOption ?: "")
         doLast {
+            @Suppress("UNCHECKED_CAST")
+            val catalog = preparedRelease?.let {
+                JsonSlurper().parse(it.resolve("catalog.json")) as Map<String, Any?>
+            }
+            @Suppress("UNCHECKED_CAST")
+            val inventory = catalog?.get("participant_release") as? Map<String, Any?>
+            if (catalog != null) {
+                require(catalog["schema_version"] == "1" && inventory?.get("plugin_version") == participantVersion) {
+                    "Prepared catalog version does not match this participant build"
+                }
+                require(agentDirOption == null && agentBinaryOption == null && agentArgsOption == null && agentDigestOption == null) {
+                    "Prepared participant releases cannot be overridden by legacy agent properties"
+                }
+            }
             fun sha256Of(file: File): String {
                 val digest = MessageDigest.getInstance("SHA-256")
                 DigestInputStream(file.inputStream().buffered(), digest).use {
@@ -851,6 +881,17 @@ val stageResearchProxy =
                 val proxyFiles = mutableListOf<Map<String, Any>>()
 
                 if (prebuilt != null) {
+                    if (inventory != null) {
+                        val provenanceFile = File(prebuilt, "participant-provenance.json")
+                        require(provenanceFile.isFile) { "Proxy $platformId is missing build provenance; rebuild it from pinned sources" }
+                        @Suppress("UNCHECKED_CAST")
+                        val provenance = JsonSlurper().parse(provenanceFile) as Map<String, Any?>
+                        require(provenance["plugin_commit"] == inventory["plugin_commit"] &&
+                            provenance["server_commit"] == inventory["server_commit"] &&
+                            provenance["source_dirty"] == false &&
+                            Regex("[0-9a-f]{64}").matches(provenance["contract_digest"].toString())
+                        ) { "Proxy $platformId was not built from the recipe's clean pinned sources" }
+                    }
                     // Multi-platform releases keep each PyInstaller onedir bundle
                     // under platforms/<os>-<arch>/ so their _internal trees cannot
                     // collide. The manifest entrypoint is relative to the runtime
@@ -937,7 +978,37 @@ val stageResearchProxy =
                         "entrypoint" to entrypoint,
                         "files" to proxyFiles,
                     )
-                agentBlockFor(platformOs, platformArch)?.let { platformEntry["agent"] = it }
+                if (catalog == null) {
+                    agentBlockFor(platformOs, platformArch)?.let { platformEntry["agent"] = it }
+                } else {
+                    @Suppress("UNCHECKED_CAST")
+                    val preparedPlatforms = catalog["platforms"] as List<Map<String, Any?>>
+                    val preparedPlatform = preparedPlatforms.singleOrNull { it["os"] == platformOs && it["arch"] == platformArch }
+                        ?: error("Prepared release has no unique platform $platformId")
+                    @Suppress("UNCHECKED_CAST")
+                    val agents = preparedPlatform["agents"] as List<Map<String, Any?>>
+                    require(agents.isNotEmpty() && agents.map { it["release_id"] }.toSet().size == agents.size) {
+                        "Prepared platform must have unique release-keyed agents"
+                    }
+                    val inputRoot = preparedRelease!!.resolve("research-agents").toPath().toRealPath()
+                    for (agent in agents) {
+                        @Suppress("UNCHECKED_CAST")
+                        val records = agent["files"] as List<Map<String, Any?>>
+                        for (record in records) {
+                            val relative = record["path"].toString()
+                            val source = inputRoot.resolve(relative).normalize()
+                            require(source.startsWith(inputRoot) && source.toRealPath().startsWith(inputRoot)) { "Agent path escapes input" }
+                            require(source.toFile().length() == (record["size"] as Number).toLong() &&
+                                sha256Of(source.toFile()) == record["sha256"]) { "Prepared agent file differs: $relative" }
+                            val target = File(staging, relative)
+                            require(target.toPath().normalize().startsWith(staging.toPath())) { "Agent path escapes output" }
+                            target.parentFile.mkdirs()
+                            source.toFile().copyTo(target, overwrite = true)
+                            target.setExecutable(record["executable"] == true, false)
+                        }
+                    }
+                    platformEntry["agents"] = agents
+                }
                 platformEntries.add(platformEntry)
             }
 
@@ -946,6 +1017,12 @@ val stageResearchProxy =
                     "schema_version" to "1",
                     "platforms" to platformEntries,
                 )
+            inventory?.let {
+                require((it["platforms"] as List<*>).toSet() ==
+                    requestedPlatforms.map { pair -> pair.first + "-" + pair.second }.toSet()
+                ) { "Prepared release platform coverage differs from requested platforms" }
+                manifest["participant_release"] = it
+            }
             File(staging, "proxy-manifest.json")
                 .writeText(JsonOutput.prettyPrint(JsonOutput.toJson(manifest)))
         }
@@ -1100,6 +1177,37 @@ val buildResearchProxyBundle =
             if (target.exists()) target.deleteRecursively()
             target.mkdirs()
             built.copyRecursively(target, overwrite = true)
+            val pluginRoot = proxyDirFile.parentFile
+            val serverRoot = serverSrcFile.parentFile
+            fun revision(root: File): String {
+                val (status, text) = runCommand(listOf("git", "rev-parse", "HEAD"), root)
+                require(status == 0) { "Cannot identify proxy source revision" }
+                return text.trim()
+            }
+            fun dirty(root: File): Boolean {
+                val (status, text) = runCommand(
+                    listOf("git", "status", "--porcelain", "--untracked-files=normal", "--", "src", "telemetry-acp-proxy", "build.gradle.kts"), root,
+                )
+                require(status == 0) { "Cannot identify proxy source changes" }
+                return text.isNotBlank()
+            }
+            val contractFiles = sortedMapOf<String, String>()
+            for ((prefix, directory) in listOf("server/research" to File(serverSrcFile, "research"),
+                "proxy" to File(proxyDirFile, "telemetry_acp_proxy"))) {
+                directory.walkTopDown().filter { it.isFile && it.extension == "py" }.forEach { source ->
+                    val digest = MessageDigest.getInstance("SHA-256").digest(source.readBytes())
+                    contractFiles[prefix + "/" + source.relativeTo(directory).invariantSeparatorsPath] =
+                        digest.joinToString("") { "%02x".format(it) }
+                }
+            }
+            val contractDigest = MessageDigest.getInstance("SHA-256")
+                .digest(JsonOutput.toJson(contractFiles).toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+            File(target, "participant-provenance.json").writeText(JsonOutput.prettyPrint(JsonOutput.toJson(
+                linkedMapOf("schema_version" to "1", "plugin_commit" to revision(pluginRoot),
+                    "server_commit" to revision(serverRoot), "source_dirty" to (dirty(pluginRoot) || dirty(serverRoot)),
+                    "contract_digest" to contractDigest, "contract_files" to contractFiles),
+            )))
             logger.lifecycle("Research proxy bundle staged at $target")
         }
     }

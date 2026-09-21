@@ -244,6 +244,7 @@ def verify_proxy_manifest(
     archive: zipfile.ZipFile,
     members: dict[str, zipfile.ZipInfo],
     findings: list[str],
+    require_participant_release: bool = False,
 ) -> None:
     prefix = member_name[: len(member_name) - len("proxy-manifest.json")]
     try:
@@ -271,6 +272,63 @@ def verify_proxy_manifest(
         verify_platform(
             f"{member_name}#platforms[{index}]", platform, prefix, archive, members, findings
         )
+    if require_participant_release or "participant_release" in document:
+        verify_release_catalog(document, findings)
+
+
+def verify_release_catalog(document: dict, findings: list[str]) -> None:
+    """Require all advertised releases/platforms; optional-agent checks are insufficient."""
+    inventory = document.get("participant_release")
+    if not isinstance(inventory, dict) or inventory.get("schema_version") != "1":
+        findings.append("participant release inventory is missing or unsupported")
+        return
+    expected_platforms = {"macos-aarch64", "macos-x64", "linux-x64", "windows-x64"}
+    platforms = document.get("platforms", [])
+    actual = [f"{p.get('os')}-{p.get('arch')}" for p in platforms if isinstance(p, dict)]
+    if len(actual) != 4 or set(actual) != expected_platforms or set(inventory.get("platforms", [])) != expected_platforms:
+        findings.append("participant release must cover all four native platforms exactly once")
+    releases = inventory.get("releases", [])
+    if not isinstance(releases, list) or len(releases) != 3 or {
+        r.get("framework") for r in releases if isinstance(r, dict)
+    } != {"code4me2-agent", "goose", "codex"}:
+        findings.append("participant inventory must contain the three assigned-agent definitions")
+        return
+    by_framework = {r["framework"]: r for r in releases}
+    managed = by_framework["code4me2-agent"]
+    if managed.get("distribution_mode") != "PACKAGED" or any(
+        by_framework[f].get("distribution_mode") != "BYOA_EXTERNAL" for f in ("goose", "codex")
+    ):
+        findings.append("participant inventory must bundle Code4Me and use installed Goose/Codex")
+    for platform in platforms:
+        agents = platform.get("agents", [])
+        ids = [a.get("release_id") for a in agents if isinstance(a, dict)]
+        if ids != [managed.get("release_id")] or "agent" in platform:
+            findings.append("participant platform must contain the exact managed release and no legacy fallback")
+        for agent in agents:
+            if not isinstance(agent, dict):
+                continue
+            execution = agent.get("execution")
+            if not isinstance(execution, dict):
+                findings.append("managed agent is missing its execution inventory")
+                continue
+            digest = hashlib.sha256(json.dumps(execution, sort_keys=True, separators=(",", ":"),
+                                               ensure_ascii=False).encode()).hexdigest()
+            if str(agent.get("execution_manifest_digest")).removeprefix("sha256:") != digest:
+                findings.append("managed execution inventory digest mismatch")
+            entrypoint = execution.get("entrypoint", [])
+            staged = agent.get("entrypoint", [])
+            if not entrypoint or not staged or not staged[0].endswith("/" + entrypoint[0]) or staged[1:] != entrypoint[1:]:
+                findings.append("managed entrypoint differs from execution inventory")
+                continue
+            prefix = staged[0][:-len(entrypoint[0])]
+            expected_files = [dict(f, path=prefix + f["path"]) for f in execution.get("files", [])]
+            if expected_files != agent.get("files"):
+                findings.append("managed dependency inventory differs from staged files")
+            archive_digest = agent.get("archive_sha256", "")
+            if not SHA256_PATTERN.fullmatch(archive_digest) or agent.get("artifact_digest") != archive_digest:
+                findings.append("managed archive identity is missing or inconsistent")
+            if agent.get("adapter_digest") != (managed.get("adapter") or {}).get("digest"):
+                findings.append("managed adapter differs from assigned release catalog")
 
 
 def inspect_zip(
@@ -279,6 +337,7 @@ def inspect_zip(
     findings: list[str],
     *,
     depth: int = 0,
+    require_participant_release: bool = False,
 ) -> int:
     """Scan one archive; returns the number of proxy manifests found."""
     if depth > 4:
@@ -312,7 +371,8 @@ def inspect_zip(
                     nested.seek(0)
                     try:
                         manifests += inspect_zip(
-                            f"{label}!{member.filename}", nested, findings, depth=depth + 1
+                            f"{label}!{member.filename}", nested, findings, depth=depth + 1,
+                            require_participant_release=require_participant_release,
                         )
                     except zipfile.BadZipFile:
                         findings.append(f"{label}!{member.filename}: invalid nested archive")
@@ -321,7 +381,7 @@ def inspect_zip(
                 if members is None:
                     members = {info.filename: info for info in archive.infolist()}
                 manifests += 1
-                verify_proxy_manifest(label, member.filename, archive, members, findings)
+                verify_proxy_manifest(label, member.filename, archive, members, findings, require_participant_release)
             if member.file_size > MAX_TEXT_SCAN_BYTES:
                 continue
             data = archive.read(member)
@@ -340,10 +400,12 @@ def inspect_zip(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path)
+    parser.add_argument("--require-participant-release", action="store_true")
     args = parser.parse_args()
     findings: list[str] = []
     try:
-        manifests = inspect_zip(str(args.archive), args.archive, findings)
+        manifests = inspect_zip(str(args.archive), args.archive, findings,
+                                require_participant_release=args.require_participant_release)
     except zipfile.BadZipFile as error:
         raise SystemExit(
             f"participant artifact verification failed:\n{args.archive}: not a valid ZIP archive: {error}"

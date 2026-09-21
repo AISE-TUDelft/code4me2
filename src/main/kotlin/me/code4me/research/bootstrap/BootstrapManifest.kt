@@ -171,6 +171,10 @@ data class AgentReleaseRef(
      */
     val version: String = "",
     val artifactDigest: String = "",
+    val archiveSha256: String? = null,
+    val executableSha256: String? = null,
+    val executionManifestDigest: String? = null,
+    val adapterDigest: String? = null,
     /**
      * Non-secret identity of the adapter the release was qualified with. It is an
      * opaque reference, not a launch path: the server-side allowlist resolves it
@@ -547,6 +551,10 @@ data class BootstrapManifest(
                     "agent_id" to agentRelease.agentId,
                     "release_id" to agentRelease.releaseId,
                     "artifact_digest" to agentRelease.artifactDigest,
+                    "archive_sha256" to agentRelease.archiveSha256,
+                    "executable_sha256" to agentRelease.executableSha256,
+                    "execution_manifest_digest" to agentRelease.executionManifestDigest,
+                    "adapter_digest" to agentRelease.adapterDigest,
                     "adapter_id" to agentRelease.adapterId,
                     "adapter_version" to agentRelease.adapterVersion,
                     "distribution_mode" to agentRelease.distributionMode.wireValue,
@@ -668,6 +676,10 @@ data class BootstrapManifest(
                         // BYOA distribution legitimately carries none, so parsing is
                         // tolerant and the per-mode check is explicit.
                         artifactDigest = (agentRelease["artifact_digest"] as? String).orEmpty(),
+                        archiveSha256 = agentRelease["archive_sha256"] as? String,
+                        executableSha256 = agentRelease["executable_sha256"] as? String,
+                        executionManifestDigest = agentRelease["execution_manifest_digest"] as? String,
+                        adapterDigest = agentRelease["adapter_digest"] as? String,
                         adapterId = agentRelease["adapter_id"] as? String,
                         adapterVersion = agentRelease["adapter_version"] as? String,
                         distributionMode = AgentDistributionMode.fromWire(agentRelease["distribution_mode"] as? String),
