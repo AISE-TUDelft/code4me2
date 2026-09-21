@@ -1,6 +1,20 @@
 This package lists codex only as a dev dependency and requires the codex binary.
 It may not work with versions other than the one specified in package.json.
 
+### Configuration knobs
+
+- `CODEX_PATH` — path to the `codex` binary (defaults to `codex` on `PATH`).
+- `CODEX_CONFIG` — JSON merged into the Codex session config.
+- `INITIAL_AGENT_MODE` — initial approval/sandbox mode (`read-only`, `agent`,
+  `agent-full-access`).
+- `CODEX_MODEL` — overrides the thread model for every session (the study
+  profile's model binding).
+- `CODEX_MAX_TURNS` — approximate step budget: the adapter counts completed
+  tool-like items (`commandExecution`, `fileChange`, `mcpToolCall`,
+  `dynamicToolCall`, `collabAgentToolCall`) and interrupts the turn once the
+  budget is spent. Codex has no native turn limit; this is the study profile's
+  `max_steps` binding.
+
 ### Quick start
 
 #### Develop on Windows?

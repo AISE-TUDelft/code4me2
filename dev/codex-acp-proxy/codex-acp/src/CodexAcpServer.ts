@@ -7,7 +7,7 @@ import {type CodexAuthRequest, getCodexAuthMethods} from "./CodexAuthMethod";
 import {CodexAcpClient, type SessionMetadata, type SessionMetadataWithThread} from "./CodexAcpClient";
 import type {McpStartupResult} from "./CodexAppServerClient";
 import {ACPSessionConnection, type UpdateSessionEvent} from "./ACPSessionConnection";
-import type {InputModality, ReasoningEffort} from "./app-server";
+import type {InputModality, ReasoningEffort, ServerNotification} from "./app-server";
 import type {
     Account,
     CollabAgentToolCallStatus,
@@ -65,6 +65,25 @@ interface PendingMcpStartupSession {
     afterVersion: number;
 }
 
+/**
+ * Item types counted against the release-declared `CODEX_MAX_TURNS` step
+ * budget. Codex has no native turn limit, so the adapter counts completed
+ * tool-like items and interrupts the turn once the budget is spent.
+ */
+const STEP_ITEM_TYPES = new Set([
+    "commandExecution",
+    "fileChange",
+    "mcpToolCall",
+    "dynamicToolCall",
+    "collabAgentToolCall",
+]);
+
+function isStepItem(event: ServerNotification): boolean {
+    if (event.method !== "item/completed") return false;
+    const item = (event.params as { item?: { type?: string } }).item;
+    return typeof item?.type === "string" && STEP_ITEM_TYPES.has(item.type);
+}
+
 export class CodexAcpServer implements acp.Agent {
     private static readonly MODEL_NAME_TOKEN_OVERRIDES: Record<string, string> = {
         gpt: "GPT",
@@ -77,6 +96,8 @@ export class CodexAcpServer implements acp.Agent {
     private readonly defaultAuthRequest: CodexAuthRequest | null;
     private readonly getExitCode: () => number | null;
     private readonly availableCommands: CodexCommands;
+    //: Release-declared step budget (CODEX_MAX_TURNS). Null means no cap.
+    private readonly maxSteps: number | null;
 
     private readonly sessions: Map<string, SessionState>;
     private readonly pendingMcpStartupSessions: Map<string, PendingMcpStartupSession>;
@@ -86,6 +107,7 @@ export class CodexAcpServer implements acp.Agent {
         codexAcpClient: CodexAcpClient,
         defaultAuthRequest?: CodexAuthRequest,
         getExitCode?: () => number | null,
+        maxSteps?: number | null,
     ) {
         this.sessions = new Map();
         this.pendingMcpStartupSessions = new Map();
@@ -93,6 +115,7 @@ export class CodexAcpServer implements acp.Agent {
         this.codexAcpClient = codexAcpClient;
         this.defaultAuthRequest = defaultAuthRequest ?? null;
         this.getExitCode = getExitCode ?? (() => null);
+        this.maxSteps = maxSteps && maxSteps > 0 ? maxSteps : null;
         this.availableCommands = new CodexCommands(
             connection,
             codexAcpClient,
@@ -820,9 +843,23 @@ export class CodexAcpServer implements acp.Agent {
             const eventHandler = new CodexEventHandler(this.connection, sessionState);
             const approvalHandler = new CodexApprovalHandler(this.connection, sessionState);
             const elicitationHandler = new CodexElicitationHandler(this.connection, sessionState);
+            let completedSteps = 0;
             await this.codexAcpClient.subscribeToSessionEvents(params.sessionId,
                 (event) => {
                     elicitationHandler.handleNotification(event);
+                    if (this.maxSteps !== null && isStepItem(event)) {
+                        completedSteps += 1;
+                        if (completedSteps >= this.maxSteps && sessionState.currentTurnId) {
+                            logger.log("Step budget reached; interrupting turn", {
+                                sessionId: params.sessionId,
+                                completedSteps,
+                                maxSteps: this.maxSteps,
+                            });
+                            void this.codexAcpClient
+                                .turnInterrupt({threadId: params.sessionId, turnId: sessionState.currentTurnId})
+                                .catch((error) => logger.error("Step budget interrupt failed", error));
+                        }
+                    }
                     return eventHandler.handleNotification(event);
                 },
                 approvalHandler,

@@ -45,15 +45,22 @@ export class CodexAcpClient {
     private readonly codexClient: CodexAppServerClient;
     private readonly config: JsonObject;
     private readonly modelProvider: string | null;
+    private readonly modelOverride: string | null;
     private gatewayConfig: GatewayConfig | null;
     private pendingLoginCompleted: Promise<AccountLoginCompletedNotification> | null = null;
     private pendingAccountUpdated: Promise<AccountUpdatedNotification> | null = null;
 
 
-    constructor(codexClient: CodexAppServerClient, codexConfig?: JsonObject, modelProvider?: string) {
+    constructor(
+        codexClient: CodexAppServerClient,
+        codexConfig?: JsonObject,
+        modelProvider?: string,
+        modelOverride?: string,
+    ) {
         this.codexClient = codexClient;
         this.config = codexConfig ?? {};
         this.modelProvider = modelProvider ?? null;
+        this.modelOverride = modelOverride?.trim() ? modelOverride.trim() : null;
 
         // If CODEX_PROXY_URL is set, force gateway mode immediately so the proxy is
         // used even when Codex has stored OpenAI credentials (in which case JetBrains
@@ -243,6 +250,9 @@ export class CodexAcpClient {
             cwd: request.cwd,
             modelProvider: this.getResumeModelProvider(),
             threadId: request.sessionId,
+            // CODEX_MODEL is the release-declared model binding; the frozen
+            // study profile must govern the thread model.
+            ...(this.modelOverrideBase ? { model: this.modelOverrideBase } : {}),
         });
         const codexModels = await this.fetchAvailableModels();
         const currentModelId = this.createModelId(codexModels, response.model, response.reasoningEffort).toString();
@@ -260,6 +270,9 @@ export class CodexAcpClient {
             cwd: request.cwd,
             modelProvider: this.getResumeModelProvider(),
             threadId: request.sessionId,
+            // CODEX_MODEL is the release-declared model binding; the frozen
+            // study profile must govern the thread model.
+            ...(this.modelOverrideBase ? { model: this.modelOverrideBase } : {}),
         });
         const codexModels = await this.fetchAvailableModels();
         const currentModelId = this.createModelId(codexModels, response.model, response.reasoningEffort).toString();
@@ -279,6 +292,9 @@ export class CodexAcpClient {
             config: await this.createSessionConfig(request.cwd, request.mcpServers),
             modelProvider: this.getModelProvider(),
             cwd: request.cwd,
+            // CODEX_MODEL is the release-declared model binding; the frozen
+            // study profile must govern the thread model.
+            ...(this.modelOverrideBase ? { model: this.modelOverrideBase } : {}),
         });
 
         const codexModels = await this.fetchAvailableModels();
@@ -303,8 +319,10 @@ export class CodexAcpClient {
     }
 
     private async createSessionConfig(projectPath: string, mcpServers: Array<McpServer>): Promise<JsonObject> {
+        const override = this.modelOverrideParts();
         const mergedConfig = {
             ...mergeGatewayConfig(this.config, this.gatewayConfig),
+            ...(override?.effort ? { model_reasoning_effort: override.effort } : {}),
             projects: {
                 [projectPath]: {
                     trust_level: "trusted",
@@ -401,6 +419,23 @@ export class CodexAcpClient {
         }
 
         return ModelId.create(selectedModel.id, reasoningEffort ?? selectedModel.defaultReasoningEffort);
+    }
+
+    /**
+     * Splits the CODEX_MODEL override into the base model and optional
+     * `[effort]` suffix (`gpt-6-astra[low]`), mirroring ACP model ids.
+     */
+    private get modelOverrideBase(): string | null {
+        return this.modelOverrideParts()?.model ?? null;
+    }
+
+    private modelOverrideParts(): { model: string; effort: string | null } | null {
+        if (!this.modelOverride) return null;
+        const match = this.modelOverride.match(/^(?<model>[^\[]+?)(?:\[(?<effort>[^\]]+)\])?$/);
+        return {
+            model: match?.groups?.["model"] ?? this.modelOverride,
+            effort: match?.groups?.["effort"] ?? null,
+        };
     }
 
     async subscribeToSessionEvents(

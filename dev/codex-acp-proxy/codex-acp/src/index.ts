@@ -42,6 +42,11 @@ function startAcpServer() {
     const configString = process.env["CODEX_CONFIG"];
     const authRequestString = process.env["DEFAULT_AUTH_REQUEST"];
     const modelProvider = process.env["MODEL_PROVIDER"];
+    // Release-declared bindings: the study profile's model and its approximate
+    // tool-call step budget (Codex has no native turn limit).
+    const modelOverride = process.env["CODEX_MODEL"];
+    const maxTurnsRaw = process.env["CODEX_MAX_TURNS"];
+    const maxTurns = maxTurnsRaw && /^[0-9]+$/.test(maxTurnsRaw) ? Number.parseInt(maxTurnsRaw, 10) : null;
     const config = configString ? JSON.parse(configString) : undefined;
     const parsedAuthRequest = authRequestString ? JSON.parse(authRequestString) : undefined;
     const defaultAuthRequest = parsedAuthRequest && isCodexAuthRequest(parsedAuthRequest) ? parsedAuthRequest : undefined;
@@ -51,6 +56,8 @@ function startAcpServer() {
         version: packageJson.version,
         codexPath: codexPath,
         modelProvider: modelProvider ?? null,
+        modelOverride: modelOverride ?? null,
+        maxTurns: maxTurns,
         codexConfig: config ?? null,
         authRequest: authRequestString ?? null,
         defaultAuthRequest: defaultAuthRequest ?? null,
@@ -72,8 +79,8 @@ function startAcpServer() {
 
     function createAgent(connection: acp.AgentSideConnection): CodexAcpServer {
         const appServerClient = new CodexAppServerClient(codexConnection.connection);
-        const codexClient = new CodexAcpClient(appServerClient, config, modelProvider);
-        return new CodexAcpServer(connection, codexClient, defaultAuthRequest, () => codexConnection.process.exitCode);
+        const codexClient = new CodexAcpClient(appServerClient, config, modelProvider, modelOverride);
+        return new CodexAcpServer(connection, codexClient, defaultAuthRequest, () => codexConnection.process.exitCode, maxTurns);
     }
 
     new acp.AgentSideConnection(createAgent, acpJsonStream);
