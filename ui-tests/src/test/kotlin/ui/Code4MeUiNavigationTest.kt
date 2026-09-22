@@ -1,5 +1,7 @@
 package ui
 
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.intellij.remoterobot.RemoteRobot
 import com.intellij.remoterobot.fixtures.ComponentFixture
 import com.intellij.remoterobot.fixtures.JTreeFixture
@@ -12,11 +14,14 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 import java.net.HttpURLConnection
 import java.net.URI
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.FileTime
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 /**
  * Real-IDE UI navigation suite for the Code4Me plugin.
@@ -68,6 +73,7 @@ class Code4MeUiNavigationTest {
                 Step("status_surface", ::statusSurface),
                 Step("acp_registration", ::acpRegistration),
                 Step("prepare_agent", ::prepareAgent),
+                Step("model_response", ::modelResponse),
             )
         for (step in steps) {
             runStep(step)
@@ -283,7 +289,7 @@ class Code4MeUiNavigationTest {
     }
 
     // ------------------------------------------------------------------
-    // 7. Host launches the registered agent (best effort)
+    // 7. Host launches the registered agent and receives a model response
     // ------------------------------------------------------------------
 
     private fun prepareAgent() {
@@ -309,6 +315,137 @@ class Code4MeUiNavigationTest {
             Files.isDirectory(bridges) && Files.list(bridges).use { it.anyMatch { p -> p.toString().endsWith(".json") } }
         }
     }
+
+    private fun modelResponse() {
+        val entry = researchProxyEntry()
+        val command = entry["command"]?.asString?.takeIf { it.isNotBlank() }
+            ?: throw AssertionError("the research ACP entry has no command")
+        val args = entry["args"]?.asJsonArray?.map { it.asString } ?: emptyList()
+        val projectDir = Path.of(env("CODE4ME_UI_PROJECT_DIR")).toAbsolutePath().normalize()
+        val expected = env("CODE4ME_UI_EXPECTED_RESPONSE")
+        val prompt = System.getenv("CODE4ME_UI_MODEL_PROMPT")?.trim().orEmpty()
+            .ifEmpty { "Say hello in one short sentence." }
+
+        check(Files.isExecutable(Path.of(command))) {
+            "the research ACP command is not executable: $command"
+        }
+        check(args.indexOf("--agent-cmd") >= 0) {
+            "the research ACP entry has no --agent-cmd packaged runtime"
+        }
+
+        val process = ProcessBuilder(listOf(command) + args)
+            .directory(projectDir.toFile())
+            .redirectErrorStream(false)
+            .apply {
+                environment().putAll(entry["env"]?.asJsonObject?.entrySet()?.associate { it.key to it.value.asString } ?: emptyMap())
+            }
+            .start()
+        val frames = LinkedBlockingQueue<String>()
+        val stderr = StringBuilder()
+        val stdoutThread = Thread {
+            process.inputStream.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
+                lines.forEach { frames.offer(it) }
+            }
+        }
+        val stderrThread = Thread {
+            process.errorStream.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
+                lines.forEach { line -> synchronized(stderr) { stderr.appendLine(line) } }
+            }
+        }
+        stdoutThread.isDaemon = true
+        stderrThread.isDaemon = true
+        stdoutThread.start()
+        stderrThread.start()
+        try {
+            sendAcp(process, buildJsonObject("initialize", 1, """{"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"code4me-ui-e2e","version":"1"}}"""))
+            awaitAcp(frames, 60_000, "initialize response") { it["id"]?.asInt == 1 && it.has("result") }
+
+            sendAcp(process, buildJsonObject("session/new", 2, """{"cwd":${jsonString(projectDir.toString())},"mcpServers":[]}"""))
+            val sessionResponse = awaitAcp(frames, 60_000, "session/new response") { it["id"]?.asInt == 2 && it.has("result") }
+            val sessionId = sessionResponse["result"]?.asJsonObject?.get("sessionId")?.asString
+                ?: sessionResponse["result"]?.asJsonObject?.get("session_id")?.asString
+                ?: throw AssertionError("session/new response had no session id: $sessionResponse")
+
+            sendAcp(
+                process,
+                buildJsonObject(
+                    "session/prompt",
+                    3,
+                    """{"sessionId":${jsonString(sessionId)},"prompt":[{"type":"text","text":${jsonString(prompt)}}]}""",
+                ),
+            )
+            var answer = ""
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(180)
+            var promptCompleted = false
+            while (System.nanoTime() < deadline && !promptCompleted) {
+                val raw = frames.poll(2, TimeUnit.SECONDS) ?: continue
+                val frame = runCatching { JsonParser.parseString(raw).asJsonObject }.getOrNull() ?: continue
+                val update = frame["params"]?.asJsonObject?.get("update")?.asJsonObject
+                val content = update?.get("content")
+                val textBlocks = when {
+                    content?.isJsonArray == true -> content.asJsonArray.toList()
+                    content?.isJsonObject == true -> listOf(content)
+                    else -> emptyList()
+                }
+                textBlocks.forEach { item ->
+                    val text = item.asJsonObject.get("text")?.asString.orEmpty()
+                    if (text.isNotBlank()) answer += text
+                }
+                if (frame["id"]?.asInt == 3 && frame.has("result")) promptCompleted = true
+            }
+            check(promptCompleted) {
+                "model prompt timed out after 180s; answer='${answer.take(200)}'; agent stderr='${stderrSnapshot(stderr)}'"
+            }
+            check(answer.contains(expected)) {
+                "model response did not contain expected token '$expected'; answer='${answer.take(500)}'; agent stderr='${stderrSnapshot(stderr)}'"
+            }
+        } finally {
+            process.outputStream.close()
+            if (process.isAlive) process.destroy()
+            process.waitFor(10, TimeUnit.SECONDS)
+            if (process.isAlive) process.destroyForcibly()
+        }
+    }
+
+    private fun researchProxyEntry(): JsonObject {
+        check(Files.isRegularFile(acpPath)) { "ACP registry was not created at $acpPath" }
+        val root = JsonParser.parseString(Files.readString(acpPath)).asJsonObject
+        val servers = root["agent_servers"]?.asJsonObject
+            ?: throw AssertionError("$acpPath has no agent_servers object")
+        return servers.entrySet()
+            .firstOrNull { it.key.startsWith(ACP_ENTRY_NAME) }
+            ?.value?.asJsonObject
+            ?: throw AssertionError("$acpPath has no active '$ACP_ENTRY_NAME' entry")
+    }
+
+    private fun sendAcp(process: Process, frame: String) {
+        process.outputStream.write((frame + "\n").toByteArray(StandardCharsets.UTF_8))
+        process.outputStream.flush()
+    }
+
+    private fun awaitAcp(
+        frames: LinkedBlockingQueue<String>,
+        timeoutMs: Long,
+        label: String,
+        predicate: (JsonObject) -> Boolean,
+    ): JsonObject {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        while (System.nanoTime() < deadline) {
+            val raw = frames.poll(2, TimeUnit.SECONDS) ?: continue
+            val frame = runCatching { JsonParser.parseString(raw).asJsonObject }.getOrNull() ?: continue
+            if (predicate(frame)) return frame
+        }
+        throw AssertionError("timed out waiting for $label")
+    }
+
+    private fun buildJsonObject(method: String, id: Int, params: String): String =
+        "{\"jsonrpc\":\"2.0\",\"id\":$id,\"method\":${jsonString(method)},\"params\":$params}"
+
+    private fun jsonString(value: String): String =
+        "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""
+
+    private fun stderrSnapshot(stderr: StringBuilder): String =
+        synchronized(stderr) { stderr.toString().takeLast(1000).replace("\n", " ") }
 
     // ------------------------------------------------------------------
     // Step bookkeeping
