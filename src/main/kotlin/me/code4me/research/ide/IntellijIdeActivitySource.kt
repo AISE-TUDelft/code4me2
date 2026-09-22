@@ -30,10 +30,10 @@ import java.util.concurrent.CopyOnWriteArrayList
  * It observes file open/close, document change, file save, and run/debug
  * execution start/finish and translates each into a metadata-only
  * [IdeActivitySignal]. Editor text, paths, prompts, diffs, and command output
- * are never read: only file extension, file-type name, the executor id, and a
- * bounded changed-length count cross the boundary. The collector remains
- * responsible for the metadata allowlist and for dropping signals before an
- * active session exists.
+ * are never read: only file extension, file-type name, the executor id, a
+ * bounded changed-length count, the run phase, and the bounded exit status
+ * cross the boundary. The collector remains responsible for the metadata
+ * allowlist and for dropping signals before an active session exists.
  *
  * The source is deliberately tolerant: a subscriber (research) failure is
  * caught and logged, never propagated into IDE event dispatch, so ordinary
@@ -97,7 +97,7 @@ class IntellijIdeActivitySource(private val project: Project) : IdeActivitySourc
                     env: ExecutionEnvironment,
                     handler: ProcessHandler,
                 ) {
-                    publish(IntellijIdeActivityMapper.runSignal(projectKey, executorId))
+                    publish(IntellijIdeActivityMapper.runSignal(projectKey, executorId, IdeRunPhase.STARTED))
                 }
 
                 override fun processTerminated(
@@ -106,7 +106,7 @@ class IntellijIdeActivitySource(private val project: Project) : IdeActivitySourc
                     handler: ProcessHandler,
                     exitCode: Int,
                 ) {
-                    publish(IntellijIdeActivityMapper.runSignal(projectKey, executorId))
+                    publish(IntellijIdeActivityMapper.runSignal(projectKey, executorId, IdeRunPhase.FINISHED, exitCode))
                 }
             },
         )

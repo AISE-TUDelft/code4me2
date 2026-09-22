@@ -405,6 +405,36 @@ class IdeActivityEventTest {
         assertThrows(IdePayloadNotAllowedException::class.java) {
             builder.buildFromRawKeys(IdeActivityType.FILE_OPENED, linkedMapOf("count" to 1.5))
         }
+        assertThrows(IdePayloadNotAllowedException::class.java) {
+            builder.buildFromRawKeys(IdeActivityType.RUN_EXECUTED, linkedMapOf("phase" to "EXFILTRATE"))
+        }
+        assertThrows(IdePayloadNotAllowedException::class.java) {
+            builder.buildFromRawKeys(IdeActivityType.RUN_EXECUTED, linkedMapOf("exit_code" to 999))
+        }
+        assertThrows(IdePayloadNotAllowedException::class.java) {
+            builder.buildFromRawKeys(IdeActivityType.RUN_EXECUTED, linkedMapOf("exit_code" to 1.5))
+        }
+        assertThrows(IdePayloadNotAllowedException::class.java) {
+            builder.buildFromRawKeys(IdeActivityType.RUN_EXECUTED, linkedMapOf("exit_code" to "not a number"))
+        }
+    }
+
+    @Test
+    fun `run phase and exit code are normalized within their closed slots`() {
+        val event =
+            ideBuilder().build(
+                activityType = IdeActivityType.RUN_EXECUTED,
+                metadata =
+                    linkedMapOf(
+                        IdePayloadKey.ACTION_CATEGORY to "run",
+                        IdePayloadKey.PHASE to "FINISHED",
+                        IdePayloadKey.EXIT_CODE to 0,
+                    ),
+            )
+
+        assertEquals("RUN", event.payload["action_category"])
+        assertEquals("finished", event.payload["phase"])
+        assertEquals(0, event.payload["exit_code"])
     }
 
     @Test
@@ -535,19 +565,28 @@ class IntellijIdeActivityMapperTest {
     }
 
     @Test
-    fun `run signal maps the executor to a bounded action category`() {
-        assertEquals(
-            "DEBUG",
-            IntellijIdeActivityMapper.runSignal("project-a", "Debug").metadata["action_category"],
-        )
+    fun `run signal maps the executor to a bounded action category and phase`() {
+        val start = IntellijIdeActivityMapper.runSignal("project-a", "Debug", IdeRunPhase.STARTED)
+        assertEquals("DEBUG", start.metadata["action_category"])
+        assertEquals("started", start.metadata["phase"])
+        assertFalse(start.metadata.containsKey("exit_code"), "a start event carries no exit status")
+
+        val finish = IntellijIdeActivityMapper.runSignal("project-a", "Run", IdeRunPhase.FINISHED, 1)
+        assertEquals("RUN", finish.metadata["action_category"])
+        assertEquals("finished", finish.metadata["phase"])
+        assertEquals(1, finish.metadata["exit_code"])
+
         assertEquals(
             "RUN",
-            IntellijIdeActivityMapper.runSignal("project-a", "Run").metadata["action_category"],
+            IntellijIdeActivityMapper.runSignal("project-a", null, IdeRunPhase.FINISHED, 0).metadata["action_category"],
         )
-        assertEquals(
-            "RUN",
-            IntellijIdeActivityMapper.runSignal("project-a", null).metadata["action_category"],
-        )
+    }
+
+    @Test
+    fun `run finish exit code is clamped to the metadata bound`() {
+        val finish = IntellijIdeActivityMapper.runSignal("project-a", "Run", IdeRunPhase.FINISHED, Int.MAX_VALUE)
+
+        assertEquals(IntellijIdeActivityMapper.MAX_EXIT_CODE, finish.metadata["exit_code"])
     }
 
     @Test
@@ -565,7 +604,7 @@ class IntellijIdeActivityMapperTest {
         callback?.invoke(IntellijIdeActivityMapper.fileSignal("opened", "project-a", "kt", "Kotlin"))
         callback?.invoke(IntellijIdeActivityMapper.documentSignal("project-a", "kt", "Kotlin", 12))
         callback?.invoke(IntellijIdeActivityMapper.fileSignal("closed", "project-a", "kt", "Kotlin"))
-        callback?.invoke(IntellijIdeActivityMapper.runSignal("project-a", "Debug"))
+        callback?.invoke(IntellijIdeActivityMapper.runSignal("project-a", "Debug", IdeRunPhase.STARTED))
         callback?.invoke(IntellijIdeActivityMapper.lifecycleSignal("project.opened", "project-a"))
 
         assertEquals(5, events.size)
@@ -581,14 +620,41 @@ class IntellijIdeActivityMapperTest {
         )
         assertEquals(IdeActivityType.FILE_CLOSED.canonicalType, events[2].eventType)
         assertEquals(IdeActivityType.RUN_EXECUTED.canonicalType, events[3].eventType)
-        assertEquals(setOf("action_category"), events[3].payload.keys)
+        assertEquals(setOf("action_category", "phase"), events[3].payload.keys)
         assertEquals("DEBUG", events[3].payload["action_category"])
+        assertEquals("started", events[3].payload["phase"])
         // An unrecognized lifecycle kind is preserved for review, not silently mapped.
         assertEquals("project.opened", events[4].unknownEventType)
         assertEquals(CanonicalEventTypes.UNKNOWN_SOURCE_EVENT, events[4].eventType)
         events.forEach { event ->
             assertFalse(event.payload.keys.any { it.contains("content") || it.contains("text") })
         }
+    }
+
+    @Test
+    fun `start and finish run events are distinguishable and only finish carries exit code`() {
+        var callback: ((IdeActivitySignal) -> Unit)? = null
+        val source =
+            IdeActivitySource { activityCallback ->
+                callback = activityCallback
+            }
+        val events = mutableListOf<CanonicalEvent>()
+        val collector = IdeActivityCollector(source, CanonicalEventSink { events.add(it) })
+        collector.start()
+        collector.activate(IdeCollectionScope(researchSessionId = "session-1"))
+
+        callback?.invoke(IntellijIdeActivityMapper.runSignal("project-a", "Run", IdeRunPhase.STARTED))
+        callback?.invoke(IntellijIdeActivityMapper.runSignal("project-a", "Run", IdeRunPhase.FINISHED, 3))
+
+        assertEquals(2, events.size)
+        assertEquals(CanonicalEventTypes.IDE_RUN_EXECUTED, events[0].eventType)
+        assertEquals(CanonicalEventTypes.IDE_RUN_EXECUTED, events[1].eventType)
+        assertEquals("started", events[0].payload["phase"])
+        assertEquals("finished", events[1].payload["phase"])
+        assertFalse(events[0].payload.containsKey("exit_code"))
+        assertEquals(3, events[1].payload["exit_code"])
+        assertEquals(setOf("action_category", "phase"), events[0].payload.keys)
+        assertEquals(setOf("action_category", "phase", "exit_code"), events[1].payload.keys)
     }
 }
 

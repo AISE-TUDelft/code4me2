@@ -18,6 +18,10 @@ internal object IntellijIdeActivityMapper {
     /** Bound mirrored from [IdeActivityEventBuilder] so a count can never exceed policy. */
     const val MAX_COUNT: Long = 1_000_000L
 
+    /** Exit-status bounds mirrored from [IdeActivityEventBuilder] so it always fits its slot. */
+    const val MIN_EXIT_CODE: Int = -1
+    const val MAX_EXIT_CODE: Int = 255
+
     /** File opened/closed/saved signals carrying only extension and language. */
     fun fileSignal(
         kind: String,
@@ -38,16 +42,31 @@ internal object IntellijIdeActivityMapper {
         return IdeActivitySignal(kind = IdeActivityKind.CHANGED.wire, projectKey = projectKey, metadata = metadata)
     }
 
-    /** Run/debug execution signal carrying only the bounded action category. */
+    /**
+     * Run/debug execution signal carrying the bounded action category and the
+     * run [phase]. A `finished` signal also carries the process `exitCode`
+     * (clamped to its metadata bound) so the two events of one run are
+     * distinguishable and pairable (TA-03).
+     */
     fun runSignal(
         projectKey: String,
         executorId: String?,
+        phase: IdeRunPhase,
+        exitCode: Int? = null,
     ): IdeActivitySignal {
         val category = if (executorId?.contains("debug", ignoreCase = true) == true) "DEBUG" else "RUN"
+        val metadata =
+            linkedMapOf<String, Any?>(
+                IdePayloadKey.ACTION_CATEGORY.key to category,
+                IdePayloadKey.PHASE.key to phase.wire,
+            )
+        if (phase == IdeRunPhase.FINISHED) {
+            exitCode?.let { metadata[IdePayloadKey.EXIT_CODE.key] = it.coerceIn(MIN_EXIT_CODE, MAX_EXIT_CODE) }
+        }
         return IdeActivitySignal(
             kind = IdeActivityKind.RUN_EXECUTED.wire,
             projectKey = projectKey,
-            metadata = linkedMapOf(IdePayloadKey.ACTION_CATEGORY.key to category),
+            metadata = metadata,
         )
     }
 

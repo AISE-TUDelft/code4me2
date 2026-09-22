@@ -12,7 +12,8 @@ package me.code4me.research.ide
  * @property kind source kind (`opened`, `changed`, `saved`, or vendor-specific).
  * @property projectKey project-scoped local identity used only to derive an
  * opaque context id.
- * @property metadata untrusted metadata (extension, language, action, count).
+ * @property metadata untrusted metadata (extension, language, action, count,
+ * run phase, exit status).
  */
 data class IdeActivitySignal(
     val kind: String,

@@ -24,17 +24,40 @@ enum class IdeActivityType(val canonicalType: String) {
 }
 
 /**
+ * Lifecycle phase of an `ide.run.executed` observation (TA-03).
+ *
+ * Start and finish of one run are distinct events; the closed set keeps a
+ * free-text phase from smuggling content through the payload.
+ */
+enum class IdeRunPhase(val wire: String) {
+    STARTED("started"),
+    FINISHED("finished"),
+    ;
+
+    companion object {
+        fun fromWire(raw: String?): IdeRunPhase? = entries.firstOrNull { it.wire == raw?.trim()?.lowercase() }
+    }
+}
+
+/**
  * The only payload keys an IDE collector may emit (Issue 10).
  *
- * Keys are metadata-only: file extension, language, action category, and a
- * bounded count. The list is intentionally closed; anything else, including
- * editor text, source content, prompts, diffs, or command output, is rejected.
+ * Keys are metadata-only: file extension, language, action category, a bounded
+ * count, a run phase, and a bounded exit status. The list is intentionally
+ * closed; anything else, including editor text, source content, prompts, diffs,
+ * or command output, is rejected.
  */
 enum class IdePayloadKey(val key: String, val fieldClass: FieldClass) {
     FILE_EXTENSION("file_extension", FieldClass.CODE_METADATA),
     LANGUAGE("language", FieldClass.CODE_METADATA),
     ACTION_CATEGORY("action_category", FieldClass.BEHAVIORAL),
     COUNT("count", FieldClass.SYSTEM),
+
+    /** `started`/`finished` for one run; distinguishes the two events (TA-03). */
+    PHASE("phase", FieldClass.BEHAVIORAL),
+
+    /** Bounded process exit status, present only on `finished` (TA-03). */
+    EXIT_CODE("exit_code", FieldClass.SYSTEM),
     ;
 
     companion object {
@@ -188,6 +211,8 @@ class IdeActivityEventBuilder(
             IdePayloadKey.LANGUAGE -> sanitizeLanguage(key, value)
             IdePayloadKey.ACTION_CATEGORY -> sanitizeActionCategory(key, value)
             IdePayloadKey.COUNT -> sanitizeCount(key, value)
+            IdePayloadKey.PHASE -> sanitizePhase(key, value)
+            IdePayloadKey.EXIT_CODE -> sanitizeExitCode(key, value)
         }
 
     private fun sanitizeExtension(
@@ -246,9 +271,43 @@ class IdeActivityEventBuilder(
         return asLong
     }
 
+    private fun sanitizePhase(
+        key: IdePayloadKey,
+        value: Any,
+    ): String {
+        val text =
+            value as? String
+                ?: throw IdePayloadNotAllowedException(key.key, "expected a run-phase string")
+        val phase =
+            IdeRunPhase.fromWire(text)
+                ?: throw IdePayloadNotAllowedException(key.key, "unknown run phase '$text'")
+        return phase.wire
+    }
+
+    private fun sanitizeExitCode(
+        key: IdePayloadKey,
+        value: Any,
+    ): Int {
+        val number =
+            value as? Number
+                ?: throw IdePayloadNotAllowedException(key.key, "exit code must be a whole number")
+        val asInt = number.toInt()
+        if (asInt.toDouble() != number.toDouble() || asInt < MIN_EXIT_CODE || asInt > MAX_EXIT_CODE) {
+            throw IdePayloadNotAllowedException(
+                key.key,
+                "exit code must be a whole number in $MIN_EXIT_CODE..$MAX_EXIT_CODE",
+            )
+        }
+        return asInt
+    }
+
     private companion object {
         const val MAX_EXTENSION_LENGTH = 16
         const val MAX_COUNT = 1_000_000L
+
+        /** POSIX-style process exit status bounds (IntelliJ reports -1 when unknown). */
+        const val MIN_EXIT_CODE = -1
+        const val MAX_EXIT_CODE = 255
         val EXTENSION_PATTERN = Regex("^[a-z0-9]{1,$MAX_EXTENSION_LENGTH}$")
         val LANGUAGE_PATTERN = Regex("^[a-z0-9+#_-]{1,32}$")
         val ACTION_CATEGORIES =
