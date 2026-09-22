@@ -216,10 +216,10 @@ jobs:
           python3 - <<'PY'
           import json, os
           from pathlib import Path
-          inventory = json.loads((Path(os.environ["RUNNER_TEMP"]) / "participant-release/registration.json").read_text())["inventory"]
-          assert inventory["plugin_commit"] == os.environ["EXPECTED_PLUGIN"]
-          assert inventory["server_commit"] == os.environ["EXPECTED_SERVER"]
-          assert inventory["plugin_version"] == os.environ["EXPECTED_VERSION"]
+          recipe = json.loads((Path(os.environ["RUNNER_TEMP"]) / "participant-release/recipe.json").read_text())
+          assert recipe["plugin_commit"] == os.environ["EXPECTED_PLUGIN"]
+          assert recipe["server_commit"] == os.environ["EXPECTED_SERVER"]
+          assert recipe["plugin_version"] == os.environ["EXPECTED_VERSION"]
           PY
       - name: Run plugin tests
         run: ./gradlew --no-daemon test
@@ -260,12 +260,11 @@ jobs:
         run: |
           python3 scripts/participant-release.py --server-source release-server/src build \
             "$RUNNER_TEMP/participant-release" --server-url "$PARTICIPANT_SERVER_URL"
-      - name: Upload release registration plan and build evidence
+      - name: Upload release recipe and build evidence
         uses: actions/upload-artifact@v4
         with:
           name: participant-release-evidence
           path: |
-            ${{ runner.temp }}/participant-release/registration.json
             ${{ runner.temp }}/participant-release/recipe.json
             ${{ runner.temp }}/participant-release/prepared-inputs.json
             ${{ runner.temp }}/participant-release/build-report.json
@@ -275,3 +274,39 @@ jobs:
           name: code4me-participant-${{ inputs.version }}
           path: build/distributions/*.zip
           if-no-files-found: error
+
+  # Publish the installable plugin ZIP under an immutable plugin-v<version> tag.
+  # The installable ZIP already bundles the exact pinned agent archives and the
+  # per-platform proxy runtimes staged and verified above. Assets of a published
+  # plugin release are never replaced.
+  publish:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: code4me-participant-${{ inputs.version }}
+          path: plugin-assets
+      - name: Publish immutable plugin release
+        env:
+          GH_TOKEN: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          tag="plugin-v${{ inputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists; refusing to replace its assets" >&2
+            exit 1
+          fi
+          shopt -s nullglob
+          assets=(plugin-assets/*.zip)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "the participant ZIP artifact is missing" >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            --target "${{ inputs.pluginCommit }}" \
+            --title "Code4Me participant plugin ${{ inputs.version }}" \
+            "${assets[@]}"

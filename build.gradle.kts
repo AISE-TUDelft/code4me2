@@ -390,7 +390,7 @@ require(!(participantBuildRequested && localRuntimeResourceDir != null)) {
     "Local runtime overlays cannot be used for participant release builds."
 }
 if (participantBuildRequested) {
-    require(participantReleaseDir?.resolve("catalog.json")?.isFile == true) {
+    require(participantReleaseDir?.resolve("recipe.json")?.isFile == true) {
         "Participant builds require -PparticipantReleaseDir=<prepared recipe>; run scripts/participant-release.py prepare."
     }
     require(project.version.toString().matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?"))) {
@@ -530,14 +530,84 @@ tasks.register("verifyParticipantRuntimeResources") {
     }
 }
 
+// The single participant recipe (`code4me-runtime/manifest.json`) is produced by
+// the `scripts/participant-release.py` CLI and read directly by the plugin; there
+// is no second catalog/manifest copy to keep in sync. This task fails the build
+// when the bundled archives do not match the recipe's zip sha256/size, or when a
+// removed execution-inventory field reappears.
+tasks.register("verifyResearchRuntimeConsistency") {
+    group = "verification"
+    description = "Verifies the bundled runtime recipe (zip sha256 pin) matches its archives."
+    notCompatibleWithConfigurationCache("Reads release resources at execution time")
+    val resourceRoot = layout.projectDirectory.dir("src/main/resources").asFile
+    inputs.dir(resourceRoot.resolve("code4me-runtime"))
+    doLast {
+        val runtimeRoot = resourceRoot.resolve("code4me-runtime")
+        val manifestFile = runtimeRoot.resolve("manifest.json")
+        require(manifestFile.isFile) { "the bundled runtime recipe is missing: $manifestFile" }
+        @Suppress("UNCHECKED_CAST")
+        val manifest = JsonSlurper().parse(manifestFile) as Map<String, Any?>
+        require(manifest["manifest_version"].toString() == "1") { "Runtime recipe manifest_version must be 1" }
+        require(manifest["managed_protocol_version"].toString() == "1") {
+            "Runtime recipe managed_protocol_version must be 1"
+        }
+        val forbidden = listOf("execution", "execution_manifest_digest", "archive_sha256", "executable_sha256")
+        forbidden.forEach { field ->
+            require(!manifest.containsKey(field)) {
+                "The runtime recipe must not carry the removed execution-inventory field '$field'"
+            }
+        }
+        @Suppress("UNCHECKED_CAST")
+        val artifacts = manifest["artifacts"] as? List<Map<String, Any?>>
+            ?: error("The runtime recipe declares no artifacts")
+        require(artifacts.isNotEmpty()) { "The runtime recipe declares no artifacts" }
+        val seen = mutableSetOf<String>()
+        artifacts.forEach { artifact ->
+            forbidden.forEach { field ->
+                require(!artifact.containsKey(field)) {
+                    "Runtime artifact declares the removed execution-inventory field '$field'"
+                }
+            }
+            val archive = artifact["archive"].toString()
+            require(!archive.startsWith("/") && !archive.startsWith("\\") &&
+                !archive.split('/', '\\').contains("..")) {
+                "Runtime artifact archive must stay inside the runtime resources: $archive"
+            }
+            val platform = "${artifact["platform"]}-${artifact["architecture"]}"
+            require(seen.add(platform)) { "Runtime recipe declares platform $platform more than once" }
+            val file = resourceRoot.resolve(archive)
+            require(file.isFile) { "Missing runtime archive: $file" }
+            val digest = MessageDigest.getInstance("SHA-256")
+            DigestInputStream(file.inputStream().buffered(), digest).use {
+                it.transferTo(OutputStream.nullOutputStream())
+            }
+            val checksum = digest.digest().joinToString("") { "%02x".format(it) }
+            require(checksum == artifact["sha256"].toString().lowercase().removePrefix("sha256:")) {
+                "Runtime checksum mismatch: $archive"
+            }
+            val size = artifact["size"]
+            if (size is Number) {
+                require(size.toLong() == file.length()) { "Runtime size mismatch: $archive" }
+            }
+        }
+        logger.lifecycle("Runtime recipe and ${artifacts.size} archive(s) are consistent.")
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Packaged research ACP proxy runtime (Issue 08 / Issue 11).
 //
 // `research-runtime/` is staged into plugin resources and shipped in the plugin
-// jar/ZIP. `proxy-manifest.json` pins every payload file by relative safe path,
-// size, and SHA-256; at runtime `PackagedProxyRuntimeResolver` refuses anything
-// missing, mismatched, escaping, or not self-contained. No PATH/npm/source
-// fallback is ever consulted.
+// jar/ZIP. `proxy-manifest.json` pins every PROXY payload file by relative safe
+// path, size, and SHA-256; at runtime `PackagedProxyRuntimeResolver` refuses
+// anything missing, mismatched, escaping, or not self-contained. No PATH/npm/
+// source fallback is ever consulted.
+//
+// The real agent is a separate, single artifact identity: the shipped recipe
+// `code4me-runtime/manifest.json` and its ZIP (staged by
+// `scripts/participant-release.py`, verified by `verifyResearchRuntimeConsistency`),
+// installed by `ManagedRuntimeInstaller` after `PackagedAgentInstaller` matches it
+// against the bootstrap pin.
 // ---------------------------------------------------------------------------
 val researchProxySourceRoot = layout.projectDirectory.dir("telemetry-acp-proxy")
 val researchProxyDistRoot = layout.projectDirectory.dir(
@@ -576,8 +646,8 @@ val stageResearchProxy =
         description =
             "Stages the digest-pinned research ACP proxy runtime into plugin resources. " +
             "Declare release platforms with -PresearchProxyPlatforms=<os>-<arch>,... and " +
-            "require prebuilt bundles with -PrequireResearchProxyBundles=true. " +
-            "Override the packaged agent with -PresearchAgentDir/-PresearchAgentBinary."
+            "require prebuilt bundles with -PrequireResearchProxyBundles=true. The packaged " +
+            "agent is the single code4me-runtime recipe, staged separately from the release."
         inputs.dir(researchProxySourceRoot).withPathSensitivity(PathSensitivity.RELATIVE)
         if (researchProxyDistRoot.asFile.isDirectory) {
             inputs.dir(researchProxyDistRoot).withPathSensitivity(PathSensitivity.RELATIVE)
@@ -588,44 +658,36 @@ val stageResearchProxy =
         val sourceRootFile = researchProxySourceRoot.asFile
         val distRootFile = researchProxyDistRoot.asFile
         val stagingRootFile = researchRuntimeStagingDir.get().asFile
-        val runtimeResourceRootPath = participantRuntimeResourceRoot
         val targetOs = hostResearchOs
         val targetArch = hostResearchArch
         val platformsOption = researchProxyPlatformsOption
         val strictMode = researchProxyStrictMode
         inputs.property("researchProxyPlatforms", platformsOption ?: "")
         inputs.property("requireResearchProxyBundles", strictMode)
-        // Supported packaged-agent staging overrides (Issue 11 / Gap 5). They let
-        // an operator stage a real agent without touching the dev tree; the
-        // `agent` block is still populated only with real digests.
-        val agentDirOption = providers.gradleProperty("researchAgentDir").orNull
-        val agentBinaryOption = providers.gradleProperty("researchAgentBinary").orNull
-        val agentDigestOption = providers.gradleProperty("researchAgentDigest").orNull
-        val agentArgsOption = providers.gradleProperty("researchAgentArgs").orNull
         val preparedRelease = participantReleaseDir
         preparedRelease?.let { inputs.dir(it).withPathSensitivity(PathSensitivity.RELATIVE) }
         val participantVersion = configuredPluginVersion
-        agentDirOption?.let { inputs.dir(it).withPathSensitivity(PathSensitivity.RELATIVE) }
-        agentBinaryOption?.let { inputs.file(it) }
-        // The declared pin is a task input so changing it re-runs the task and a
-        // wrong pin is never silently skipped by an up-to-date output.
-        inputs.property("researchAgentDigest", agentDigestOption ?: "")
-        inputs.property("researchAgentArgs", agentArgsOption ?: "")
         doLast {
             @Suppress("UNCHECKED_CAST")
-            val catalog = preparedRelease?.let {
-                JsonSlurper().parse(it.resolve("catalog.json")) as Map<String, Any?>
+            val recipe = preparedRelease?.let {
+                JsonSlurper().parse(it.resolve("recipe.json")) as Map<String, Any?>
             }
-            @Suppress("UNCHECKED_CAST")
-            val inventory = catalog?.get("participant_release") as? Map<String, Any?>
-            if (catalog != null) {
-                require(catalog["schema_version"] == "1" && inventory?.get("plugin_version") == participantVersion) {
-                    "Prepared catalog version does not match this participant build"
-                }
-                require(agentDirOption == null && agentBinaryOption == null && agentArgsOption == null && agentDigestOption == null) {
-                    "Prepared participant releases cannot be overridden by legacy agent properties"
+            if (recipe != null) {
+                require(recipe["schema_version"] == "1" && recipe["plugin_version"] == participantVersion) {
+                    "Prepared recipe version does not match this participant build"
                 }
             }
+            // The recipe's own artifacts define the platform coverage: derive the
+            // canonical proxy platform set from them (`arm64` is spelled `aarch64`).
+            val recipePlatforms: Set<String>? =
+                recipe?.get("artifacts")?.let { raw ->
+                    @Suppress("UNCHECKED_CAST")
+                    (raw as List<Map<String, Any?>>)
+                        .map { artifact ->
+                            val arch = artifact["architecture"].toString()
+                            "${artifact["platform"]}-${if (arch == "arm64") "aarch64" else arch}"
+                        }.toSet()
+                }
             fun sha256Of(file: File): String {
                 val digest = MessageDigest.getInstance("SHA-256")
                 DigestInputStream(file.inputStream().buffered(), digest).use {
@@ -708,190 +770,6 @@ val stageResearchProxy =
                 )
             }
 
-            // Explicit agent overrides describe a single bundle. They apply to the
-            // only declared platform, or to the build host when it is part of the
-            // matrix; multi-platform releases stage agents from
-            // telemetry-acp-proxy/agents/<os>-<arch>/ instead.
-            val explicitAgentRequested = agentDirOption != null || agentBinaryOption != null
-            val explicitAgentPlatform: Pair<String, String>? =
-                when {
-                    !explicitAgentRequested -> null
-                    requestedPlatforms.size == 1 -> requestedPlatforms.single()
-                    else ->
-                        requestedPlatforms.firstOrNull { it.first == targetOs && it.second == targetArch }
-                            ?: throw GradleException(
-                                "-PresearchAgentDir/-PresearchAgentBinary describe one agent bundle, but the " +
-                                    "declared platform matrix does not contain the build host $targetOs-$targetArch. " +
-                                    "Stage per-platform agents under telemetry-acp-proxy/agents/<os>-<arch>/ instead.",
-                            )
-                }
-
-            fun normalizeDigest(raw: String?): String? {
-                if (raw == null) return null
-                val text = raw.trim().lowercase()
-                val stripped = text.removePrefix("sha256:")
-                return if (Regex("^[0-9a-f]{64}$").matches(stripped)) stripped else null
-            }
-
-            // If the runtime manifest names a platform archive that actually
-            // exists on disk, prefer its declared executable name so the staged
-            // agent is named correctly. When the archive is absent this is empty
-            // and detection behaves exactly as before.
-            val runtimeManifestFile = File(runtimeResourceRootPath, "code4me-runtime/manifest.json")
-
-            fun manifestAgentExecutables(platformOs: String, platformArch: String): Set<String> {
-                if (!runtimeManifestFile.isFile) return emptySet()
-                return runCatching {
-                    @Suppress("UNCHECKED_CAST")
-                    val manifest = JsonSlurper().parse(runtimeManifestFile) as Map<String, Any?>
-                    @Suppress("UNCHECKED_CAST")
-                    val artifacts = manifest["artifacts"] as? List<Map<String, Any?>> ?: emptyList()
-                    fun normalizeManifestArch(raw: Any?): String =
-                        when (raw?.toString()?.lowercase()) {
-                            "aarch64", "arm64" -> "aarch64"
-                            "x64", "amd64", "x86_64" -> "x64"
-                            else -> raw?.toString()?.lowercase().orEmpty()
-                        }
-                    artifacts
-                        .filter {
-                            it["platform"]?.toString() == platformOs &&
-                                normalizeManifestArch(it["architecture"]) == platformArch
-                        }.mapNotNull { artifact ->
-                            val archive = artifact["archive"]?.toString()
-                            val executable = artifact["executable"]?.toString()
-                            if (archive != null &&
-                                executable != null &&
-                                File(runtimeResourceRootPath, archive).isFile
-                            ) {
-                                executable
-                            } else {
-                                null
-                            }
-                        }.toSet()
-                }.getOrElse { emptySet() }
-            }
-
-            // Optional packaged agent. A real agent is staged only from an explicit
-            // `-PresearchAgentDir`/`-PresearchAgentBinary`, or from the dev
-            // auto-detection path; otherwise the `agent` block is omitted (never
-            // invented) and the runtime is refused at launch.
-            fun agentBlockFor(platformOs: String, platformArch: String): Map<String, Any?>? {
-                val platformId = "$platformOs-$platformArch"
-                val agentTargetDir = File(staging, "agents/$platformId")
-                val autoAgentSource = File(sourceRootFile, "agents/$platformId")
-                val agentCandidates =
-                    setOf("code4me-agent", "code4me-agent.exe", "codex-acp", "codex-acp.exe") +
-                        manifestAgentExecutables(platformOs, platformArch)
-
-                fun detectAgentEntrypoint(directory: File, allowSingleFile: Boolean = false): String? {
-                    val allFiles = directory.walkTopDown().filter { it.isFile }.sortedBy { it.path }.toList()
-                    val entry = allFiles.firstOrNull { it.name in agentCandidates }
-                        ?: allFiles.singleOrNull().takeIf { allowSingleFile }
-                    return entry?.relativeTo(directory)?.invariantSeparatorsPath
-                }
-
-                val useExplicit = explicitAgentPlatform == (platformOs to platformArch)
-                val explicitAgentDir = if (useExplicit) agentDirOption?.let { File(it) } else null
-                val explicitAgentBinary = if (useExplicit) agentBinaryOption?.let { File(it) } else null
-
-                val agentEntryRelative: String? =
-                    when {
-                        explicitAgentDir != null -> {
-                            if (!explicitAgentDir.isDirectory) {
-                                throw GradleException("-PresearchAgentDir is not a directory: ${explicitAgentDir.absolutePath}")
-                            }
-                            if (explicitAgentBinary != null && !explicitAgentBinary.isFile) {
-                                throw GradleException("-PresearchAgentBinary is not a file: ${explicitAgentBinary.absolutePath}")
-                            }
-                            copyTree(explicitAgentDir, agentTargetDir)
-                            if (explicitAgentBinary != null) {
-                                val relative = explicitAgentBinary.relativeTo(explicitAgentDir)
-                                if (relative.path.startsWith("..")) {
-                                    throw GradleException(
-                                        "-PresearchAgentBinary must live inside -PresearchAgentDir; got " +
-                                            "${explicitAgentBinary.absolutePath} outside ${explicitAgentDir.absolutePath}",
-                                    )
-                                }
-                                relative.path.replace(File.separatorChar, '/')
-                            } else {
-                                detectAgentEntrypoint(agentTargetDir, allowSingleFile = true)
-                                    ?: throw GradleException(
-                                        "could not determine the agent entrypoint in ${agentTargetDir.absolutePath}; " +
-                                            "pass -PresearchAgentBinary=<path> or name it one of $agentCandidates",
-                                    )
-                            }
-                        }
-                        explicitAgentBinary != null -> {
-                            if (!explicitAgentBinary.isFile) {
-                                throw GradleException("-PresearchAgentBinary is not a file: ${explicitAgentBinary.absolutePath}")
-                            }
-                            agentTargetDir.mkdirs()
-                            explicitAgentBinary.copyTo(File(agentTargetDir, explicitAgentBinary.name), overwrite = true)
-                            explicitAgentBinary.name
-                        }
-                        autoAgentSource.isDirectory -> {
-                            detectAgentEntrypoint(autoAgentSource)?.also {
-                                copyTree(autoAgentSource, agentTargetDir)
-                            }
-                        }
-                        else -> null
-                    }
-                if (agentEntryRelative == null) return null
-
-                // A managed Code4Me agent must run in `--managed` mode; other
-                // agents keep an argument-free entrypoint unless
-                // -PresearchAgentArgs overrides.
-                val managedAgentExecutableNames =
-                    setOf("code4me-agent", "code4me-agent.exe", "code4me2-agent", "code4me2-agent.exe")
-                val isManagedCode4MeAgent =
-                    File(agentEntryRelative).name.lowercase() in managedAgentExecutableNames
-                val explicitAgentArgs =
-                    agentArgsOption?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }
-                val researchAgentArgs: List<String> =
-                    when {
-                        explicitAgentArgs != null -> explicitAgentArgs
-                        isManagedCode4MeAgent -> listOf("--managed")
-                        else -> emptyList()
-                    }
-
-                val agentEntryFile = File(agentTargetDir, agentEntryRelative)
-                agentEntryFile.parentFile?.mkdirs()
-                agentEntryFile.setExecutable(true, false)
-                val computedDigest = sha256Of(agentEntryFile)
-                if (useExplicit && agentDigestOption != null) {
-                    val declaredDigest = normalizeDigest(agentDigestOption)
-                    if (declaredDigest == null) {
-                        throw GradleException(
-                            "-PresearchAgentDigest must be a 64-hex sha256 (optionally prefixed with 'sha256:'): $agentDigestOption",
-                        )
-                    }
-                    if (declaredDigest != computedDigest) {
-                        throw GradleException(
-                            "-PresearchAgentDigest $declaredDigest does not match the staged agent executable sha256 $computedDigest",
-                        )
-                    }
-                }
-
-                val agentFiles =
-                    agentTargetDir
-                        .walkTopDown()
-                        .filter { it.isFile }
-                        .sortedBy { it.path }
-                        .map { file ->
-                            linkedMapOf<String, Any>(
-                                "path" to file.relativeTo(staging).invariantSeparatorsPath,
-                                "sha256" to sha256Of(file),
-                                "size" to file.length(),
-                                "executable" to true,
-                            )
-                        }.toList()
-                return linkedMapOf(
-                    "entrypoint" to (listOf("agents/$platformId/$agentEntryRelative") + researchAgentArgs),
-                    "digest" to computedDigest,
-                    "files" to agentFiles,
-                )
-            }
-
             val platformEntries = mutableListOf<Map<String, Any?>>()
             for ((platformOs, platformArch) in requestedPlatforms) {
                 val platformId = "$platformOs-$platformArch"
@@ -902,13 +780,13 @@ val stageResearchProxy =
                 val proxyFiles = mutableListOf<Map<String, Any>>()
 
                 if (prebuilt != null) {
-                    if (inventory != null) {
+                    if (recipe != null) {
                         val provenanceFile = File(prebuilt, "participant-provenance.json")
                         require(provenanceFile.isFile) { "Proxy $platformId is missing build provenance; rebuild it from pinned sources" }
                         @Suppress("UNCHECKED_CAST")
                         val provenance = JsonSlurper().parse(provenanceFile) as Map<String, Any?>
-                        require(provenance["plugin_commit"] == inventory["plugin_commit"] &&
-                            provenance["server_commit"] == inventory["server_commit"] &&
+                        require(provenance["plugin_commit"] == recipe["plugin_commit"] &&
+                            provenance["server_commit"] == recipe["server_commit"] &&
                             provenance["source_dirty"] == false &&
                             Regex("[0-9a-f]{64}").matches(provenance["contract_digest"].toString())
                         ) { "Proxy $platformId was not built from the recipe's clean pinned sources" }
@@ -999,37 +877,6 @@ val stageResearchProxy =
                         "entrypoint" to entrypoint,
                         "files" to proxyFiles,
                     )
-                if (catalog == null) {
-                    agentBlockFor(platformOs, platformArch)?.let { platformEntry["agent"] = it }
-                } else {
-                    @Suppress("UNCHECKED_CAST")
-                    val preparedPlatforms = catalog["platforms"] as List<Map<String, Any?>>
-                    val preparedPlatform = preparedPlatforms.singleOrNull { it["os"] == platformOs && it["arch"] == platformArch }
-                        ?: error("Prepared release has no unique platform $platformId")
-                    @Suppress("UNCHECKED_CAST")
-                    val agents = preparedPlatform["agents"] as List<Map<String, Any?>>
-                    require(agents.isNotEmpty() && agents.map { it["release_id"] }.toSet().size == agents.size) {
-                        "Prepared platform must have unique release-keyed agents"
-                    }
-                    val inputRoot = preparedRelease!!.resolve("research-agents").toPath().toRealPath()
-                    for (agent in agents) {
-                        @Suppress("UNCHECKED_CAST")
-                        val records = agent["files"] as List<Map<String, Any?>>
-                        for (record in records) {
-                            val relative = record["path"].toString()
-                            val source = inputRoot.resolve(relative).normalize()
-                            require(source.startsWith(inputRoot) && source.toRealPath().startsWith(inputRoot)) { "Agent path escapes input" }
-                            require(source.toFile().length() == (record["size"] as Number).toLong() &&
-                                sha256Of(source.toFile()) == record["sha256"]) { "Prepared agent file differs: $relative" }
-                            val target = File(staging, relative)
-                            require(target.toPath().normalize().startsWith(staging.toPath())) { "Agent path escapes output" }
-                            target.parentFile.mkdirs()
-                            source.toFile().copyTo(target, overwrite = true)
-                            target.setExecutable(record["executable"] == true, false)
-                        }
-                    }
-                    platformEntry["agents"] = agents
-                }
                 platformEntries.add(platformEntry)
             }
 
@@ -1038,11 +885,37 @@ val stageResearchProxy =
                     "schema_version" to "1",
                     "platforms" to platformEntries,
                 )
-            inventory?.let {
-                require((it["platforms"] as List<*>).toSet() ==
+            if (recipe != null) {
+                val requestedPlatformIds =
                     requestedPlatforms.map { pair -> pair.first + "-" + pair.second }.toSet()
-                ) { "Prepared release platform coverage differs from requested platforms" }
-                manifest["participant_release"] = it
+                require(recipePlatforms == requestedPlatformIds) {
+                    "Prepared release platform coverage differs from requested platforms"
+                }
+                val releases =
+                    mutableListOf<Map<String, Any?>>(
+                        linkedMapOf(
+                            "framework" to "code4me2-agent",
+                            "version" to recipe["runtime_version"],
+                            "distribution_mode" to "PACKAGED",
+                        ),
+                    )
+                @Suppress("UNCHECKED_CAST")
+                (recipe["agents"] as? List<Map<String, Any?>>)?.forEach { agent ->
+                    releases.add(
+                        linkedMapOf(
+                            "framework" to agent["framework"],
+                            "version" to agent["version"],
+                            "distribution_mode" to "BYOA_EXTERNAL",
+                        ),
+                    )
+                }
+                manifest["participant_release"] =
+                    linkedMapOf<String, Any?>(
+                        "schema_version" to "1",
+                        "plugin_version" to recipe["plugin_version"],
+                        "platforms" to recipePlatforms!!.sorted(),
+                        "releases" to releases,
+                    )
             }
             File(staging, "proxy-manifest.json")
                 .writeText(JsonOutput.prettyPrint(JsonOutput.toJson(manifest)))

@@ -24,6 +24,8 @@ data class RuntimeArtifact(
     val sha256: String,
     val executable: String,
     val managedProtocol: String,
+    /** Optional `adapter.digest` the recipe declares; `null` when it declares none. */
+    val adapterDigest: String? = null,
 )
 
 sealed interface RuntimeInstallResult {
@@ -141,6 +143,7 @@ class ManagedRuntimeInstaller(
                 sha256 = item.getValue("sha256").jsonPrimitive.content,
                 executable = item.getValue("executable").jsonPrimitive.content,
                 managedProtocol = item.getValue("managed_protocol").jsonPrimitive.content,
+                adapterDigest = item["adapter"]?.jsonObject?.get("digest")?.jsonPrimitive?.content,
             )
         }?.firstOrNull { it.platform == platformId() && it.architecture == architectureId() }
             ?.also { artifact ->

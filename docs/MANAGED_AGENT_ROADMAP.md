@@ -829,7 +829,7 @@ Paths follow the `P/` and `S/` repository prefixes above. Files introduced with 
 
 **Summary:** ship every required component inside the participant ZIP.
 
-**Files:** S `packaging/`, `.github/workflows/build-managed-runtime.yml`; P `scripts/{build-local-zip,stage-runtime-bundles,verify-participant-artifact}.py`, `src/main/resources/code4me-runtime/manifest.json`, Gradle staging.
+**Files:** S `packaging/`, `.github/workflows/build-managed-runtime.yml`; P `scripts/{build-local-zip,verify-participant-artifact}.py`, `src/main/resources/code4me-runtime/manifest.json`, Gradle staging.
 
 **Implement:** Compose all engines for four platforms. Pin components/toolchains, hashes, versions, notices and compatibility; generate staging and complete cache fingerprints. Sign Windows components and sign/notarize final macOS contents.
 

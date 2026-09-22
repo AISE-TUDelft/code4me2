@@ -20,6 +20,16 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
 
+def recipe_platforms(document: dict) -> list[str]:
+    """The recipe's platforms in the proxy/host vocabulary (``arm64`` -> ``aarch64``)."""
+    platforms = {
+        f"{artifact['platform']}-"
+        f"{'aarch64' if artifact['architecture'] == 'arm64' else artifact['architecture']}"
+        for artifact in document["artifacts"]
+    }
+    return sorted(platforms)
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # Never forward the operator's cookie to a redirect target.
@@ -108,7 +118,7 @@ def apply_plan(plan, api, report_path, receipts):
         matches = [p for p in profiles if p["name"] == wanted["name"]]
         if matches and (len(matches) != 1 or not profile_matches(wanted, matches[0])):
             raise ValueError("existing profile name is ambiguous or has different content; choose a new name")
-    report = {"recipe_digest": plan["inventory"]["recipe_digest"], "completed": [], "pending": []}
+    report = {"recipe_digest": plan["recipe_digest"], "completed": [], "pending": []}
 
     def save():
         report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -215,27 +225,28 @@ def main():
             parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".participant-release-", dir=parent) as temp:
             prepared = Path(temp) / "prepared"
-            plan = prepare(recipe, args.inputs.resolve(), prepared, platforms=requested_platforms())
+            document = prepare(recipe, args.inputs.resolve(), prepared, platforms=requested_platforms())
             if args.command == "prepare":
                 prepared.rename(args.output.resolve())
-        print(json.dumps(plan["inventory"], indent=2))
+        print(json.dumps(document, indent=2))
         return
     prepared = args.prepared.resolve()
-    plan = load_prepared(prepared)
-    inventory = plan["inventory"]
-    local_release = set(inventory["platforms"]) != set(PLATFORMS)
+    recipe = load_prepared(prepared)
+    platforms = recipe_platforms(recipe)
+    production_platforms = {platform.replace("-arm64", "-aarch64") for platform in PLATFORMS}
+    local_release = set(platforms) != production_platforms
     if local_release and os.environ.get("CODE4ME_LOCAL_RELEASE") != "1":
         raise ValueError("this preparation is a partial local test release; set CODE4ME_LOCAL_RELEASE=1")
     if args.command == "apply":
         receipts = json.loads(args.receipts.read_text()) if args.receipts else []
-        report = apply_plan(plan, Api(args.server_url, os.environ.get(args.auth_token_env, "")),
+        report = apply_plan(recipe, Api(args.server_url, os.environ.get(args.auth_token_env, "")),
                             prepared / "apply-report.json", receipts)
         print(json.dumps(report, indent=2))
         if report["pending"]:
             raise SystemExit(2)
         return
-    for checkout, expected in ((PLUGIN_ROOT, inventory["plugin_commit"]),
-                               (args.server_source.resolve().parent, inventory["server_commit"])):
+    for checkout, expected in ((PLUGIN_ROOT, recipe["plugin_commit"]),
+                               (args.server_source.resolve().parent, recipe["server_commit"])):
         actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
         if actual != expected:
             raise ValueError("source checkout does not match the recipe's exact commit")
@@ -253,9 +264,9 @@ def main():
     command = [str(PLUGIN_ROOT / ("gradlew.bat" if os.name == "nt" else "gradlew")),
                "--no-daemon", "--no-configuration-cache", "buildParticipantPlugin",
                "-PparticipantReleaseDir=" + str(prepared),
-               "-PpluginVersion=" + inventory["plugin_version"],
+               "-PpluginVersion=" + recipe["plugin_version"],
                "-Pcode4me.serverUrl=" + args.server_url,
-               "-PresearchProxyPlatforms=" + ",".join(inventory["platforms"]),
+               "-PresearchProxyPlatforms=" + ",".join(platforms),
                "-PrequireResearchProxyBundles=true"]
     if local_release:
         command.append("-PparticipantLocalRelease=true")
@@ -265,7 +276,15 @@ def main():
     verification = [sys.executable, str(PLUGIN_ROOT / "scripts/verify-participant-artifact.py"), str(artifact)]
     verification.append("--allow-partial-platforms" if local_release else "--require-participant-release")
     subprocess.run(verification, check=True)
-    report = dict(inventory, zip_name=artifact.name, zip_sha256=file_sha256(artifact))
+    report = {
+        "plugin_version": recipe["plugin_version"],
+        "plugin_commit": recipe["plugin_commit"],
+        "server_commit": recipe["server_commit"],
+        "platforms": platforms,
+        "recipe_digest": recipe["recipe_digest"],
+        "zip_name": artifact.name,
+        "zip_sha256": file_sha256(artifact),
+    }
     (prepared / "build-report.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))
 

@@ -1,9 +1,9 @@
 {
   "manifest_version": 1,
-  "runtime_version": "0.0.0-dev",
+  "runtime_version": "1.2.3",
   "managed_protocol_version": "1",
-  "server_commit": "08d5797",
-  "plugin_commit": "dded34e",
+  "server_commit": "4bbf86041140d418d88ac41ddee393c77a905eb5",
+  "plugin_commit": "68238bc",
   "tested_ide_version": "2026.2.2",
   "tested_platforms": [
     "macos-arm64"
@@ -11,44 +11,19 @@
   "artifacts": [
     {
       "runtime_id": "code4me-agent",
-      "version": "0.0.0-dev",
+      "version": "1.2.3",
       "platform": "macos",
       "architecture": "arm64",
       "archive": "code4me-runtime/code4me-agent-macos-arm64.zip",
-      "sha256": "74dd71f9c11e341f819d4d7417464a7de33d1a361103edf5e8a3124d5f92a9a5",
+      "sha256": "b2e8f8292b0026d5ff705b901755b6647c49a4c1e28677992d3c1512540f4961",
+      "size": 36712418,
       "executable": "code4me2-agent",
       "managed_protocol": "1",
-      "size": 24542238
-    },
-    {
-      "runtime_id": "code4me-agent",
-      "version": "pending-release",
-      "platform": "macos",
-      "architecture": "x64",
-      "archive": "code4me-runtime/code4me-agent-macos-x64.zip",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-      "executable": "code4me2-agent",
-      "managed_protocol": "1"
-    },
-    {
-      "runtime_id": "code4me-agent",
-      "version": "pending-release",
-      "platform": "windows",
-      "architecture": "x64",
-      "archive": "code4me-runtime/code4me-agent-windows-x64.zip",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-      "executable": "code4me2-agent.exe",
-      "managed_protocol": "1"
-    },
-    {
-      "runtime_id": "code4me-agent",
-      "version": "pending-release",
-      "platform": "linux",
-      "architecture": "x64",
-      "archive": "code4me-runtime/code4me-agent-linux-x64.zip",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-      "executable": "code4me2-agent",
-      "managed_protocol": "1"
+      "tests": {
+        "self_check": "PASS",
+        "acp_initialize": "PASS",
+        "ran_at": "2026-09-22T08:22:06.501638+00:00"
+      }
     }
   ]
 }
