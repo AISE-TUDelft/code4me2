@@ -736,4 +736,29 @@ class PrivacyFilterTest {
             PrivacyPolicy(allowedFieldClasses = setOf(FieldClass.SYSTEM, FieldClass.SECRET))
         }
     }
+
+    @Test
+    fun `run phase and exit code classify like the server tokens`() {
+        // Parity with research.telemetry.privacy.classify: `phase` -> BEHAVIORAL
+        // (token) and `exit_code` -> SYSTEM (exact key). The proxy's
+        // `exit_status` must stay BEHAVIORAL, not flip to SYSTEM.
+        assertEquals(FieldClass.BEHAVIORAL, FieldClassifier.classify("phase", "started"))
+        assertEquals(FieldClass.SYSTEM, FieldClassifier.classify("exit_code", 0))
+        assertEquals(FieldClass.BEHAVIORAL, FieldClassifier.classify("exit_status", 0))
+    }
+
+    @Test
+    fun `ide run start and finish payloads survive the metadata filter unchanged`() {
+        val policy =
+            PrivacyPolicy(
+                allowedFieldClasses = setOf(FieldClass.SYSTEM, FieldClass.BEHAVIORAL, FieldClass.CODE_METADATA),
+                codeMetadataMode = CodeMetadataMode.ALLOW,
+            )
+        val start = linkedMapOf<String, Any?>("action_category" to "RUN", "phase" to "started")
+        val finish =
+            linkedMapOf<String, Any?>("action_category" to "RUN", "phase" to "finished", "exit_code" to 0)
+
+        assertEquals(start, PrivacyFilter(policy).filter(start).sanitizedPayload)
+        assertEquals(finish, PrivacyFilter(policy).filter(finish).sanitizedPayload)
+    }
 }

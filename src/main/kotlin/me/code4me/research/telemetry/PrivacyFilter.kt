@@ -83,6 +83,14 @@ object FieldClassifier {
             "document",
         )
 
+    /**
+     * Exact normalized keys classified as [FieldClass.SYSTEM]. `exit_code` is
+     * handled here rather than via a bare `exit` token: that token would also
+     * reclassify the proxy's `exit_status` payload key from BEHAVIORAL to
+     * SYSTEM. Mirrors the server's `SYSTEM_KEY_EXACT`.
+     */
+    private val systemKeyExact: Set<String> = setOf("exit_code")
+
     private val systemTokens: Set<String> =
         setOf(
             "duration", "latency", "timestamp", "clock", "process", "pid", "version",
@@ -96,6 +104,8 @@ object FieldClassifier {
             "status", "state", "role", "model", "result", "outcome", "error", "name",
             "id", "type", "call", "edit", "session", "run", "agent", "capability",
             "fidelity", "kind", "reason", "method",
+            // `phase` -> BEHAVIORAL (parity with the server classifier).
+            "phase",
         )
 
     private fun normalizedKey(name: String): String = name.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
@@ -124,6 +134,7 @@ object FieldClassifier {
         value: Any?,
     ): FieldClass? {
         if (isSecretKey(name) || looksSecretValue(value)) return FieldClass.SECRET
+        if (normalizedKey(name) in systemKeyExact) return FieldClass.SYSTEM
         val tokens = tokensOf(name)
         if (tokens.any { it in contentTokens }) return FieldClass.CONTENT
         if (tokens.any { it in codeMetadataTokens }) return FieldClass.CODE_METADATA
