@@ -25,8 +25,6 @@ import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -134,6 +132,8 @@ class AcpHostRegistrationTest {
         val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
         Files.createDirectories(proxyExecutable.parent)
         Files.writeString(proxyExecutable, "proxy-binary")
+        val agentExecutable = directory.resolve("agent")
+        Files.writeString(agentExecutable, "agent-binary")
         val capabilityFile = directory.resolve("capability.txt")
 
         // The entry now carries the capability in its env, so idempotency
@@ -143,7 +143,7 @@ class AcpHostRegistrationTest {
         val first =
             registration().register(
                 runtime(proxyExecutable),
-                null,
+                listOf(agentExecutable.toString()),
                 "file:///spool",
                 capabilityFile,
                 emptyMap(),
@@ -155,7 +155,7 @@ class AcpHostRegistrationTest {
         val second =
             registration().register(
                 runtime(proxyExecutable),
-                null,
+                listOf(agentExecutable.toString()),
                 "file:///spool",
                 capabilityFile,
                 emptyMap(),
@@ -172,11 +172,13 @@ class AcpHostRegistrationTest {
         val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
         Files.createDirectories(proxyExecutable.parent)
         Files.writeString(proxyExecutable, "proxy-binary")
+        val agentExecutable = directory.resolve("agent")
+        Files.writeString(agentExecutable, "agent-binary")
         val registration = registration()
         val registered =
             registration.register(
                 runtime(proxyExecutable),
-                null,
+                listOf(agentExecutable.toString()),
                 "file:///spool",
                 directory.resolve("cap.txt"),
                 emptyMap(),
@@ -205,10 +207,20 @@ class AcpHostRegistrationTest {
         val contextB = AcpHostRegistration.contextEntryName("ctx-bbbbbbbbbbbbbbbb")
         assertTrue(contextA != contextB)
 
+        val agentExecutable = directory.resolve("agent")
+        Files.writeString(agentExecutable, "agent-binary")
         val windowA = registration(contextA)
         val windowB = registration(contextB)
-        assertTrue(windowA.register(runtime(proxyExecutable), null, "file:///spool", directory.resolve("a.txt")).isSuccess)
-        assertTrue(windowB.register(runtime(proxyExecutable), null, "file:///spool", directory.resolve("b.txt")).isSuccess)
+        assertTrue(
+            windowA.register(
+                runtime(proxyExecutable), listOf(agentExecutable.toString()), "file:///spool", directory.resolve("a.txt"),
+            ).isSuccess,
+        )
+        assertTrue(
+            windowB.register(
+                runtime(proxyExecutable), listOf(agentExecutable.toString()), "file:///spool", directory.resolve("b.txt"),
+            ).isSuccess,
+        )
         assertTrue(servers().containsKey(contextA))
         assertTrue(servers().containsKey(contextB))
 
@@ -218,46 +230,6 @@ class AcpHostRegistrationTest {
         assertFalse(servers.containsKey(contextA))
         assertTrue(servers.containsKey(contextB))
         assertTrue(servers.containsKey("Goose (Code4Me)"))
-    }
-
-    @Test
-    fun `register uses the resolver-provided agent argv and digest`() {
-        val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
-        Files.createDirectories(proxyExecutable.parent)
-        Files.writeString(proxyExecutable, "proxy-binary")
-        val agentExecutable = directory.resolve("runtime/agents/macos-aarch64/code4me-agent")
-        Files.createDirectories(agentExecutable.parent)
-        Files.writeString(agentExecutable, "agent-binary")
-        val agentDigest = "cd".repeat(32)
-        val resolved =
-            ResolvedProxyRuntime(
-                runtimeRoot = directory.resolve("runtime"),
-                proxyArgv = listOf(proxyExecutable.toString(), "--stdio"),
-                proxyDigest = "ab".repeat(32),
-                agentArgv = listOf(agentExecutable.toString()),
-                agentDigest = agentDigest,
-            )
-
-        val result =
-            registration().register(
-                resolved = resolved,
-                agentArgv = null,
-                spoolEndpoint = null,
-                capabilityFile = null,
-            )
-
-        assertTrue(result.isSuccess)
-        val args =
-            servers()
-                .getValue(AcpHostRegistration.DEFAULT_ENTRY_NAME)
-                .jsonObject
-                .getValue("args")
-                .jsonArray
-                .map { it.jsonPrimitive.content }
-        assertTrue(args.containsAll(listOf("--agent-cmd", agentExecutable.toString())))
-        assertTrue(args.containsAll(listOf("--agent-digest", agentDigest)))
-        assertEquals(agentExecutable.toString(), args.last(), "the agent argv must be last (--agent-cmd is a REMAINDER)")
-        assertTrue(args.indexOf("--agent-digest") < args.indexOf("--agent-cmd"))
     }
 
     @Test
@@ -310,7 +282,14 @@ class AcpHostRegistrationTest {
         Files.createDirectories(proxyExecutable.parent)
         Files.writeString(proxyExecutable, "proxy-binary")
 
-        val result = registration().register(runtime(proxyExecutable), null, "file:///spool", null, emptyMap())
+        val result =
+            registration().register(
+                runtime(proxyExecutable),
+                listOf(proxyExecutable.toString()),
+                "file:///spool",
+                null,
+                emptyMap(),
+            )
 
         assertTrue(result.isFailure)
         assertFalse(Files.exists(registry))
@@ -423,6 +402,89 @@ class AcpHostRegistrationTest {
                 agentCmdIndex,
             ),
         )
+    }
+
+    @Test
+    fun `register emits the agent run id as a flag and an env marker before the agent command`() {
+        val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
+        Files.createDirectories(proxyExecutable.parent)
+        Files.writeString(proxyExecutable, "proxy-binary")
+        val agentExecutable = directory.resolve("agent")
+        Files.writeString(agentExecutable, "agent-binary")
+
+        val result =
+            registration().register(
+                resolved = runtime(proxyExecutable),
+                agentArgv = listOf(agentExecutable.toString()),
+                spoolEndpoint = null,
+                capabilityFile = null,
+                agentRunId = "run-123",
+            )
+
+        assertTrue(result.isSuccess)
+        val entry = servers().getValue(AcpHostRegistration.DEFAULT_ENTRY_NAME).jsonObject
+        val args = entry.getValue("args").jsonArray.map { it.jsonPrimitive.content }
+        val env = entry.getValue("env").jsonObject
+        assertEquals("run-123", env.getValue(AcpHostRegistration.RUN_ID_ENV_VAR).jsonPrimitive.content)
+        val runIndex = args.indexOf(AcpHostRegistration.AGENT_RUN_ID_FLAG)
+        assertTrue(runIndex >= 0, "the run id flag must be present")
+        assertEquals("run-123", args[runIndex + 1])
+        assertTrue(
+            runIndex < args.indexOf(AcpHostRegistration.AGENT_CMD_FLAG),
+            "--agent-run-id must precede the --agent-cmd REMAINDER",
+        )
+    }
+
+    @Test
+    fun `register omits the agent contract when the development runtime carries no packaged agent`() {
+        val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
+        Files.createDirectories(proxyExecutable.parent)
+        Files.writeString(proxyExecutable, "proxy-binary")
+
+        val result =
+            registration().register(
+                resolved = runtime(proxyExecutable),
+                agentArgv = emptyList(),
+                spoolEndpoint = null,
+                capabilityFile = null,
+                digestFallbackToAgentArgv = false,
+            )
+
+        assertTrue(result.isSuccess)
+        val args =
+            servers()
+                .getValue(AcpHostRegistration.DEFAULT_ENTRY_NAME)
+                .jsonObject
+                .getValue("args")
+                .jsonArray
+                .map { it.jsonPrimitive.content }
+        assertFalse(args.contains(AcpHostRegistration.AGENT_CMD_FLAG))
+        assertFalse(args.contains(AcpHostRegistration.AGENT_DIGEST_FLAG))
+    }
+
+    @Test
+    fun `register omits the run id flag and env when no run id is supplied`() {
+        val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
+        Files.createDirectories(proxyExecutable.parent)
+        Files.writeString(proxyExecutable, "proxy-binary")
+        val agentExecutable = directory.resolve("agent")
+        Files.writeString(agentExecutable, "agent-binary")
+
+        val result =
+            registration().register(
+                resolved = runtime(proxyExecutable),
+                agentArgv = listOf(agentExecutable.toString()),
+                spoolEndpoint = null,
+                capabilityFile = null,
+                agentRunId = "   ",
+            )
+
+        assertTrue(result.isSuccess)
+        val entry = servers().getValue(AcpHostRegistration.DEFAULT_ENTRY_NAME).jsonObject
+        val args = entry.getValue("args").jsonArray.map { it.jsonPrimitive.content }
+        val env = entry.getValue("env").jsonObject
+        assertFalse(args.contains(AcpHostRegistration.AGENT_RUN_ID_FLAG))
+        assertFalse(env.containsKey(AcpHostRegistration.RUN_ID_ENV_VAR))
     }
 
     private fun registration(): AcpHostRegistration = AcpHostRegistration(registry)
@@ -635,8 +697,6 @@ class ProxyRuntimeResolverTest {
         assertEquals(sha256Hex("#!/bin/sh\nexit 0\n"), resolved.runtime.proxyDigest)
         assertTrue(resolved.runtime.selfContained)
         assertFalse(resolved.runtime.development)
-        assertNull(resolved.runtime.agentArgv)
-        assertNull(resolved.runtime.agentDigest)
     }
 
     @Test
@@ -748,82 +808,14 @@ class ProxyRuntimeResolverTest {
         assertEquals(ProxyRuntimeErrorCode.MALFORMED_MANIFEST, failure.error.code)
     }
 
-    // ------------------------------------------------------------------
-    // Agent bundle
-    // ------------------------------------------------------------------
-
     @Test
-    fun `a manifest agent is resolved and its digest returned`() {
-        val root = Files.createTempDirectory("proxy-runtime-agent")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        val agent = Fixture("agents/macos-aarch64/code4me-agent", "agent-binary", executable = true)
-        writeManifest(root, files = listOf(proxy), entrypoint = proxy.path, agent = AgentFixture(agent.path, listOf(agent)))
-
-        val resolved = resolver(root).resolve() as ProxyRuntimeResolution.Resolved
-
-        val expectedAgent = root.toRealPath().resolve(agent.path)
-        assertEquals(expectedAgent, Path.of(resolved.runtime.agentArgv!!.first()).toRealPath())
-        assertEquals(sha256Hex(agent.content), resolved.runtime.agentDigest)
-    }
-
-    @Test
-    fun `a tampered agent digest fails closed`() {
-        val root = Files.createTempDirectory("proxy-runtime-agent-tampered")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        val agent = Fixture("agents/macos-aarch64/code4me-agent", "agent-binary", executable = true)
-        writeManifest(
-            root,
-            files = listOf(proxy),
-            entrypoint = proxy.path,
-            agent = AgentFixture(agent.path, listOf(agent)),
-            agentDigestOverride = "1".repeat(64),
-        )
-
-        val failure = resolver(root).resolve() as ProxyRuntimeResolution.Failed
-
-        assertEquals(ProxyRuntimeErrorCode.DIGEST_MISMATCH, failure.error.code)
-    }
-
-    @Test
-    fun `an agent bundle provider can supply a verified agent`() {
-        val root = Files.createTempDirectory("proxy-runtime-provider")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        writeManifest(root, files = listOf(proxy), entrypoint = proxy.path)
-        val agent = Fixture("agents/macos-aarch64/code4me-agent", "provided-agent", executable = true)
-        writeFile(root, agent)
-        val provider =
-            AgentBundleProvider { _, _, _ ->
-                AgentBundle(
-                    entrypoint = listOf(agent.path),
-                    digest = sha256Hex(agent.content),
-                    files =
-                        listOf(
-                            AgentBundleFile(
-                                path = agent.path,
-                                sha256 = sha256Hex(agent.content),
-                                size = agent.content.toByteArray().size.toLong(),
-                                executable = true,
-                            ),
-                        ),
-                )
-            }
-
-        val resolved = resolver(root, agentBundleProvider = provider).resolve() as ProxyRuntimeResolution.Resolved
-
-        assertNotNull(resolved.runtime.agentArgv)
-        assertEquals(sha256Hex(agent.content), resolved.runtime.agentDigest)
-    }
-
-    @Test
-    fun `an agent-less manifest never falls back to a PATH or package-manager agent`() {
+    fun `a proxy-only manifest never falls back to a PATH or package-manager agent`() {
         val root = Files.createTempDirectory("proxy-runtime-no-agent-fallback")
         val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
         writeManifest(root, files = listOf(proxy), entrypoint = proxy.path)
 
         val resolved = resolver(root).resolve() as ProxyRuntimeResolution.Resolved
 
-        assertNull(resolved.runtime.agentArgv, "no agent may be invented when the manifest declares none")
-        assertNull(resolved.runtime.agentDigest)
         // Every argv entry the resolver can produce comes from the verified root;
         // no PATH/npm/npx/host-agent lookup is ever attempted.
         val realRoot = root.toRealPath()
@@ -835,238 +827,6 @@ class ProxyRuntimeResolverTest {
         listOf("npm", "npx", "node", "goose", "codex", "codex-acp").forEach { tool ->
             assertFalse(tool in tokens, "argv must not reference the host tool '$tool'")
         }
-    }
-
-    // ------------------------------------------------------------------
-    // Release-keyed agents (`agents` array)
-    // ------------------------------------------------------------------
-
-    @Test
-    fun `two declared releases resolve each assigned release to its own binary and digest`() {
-        val root = Files.createTempDirectory("proxy-runtime-releases")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        val agentA = Fixture("agents/macos-aarch64/code4me-agent-a", "agent-a", executable = true)
-        val agentB = Fixture("agents/macos-aarch64/code4me-agent-b", "agent-b", executable = true)
-        val digestA = sha256Hex(agentA.content)
-        val digestB = sha256Hex(agentB.content)
-        writeManifest(
-            root,
-            files = listOf(proxy),
-            entrypoint = proxy.path,
-            agents =
-                listOf(
-                    ReleaseAgentFixture("release-a", digestA, AgentFixture(agentA.path, listOf(agentA)), selfContained = true),
-                    ReleaseAgentFixture("release-b", digestB, AgentFixture(agentB.path, listOf(agentB))),
-                ),
-        )
-
-        val resolvedA =
-            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-a", artifactDigest = digestA)) as
-                ProxyRuntimeResolution.Resolved
-        val resolvedB =
-            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-b", artifactDigest = "sha256:$digestB")) as
-                ProxyRuntimeResolution.Resolved
-
-        assertEquals(root.toRealPath().resolve(agentA.path), Path.of(resolvedA.runtime.agentArgv!!.first()).toRealPath())
-        assertEquals(digestA, resolvedA.runtime.agentDigest)
-        assertEquals(root.toRealPath().resolve(agentB.path), Path.of(resolvedB.runtime.agentArgv!!.first()).toRealPath())
-        assertEquals(digestB, resolvedB.runtime.agentDigest, "the sha256: display prefix must normalize")
-    }
-
-    @Test
-    fun `a release with no matching declared agent resolves no agent`() {
-        val root = Files.createTempDirectory("proxy-runtime-release-missing")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        val agentA = Fixture("agents/macos-aarch64/code4me-agent-a", "agent-a", executable = true)
-        val agentB = Fixture("agents/macos-aarch64/code4me-agent-b", "agent-b", executable = true)
-        writeManifest(
-            root,
-            files = listOf(proxy),
-            entrypoint = proxy.path,
-            agents =
-                listOf(
-                    ReleaseAgentFixture("release-a", sha256Hex(agentA.content), AgentFixture(agentA.path, listOf(agentA))),
-                    ReleaseAgentFixture("release-b", sha256Hex(agentB.content), AgentFixture(agentB.path, listOf(agentB))),
-                ),
-        )
-
-        val resolved =
-            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-c", artifactDigest = null)) as
-                ProxyRuntimeResolution.Resolved
-
-        assertNull(resolved.runtime.agentArgv, "a release with no bundled agent must not fall back to another arm")
-        assertNull(resolved.runtime.agentDigest)
-    }
-
-    @Test
-    fun `a legacy single agent cannot satisfy an assigned release identity`() {
-        val root = Files.createTempDirectory("proxy-runtime-legacy-with-identity")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        val agent = Fixture("agents/macos-aarch64/code4me-agent", "agent-binary", executable = true)
-        writeManifest(root, files = listOf(proxy), entrypoint = proxy.path, agent = AgentFixture(agent.path, listOf(agent)))
-
-        val resolved =
-            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-1", artifactDigest = sha256Hex(agent.content))) as
-                ProxyRuntimeResolution.Resolved
-
-        assertNull(resolved.runtime.agentArgv, "legacy entries cannot prove the assigned release ID")
-        assertNull(resolved.runtime.agentDigest)
-    }
-
-    @Test
-    fun `without a release identity multiple declared agents resolve to none`() {
-        val root = Files.createTempDirectory("proxy-runtime-release-ambiguous")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        val agentA = Fixture("agents/macos-aarch64/code4me-agent-a", "agent-a", executable = true)
-        val agentB = Fixture("agents/macos-aarch64/code4me-agent-b", "agent-b", executable = true)
-        writeManifest(
-            root,
-            files = listOf(proxy),
-            entrypoint = proxy.path,
-            agents =
-                listOf(
-                    ReleaseAgentFixture("release-a", sha256Hex(agentA.content), AgentFixture(agentA.path, listOf(agentA))),
-                    ReleaseAgentFixture("release-b", sha256Hex(agentB.content), AgentFixture(agentB.path, listOf(agentB))),
-                ),
-        )
-
-        val resolved = resolver(root).resolve() as ProxyRuntimeResolution.Resolved
-
-        assertNull(resolved.runtime.agentArgv, "an identity-less multi-release manifest cannot pick an arm")
-    }
-
-    @Test
-    fun `a tampered per-release agent file fails closed even when another release is selected`() {
-        val root = Files.createTempDirectory("proxy-runtime-release-tampered")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        val agentA = Fixture("agents/macos-aarch64/code4me-agent-a", "agent-a", executable = true)
-        val agentB = Fixture("agents/macos-aarch64/code4me-agent-b", "agent-b", executable = true)
-        val digestA = sha256Hex(agentA.content)
-        writeManifest(
-            root,
-            files = listOf(proxy),
-            entrypoint = proxy.path,
-            agents =
-                listOf(
-                    ReleaseAgentFixture("release-a", digestA, AgentFixture(agentA.path, listOf(agentA))),
-                    ReleaseAgentFixture("release-b", sha256Hex(agentB.content), AgentFixture(agentB.path, listOf(agentB))),
-                ),
-        )
-        // Corrupt the file of the *other* release after staging: every declared
-        // per-release agent file is verified, so this fails closed.
-        writeFile(root, Fixture(agentB.path, "tampered"))
-
-        val failure =
-            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-a", artifactDigest = digestA)) as
-                ProxyRuntimeResolution.Failed
-
-        assertEquals(ProxyRuntimeErrorCode.DIGEST_MISMATCH, failure.error.code)
-    }
-
-    @Test
-    fun `an unsafe per-release agent path fails closed`() {
-        val root = Files.createTempDirectory("proxy-runtime-release-escape")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        writeManifest(
-            root,
-            files = listOf(proxy),
-            entrypoint = proxy.path,
-            agents =
-                listOf(
-                    ReleaseAgentFixture(
-                        "release-a",
-                        "a".repeat(64),
-                        AgentFixture("../evil-agent", listOf(Fixture("../evil-agent", "evil", executable = true))),
-                    ),
-                ),
-            writePayloads = false,
-        )
-        // The proxy is staged; only the release agent's path is unsafe.
-        writeFile(root, proxy)
-
-        val failure =
-            resolver(root).resolve(AgentReleaseIdentity(releaseId = "release-a", artifactDigest = "a".repeat(64))) as
-                ProxyRuntimeResolution.Failed
-
-        assertEquals(ProxyRuntimeErrorCode.PATH_ESCAPE, failure.error.code)
-    }
-
-    @Test
-    fun `a release-aware agent bundle provider receives the assigned identity`() {
-        val root = Files.createTempDirectory("proxy-runtime-release-provider")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        writeManifest(root, files = listOf(proxy), entrypoint = proxy.path)
-        val agent = Fixture("agents/macos-aarch64/code4me-agent", "provided-agent", executable = true)
-        writeFile(root, agent)
-        var seen: AgentReleaseIdentity? = null
-        val provider =
-            object : AgentBundleProvider {
-                override fun agentBundle(
-                    runtimeRoot: Path,
-                    os: String,
-                    arch: String,
-                ): AgentBundle? = null
-
-                override fun agentBundle(
-                    runtimeRoot: Path,
-                    os: String,
-                    arch: String,
-                    release: AgentReleaseIdentity?,
-                ): AgentBundle? {
-                    seen = release
-                    return AgentBundle(
-                        entrypoint = listOf(agent.path),
-                        digest = sha256Hex(agent.content),
-                        files =
-                            listOf(
-                                AgentBundleFile(
-                                    path = agent.path,
-                                    sha256 = sha256Hex(agent.content),
-                                    size = agent.content.toByteArray().size.toLong(),
-                                    executable = true,
-                                ),
-                            ),
-                    )
-                }
-            }
-        val identity = AgentReleaseIdentity(releaseId = "release-a", artifactDigest = sha256Hex(agent.content))
-
-        val resolved = resolver(root, agentBundleProvider = provider).resolve(identity) as ProxyRuntimeResolution.Resolved
-
-        assertEquals(identity, seen, "the provider must receive the assigned release identity")
-        assertEquals(sha256Hex(agent.content), resolved.runtime.agentDigest)
-    }
-
-    @Test
-    fun `a legacy three-argument agent bundle provider still supplies an agent`() {
-        val root = Files.createTempDirectory("proxy-runtime-legacy-provider")
-        val proxy = Fixture("bin/telemetry-acp-proxy", "proxy", executable = true)
-        writeManifest(root, files = listOf(proxy), entrypoint = proxy.path)
-        val agent = Fixture("agents/macos-aarch64/code4me-agent", "provided-agent", executable = true)
-        writeFile(root, agent)
-        val provider =
-            AgentBundleProvider { _, _, _ ->
-                AgentBundle(
-                    entrypoint = listOf(agent.path),
-                    digest = sha256Hex(agent.content),
-                    files =
-                        listOf(
-                            AgentBundleFile(
-                                path = agent.path,
-                                sha256 = sha256Hex(agent.content),
-                                size = agent.content.toByteArray().size.toLong(),
-                                executable = true,
-                            ),
-                        ),
-                )
-            }
-
-        val resolved =
-            resolver(root, agentBundleProvider = provider)
-                .resolve(AgentReleaseIdentity(releaseId = "release-a", artifactDigest = sha256Hex(agent.content))) as
-                ProxyRuntimeResolution.Resolved
-
-        assertEquals(sha256Hex(agent.content), resolved.runtime.agentDigest)
     }
 
     // ------------------------------------------------------------------
@@ -1246,24 +1006,13 @@ class ProxyRuntimeResolverTest {
 
     private data class Fixture(val path: String, val content: String, val executable: Boolean = false)
 
-    private data class AgentFixture(val entrypoint: String, val files: List<Fixture>)
-
-    /** One release-keyed entry of a platform `agents` array. */
-    private data class ReleaseAgentFixture(
-        val releaseId: String?,
-        val artifactDigest: String?,
-        val agent: AgentFixture,
-        val selfContained: Boolean? = null,
-    )
-
     private fun resolver(
         root: Path?,
         os: String = this.os,
         arch: String = this.arch,
         devRuntime: DevelopmentRuntime = DevelopmentRuntime.DISABLED,
-        agentBundleProvider: AgentBundleProvider = AgentBundleProvider.NONE,
     ): PackagedProxyRuntimeResolver =
-        PackagedProxyRuntimeResolver(root, os, arch, devRuntime = devRuntime, agentBundleProvider = agentBundleProvider)
+        PackagedProxyRuntimeResolver(root, os, arch, devRuntime = devRuntime)
 
     private fun writeFile(
         root: Path,
@@ -1279,31 +1028,23 @@ class ProxyRuntimeResolverTest {
         root: Path,
         files: List<Fixture>,
         entrypoint: String,
-        agent: AgentFixture? = null,
-        agents: List<ReleaseAgentFixture>? = null,
         selfContained: Boolean = true,
         platformOs: String = os,
         platformArch: String = arch,
         digestOverride: String? = null,
-        agentDigestOverride: String? = null,
         writePayloads: Boolean = true,
     ) {
         if (writePayloads) {
             files.forEach { writeFile(root, it) }
-            agent?.files?.forEach { writeFile(root, it) }
-            agents?.forEach { release -> release.agent.files.forEach { writeFile(root, it) } }
         }
         val json =
             manifestJson(
                 files,
                 entrypoint,
-                agent,
                 selfContained,
                 platformOs,
                 platformArch,
                 digestOverride,
-                agentDigestOverride,
-                agents,
             )
         Files.writeString(root.resolve("proxy-manifest.json"), json)
     }
@@ -1311,13 +1052,10 @@ class ProxyRuntimeResolverTest {
     private fun manifestJson(
         files: List<Fixture>,
         entrypoint: String,
-        agent: AgentFixture?,
         selfContained: Boolean,
         platformOs: String,
         platformArch: String,
         digestOverride: String?,
-        agentDigestOverride: String?,
-        agents: List<ReleaseAgentFixture>? = null,
     ): String =
         buildJsonObject {
             put("schema_version", "1")
@@ -1329,33 +1067,6 @@ class ProxyRuntimeResolverTest {
                     putJsonArray("entrypoint") { add(JsonPrimitive(entrypoint)) }
                     putJsonArray("files") {
                         files.forEach { add(fileJson(it, if (files.size == 1) digestOverride else null)) }
-                    }
-                    if (agent != null) {
-                        val agentEntry = agent.files.first { it.path == agent.entrypoint }
-                        putJsonObject("agent") {
-                            putJsonArray("entrypoint") { add(JsonPrimitive(agent.entrypoint)) }
-                            put("digest", agentDigestOverride ?: sha256Hex(agentEntry.content))
-                            putJsonArray("files") {
-                                agent.files.forEach { add(fileJson(it, null)) }
-                            }
-                        }
-                    }
-                    if (agents != null) {
-                        putJsonArray("agents") {
-                            agents.forEach { release ->
-                                addJsonObject {
-                                    release.releaseId?.let { put("release_id", it) }
-                                    release.artifactDigest?.let { put("artifact_digest", it) }
-                                    release.selfContained?.let { put("self_contained", it) }
-                                    putJsonArray("entrypoint") { add(JsonPrimitive(release.agent.entrypoint)) }
-                                    val entry = release.agent.files.first { it.path == release.agent.entrypoint }
-                                    put("digest", sha256Hex(entry.content))
-                                    putJsonArray("files") {
-                                        release.agent.files.forEach { add(fileJson(it, null)) }
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -1397,12 +1108,10 @@ class ProxyRuntimeResolverTest {
                 manifestJson(
                     files = files,
                     entrypoint = entrypoint,
-                    agent = null,
                     selfContained = selfContained,
                     platformOs = os,
                     platformArch = arch,
                     digestOverride = null,
-                    agentDigestOverride = null,
                 )
             this.files["/research-runtime/proxy-manifest.json"] = json.toByteArray(Charsets.UTF_8)
             for (fixture in files) {
@@ -1449,22 +1158,8 @@ class ResearchProxyPackagingTest {
                 "entrypoint '${entrypoint.first()}' is not declared in files",
             )
 
-            val agent = platform["agent"] as? Map<*, *>
-            if (agent != null) {
-                val agentFiles = agent["files"] as? List<*> ?: error("agent has no files")
-                val agentPaths = verifyEntries(root, agentFiles) { verified++ }
-                val agentEntrypoint = (agent["entrypoint"] as? List<*>)?.mapNotNull { it as? String }.orEmpty()
-                assertTrue(agentEntrypoint.isNotEmpty(), "agent declares no entrypoint")
-                assertTrue(
-                    agentPaths.contains(agentEntrypoint.first()),
-                    "agent entrypoint '${agentEntrypoint.first()}' is not declared in agent.files",
-                )
-                val agentEntry =
-                    agentFiles
-                        .map { it as Map<*, *> }
-                        .first { it["path"] == agentEntrypoint.first() }
-                assertEquals(agent["digest"], agentEntry["sha256"], "agent.digest must match the agent executable")
-            }
+            assertFalse(platform.containsKey("agent"), "the proxy manifest must not declare a legacy agent block")
+            assertFalse(platform.containsKey("agents"), "the proxy manifest must not declare release-keyed agents")
         }
         assertNotEquals(0, verified)
         assertTrue(verified >= 2, "expected the staged proxy package to declare its payload files")

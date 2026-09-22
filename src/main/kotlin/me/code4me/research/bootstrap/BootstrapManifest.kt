@@ -171,9 +171,6 @@ data class AgentReleaseRef(
      */
     val version: String = "",
     val artifactDigest: String = "",
-    val archiveSha256: String? = null,
-    val executableSha256: String? = null,
-    val executionManifestDigest: String? = null,
     val adapterDigest: String? = null,
     /**
      * Non-secret identity of the adapter the release was qualified with. It is an
@@ -220,6 +217,12 @@ data class AgentReleaseRef(
 data class ManifestTelemetryPolicy(
     val allowedFieldClasses: List<String> = emptyList(),
     val contentCapture: Boolean = false,
+    /**
+     * Participant consent mirrored from the enrollment (D-1). The server/UI is
+     * the single authority; this client never invents consent. Absent means
+     * `false` (fail closed).
+     */
+    val consentActive: Boolean = false,
 )
 
 /** Retention policy projected into a manifest. */
@@ -551,9 +554,6 @@ data class BootstrapManifest(
                     "agent_id" to agentRelease.agentId,
                     "release_id" to agentRelease.releaseId,
                     "artifact_digest" to agentRelease.artifactDigest,
-                    "archive_sha256" to agentRelease.archiveSha256,
-                    "executable_sha256" to agentRelease.executableSha256,
-                    "execution_manifest_digest" to agentRelease.executionManifestDigest,
                     "adapter_digest" to agentRelease.adapterDigest,
                     "adapter_id" to agentRelease.adapterId,
                     "adapter_version" to agentRelease.adapterVersion,
@@ -569,6 +569,7 @@ data class BootstrapManifest(
                             linkedMapOf(
                                 "allowed_field_classes" to it.allowedFieldClasses,
                                 "content_capture" to it.contentCapture,
+                                "consent_active" to it.consentActive,
                             )
                         },
                     "privacy" to
@@ -676,9 +677,6 @@ data class BootstrapManifest(
                         // BYOA distribution legitimately carries none, so parsing is
                         // tolerant and the per-mode check is explicit.
                         artifactDigest = (agentRelease["artifact_digest"] as? String).orEmpty(),
-                        archiveSha256 = agentRelease["archive_sha256"] as? String,
-                        executableSha256 = agentRelease["executable_sha256"] as? String,
-                        executionManifestDigest = agentRelease["execution_manifest_digest"] as? String,
                         adapterDigest = agentRelease["adapter_digest"] as? String,
                         adapterId = agentRelease["adapter_id"] as? String,
                         adapterVersion = agentRelease["adapter_version"] as? String,
@@ -775,6 +773,7 @@ data class BootstrapManifest(
                                 (it["allowed_field_classes"] as? List<*>)?.mapNotNull { cls -> cls as? String }
                                     ?: emptyList(),
                             contentCapture = it["content_capture"] as? Boolean ?: false,
+                            consentActive = it["consent_active"] as? Boolean ?: false,
                         )
                     },
                 privacy =

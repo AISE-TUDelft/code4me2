@@ -698,6 +698,45 @@ class BootstrapManifestTest {
         val validation = manifest.validate(VALID_NOW, compatibility())
         assertTrue(validation.valid, validation.message)
     }
+
+    private fun manifestWithTelemetryConsent(
+        contentCapture: Boolean,
+        consentActive: Boolean?,
+    ): BootstrapManifest {
+        val telemetry =
+            linkedMapOf<String, Any?>(
+                "allowed_field_classes" to listOf("SYSTEM", "BEHAVIORAL", "CODE_METADATA"),
+                "content_capture" to contentCapture,
+            )
+        if (consentActive != null) telemetry["consent_active"] = consentActive
+        return BootstrapManifest.parse(
+            manifestJson(overrides = mapOf("policies" to linkedMapOf<String, Any?>("telemetry" to telemetry))),
+        )
+    }
+
+    @Test
+    fun `telemetry policy mirrors the server consent flag and emits it canonically`() {
+        val granted = manifestWithTelemetryConsent(contentCapture = true, consentActive = true)
+
+        assertEquals(true, granted.policies.telemetry?.consentActive)
+        val canonicalTelemetry =
+            ((granted.toCanonicalMap()["policies"] as Map<*, *>)["telemetry"] as Map<*, *>)
+        assertEquals(true, canonicalTelemetry["consent_active"])
+        assertEquals(true, canonicalTelemetry["content_capture"])
+
+        val withdrawn = manifestWithTelemetryConsent(contentCapture = true, consentActive = false)
+        assertEquals(false, withdrawn.policies.telemetry?.consentActive)
+    }
+
+    @Test
+    fun `an absent consent flag fails closed to false`() {
+        val absent = manifestWithTelemetryConsent(contentCapture = true, consentActive = null)
+
+        assertEquals(false, absent.policies.telemetry?.consentActive)
+        val canonicalTelemetry =
+            ((absent.toCanonicalMap()["policies"] as Map<*, *>)["telemetry"] as Map<*, *>)
+        assertEquals(false, canonicalTelemetry["consent_active"])
+    }
 }
 
 // --------------------------------------------------------------------------
