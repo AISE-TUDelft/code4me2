@@ -37,6 +37,8 @@ import me.code4me.research.proxy.ByoaAgentResolution
 import me.code4me.research.proxy.ByoaAgentResolver
 import me.code4me.research.proxy.ByoaAgentSpec
 import me.code4me.research.proxy.ObservedAgentIdentity
+import me.code4me.research.proxy.PackagedAgentInstall
+import me.code4me.research.proxy.PackagedAgentInstaller
 import me.code4me.research.proxy.PackagedProxyRuntimeResolver
 import me.code4me.research.proxy.ProxyRuntimeError
 import me.code4me.research.proxy.ProxyRuntimeErrorCode
@@ -55,6 +57,9 @@ import me.code4me.research.spool.SpoolUploaderContext
 import me.code4me.research.spool.SpoolUploaderState
 import me.code4me.research.telemetry.CanonicalEventTypes
 import me.code4me.research.telemetry.EventSource
+import me.code4me.research.telemetry.FieldClass
+import me.code4me.research.telemetry.PolicyAction
+import me.code4me.research.telemetry.REDACTED_MARKER
 import me.code4me.research.telemetry.canonicalJson
 import me.code4me.research.telemetry.parseCanonicalJson
 import me.code4me.services.config.models.ServerConfig
@@ -739,7 +744,14 @@ class ResearchSessionManagerTest {
             assertFalse(record.canonicalJson.contains(canary))
             assertFalse(record.canonicalJson.contains("hunter2"))
             assertTrue(
-                record.event.payload.keys.all { it == "file_extension" || it == "language" || it == "action_category" || it == "count" },
+                record.event.payload.keys.all {
+                    it == "file_extension" ||
+                        it == "language" ||
+                        it == "action_category" ||
+                        it == "count" ||
+                        it == "phase" ||
+                        it == "exit_code"
+                },
             )
         }
     }
@@ -756,10 +768,10 @@ class ResearchSessionManagerTest {
 
 /**
  * Runtime wiring: activation must fail closed with `RUNTIME_UNAVAILABLE` when the
- * packaged proxy cannot be resolved, has no bundled agent, or resolves an agent
- * whose digest does not match the bootstrap manifest's pinned artifact. A fully
- * resolved runtime must register exactly one removable ACP entry whose
- * `--agent-digest` is the manifest pin.
+ * packaged proxy cannot be resolved or when the packaged agent installer is
+ * blocked (missing/mismatched artifact). A ready installer must register exactly
+ * one removable ACP entry whose `--agent-digest` is the installed executable
+ * digest and whose `--agent-cmd` last argv is the installed agent.
  */
 class ResearchSessionRuntimeWiringTest {
     private lateinit var root: Path
@@ -789,62 +801,19 @@ class ResearchSessionRuntimeWiringTest {
     }
 
     @Test
-    fun `a resolved runtime without an agent blocks activation and writes no ACP entry`() {
-        val registry = root.resolve("acp.json")
-        val runtime = runtimeWithoutAgent()
-        val registration = AcpHostRegistration(registry)
-        val manager = manager(resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtime) }, registration = registration)
-
-        val result = manager.activate("enrollment-1")
-
-        assertTrue(result is ResearchActivationResult.Blocked)
-        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, (result as ResearchActivationResult.Blocked).reason)
-        assertFalse(registration.hasEntry())
-        assertFalse(Files.exists(registry), "an agent-less runtime must not register an ACP entry")
-    }
-
-    @Test
-    fun `a resolved runtime whose agent digest matches the manifest pin activates and pins the ACP entry`() {
+    fun `a blocked packaged agent installer blocks activation and writes no ACP entry`() {
         val registry = root.resolve("acp.json")
         val capabilityFile = root.resolve("capability.txt")
-        val runtime = runtimeWithAgent(VALID_ARTIFACT_DIGEST)
         val registration = AcpHostRegistration(registry)
         val manager =
             manager(
-                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtime) },
+                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtimeWithoutAgent()) },
                 registration = registration,
                 capabilityFile = capabilityFile,
-            )
-
-        val result = manager.activate("enrollment-1")
-
-        assertTrue(result is ResearchActivationResult.Activated)
-        assertTrue(manager.isActive)
-        assertTrue(registration.hasEntry(), "the ACP entry must be registered after activation")
-        assertEquals(
-            VALID_ARTIFACT_DIGEST,
-            registeredAgentDigest(registry),
-            "the ACP entry must pin exactly the manifest artifact digest",
-        )
-
-        manager.stop()
-
-        assertFalse(registration.hasEntry(), "the ACP entry must be removed on stop")
-        assertFalse(Files.exists(capabilityFile), "the one-time capability file must be removed on teardown")
-    }
-
-    @Test
-    fun `an agent digest that does not match the manifest pin blocks with RUNTIME_UNAVAILABLE`() {
-        val registry = root.resolve("acp.json")
-        val capabilityFile = root.resolve("capability.txt")
-        // The manifest pins VALID_ARTIFACT_DIGEST; the resolved agent is different.
-        val runtime = runtimeWithAgent("cd".repeat(32))
-        val registration = AcpHostRegistration(registry)
-        val manager =
-            manager(
-                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtime) },
-                registration = registration,
-                capabilityFile = capabilityFile,
+                installer =
+                    PackagedAgentInstaller {
+                        PackagedAgentInstall.Blocked("the bundled agent runtime does not match the pinned release archive")
+                    },
             )
 
         val result = manager.activate("enrollment-1")
@@ -852,55 +821,51 @@ class ResearchSessionRuntimeWiringTest {
         assertTrue(result is ResearchActivationResult.Blocked)
         assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, (result as ResearchActivationResult.Blocked).reason)
         assertFalse(manager.isActive)
-        assertFalse(registration.hasEntry(), "a mismatched agent must not register an ACP entry")
-        assertFalse(Files.exists(registry), "a mismatched agent must write no ACP entry")
-        assertFalse(Files.exists(capabilityFile), "a mismatched agent must leave no capability file behind")
+        assertFalse(registration.hasEntry(), "a blocked installer must not register an ACP entry")
+        assertFalse(Files.exists(registry), "a blocked installer must write no ACP entry")
+        assertFalse(Files.exists(capabilityFile), "a blocked installer must leave no capability file behind")
     }
 
     @Test
-    fun `a sha256 prefixed manifest digest normalizes against the resolved bare digest`() {
+    fun `a ready packaged agent installer registers exactly one pinned removable ACP entry`() {
         val registry = root.resolve("acp.json")
         val capabilityFile = root.resolve("capability.txt")
-        val runtime = runtimeWithAgent(VALID_ARTIFACT_DIGEST)
+        val agentExecutable = root.resolve("runtimes/code4me-agent/1.2.3-a4d8ea9544d0/code4me2-agent")
+        Files.createDirectories(agentExecutable.parent)
+        Files.writeString(agentExecutable, "agent-binary")
+        val executableDigest = ContentHasher.STREAMING.sha256(agentExecutable)
         val registration = AcpHostRegistration(registry)
+        val installer =
+            PackagedAgentInstaller { pin ->
+                assertEquals(VALID_ARTIFACT_DIGEST, pin, "the bootstrap pin must reach the installer")
+                PackagedAgentInstall.Ready(
+                    argv = listOf(agentExecutable.toString(), "--managed"),
+                    digest = executableDigest,
+                )
+            }
         val manager =
             manager(
-                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtime) },
+                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtimeWithoutAgent()) },
                 registration = registration,
                 capabilityFile = capabilityFile,
-                manifest = manifestWithArtifactDigest("sha256:$VALID_ARTIFACT_DIGEST"),
+                installer = installer,
             )
 
         val result = manager.activate("enrollment-1")
 
-        assertTrue(result is ResearchActivationResult.Activated, "sha256: is display convention, not a mismatch")
-        assertEquals(VALID_ARTIFACT_DIGEST, registeredAgentDigest(registry))
-    }
-
-    @Test
-    fun `a resolved runtime with an agent registers an ACP entry and removes it on stop`() {
-        val registry = root.resolve("acp.json")
-        val runtime = runtimeWithAgent(VALID_ARTIFACT_DIGEST)
-        val registration = AcpHostRegistration(registry)
-        val capabilityFile = root.resolve("capability.txt")
-        val manager =
-            manager(
-                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtime) },
-                registration = registration,
-                capabilityFile = capabilityFile,
-            )
-
-        val result = manager.activate("enrollment-1")
-
-        assertTrue(result is ResearchActivationResult.Activated)
+        assertTrue(result is ResearchActivationResult.Activated, (result as? ResearchActivationResult.Blocked)?.detail)
         assertTrue(manager.isActive)
         assertTrue(registration.hasEntry(), "the ACP entry must be registered after activation")
-        assertTrue(Files.exists(registry))
-        assertTrue(Files.exists(capabilityFile), "the one-time capability file is written for the proxy")
-        assertTrue(
-            Files.readString(registry).contains("--agent-cmd"),
-            "the registered entry must pin the packaged agent",
+        assertEquals(
+            executableDigest,
+            registeredAgentDigest(registry),
+            "the ACP entry must pin the installed executable digest",
         )
+        val args = registeredArgs(registry)
+        assertEquals(AcpHostRegistration.AGENT_CMD_FLAG, args[args.size - 3], "--agent-cmd must remain the last option")
+        assertEquals(agentExecutable.toString(), args[args.size - 2])
+        assertEquals("--managed", args.last())
+        assertEquals(1, registeredEntryCount(registry), "activation must register exactly one ACP entry")
 
         manager.stop()
 
@@ -979,45 +944,41 @@ class ResearchSessionRuntimeWiringTest {
     }
 
     @Test
-    fun `a PACKAGED distribution resolves the host-platform artifact and pins its digest`() {
-        val registry = root.resolve("acp-packaged-host.json")
-        val capabilityFile = root.resolve("capability-packaged-host.txt")
-        val runtimeRoot = root.resolve("runtime-packaged-host")
-        val (_, agents) = writeTwoReleaseRuntime(runtimeRoot, "macos", "aarch64")
-        val agent = agents.getValue("release-a")
-        val agentDigest = ContentHasher.STREAMING.sha256(agent)
-        val resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64")
-        val registration = AcpHostRegistration(registry)
+    fun `the packaged installer must receive the manifest's normalized artifact digest`() {
+        val registry = root.resolve("acp-packaged-pin.json")
+        val capabilityFile = root.resolve("capability-packaged-pin.txt")
+        val agentExecutable = root.resolve("runtimes/code4me-agent/1.2.3-normalized/code4me2-agent")
+        Files.createDirectories(agentExecutable.parent)
+        Files.writeString(agentExecutable, "agent-binary")
+        var seenPin: String? = null
+        val installer =
+            PackagedAgentInstaller { pin ->
+                seenPin = pin
+                PackagedAgentInstall.Ready(
+                    argv = listOf(agentExecutable.toString(), "--managed"),
+                    digest = ContentHasher.STREAMING.sha256(agentExecutable),
+                )
+            }
         val manager =
             manager(
-                resolver = resolver,
-                registration = registration,
+                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtimeWithoutAgent()) },
+                registration = AcpHostRegistration(registry),
                 capabilityFile = capabilityFile,
-                // The server pinned the host-platform artifact digest.
-                manifest = manifestWithPackagedRelease("release-a", agentDigest),
+                manifest = manifestWithPackagedRelease("release-1", "sha256:$VALID_ARTIFACT_DIGEST"),
+                installer = installer,
             )
 
         val result = manager.activate("enrollment-1")
 
         assertTrue(result is ResearchActivationResult.Activated, (result as? ResearchActivationResult.Blocked)?.detail)
-        assertEquals(
-            agentDigest,
-            registeredAgentDigest(registry),
-            "the ACP entry must pin the resolved host-platform artifact digest",
-        )
-        val args = registeredArgs(registry)
-        // `--agent-cmd` is an argparse REMAINDER and carries the resolved agent argv.
-        assertEquals(AcpHostRegistration.AGENT_CMD_FLAG, args[args.size - 2])
-        assertEquals(agent.toString(), args.last())
-
-        manager.stop()
+        assertEquals(VALID_ARTIFACT_DIGEST, seenPin, "the sha256: display prefix must normalize before installation")
     }
 
     @Test
     fun `a PACKAGED distribution on an unsupported host platform fails closed`() {
         val registry = root.resolve("acp-packaged-unsupported.json")
         val runtimeRoot = root.resolve("runtime-packaged-other")
-        // The bundled runtime only ships a linux-x64 artifact; this host resolves
+        // The bundled proxy only ships a linux-x64 artifact; this host resolves
         // as macos-aarch64, so no artifact may be selected.
         writePackagedRuntime(runtimeRoot, "linux", "x64")
         val resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64")
@@ -1039,127 +1000,84 @@ class ResearchSessionRuntimeWiringTest {
     }
 
     @Test
-    fun `two packaged releases in one runtime launch the binary matching each assigned release`() {
-        val runtimeRoot = root.resolve("runtime-two-releases")
-        val (_, agents) = writeTwoReleaseRuntime(runtimeRoot, "macos", "aarch64")
-        val agentA = agents.getValue("release-a")
-        val agentB = agents.getValue("release-b")
-        val digestA = ContentHasher.STREAMING.sha256(agentA)
-        val digestB = ContentHasher.STREAMING.sha256(agentB)
+    fun `a release whose adapter digest differs from the recipe's blocks activation`() {
+        val registry = root.resolve("acp-adapter-mismatch.json")
+        val capabilityFile = root.resolve("capability-adapter-mismatch.txt")
+        val agentExecutable = root.resolve("runtimes/code4me-agent/1.2.3-adapter/code4me2-agent")
+        Files.createDirectories(agentExecutable.parent)
+        Files.writeString(agentExecutable, "agent-binary")
+        val installer =
+            object : PackagedAgentInstaller {
+                override fun install(pin: String): PackagedAgentInstall =
+                    PackagedAgentInstall.Ready(
+                        argv = listOf(agentExecutable.toString(), "--managed"),
+                        digest = ContentHasher.STREAMING.sha256(agentExecutable),
+                    )
 
-        val registryA = root.resolve("acp-release-a.json")
-        val managerA =
-            manager(
-                resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64"),
-                registration = AcpHostRegistration(registryA),
-                capabilityFile = root.resolve("capability-release-a.txt"),
-                manifest = manifestWithPackagedRelease("release-a", digestA),
-            )
-        val resultA = managerA.activate("enrollment-a")
-        assertTrue(resultA is ResearchActivationResult.Activated, (resultA as? ResearchActivationResult.Blocked)?.detail)
-        assertEquals(digestA, registeredAgentDigest(registryA), "release A must pin its own artifact digest")
-        assertEquals(agentA.toString(), registeredArgs(registryA).last(), "release A must launch its own binary")
-        managerA.stop()
-
-        val registryB = root.resolve("acp-release-b.json")
-        val managerB =
-            manager(
-                resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64"),
-                registration = AcpHostRegistration(registryB),
-                capabilityFile = root.resolve("capability-release-b.txt"),
-                manifest = manifestWithPackagedRelease("release-b", digestB),
-            )
-        val resultB = managerB.activate("enrollment-b")
-        assertTrue(resultB is ResearchActivationResult.Activated, (resultB as? ResearchActivationResult.Blocked)?.detail)
-        assertEquals(digestB, registeredAgentDigest(registryB), "release B must pin its own artifact digest")
-        assertEquals(agentB.toString(), registeredArgs(registryB).last(), "release B must launch its own binary")
-        managerB.stop()
-    }
-
-    @Test
-    fun `a release with no bundled agent blocks with RUNTIME_UNAVAILABLE and never falls back to PATH`() {
-        val registry = root.resolve("acp-release-missing.json")
-        val runtimeRoot = root.resolve("runtime-release-missing")
-        val (_, agents) = writeTwoReleaseRuntime(runtimeRoot, "macos", "aarch64")
-        val registration = AcpHostRegistration(registry)
-        val manager =
-            manager(
-                resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64"),
-                registration = registration,
-                // The pinned digest belongs to release A, but release C is not
-                // bundled: a release id mismatch must not select another arm.
-                manifest = manifestWithPackagedRelease("release-c", ContentHasher.STREAMING.sha256(agents.getValue("release-a"))),
-            )
-
-        val result = manager.activate("enrollment-1")
-
-        assertTrue(result is ResearchActivationResult.Blocked)
-        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, (result as ResearchActivationResult.Blocked).reason)
-        assertFalse(manager.isActive)
-        assertFalse(registration.hasEntry(), "a release with no bundled agent must not register an ACP entry")
-        assertFalse(Files.exists(registry), "no PATH fallback may write an ACP entry")
-    }
-
-    @Test
-    fun `a wrong-arm resolved binary is still blocked by the pinned digest check`() {
-        val registry = root.resolve("acp-wrong-arm.json")
-        val capabilityFile = root.resolve("capability-wrong-arm.txt")
-        val runtimeRoot = root.resolve("runtime-wrong-arm")
-        val (_, agents) = writeTwoReleaseRuntime(runtimeRoot, "macos", "aarch64")
-        val agentB = agents.getValue("release-b")
-        val digestA = ContentHasher.STREAMING.sha256(agents.getValue("release-a"))
-        val digestB = ContentHasher.STREAMING.sha256(agentB)
-        val proxy = runtimeRoot.resolve("bin/telemetry-acp-proxy")
-        // Resolution reports release B's binary; the manifest pins release A.
-        val runtime =
-            ResolvedProxyRuntime(
-                runtimeRoot = runtimeRoot,
-                proxyArgv = listOf(proxy.toString()),
-                proxyDigest = ContentHasher.STREAMING.sha256(proxy),
-                agentArgv = listOf(agentB.toString()),
-                agentDigest = digestB,
+                override fun recipeAdapterDigest(): String = "cd".repeat(32)
+            }
+        val manifest =
+            manifestJson(
+                overrides =
+                    mapOf(
+                        "agent_release" to
+                            linkedMapOf<String, Any?>(
+                                "agent_id" to "code4me2-agent",
+                                "release_id" to "release-1",
+                                "artifact_digest" to VALID_ARTIFACT_DIGEST,
+                                "adapter_digest" to "de".repeat(32),
+                            ),
+                    ),
             )
         val registration = AcpHostRegistration(registry)
         val manager =
             manager(
-                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtime) },
+                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtimeWithoutAgent()) },
                 registration = registration,
                 capabilityFile = capabilityFile,
-                manifest = manifestWithPackagedRelease("release-a", digestA),
+                manifest = manifest,
+                installer = installer,
             )
 
         val result = manager.activate("enrollment-1")
 
         assertTrue(result is ResearchActivationResult.Blocked)
         assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, (result as ResearchActivationResult.Blocked).reason)
-        assertFalse(manager.isActive)
-        assertFalse(registration.hasEntry(), "the wrong arm must not register an ACP entry")
-        assertFalse(Files.exists(registry), "the wrong arm must write no ACP entry")
-        assertFalse(Files.exists(capabilityFile), "the wrong arm must leave no capability file behind")
+        assertFalse(registration.hasEntry(), "an adapter mismatch must not register an ACP entry")
+        assertFalse(Files.exists(registry), "an adapter mismatch must write no ACP entry")
+        assertFalse(Files.exists(capabilityFile), "an adapter mismatch must leave no capability file behind")
     }
 
     @Test
-    fun `a legacy single agent whose digest does not match the assigned release still blocks`() {
-        val registry = root.resolve("acp-legacy-wrong-release.json")
-        val runtimeRoot = root.resolve("runtime-legacy-wrong-release")
-        // The legacy single-agent layout resolves as before; the assigned release
-        // pins a different digest, so the pinned-digest check must still block.
-        writePackagedRuntime(runtimeRoot, "macos", "aarch64")
-        val registration = AcpHostRegistration(registry)
+    fun `a release without a declared adapter digest is not blocked by an undeclared recipe adapter`() {
+        val registry = root.resolve("acp-adapter-absent.json")
+        val capabilityFile = root.resolve("capability-adapter-absent.txt")
+        val agentExecutable = root.resolve("runtimes/code4me-agent/1.2.3-no-adapter/code4me2-agent")
+        Files.createDirectories(agentExecutable.parent)
+        Files.writeString(agentExecutable, "agent-binary")
+        val installer =
+            object : PackagedAgentInstaller {
+                override fun install(pin: String): PackagedAgentInstall =
+                    PackagedAgentInstall.Ready(
+                        argv = listOf(agentExecutable.toString(), "--managed"),
+                        digest = ContentHasher.STREAMING.sha256(agentExecutable),
+                    )
+
+                override fun recipeAdapterDigest(): String = "cd".repeat(32)
+            }
         val manager =
             manager(
-                resolver = PackagedProxyRuntimeResolver(explodedRoot = runtimeRoot, os = "macos", arch = "aarch64"),
-                registration = registration,
-                manifest = manifestWithPackagedRelease("release-a", VALID_ARTIFACT_DIGEST),
+                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtimeWithoutAgent()) },
+                registration = AcpHostRegistration(registry),
+                capabilityFile = capabilityFile,
+                // The manifest declares no adapter digest: nothing to compare.
+                manifest = manifestWithPackagedRelease("release-1", VALID_ARTIFACT_DIGEST),
+                installer = installer,
             )
 
         val result = manager.activate("enrollment-1")
 
-        assertTrue(result is ResearchActivationResult.Blocked)
-        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, (result as ResearchActivationResult.Blocked).reason)
-        assertFalse(manager.isActive)
-        assertFalse(registration.hasEntry(), "a wrong-arm digest must not register an ACP entry")
-        assertFalse(Files.exists(registry), "a wrong-arm digest must write no ACP entry")
+        assertTrue(result is ResearchActivationResult.Activated, (result as? ResearchActivationResult.Blocked)?.detail)
     }
 
     @Test
@@ -1405,94 +1323,9 @@ class ResearchSessionRuntimeWiringTest {
             """{"schema_version":"1","platforms":[{"os":"$os","arch":"$arch","self_contained":true,""" +
                 """"entrypoint":["bin/telemetry-acp-proxy"],""" +
                 """"files":[{"path":"bin/telemetry-acp-proxy","sha256":"${ContentHasher.STREAMING.sha256(proxy)}",""" +
-                """"size":${Files.size(proxy)},"executable":true}],""" +
-                """"agent":{"entrypoint":["$relativeAgent"],"digest":"${ContentHasher.STREAMING.sha256(agent)}",""" +
-                """"files":[{"path":"$relativeAgent","sha256":"${ContentHasher.STREAMING.sha256(agent)}",""" +
-                """"size":${Files.size(agent)},"executable":true}]}}]}"""
+                """"size":${Files.size(proxy)},"executable":true}]}]}"""
         Files.writeString(runtimeRoot.resolve("proxy-manifest.json"), json)
         return proxy to agent
-    }
-
-    /**
-     * Write an exploded runtime whose `proxy-manifest.json` declares two
-     * release-keyed agents under `agents` and return their paths by release id.
-     */
-    private fun writeTwoReleaseRuntime(
-        runtimeRoot: Path,
-        os: String,
-        arch: String,
-    ): Pair<Path, Map<String, Path>> {
-        val proxy = runtimeRoot.resolve("bin/telemetry-acp-proxy")
-        Files.createDirectories(proxy.parent)
-        Files.writeString(proxy, "proxy-binary")
-        val agents = linkedMapOf<String, Path>()
-        val entries =
-            listOf("release-a" to "agent-a-binary", "release-b" to "agent-b-binary").joinToString(",") { (releaseId, content) ->
-                val agent = runtimeRoot.resolve("agents/$os-$arch/$releaseId/code4me-agent")
-                Files.createDirectories(agent.parent)
-                Files.writeString(agent, content)
-                agents[releaseId] = agent
-                val relative = "agents/$os-$arch/$releaseId/code4me-agent"
-                val digest = ContentHasher.STREAMING.sha256(agent)
-                """{"release_id":"$releaseId","artifact_digest":"$digest",""" +
-                    """"entrypoint":["$relative"],"digest":"$digest",""" +
-                    """"files":[{"path":"$relative","sha256":"$digest",""" +
-                    """"size":${Files.size(agent)},"executable":true}]}"""
-            }
-        val json =
-            """{"schema_version":"1","platforms":[{"os":"$os","arch":"$arch","self_contained":true,""" +
-                """"entrypoint":["bin/telemetry-acp-proxy"],""" +
-                """"files":[{"path":"bin/telemetry-acp-proxy","sha256":"${ContentHasher.STREAMING.sha256(proxy)}",""" +
-                """"size":${Files.size(proxy)},"executable":true}],""" +
-                """"agents":[$entries]}]}"""
-        Files.writeString(runtimeRoot.resolve("proxy-manifest.json"), json)
-        return proxy to agents
-    }
-
-    @Test
-    fun executionIdentitySeparatesArchiveFromEntrypoint() {
-        val archive = "de".repeat(32)
-        val executable = VALID_ARTIFACT_DIGEST
-        val execution = "ef".repeat(32)
-        val adapter = "cd".repeat(32)
-        val manifest = manifestJson(overrides = mapOf(
-            "agent_release" to mapOf(
-                "agent_id" to "code4me2-agent", "release_id" to "prepared-release",
-                "artifact_digest" to "sha256:$archive", "archive_sha256" to archive,
-                "executable_sha256" to executable, "execution_manifest_digest" to execution,
-                "adapter_digest" to adapter,
-            ),
-        ))
-        val runtime = runtimeWithAgent(executable).copy(
-            agentReleaseId = "prepared-release", agentArchiveDigest = archive,
-            agentExecutionManifestDigest = execution, agentAdapterDigest = adapter,
-        )
-        val variants = listOf(
-            runtime,
-            runtime.copy(agentReleaseId = "other-release"),
-            runtime.copy(agentArchiveDigest = executable),
-            runtime.copy(agentExecutionManifestDigest = archive),
-            runtime.copy(agentAdapterDigest = archive),
-            runtime.copy(agentDigest = archive),
-        )
-        variants.forEachIndexed { index, candidate ->
-            val registry = root.resolve("execution-identity-$index.json")
-            val registration = AcpHostRegistration(registry)
-            val manager = manager(
-                resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(candidate) },
-                registration = registration, manifest = manifest,
-                capabilityFile = root.resolve("execution-capability-$index.txt"),
-            )
-            val result = manager.activate("enrollment-1")
-            if (index == 0) {
-                assertTrue(result is ResearchActivationResult.Activated)
-                assertEquals(executable, registeredAgentDigest(registry))
-            } else {
-                assertTrue(result is ResearchActivationResult.Blocked)
-                assertFalse(registration.hasEntry())
-            }
-            manager.stop()
-        }
     }
 
     private fun runtimeWithoutAgent(): ResolvedProxyRuntime {
@@ -1503,22 +1336,6 @@ class ResearchSessionRuntimeWiringTest {
             runtimeRoot = root.resolve("runtime"),
             proxyArgv = listOf(proxyExecutable.toString(), "--stdio"),
             proxyDigest = "ab".repeat(32),
-        )
-    }
-
-    private fun runtimeWithAgent(agentDigest: String): ResolvedProxyRuntime {
-        val proxyExecutable = root.resolve("runtime/bin/telemetry-acp-proxy")
-        Files.createDirectories(proxyExecutable.parent)
-        Files.writeString(proxyExecutable, "proxy-binary")
-        val agentExecutable = root.resolve("runtime/agents/macos-aarch64/code4me-agent")
-        Files.createDirectories(agentExecutable.parent)
-        Files.writeString(agentExecutable, "agent-binary")
-        return ResolvedProxyRuntime(
-            runtimeRoot = root.resolve("runtime"),
-            proxyArgv = listOf(proxyExecutable.toString(), "--stdio"),
-            proxyDigest = "ab".repeat(32),
-            agentArgv = listOf(agentExecutable.toString()),
-            agentDigest = agentDigest,
         )
     }
 
@@ -1682,12 +1499,20 @@ class ResearchSessionRuntimeWiringTest {
             .orEmpty()
     }
 
+    /** How many ACP entries this registry declares. */
+    private fun registeredEntryCount(registry: Path): Int =
+        Json.parseToJsonElement(Files.readString(registry)).jsonObject
+            .getValue("agent_servers")
+            .jsonObject
+            .size
+
     private fun manager(
         resolver: ProxyRuntimeResolver?,
         registration: AcpHostRegistration?,
         capabilityFile: Path? = null,
         manifest: String = manifestJson(),
         byoaResolver: ByoaAgentResolver? = null,
+        installer: PackagedAgentInstaller? = null,
     ): ResearchSessionManager =
         ResearchSessionManager(
             projectKey = "project-under-test",
@@ -1696,6 +1521,14 @@ class ResearchSessionRuntimeWiringTest {
             spoolProvider = { enrollmentId -> DurableSpool(root.resolve(enrollmentId)) },
             proxyRuntimeResolver = resolver,
             acpHostRegistration = registration,
+            packagedAgentInstaller =
+                installer
+                    ?: PackagedAgentInstaller {
+                        PackagedAgentInstall.Ready(
+                            argv = listOf(root.resolve("runtime/agents/macos-aarch64/code4me-agent").toString()),
+                            digest = VALID_ARTIFACT_DIGEST,
+                        )
+                    },
             capabilityFilePathProvider = { capabilityFile },
             byoaAgentResolver = byoaResolver ?: ByoaAgentResolver.DEFAULT,
             sessionStore = InMemoryResearchSessionStore(),
@@ -1854,17 +1687,25 @@ class ResearchSessionSpoolWiringTest {
         val proxyExecutable = root.resolve("runtime/bin/telemetry-acp-proxy")
         Files.createDirectories(proxyExecutable.parent)
         Files.writeString(proxyExecutable, "proxy-binary")
-        val agentExecutable = root.resolve("runtime/agents/macos-aarch64/code4me-agent")
-        Files.createDirectories(agentExecutable.parent)
-        Files.writeString(agentExecutable, "agent-binary")
         return ResolvedProxyRuntime(
             runtimeRoot = root.resolve("runtime"),
             proxyArgv = listOf(proxyExecutable.toString(), "--stdio"),
             proxyDigest = "ab".repeat(32),
-            agentArgv = listOf(agentExecutable.toString()),
-            agentDigest = VALID_ARTIFACT_DIGEST,
         )
     }
+
+    /**
+     * The packaged-agent seam is faked like the resolver: these tests exercise
+     * spool/IPC/registry wiring, not the shipped recipe, so the real production
+     * installer (and the real plugin resources) must never be reached.
+     */
+    private fun fakeAgentInstaller(): PackagedAgentInstaller =
+        PackagedAgentInstaller { _ ->
+            PackagedAgentInstall.Ready(
+                argv = listOf(root.resolve("runtime/agents/macos-aarch64/code4me-agent").toString(), "--managed"),
+                digest = VALID_ARTIFACT_DIGEST,
+            )
+        }
 
     private fun manager(
         spool: DurableSpool,
@@ -1881,9 +1722,10 @@ class ResearchSessionSpoolWiringTest {
             spoolProvider = { spool },
             proxyRuntimeResolver = resolver,
             acpHostRegistration = registration,
+            packagedAgentInstaller = fakeAgentInstaller(),
             capabilityFilePathProvider = { capabilityFile },
             serverBaseUrlProvider = { serverBaseUrl },
-            ipcServerFactory = ipcServerFactory ?: { target -> ResearchSpoolIpcServer(target) },
+            ipcServerFactory = ipcServerFactory,
             uploaderFactory = uploaderFactory ?: { _ -> FakeDelivery() },
             sessionStore = InMemoryResearchSessionStore(),
             clock = { VALID_NOW.toEpochMilli() },
@@ -1909,6 +1751,7 @@ class ResearchSessionSpoolWiringTest {
             spoolProvider = { spool },
             proxyRuntimeResolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(resolvedRuntime()) },
             acpHostRegistration = AcpHostRegistration(registry),
+            packagedAgentInstaller = fakeAgentInstaller(),
             capabilityFilePathProvider = { null },
             capabilityRootProvider = { capabilityRoot },
             serverBaseUrlProvider = { null },
@@ -2029,6 +1872,40 @@ class ResearchSessionSpoolWiringTest {
             ResearchSessionManager.opaqueClientInstanceId("enrollment-1"),
             captured.single().clientInstanceId,
         )
+    }
+
+    @Test
+    fun `activation mints one run and the IPC stamps ACP events but not IDE events`() {
+        val spool = DurableSpool(root.resolve("run-spool"))
+        val manager = manager(spool, uploaderFactory = { FakeDelivery() })
+
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+
+        // Exactly one run for the activation; it is never the session id.
+        val run = manager.currentAgentRun
+        assertNotNull(run)
+        assertEquals("run-1", run!!.runId)
+        assertNotEquals(manager.currentSession?.sessionId, run.runId)
+
+        // The run id reaches the proxy both on the command line and in the env.
+        assertEquals("run-1", argAfter(registryArgs(), AcpHostRegistration.AGENT_RUN_ID_FLAG))
+        assertEquals("run-1", registryEnv()[AcpHostRegistration.RUN_ID_ENV_VAR])
+
+        val endpoint = argAfter(registryArgs(), AcpHostRegistration.SPOOL_ENDPOINT_FLAG)!!
+        val capability = Files.readString(capabilityFile).trim()
+        val acpEvent =
+            builder(emitterId = "acp-proxy", source = EventSource.ACP, eventIds = IdSequence("acp"))
+                .build(eventType = CanonicalEventTypes.TOOL_STARTED)
+        val ideEvent =
+            builder(emitterId = "ide-collector", source = EventSource.IDE, eventIds = IdSequence("ide"))
+                .build(eventType = CanonicalEventTypes.TOOL_STARTED)
+
+        assertEquals(200, postToIpc(endpoint, capability, acpEvent.toCanonicalMap()).statusCode())
+        assertEquals(200, postToIpc(endpoint, capability, ideEvent.toCanonicalMap()).statusCode())
+
+        val stored = spool.pending().map { it.event }.associateBy { it.eventId }
+        assertEquals("run-1", stored.getValue(acpEvent.eventId).agentRunId, "ACP events belong to the run")
+        assertNull(stored.getValue(ideEvent.eventId).agentRunId, "IDE events belong to the session, not the run")
     }
 
     @Test
@@ -2711,6 +2588,49 @@ class ResearchSessionMaintenanceTest {
                 },
         )
 
+    /** A manifest whose telemetry policy carries explicit content/consent flags. */
+    private fun manifestWithTelemetry(
+        capabilityId: String,
+        expiresAt: String,
+        sessionId: String,
+        contentCapture: Boolean,
+        consentActive: Boolean,
+    ): String =
+        manifestJson(
+            researchSessionId = sessionId,
+            overrides =
+                buildMap {
+                    put(
+                        "session_capability",
+                        linkedMapOf<String, Any?>(
+                            "capability_id" to capabilityId,
+                            "audience" to "research-runtime",
+                            "scope" to listOf("telemetry:write", "session:heartbeat", "session:close"),
+                            "issued_at" to "2026-01-01T00:00:00Z",
+                            "expires_at" to expiresAt,
+                        ),
+                    )
+                    put(
+                        "policies",
+                        linkedMapOf<String, Any?>(
+                            "telemetry" to
+                                linkedMapOf<String, Any?>(
+                                    "allowed_field_classes" to listOf("SYSTEM", "BEHAVIORAL", "CODE_METADATA"),
+                                    "content_capture" to contentCapture,
+                                    "consent_active" to consentActive,
+                                ),
+                            "privacy" to linkedMapOf<String, Any?>("retention_action" to "delete", "retention_days" to 30),
+                            "session" to
+                                linkedMapOf<String, Any?>(
+                                    "idle_timeout_seconds" to 600,
+                                    "resume_grace_seconds" to 120,
+                                    "heartbeat_seconds" to 30,
+                                ),
+                        ),
+                    )
+                },
+        )
+
     private fun bodyOf(request: Request): Map<*, *> {
         val buffer = Buffer()
         request.body?.writeTo(buffer)
@@ -2909,6 +2829,88 @@ class ResearchSessionMaintenanceTest {
         assertEquals("capability-2", adopted["capability_id"])
         assertFalse(delivery.revoked, "adopting a fresh capability must clear the revoked state")
         assertEquals(SpoolDeliveryState.ACTIVE, manager.state().deliveryState)
+    }
+
+    // ------------------------------------------------------------------
+    // Consent is mirrored from the manifest (D-1/TC-01..TC-05)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `content is allowed only when the manifest grants capture and active consent`() {
+        val cases =
+            listOf(
+                Triple(true, true, PolicyAction.ALLOW),
+                Triple(true, false, PolicyAction.REDACT),
+                Triple(false, true, PolicyAction.REDACT),
+                Triple(false, false, PolicyAction.REDACT),
+            )
+        cases.forEach { (capture, consent, expected) ->
+            val transport =
+                SequenceTransport(
+                    listOf(
+                        manifestWithTelemetry(
+                            "capability-1",
+                            "2026-01-01T01:00:00Z",
+                            "session-1",
+                            contentCapture = capture,
+                            consentActive = consent,
+                        ),
+                    ),
+                )
+            val manager = manager(sessionsHttp { 30L }, transport, FakeDelivery(), FakeScheduler())
+
+            assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+            assertEquals(
+                expected,
+                manager.currentPrivacyPolicy.actionFor(FieldClass.CONTENT),
+                "capture=$capture consent=$consent",
+            )
+        }
+    }
+
+    @Test
+    fun `a refreshed manifest that withdraws consent redacts content without a restart`() {
+        val http = sessionsHttp { 30L }
+        val scheduler = FakeScheduler()
+        val delivery = FakeDelivery()
+        val transport =
+            SequenceTransport(
+                listOf(
+                    manifestWithTelemetry(
+                        "capability-1",
+                        "2026-01-01T00:31:00Z",
+                        "session-1",
+                        contentCapture = true,
+                        consentActive = true,
+                    ),
+                    manifestWithTelemetry(
+                        "capability-2",
+                        "2026-01-01T02:00:00Z",
+                        "session-1",
+                        contentCapture = true,
+                        consentActive = false,
+                    ),
+                ),
+            )
+        val manager = manager(http, transport, delivery, scheduler)
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        assertEquals(PolicyAction.ALLOW, manager.currentPrivacyPolicy.actionFor(FieldClass.CONTENT))
+        val digestBefore = manager.currentPrivacyPolicy.policyDigest
+
+        val maintenance = manager.performMaintenance()
+
+        assertTrue(maintenance is ResearchMaintenanceResult.Maintained)
+        assertTrue((maintenance as ResearchMaintenanceResult.Maintained).capabilityRefreshed)
+        assertEquals(
+            PolicyAction.REDACT,
+            manager.currentPrivacyPolicy.actionFor(FieldClass.CONTENT),
+            "consent withdrawal must take effect within one refresh, without an IDE restart",
+        )
+        assertNotEquals(digestBefore, manager.currentPrivacyPolicy.policyDigest, "the digest change must be detected")
+        assertEquals(
+            REDACTED_MARKER,
+            manager.currentPrivacyFilter.filter(mapOf("prompt" to "withdrawn consent text")).sanitizedPayload["prompt"],
+        )
     }
 
     // ------------------------------------------------------------------

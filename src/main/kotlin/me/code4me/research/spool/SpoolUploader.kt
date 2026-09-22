@@ -3,11 +3,17 @@ package me.code4me.research.spool
 import me.code4me.research.spool.RetryBackoff
 import me.code4me.research.spool.TelemetryBatchAckV1
 import me.code4me.research.telemetry.canonicalJson
+import me.code4me.research.telemetry.parseCanonicalJson
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.channels.FileChannel
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.util.UUID
 
 /**
@@ -99,13 +105,17 @@ data class SpoolUploadResult(
  * - permanently `rejected` ids are dropped after a local diagnostic so they are
  *   never retried forever;
  * - `retryable` ids, transport failures, and `5xx` retain everything and retry
- *   with capped exponential backoff + jitter ([RetryBackoff]);
- * - a `401`/`403` or a `REVOKED`/`ENROLLMENT_NOT_ACTIVE`/`STUDY_STOPPED`
- *   disposition stops uploads and deletes nothing unacknowledged.
+ *   with capped exponential backoff + jitter ([RetryBackoff]), honouring a server
+ *   `retry_hint` when one is present;
+ * - a `401`/`403` or a `REVOKED`/`ENROLLMENT_NOT_ACTIVE`/`SESSION_TERMINAL`
+ *   disposition stops uploads and deletes nothing unacknowledged. The terminal
+ *   state is persisted in the spool directory so it survives a restart until a
+ *   capability refresh clears it.
  *
  * Restart recovery is purely from persisted spool state: there is no in-memory
- * delivery cursor. `previous_ack_cursor` is omitted (null) because a deterministic
- * cursor is not persisted.
+ * delivery cursor. `batch_id` is derived deterministically from the pending
+ * event ids, so a lost-ACK retry of the same pending set reuses the original
+ * receipt instead of minting a new one.
  */
 class SpoolUploader(
     private val spool: DurableSpool,
@@ -118,7 +128,7 @@ class SpoolUploader(
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val diagnostics: (String) -> Unit = {},
     private val pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS,
-    private val batchIdFactory: () -> String = { UUID.randomUUID().toString() },
+    private val batchIdFactory: (List<String>) -> String = { deterministicBatchId(it) },
     private val sleep: (Long) -> Unit = { millis -> Thread.sleep(millis) },
 ) : SpoolDelivery {
     init {
@@ -140,13 +150,18 @@ class SpoolUploader(
      */
     @Volatile private var currentCapability: Map<String, Any?> = sessionCapability
 
-    @Volatile private var revoked = false
+    /** Durable marker recording a terminal/revoked state across restarts (TS-06). */
+    private val terminalMarker: Path = spool.directory.resolve(TERMINAL_MARKER)
+
+    private val persistedTerminalReason: String? = loadTerminalReason()
+
+    @Volatile private var revoked: Boolean = persistedTerminalReason != null
 
     @Volatile private var running = false
 
     @Volatile private var worker: Thread? = null
 
-    @Volatile private var lastError: String? = null
+    @Volatile private var lastError: String? = persistedTerminalReason
 
     @Volatile private var nextAttemptAtEpochMs: Long? = null
 
@@ -177,6 +192,7 @@ class SpoolUploader(
             revoked = false
             lastError = null
             resetBackoff()
+            clearTerminalMarker()
             if (wasRevoked) {
                 diagnostics("proxy: telemetry capability refreshed; resuming delivery")
             }
@@ -299,12 +315,11 @@ class SpoolUploader(
 
     private fun buildBatch(records: List<SpoolRecord>): Map<String, Any?> =
         linkedMapOf(
-            "batch_id" to batchIdFactory(),
+            "batch_id" to batchIdFactory(records.map { it.eventId }),
             "protocol_version" to PROTOCOL_VERSION,
             "telemetry_schema_version" to TELEMETRY_SCHEMA_VERSION,
             "session_capability" to currentCapability,
             "client_instance_id" to clientInstanceId,
-            "previous_ack_cursor" to null,
             "events" to records.map { it.event.toCanonicalMap() },
         )
 
@@ -335,8 +350,12 @@ class SpoolUploader(
             // Revocation: never delete the revoked (unacknowledged) data.
             markRevoked("enrollment revoked by the server")
         }
-        if (ack.retryable.isNotEmpty() && acknowledgedCount == 0) {
-            scheduleBackoff()
+        if (revoked) {
+            // A terminal disposition outranks any retry bookkeeping.
+            resetBackoff()
+        } else if (ack.retryable.isNotEmpty()) {
+            val hint = ack.retryHints.values.maxOrNull()
+            if (hint != null) scheduleFromHint(hint) else scheduleBackoff()
         } else {
             resetBackoff()
         }
@@ -352,6 +371,7 @@ class SpoolUploader(
             retryable = ack.retryable.size,
             revoked = revoked,
             retryAtEpochMs = nextAttemptAtEpochMs,
+            backoffMs = lastBackoffMs,
             pendingCount = pendingCount(),
         )
     }
@@ -400,11 +420,74 @@ class SpoolUploader(
         revoked = true
         lastError = detail
         nextAttemptAtEpochMs = null
+        persistTerminalMarker(detail)
         diagnostics("proxy: telemetry upload stopped: $detail")
+    }
+
+    /** Load a persisted terminal/revoked reason, if any. Existence means terminal. */
+    private fun loadTerminalReason(): String? {
+        return try {
+            if (!Files.exists(terminalMarker)) {
+                null
+            } else {
+                val parsed = runCatching { parseCanonicalJson(Files.readString(terminalMarker)) }.getOrNull()
+                (parsed as? Map<*, *>)?.get("reason") as? String ?: DEFAULT_TERMINAL_REASON
+            }
+        } catch (_: Exception) {
+            DEFAULT_TERMINAL_REASON
+        }
+    }
+
+    /** Persist the terminal state durably so it survives a restart (TS-06). */
+    private fun persistTerminalMarker(reason: String) {
+        try {
+            val payload =
+                canonicalJson(
+                    linkedMapOf(
+                        "reason" to reason,
+                        "revoked_at_ms" to clock(),
+                    ),
+                )
+            FileOutputStream(terminalMarker.toFile(), false).use { output ->
+                output.write(payload.toByteArray(Charsets.UTF_8))
+                output.flush()
+                output.fd.sync()
+            }
+            fsyncDirectory(spool.directory)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Clear the terminal marker after a capability refresh (server reauthorization). */
+    private fun clearTerminalMarker() {
+        try {
+            Files.deleteIfExists(terminalMarker)
+            fsyncDirectory(spool.directory)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun fsyncDirectory(path: Path) {
+        try {
+            FileChannel.open(path, StandardOpenOption.READ).use { channel ->
+                channel.force(true)
+            }
+        } catch (_: Exception) {
+        }
     }
 
     private fun scheduleBackoff(): Long {
         val delay = backoff.delayForAttempt(attempts + 1)
+        attempts += 1
+        lastBackoffMs = delay
+        lastError = lastError ?: "telemetry upload will be retried"
+        nextAttemptAtEpochMs = clock() + delay
+        return delay
+    }
+
+    /** Schedule the next attempt from a server-provided retry hint (TI-05). */
+    private fun scheduleFromHint(hintMs: Long): Long {
+        val delay = hintMs.coerceAtLeast(1L)
         attempts += 1
         lastBackoffMs = delay
         lastError = lastError ?: "telemetry upload will be retried"
@@ -445,6 +528,21 @@ class SpoolUploader(
         const val BATCHES_PATH: String = "/api/research/telemetry/batches"
         const val DEFAULT_MAX_EVENTS_PER_BATCH: Int = 100
         const val DEFAULT_POLL_INTERVAL_MS: Long = 5_000L
+        const val TERMINAL_MARKER: String = "terminal.json"
+
+        private const val DEFAULT_TERMINAL_REASON = "session terminal"
+        private const val BATCH_ID_DOMAIN = "code4me.batch.v1:"
+
+        /**
+         * Deterministic v3 UUID over the sorted pending event ids (TI-01/TI-03).
+         * A lost-ACK retry of the same pending set therefore reuses the original
+         * `batch_id`, so the server returns the original receipt instead of
+         * duplicating the batch.
+         */
+        fun deterministicBatchId(eventIds: List<String>): String {
+            val seed = BATCH_ID_DOMAIN + eventIds.sorted().joinToString("\n")
+            return UUID.nameUUIDFromBytes(seed.toByteArray(Charsets.UTF_8)).toString()
+        }
 
         private const val THREAD_NAME = "code4me-research-spool-uploader"
         private const val HTTP_UNAUTHORIZED = 401

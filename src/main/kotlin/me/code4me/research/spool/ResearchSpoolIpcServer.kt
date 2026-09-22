@@ -3,6 +3,7 @@ package me.code4me.research.spool
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import me.code4me.research.telemetry.CanonicalEvent
+import me.code4me.research.telemetry.EventSource
 import me.code4me.research.telemetry.canonicalJson
 import me.code4me.research.telemetry.parseCanonicalJson
 import java.io.ByteArrayOutputStream
@@ -33,17 +34,38 @@ interface SpoolIpcServer {
     fun close()
 }
 
-/** Authority of one authenticated IPC endpoint, supplied by the active IDE session. */
+/**
+ * Authority of one authenticated IPC endpoint, supplied by the active IDE session.
+ *
+ * [agentRunId] is the native run minted for this activation. It is stamped only
+ * on ACP-source events: IDE activity belongs to the session, not to a run, and
+ * keeps `agent_run_id = null` (TA-04).
+ */
 data class SpoolEventContext(
     val studyId: String,
     val enrollmentId: String,
     val researchSessionId: String,
+    val agentRunId: String? = null,
 ) {
     fun bind(event: CanonicalEvent): CanonicalEvent {
         require(event.studyId == null || event.studyId == studyId) { "Study context mismatch" }
         require(event.enrollmentId == null || event.enrollmentId == enrollmentId) { "Enrollment context mismatch" }
         require(event.researchSessionId == null || event.researchSessionId == researchSessionId) { "Session context mismatch" }
-        return event.copy(studyId = studyId, enrollmentId = enrollmentId, researchSessionId = researchSessionId)
+        // A run id on the event is authoritative, but it must agree with this
+        // activation when both are present: a different run is another window's
+        // event and is rejected, never relabelled.
+        require(agentRunId == null || event.agentRunId == null || event.agentRunId == agentRunId) {
+            "Agent run context mismatch"
+        }
+        val boundRunId =
+            event.agentRunId
+                ?: agentRunId?.takeIf { event.source == EventSource.ACP }
+        return event.copy(
+            studyId = studyId,
+            enrollmentId = enrollmentId,
+            researchSessionId = researchSessionId,
+            agentRunId = boundRunId,
+        )
     }
 }
 

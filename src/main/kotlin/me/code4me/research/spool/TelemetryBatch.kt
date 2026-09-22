@@ -10,8 +10,7 @@ import java.util.UUID
  *
  * `events` are already privacy-filtered canonical envelopes and `sessionCapability`
  * is the short-lived, server-verifiable proof of enrollment/revision/session
- * scope. The optional `previousAckCursor` lets the server drop already-received
- * ids without a round trip.
+ * scope.
  */
 data class TelemetryBatchRequestV1(
     val batchId: String,
@@ -20,7 +19,6 @@ data class TelemetryBatchRequestV1(
     val sessionCapability: String,
     val events: List<CanonicalEvent>,
     val clientInstanceId: String,
-    val previousAckCursor: String? = null,
 ) {
     init {
         require(batchId.isNotBlank()) { "batchId must not be blank" }
@@ -38,7 +36,6 @@ data class TelemetryBatchRequestV1(
             "telemetry_schema_version" to telemetrySchemaVersion,
             "session_capability" to sessionCapability,
             "client_instance_id" to clientInstanceId,
-            "previous_ack_cursor" to previousAckCursor,
             "events" to events.map { it.toCanonicalMap() },
         )
 
@@ -68,7 +65,6 @@ class TelemetryBatchBuilder(
         records: List<SpoolRecord>,
         sessionCapability: String,
         clientInstanceId: String,
-        previousAckCursor: String? = null,
     ): TelemetryBatchRequestV1 {
         require(records.isNotEmpty()) { "Cannot build an empty telemetry batch" }
         val selected = ArrayList<CanonicalEvent>()
@@ -87,7 +83,6 @@ class TelemetryBatchBuilder(
             sessionCapability = sessionCapability,
             events = selected,
             clientInstanceId = clientInstanceId,
-            previousAckCursor = previousAckCursor,
         )
     }
 
@@ -96,13 +91,12 @@ class TelemetryBatchBuilder(
         records: List<SpoolRecord>,
         sessionCapability: String,
         clientInstanceId: String,
-        previousAckCursor: String? = null,
     ): List<TelemetryBatchRequestV1> {
         if (records.isEmpty()) return emptyList()
         val batches = ArrayList<TelemetryBatchRequestV1>()
         var index = 0
         while (index < records.size) {
-            val batch = build(records.subList(index, records.size), sessionCapability, clientInstanceId, previousAckCursor)
+            val batch = build(records.subList(index, records.size), sessionCapability, clientInstanceId)
             batches.add(batch)
             index += batch.size
         }

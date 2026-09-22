@@ -33,8 +33,10 @@ import okio.Buffer
 import okio.Timeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -169,7 +171,6 @@ class BatchAckTest {
         assertEquals("1", single.protocolVersion)
         assertEquals("1", single.telemetrySchemaVersion)
         assertEquals("capability", single.sessionCapability)
-        assertNull(single.previousAckCursor)
 
         val batches = builder.buildBatches(appended, sessionCapability = "capability", clientInstanceId = "client-1")
         assertEquals(listOf(2, 2, 1), batches.map { it.size })
@@ -272,6 +273,41 @@ class DurableSpoolTest {
         assertFalse(quarantined.isEmpty())
         val quarantinedText = Files.readAllBytes(quarantined.first()).toString(StandardCharsets.UTF_8)
         assertTrue(quarantinedText.contains("record_version"))
+    }
+
+    @Test
+    fun `a corrupt line in the middle keeps the valid records after it`() {
+        val directory = Files.createTempDirectory("spool-corrupt-middle")
+        val (first, second, third) = events(3)
+        val spool = DurableSpool(directory)
+        spool.append(first)
+        spool.append(second)
+        spool.append(third)
+        val logFile = directory.resolve("spool.log")
+        val lines = Files.readAllLines(logFile, StandardCharsets.UTF_8)
+        val corrupted = (listOf(lines[0], "{not a record", lines[1], lines[2]).joinToString("\n") + "\n")
+        Files.write(logFile, corrupted.toByteArray(StandardCharsets.UTF_8))
+
+        val reopened = DurableSpool(directory)
+
+        assertEquals(
+            listOf(first.eventId, second.eventId, third.eventId),
+            reopened.pending().map { it.eventId },
+        )
+        val quarantined = quarantineFiles(directory)
+        assertFalse(quarantined.isEmpty())
+        assertTrue(
+            Files.readAllBytes(quarantined.first()).toString(StandardCharsets.UTF_8).contains("not a record"),
+        )
+        // The corrupt line is durably removed from the log without truncating it.
+        assertFalse(
+            Files.readAllBytes(logFile).toString(StandardCharsets.UTF_8).contains("not a record"),
+        )
+    }
+
+    @Test
+    fun `the default spool quota is bounded`() {
+        assertEquals(128L * 1024 * 1024, DurableSpool.DEFAULT_MAX_BYTES)
     }
 
     @Test
@@ -425,6 +461,46 @@ class ResearchSpoolIpcServerTest {
             server.close()
         }
     }
+
+    @Test
+    fun `bind stamps the run id on ACP events and leaves IDE events null`() {
+        val context = SpoolEventContext("study", "enrollment", "session", agentRunId = "run-1")
+        val acp = acpEvent(null)
+        val ide =
+            builder(emitterId = "ide", source = EventSource.IDE, eventIds = IdSequence("ide"))
+                .build(eventType = CanonicalEventTypes.TOOL_STARTED)
+
+        val boundAcp = context.bind(acp)
+        val boundIde = context.bind(ide)
+
+        // The ACP event inherits the activation's run; the IDE event belongs to
+        // the session and keeps a null run id (TA-04).
+        assertEquals("run-1", boundAcp.agentRunId)
+        assertNull(boundIde.agentRunId)
+        // The session context is bound either way.
+        assertEquals("study", boundIde.studyId)
+        assertEquals("session", boundIde.researchSessionId)
+    }
+
+    @Test
+    fun `bind rejects an event that names a different run`() {
+        val context = SpoolEventContext("study", "enrollment", "session", agentRunId = "run-1")
+        val foreign = acpEvent("run-other")
+
+        assertThrows(IllegalArgumentException::class.java) { context.bind(foreign) }
+    }
+
+    @Test
+    fun `bind leaves the run id null when the context has none`() {
+        val context = SpoolEventContext("study", "enrollment", "session")
+        val bound = context.bind(acpEvent(null))
+
+        assertNull(bound.agentRunId)
+    }
+
+    private fun acpEvent(runId: String?): CanonicalEvent =
+        builder(emitterId = "acp-proxy", source = EventSource.ACP, eventIds = IdSequence("acp"))
+            .build(eventType = CanonicalEventTypes.TOOL_STARTED, agentRunId = runId)
 
     @Test
     fun `IPC rejects foreign study enrollment and session even with a valid capability`() {
@@ -636,6 +712,10 @@ class SpoolUploaderTest {
         request.body?.writeTo(buffer)
         return buffer.readUtf8()
     }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun batchIdOf(request: Request): String =
+        (parseCanonicalJson(bodyOf(request)) as Map<String, Any?>)["batch_id"] as String
 
     private fun ack(
         accepted: List<String> = emptyList(),
@@ -982,5 +1062,121 @@ class SpoolUploaderTest {
 
         assertEquals(2, result.acknowledged)
         assertTrue(reopened.pending().isEmpty())
+    }
+
+    @Test
+    fun `a session-terminal rejection is a revocation and is never discarded`() {
+        val spool = tempSpool()
+        val (first, second) = events(2)
+        spool.append(first)
+        spool.append(second)
+        val (uploader, factory) =
+            uploader(spool) { response(200, ack(rejected = listOf(first.eventId to "SESSION_TERMINAL"))) }
+
+        val result = uploader.uploadOnce()
+
+        assertTrue(result.revoked)
+        assertEquals(0, result.acknowledged)
+        assertEquals(0, result.rejected, "a session-terminal rejection is never discarded as permanent")
+        assertEquals(0, result.discarded)
+        assertEquals(2, spool.pending().size, "a terminal session must never delete unacknowledged data")
+        assertTrue(uploader.state().revoked)
+
+        val after = uploader.uploadOnce()
+
+        assertFalse(after.attempted)
+        assertEquals(1, factory.requests.size, "a terminal-session uploader must not keep polling")
+    }
+
+    @Test
+    fun `a terminal state persists across a restart until a capability refresh`() {
+        val directory = Files.createTempDirectory("spool-uploader-terminal")
+        val (first, second) = events(2)
+        val firstSpool = DurableSpool(directory)
+        firstSpool.append(first)
+        firstSpool.append(second)
+        val (refused, _) = uploader(firstSpool) { response(403, "") }
+        assertTrue(refused.uploadOnce().revoked)
+
+        val reopened = DurableSpool(directory)
+        val (restarted, factory) =
+            uploader(reopened) { response(200, ack(accepted = listOf(first.eventId, second.eventId))) }
+
+        val blocked = restarted.uploadOnce()
+
+        assertTrue(blocked.revoked)
+        assertFalse(blocked.attempted, "a persisted terminal state must not upload after a restart")
+        assertEquals(0, factory.requests.size)
+        assertEquals(2, reopened.pending().size)
+
+        assertTrue(restarted.updateCapability(linkedMapOf("capability_id" to "cap-2")))
+        assertFalse(restarted.state().revoked)
+
+        val resumed = restarted.uploadOnce()
+
+        assertEquals(2, resumed.acknowledged)
+        assertEquals(1, factory.requests.size, "only the resumed upload attempts the network")
+        assertTrue(reopened.pending().isEmpty())
+    }
+
+    @Test
+    fun `a lost-ack retry of the same pending set reuses the batch id`() {
+        val spool = tempSpool()
+        val (first, second, third) = events(3)
+        spool.append(first)
+        spool.append(second)
+        spool.append(third)
+        var now = 1_000L
+        val batchIds = ArrayList<String>()
+        var acceptedFirst = false
+        val (uploader, _) =
+            uploader(spool, clock = { now }) { request ->
+                batchIds.add(batchIdOf(request))
+                when {
+                    batchIds.size <= 2 -> response(500, "")
+                    !acceptedFirst -> {
+                        acceptedFirst = true
+                        response(200, ack(accepted = listOf(first.eventId)))
+                    }
+                    else -> response(500, "")
+                }
+            }
+
+        uploader.uploadOnce()
+        now += 1_000L
+        uploader.uploadOnce()
+        now += 1_000L
+        uploader.uploadOnce()
+        now += 1_000L
+        uploader.uploadOnce()
+
+        assertEquals(4, batchIds.size)
+        assertEquals(batchIds[0], batchIds[1], "a retry of the same pending set must reuse the batch id")
+        assertEquals(batchIds[0], batchIds[2], "the ack is applied only after the batch was built")
+        assertNotEquals(batchIds[0], batchIds[3], "acking some ids must change the next batch id")
+    }
+
+    @Test
+    fun `server retry hints schedule the next attempt`() {
+        val spool = tempSpool()
+        val sent = events(1).single()
+        spool.append(sent)
+        var now = 1_000L
+        val hintedAck =
+            canonicalJson(
+                linkedMapOf(
+                    "receipt_id" to "receipt-1",
+                    "server_time" to "2026-01-01T00:00:00Z",
+                    "retryable" to listOf(linkedMapOf("event_id" to sent.eventId, "retry_hint" to 7_000L)),
+                ),
+            )
+        val (uploader, _) = uploader(spool, clock = { now }) { response(200, hintedAck) }
+
+        val result = uploader.uploadOnce()
+
+        assertEquals(7_000L, result.backoffMs)
+        assertEquals(now + 7_000L, result.retryAtEpochMs)
+        assertEquals(now + 7_000L, uploader.state().nextAttemptAtEpochMs)
+        assertEquals(listOf(sent.eventId), spool.pending().map { it.eventId })
     }
 }

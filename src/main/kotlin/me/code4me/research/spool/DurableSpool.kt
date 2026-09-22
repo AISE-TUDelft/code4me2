@@ -3,6 +3,7 @@ package me.code4me.research.spool
 import me.code4me.research.telemetry.CanonicalEvent
 import me.code4me.research.telemetry.canonicalJson
 import me.code4me.research.telemetry.parseCanonicalJson
+import java.io.ByteArrayOutputStream
 import java.io.FileOutputStream
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
@@ -37,11 +38,16 @@ data class SpoolStats(
  * - a re-opened [DurableSpool] over the same directory sees the same pending set.
  *
  * Crash safety:
- * - a truncated or corrupt tail is quarantined to `quarantine-*.bin` and prior
- *   records are preserved.
+ * - a corrupt line is quarantined to `quarantine-*.bin` while every valid record
+ *   (including ones after the bad line) is preserved and the log is rewritten
+ *   durably.
  * - quota pressure compacts only acknowledged records and emits the
  *   `spool_quota_exceeded` indicator; un-acknowledged behavioral data is never
  *   silently discarded.
+ *
+ * The spool is bounded by default ([DEFAULT_MAX_BYTES]); durability comes from
+ * that bound plus prompt upload, not from a persistent path (product decision
+ * D-4).
  *
  * @property directory local spool directory; created if missing.
  * @property maxBytes retained-byte quota before compaction/diagnostics.
@@ -50,7 +56,7 @@ data class SpoolStats(
  */
 class DurableSpool(
     val directory: Path,
-    private val maxBytes: Long = Long.MAX_VALUE,
+    private val maxBytes: Long = DEFAULT_MAX_BYTES,
     private val maxRecords: Int = Int.MAX_VALUE,
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) {
@@ -255,6 +261,12 @@ class DurableSpool(
         }
         val acked = readAckedIds()
         val keep = dedupePending(records, acked)
+        if (keep.size == records.size) {
+            // Nothing to remove: no acknowledged record is still in the log. Any
+            // ack cursor entries refer to already-discarded events and are stale.
+            if (acked.isNotEmpty()) truncateFile(ackFile)
+            return
+        }
         val retained = keep.joinToString(separator = "") { it.toCanonicalJson() + "\n" }
         val temporary = directory.resolve("spool.log.tmp")
         writeTextDurably(temporary, retained)
@@ -272,11 +284,19 @@ class DurableSpool(
             .toSet()
     }
 
-    /** Read valid records, quarantining a truncated/corrupt tail. */
+    /**
+     * Read every valid record. Unparseable/blank lines are quarantined to
+     * `quarantine-*.bin`, but parsing continues so valid records after a corrupt
+     * line are still delivered. When anything was quarantined the log is
+     * rewritten durably with only the valid lines (temp + atomic move) so the
+     * corruption is not re-encountered.
+     */
     private fun readRecords(): List<SpoolRecord> {
         if (!Files.exists(spoolFile)) return emptyList()
         val bytes = Files.readAllBytes(spoolFile)
         val records = ArrayList<SpoolRecord>()
+        val valid = StringBuilder()
+        val corrupt = ByteArrayOutputStream()
         var lineStart = 0
         var index = 0
         while (index < bytes.size) {
@@ -284,17 +304,30 @@ class DurableSpool(
                 val line = String(bytes, lineStart, index - lineStart, StandardCharsets.UTF_8)
                 val record = parseRecordOrNull(line)
                 if (record == null) {
-                    quarantineTail(bytes, lineStart)
-                    return records
+                    corrupt.write(bytes, lineStart, index - lineStart)
+                    corrupt.write(NEWLINE)
+                } else {
+                    records.add(record)
+                    valid.append(line).append('\n')
                 }
-                records.add(record)
                 lineStart = index + 1
             }
             index++
         }
         if (lineStart < bytes.size) {
             // Final line was never terminated: a crash mid-append.
-            quarantineTail(bytes, lineStart)
+            val line = String(bytes, lineStart, bytes.size - lineStart, StandardCharsets.UTF_8)
+            val record = parseRecordOrNull(line)
+            if (record == null) {
+                corrupt.write(bytes, lineStart, bytes.size - lineStart)
+            } else {
+                records.add(record)
+                valid.append(line).append('\n')
+            }
+        }
+        if (corrupt.size() > 0) {
+            quarantineBytes(corrupt.toByteArray())
+            rewriteSpool(valid.toString())
         }
         return records
     }
@@ -311,17 +344,17 @@ class DurableSpool(
         }
     }
 
-    private fun quarantineTail(
-        bytes: ByteArray,
-        fromIndex: Int,
-    ) {
-        val bad = bytes.copyOfRange(fromIndex, bytes.size)
-        if (bad.isNotEmpty()) {
-            val quarantine = uniqueQuarantinePath()
-            Files.write(quarantine, bad, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-            forceFile(quarantine)
-        }
-        truncateFile(spoolFile, fromIndex.toLong())
+    private fun quarantineBytes(bad: ByteArray) {
+        if (bad.isEmpty()) return
+        val quarantine = uniqueQuarantinePath()
+        Files.write(quarantine, bad, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+        forceFile(quarantine)
+    }
+
+    private fun rewriteSpool(text: String) {
+        val temporary = directory.resolve("spool.log.tmp")
+        writeTextDurably(temporary, text)
+        moveAtomically(temporary, spoolFile)
     }
 
     private fun uniqueQuarantinePath(): Path {
@@ -407,6 +440,7 @@ class DurableSpool(
 
     companion object {
         const val QUOTA_INDICATOR = "spool_quota_exceeded"
+        const val DEFAULT_MAX_BYTES: Long = 128L * 1024 * 1024
         private const val NEWLINE: Int = '\n'.code
     }
 }

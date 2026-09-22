@@ -31,11 +31,12 @@ import me.code4me.research.telemetry.PrivacyFilter
 import me.code4me.research.telemetry.PrivacyPolicy
 import me.code4me.research.bootstrap.AgentDistributionMode
 import me.code4me.research.proxy.AcpHostRegistration
-import me.code4me.research.proxy.AgentReleaseIdentity
 import me.code4me.research.proxy.ByoaAgentResolution
 import me.code4me.research.proxy.ByoaAgentResolver
 import me.code4me.research.proxy.ByoaAgentSpec
 import me.code4me.research.proxy.ByoaConfiguration
+import me.code4me.research.proxy.PackagedAgentInstall
+import me.code4me.research.proxy.PackagedAgentInstaller
 import me.code4me.research.proxy.ProxyRuntimeResolution
 import me.code4me.research.proxy.ProxyRuntimeResolver
 import me.code4me.research.proxy.ResolvedProxyRuntime
@@ -320,9 +321,21 @@ class ResearchSessionManager(
     private val source: IdeActivitySource? = null,
     private val proxyRuntimeResolver: ProxyRuntimeResolver? = null,
     private val acpHostRegistration: AcpHostRegistration? = null,
+    /**
+     * Installs the single packaged agent artifact for a PACKAGED distribution.
+     * The production default installs the plugin's shipped recipe/archive through
+     * the shared managed-runtime installer; tests inject a fake.
+     */
+    private val packagedAgentInstaller: PackagedAgentInstaller = PackagedAgentInstaller.PRODUCTION,
     private val agentEnvProvider: () -> Map<String, String> = { emptyMap() },
     private val capabilityFilePathProvider: () -> Path? = { null },
     private val capabilityRootProvider: () -> Path = { defaultResearchSessionRoot() },
+    /**
+     * Optional override for the proxy's content-free delivery status document.
+     * When absent, a stable per-enrollment path beside the frozen policy file is
+     * used (see [statusFileFor]).
+     */
+    private val statusFilePathProvider: () -> Path? = { null },
     private val byoaAgentResolver: ByoaAgentResolver = ByoaAgentResolver.DEFAULT,
     private val byoaAgentCommandProvider: () -> String? = { null },
     private val serverBaseUrlProvider: () -> String? = { null },
@@ -391,6 +404,13 @@ class ResearchSessionManager(
 
     @Volatile private var capabilityFile: Path? = null
 
+    /**
+     * The proxy-owned, content-free delivery status document for this window, or
+     * `null` when no proxy runtime was registered. It is read (never fabricated)
+     * to surface local telemetry loss in [state].
+     */
+    @Volatile private var statusFile: Path? = null
+
     @Volatile private var ipcServer: SpoolIpcServer? = null
 
     @Volatile private var uploader: SpoolDelivery? = null
@@ -439,6 +459,18 @@ class ResearchSessionManager(
         get() = currentRun
 
     /**
+     * The resolved privacy policy for the active session, exposed for
+     * diagnostics and tests. It reflects the most recent manifest refresh
+     * (D-1/TC-05) and never carries content.
+     */
+    val currentPrivacyPolicy: PrivacyPolicy
+        get() = activePrivacyPolicy
+
+    /** The in-process filter derived from [currentPrivacyPolicy]; diagnostics/tests only. */
+    internal val currentPrivacyFilter: PrivacyFilter
+        get() = privacyFilter
+
+    /**
      * The participant-visible study state. Never exposes content, paths, or
      * credentials; blocked states always carry a typed reason.
      */
@@ -452,6 +484,7 @@ class ResearchSessionManager(
                 current?.state == SessionState.REVOKED -> StudyBlockReason.REVOKED
                 else -> null
             }
+        val delivery = currentDeliveryState()
         return ParticipantStudyStateV1(
             enrollmentId = current?.enrollmentId ?: held?.enrollmentId,
             studyId = held?.studyId,
@@ -465,7 +498,8 @@ class ResearchSessionManager(
             manifestDigest = held?.manifestDigest,
             blockReason = effectiveBlock,
             blockReasonDetail = blockReasonDetail,
-            deliveryState = currentDeliveryState(),
+            deliveryState = delivery.state,
+            droppedTelemetryCount = delivery.droppedTelemetryCount,
         )
     }
 
@@ -893,6 +927,19 @@ class ResearchSessionManager(
             }
         val resolvedPolicy = privacyPolicyFor(validManifest).withComputedDigest()
 
+        // D-2/TA-01: exactly one native agent run per activation. It is minted
+        // before the IPC endpoint and the ACP entry so both carry the same id
+        // and the proxy can stamp `agent_run_id` on every event it produces.
+        // It is assigned to `currentRun` only after activation succeeds, so a
+        // blocked activation never leaves a live run behind.
+        val agentRun =
+            AgentRun.start(
+                runId = runIdFactory(),
+                session = authoritativeSession,
+                agentReleaseId = validManifest.agentRelease.releaseId.takeIf { it.isNotBlank() },
+                startedAtEpochMs = now,
+            )
+
         // Fail closed: without a live local spool IPC endpoint there is no
         // delivery authority, so nothing may be collected or launched.
         val startedIpc =
@@ -904,6 +951,7 @@ class ResearchSessionManager(
                             validManifest.studyId,
                             validManifest.enrollmentId,
                             authoritativeSession.sessionId,
+                            agentRunId = agentRun.runId,
                         ),
                     )
             } catch (exception: Exception) {
@@ -915,13 +963,14 @@ class ResearchSessionManager(
 
         // The ACP entry must point the proxy at the live IPC endpoint and hand
         // it that server's capability (never the server session capability).
-        val runtimeSetup = prepareProxyRuntime(startedIpc, validManifest, resolvedPolicy)
+        val runtimeSetup = prepareProxyRuntime(startedIpc, validManifest, resolvedPolicy, agentRun.runId)
         if (runtimeSetup is RuntimeSetup.Failed) {
             markBlocked(runtimeSetup.reason, runtimeSetup.detail)
             return ResearchActivationResult.Blocked(runtimeSetup.reason, runtimeSetup.detail)
         }
         synchronized(lock) {
             capabilityFile = (runtimeSetup as? RuntimeSetup.Ready)?.capabilityFile
+            statusFile = (runtimeSetup as? RuntimeSetup.Ready)?.statusFile
         }
 
         // The uploader reads the same durable spool; without it the spool would
@@ -936,7 +985,9 @@ class ResearchSessionManager(
             manifest = validManifest
             machine = newMachine
             session = authoritativeSession
-            currentRun = null
+            // The activation's single run survives here (it is never nulled
+            // afterwards); `agentCrashed`/a later activation end or replace it.
+            currentRun = agentRun
             spool = resolvedSpool
             uploader = (uploaderStart as? UploaderStart.Started)?.delivery
             activePrivacyPolicy = resolvedPolicy
@@ -1155,6 +1206,21 @@ class ResearchSessionManager(
                     )
                 else -> {
                     manifest = fresh
+                    // D-1/TC-05: the enrollment/UI is the consent authority, so
+                    // re-resolve the in-process policy from the fresh manifest. A
+                    // consent withdrawal then starts redacting CONTENT on the very
+                    // next capture, without an IDE restart. Only replace the filter
+                    // when the policy digest actually changed.
+                    val refreshedPolicy = privacyPolicyFor(fresh).withComputedDigest()
+                    if (refreshedPolicy.policyDigest != activePrivacyPolicy.policyDigest) {
+                        activePrivacyPolicy = refreshedPolicy
+                        privacyFilter = PrivacyFilter(refreshedPolicy)
+                    }
+                    // Intentionally NOT rewriting the frozen proxy policy file or
+                    // re-registering the ACP entry: the running proxy keeps its
+                    // launch-time policy file/digest, and the server independently
+                    // enforces the current consent at persistence. Rewriting either
+                    // here would put the proxy's launch-time digest out of sync.
                     val adopted = safeUpdateCapability(fresh.sessionCapabilityObject())
                     if (!adopted) {
                         log.warn("A refreshed research capability could not be adopted by the running uploader.")
@@ -1557,23 +1623,62 @@ class ResearchSessionManager(
         runCatching { acpHostRegistration?.unregister() }
         val staged = capabilityFile
         capabilityFile = null
+        // The status document is read-only from the plugin's side; a stale one
+        // is superseded by the next activation, and clearing the path makes the
+        // loss state `unknown` rather than stale.
+        statusFile = null
         AcpHostRegistration.cleanupCapabilityFile(staged)
     }
 
-    /** Participant-safe delivery posture derived from the live uploader state. */
-    private fun currentDeliveryState(): SpoolDeliveryState {
-        val current = uploader ?: return SpoolDeliveryState.UNAVAILABLE
+    /** The participant-visible delivery posture and local telemetry loss. */
+    private data class DeliveryPosture(
+        val state: SpoolDeliveryState,
+        /** Proxy-reported locally dropped events, or `null` when unknown. */
+        val droppedTelemetryCount: Int?,
+    )
+
+    /**
+     * Participant-safe delivery posture derived from the live uploader state
+     * plus the proxy's content-free status document.
+     *
+     * The dropped count is read from the proxy status file when it exists. An
+     * absent or unreadable file is reported as `null` (unknown), never as a
+     * fabricated zero: the surface must not claim full coverage it cannot prove.
+     */
+    private fun currentDeliveryState(): DeliveryPosture {
+        val dropped = readDroppedTelemetryCount()
+        val current = uploader ?: return DeliveryPosture(SpoolDeliveryState.UNAVAILABLE, dropped)
         val snapshot =
             try {
                 current.state()
             } catch (_: Exception) {
-                return SpoolDeliveryState.UNAVAILABLE
+                return DeliveryPosture(SpoolDeliveryState.UNAVAILABLE, dropped)
             }
-        return when {
-            snapshot.revoked -> SpoolDeliveryState.REVOKED
-            snapshot.spoolFull -> SpoolDeliveryState.SPOOL_FULL
-            snapshot.nextAttemptAtEpochMs != null -> SpoolDeliveryState.RECOVERING
-            else -> SpoolDeliveryState.ACTIVE
+        val state =
+            when {
+                snapshot.revoked -> SpoolDeliveryState.REVOKED
+                snapshot.spoolFull -> SpoolDeliveryState.SPOOL_FULL
+                snapshot.nextAttemptAtEpochMs != null -> SpoolDeliveryState.RECOVERING
+                else -> SpoolDeliveryState.ACTIVE
+            }
+        return DeliveryPosture(state, dropped)
+    }
+
+    /**
+     * Read the proxy's content-free status document and return its `dropped`
+     * counter, or `null` when no status file is configured or it cannot be read.
+     *
+     * Only the integer counter is consumed; the document carries no payload,
+     * event id, path, or capability.
+     */
+    private fun readDroppedTelemetryCount(): Int? {
+        val path = statusFile ?: return null
+        return try {
+            if (!Files.exists(path)) return null
+            val parsed = parseCanonicalJson(Files.readString(path, StandardCharsets.UTF_8))
+            ((parsed as? Map<*, *>)?.get("dropped") as? Number)?.toInt()
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -1583,7 +1688,11 @@ class ResearchSessionManager(
         object Skipped : RuntimeSetup
 
         /** The packaged runtime resolved and the ACP entry was registered. */
-        data class Ready(val capabilityFile: Path?) : RuntimeSetup
+        data class Ready(
+            val capabilityFile: Path?,
+            /** The proxy's content-free delivery status document path, if any. */
+            val statusFile: Path? = null,
+        ) : RuntimeSetup
 
         /**
          * Resolution or registration failed; activation must be blocked with the
@@ -1604,18 +1713,19 @@ class ResearchSessionManager(
     }
 
     /**
-     * Resolve the packaged proxy runtime and register it as the ACP agent entry.
+     * Resolve the packaged proxy runtime, install the packaged agent, and register
+     * the proxy as the ACP host entry.
      *
-     * The assigned release identity (`release_id` and/or the normalized
-     * `artifact_digest`) is handed to the resolver so a manifest that ships
-     * several packaged releases selects the agent entry matching this
-     * participant's release + platform.
+     * The proxy is resolved proxy-only; the agent for a PACKAGED distribution is
+     * installed by [packagedAgentInstaller] from the single shipped recipe and
+     * verified against the bootstrap manifest's pinned
+     * `agent_release.artifact_digest` before any byte is written.
      *
-     * Fail-closed: any typed resolution failure, an agent whose digest does not
-     * match the bootstrap manifest's pinned `agent_release.artifact_digest`, or an
-     * ACP registration failure yields [RuntimeSetup.Failed] so no launch happens.
-     * When no resolver is injected (pure tests / builds without a packaged
-     * runtime), setup is skipped so existing behaviour is preserved.
+     * Fail-closed: any typed resolution failure, a bundled agent whose archive
+     * digest does not match the bootstrap pin, or an ACP registration failure
+     * yields [RuntimeSetup.Failed] so no launch happens. When no resolver is
+     * injected (pure tests / builds without a packaged runtime), setup is skipped
+     * so existing behaviour is preserved.
      *
      * The registered entry points the proxy at [ipc]'s loopback endpoint and hands
      * it [SpoolIpcServer.capability] (the LOCAL IPC capability), never the signed
@@ -1631,17 +1741,12 @@ class ResearchSessionManager(
         ipc: SpoolIpcServer?,
         validManifest: BootstrapManifest,
         policy: PrivacyPolicy,
+        agentRunId: String?,
     ): RuntimeSetup {
         val resolver = proxyRuntimeResolver ?: return RuntimeSetup.Skipped
-        val release = validManifest.agentRelease
-        val releaseIdentity =
-            AgentReleaseIdentity(
-                releaseId = release.releaseId.takeIf { it.isNotBlank() },
-                artifactDigest = release.normalizedArtifactDigest,
-            ).takeIf { it.isSpecified }
         val resolution =
             try {
-                resolver.resolve(releaseIdentity)
+                resolver.resolve()
             } catch (exception: Exception) {
                 return runtimeSetupFailure(exception.message ?: "the packaged proxy runtime could not be resolved")
             }
@@ -1684,6 +1789,10 @@ class ResearchSessionManager(
                             ?: "the frozen telemetry policy could not be written",
                     )
                 }
+                // The proxy writes a content-free drop-counter document beside
+                // the frozen policy; the participant status surface reads it so
+                // local telemetry loss is never silent. The proxy creates it.
+                val telemetryStatusFile = statusFileFor(validManifest.enrollmentId)
                 val environment =
                     mapOf(
                         "CODE4ME_RESEARCH_PROXY" to runtime.proxyDigest,
@@ -1703,6 +1812,9 @@ class ResearchSessionManager(
                         registration.register(
                             resolved = runtime,
                             agentArgv = ready.argv,
+                            // A dev (source) proxy runtime carries no packaged
+                            // agent; the entry then pins none.
+                            digestFallbackToAgentArgv = ready.argv.isNotEmpty(),
                             spoolEndpoint = spoolEndpoint,
                             capabilityFile = capability,
                             env = environment + agentEnvProvider(),
@@ -1710,8 +1822,10 @@ class ResearchSessionManager(
                             capabilityValue = ipc?.capability,
                             adapterId = validManifest.agentRelease.adapterId?.takeIf { it.isNotBlank() },
                             adapterVersion = validManifest.agentRelease.adapterVersion,
+                            agentRunId = agentRunId,
                             policyFile = telemetryPolicyFile,
                             policyDigest = policy.policyDigest,
+                            statusFile = telemetryStatusFile,
                             agentEnv = ready.agentEnv,
                         )
                     } catch (exception: Exception) {
@@ -1723,81 +1837,58 @@ class ResearchSessionManager(
                         result.exceptionOrNull()?.message ?: "the research proxy ACP entry could not be registered",
                     )
                 } else {
-                    RuntimeSetup.Ready(capability)
+                    RuntimeSetup.Ready(capability, telemetryStatusFile)
                 }
             }
         }
     }
 
     /**
-     * PACKAGED agent contract: the runtime's release-selected bundled agent must
-     * be present and its digest must equal the explicit executable pin. New
-     * execution contracts additionally bind release, archive, inventory and adapter.
-     * A release with no matching bundled agent, a missing agent,
-     * or a digest mismatch is terminal; PATH is never consulted.
+     * PACKAGED agent contract: the single shipped recipe/archive is installed and
+     * must match the bootstrap manifest's pinned archive digest before any byte is
+     * written. A missing/mismatched artifact is terminal; PATH is never consulted.
+     *
+     * When the bootstrap release declares an adapter digest, the recipe must
+     * declare the same one. A recipe that declares none is not invented.
      */
     private fun packagedAgentPlan(
         runtime: ResolvedProxyRuntime,
         validManifest: BootstrapManifest,
     ): AgentPlan {
         val release = validManifest.agentRelease
-        // New leaves separate archive identity from the actual executable hash.
-        // Legacy non-archive leaves retain their existing executable pin.
-        val pinnedAgentDigest = normalizeSha256Hex(release.executableSha256) ?: release.normalizedArtifactDigest
-        val resolvedAgentDigest = normalizeSha256Hex(runtime.agentDigest)
-        if (release.executionManifestDigest != null || release.executableSha256 != null || release.archiveSha256 != null) {
-            val executionDigest = normalizeSha256Hex(release.executionManifestDigest)
-            val archiveDigest = normalizeSha256Hex(release.archiveSha256)
-            if (normalizeSha256Hex(release.executableSha256) == null ||
-                executionDigest == null || archiveDigest == null ||
-                archiveDigest != release.normalizedArtifactDigest ||
-                runtime.agentReleaseId != release.releaseId ||
-                normalizeSha256Hex(runtime.agentArchiveDigest) != archiveDigest ||
-                normalizeSha256Hex(runtime.agentExecutionManifestDigest) != executionDigest ||
-                normalizeSha256Hex(release.adapterDigest) == null ||
-                normalizeSha256Hex(runtime.agentAdapterDigest) != normalizeSha256Hex(release.adapterDigest)
-            ) {
+        // A development (source) proxy runtime carries no packaged agent; keeping
+        // the historical dev behavior means only the proxy runs.
+        if (runtime.development) return AgentPlan.Ready(argv = emptyList(), digest = null)
+        val install =
+            try {
+                packagedAgentInstaller.install(release.normalizedArtifactDigest.orEmpty())
+            } catch (exception: Exception) {
                 return AgentPlan.Failed(
                     StudyBlockReason.RUNTIME_UNAVAILABLE,
-                    "the packaged agent does not match the assigned release, archive, execution manifest and adapter",
+                    exception.message ?: "the packaged agent could not be installed",
                 )
             }
-        }
-        if (runtime.agentArgv.isNullOrEmpty()) {
-            if (!runtime.development) {
-                return AgentPlan.Failed(
-                    StudyBlockReason.RUNTIME_UNAVAILABLE,
-                    "the packaged runtime bundles no agent for release '${release.releaseId}' " +
-                        "(pinned artifact ${pinnedAgentDigest ?: "unpinned"}); " +
-                        "refusing to launch without a digest-pinned agent",
-                )
+        val ready =
+            when (install) {
+                is PackagedAgentInstall.Blocked ->
+                    return AgentPlan.Failed(StudyBlockReason.RUNTIME_UNAVAILABLE, install.detail)
+                is PackagedAgentInstall.Ready -> install
             }
-            return AgentPlan.Ready(argv = null, digest = null)
-        }
-        if (pinnedAgentDigest == null) {
+        val pinnedAdapterDigest = normalizeSha256Hex(release.adapterDigest)
+        val recipeAdapterDigest =
+            try {
+                normalizeSha256Hex(packagedAgentInstaller.recipeAdapterDigest())
+            } catch (exception: Exception) {
+                null
+            }
+        if (pinnedAdapterDigest != null && recipeAdapterDigest != pinnedAdapterDigest) {
             return AgentPlan.Failed(
                 StudyBlockReason.RUNTIME_UNAVAILABLE,
-                "the bootstrap manifest declares no usable agent artifact digest; " +
-                    "refusing to launch an unpinned agent",
+                "the bundled agent adapter ${recipeAdapterDigest ?: "is not declared"} does not match the " +
+                    "bootstrap manifest pin ${pinnedAdapterDigest.take(12)}…; refusing to launch",
             )
         }
-        if (resolvedAgentDigest == null) {
-            return AgentPlan.Failed(
-                StudyBlockReason.RUNTIME_UNAVAILABLE,
-                "the resolved agent digest is not a 64-hex sha256; refusing to launch",
-            )
-        }
-        if (resolvedAgentDigest != pinnedAgentDigest) {
-            return AgentPlan.Failed(
-                StudyBlockReason.RUNTIME_UNAVAILABLE,
-                "the resolved agent digest does not match the bootstrap manifest pin " +
-                    "(manifest=$pinnedAgentDigest, resolved=$resolvedAgentDigest); refusing to launch",
-            )
-        }
-        return AgentPlan.Ready(
-            argv = runtime.agentArgv,
-            digest = pinnedAgentDigest,
-        )
+        return AgentPlan.Ready(argv = ready.argv, digest = ready.digest)
     }
 
     /**
@@ -1854,10 +1945,15 @@ class ResearchSessionManager(
         }
     }
 
-    /** One typed agent-resolution outcome for a resolved proxy runtime. */
+    /**
+     * One typed agent-resolution outcome for a resolved proxy runtime.
+     *
+     * A [Ready] plan with an empty [argv] means the dev (source) runtime runs the
+     * proxy without a packaged agent; [digest] is then `null` too.
+     */
     private sealed interface AgentPlan {
         data class Ready(
-            val argv: List<String>?,
+            val argv: List<String>,
             val digest: String?,
             val agentEnv: Map<String, String> = emptyMap(),
         ) : AgentPlan
@@ -1896,6 +1992,29 @@ class ResearchSessionManager(
                 capability?.toAbsolutePath()?.normalize()?.parent
                     ?: capabilityRootProvider().toAbsolutePath().normalize()
             root.resolve("$POLICY_FILE_PREFIX${opaqueSessionKey(enrollmentId)}$POLICY_FILE_EXTENSION")
+        } catch (_: Exception) {
+            null
+        }
+
+    /**
+     * Resolve the proxy's content-free delivery status document for
+     * [enrollmentId].
+     *
+     * A configured provider path wins. Otherwise it sits beside the frozen
+     * telemetry policy (same owner-only root) and is keyed by the non-reversible
+     * [opaqueSessionKey], never the raw enrollment id. The proxy owns the file
+     * (it writes and rewrites it); the plugin only reads it.
+     */
+    private fun statusFileFor(enrollmentId: String): Path? =
+        try {
+            statusFilePathProvider()?.toAbsolutePath()?.normalize()
+                ?: run {
+                    val capability = capabilityFileFor(enrollmentId)
+                    val root =
+                        capability?.toAbsolutePath()?.normalize()?.parent
+                            ?: capabilityRootProvider().toAbsolutePath().normalize()
+                    root.resolve("$STATUS_FILE_PREFIX${opaqueSessionKey(enrollmentId)}$STATUS_FILE_EXTENSION")
+                }
         } catch (_: Exception) {
             null
         }
@@ -2009,6 +2128,9 @@ class ResearchSessionManager(
         return PrivacyPolicy(
             allowedFieldClasses = allowed,
             contentAllowed = validManifest.policies.telemetry?.contentCapture ?: false,
+            // D-1: the enrollment/UI is the consent authority. Mirror the
+            // server-provided flag; absent means false (fail closed).
+            consentActive = validManifest.policies.telemetry?.consentActive ?: false,
             codeMetadataMode =
                 if (FieldClass.CODE_METADATA in allowed) CodeMetadataMode.ALLOW else CodeMetadataMode.HASH,
         )
@@ -2119,6 +2241,10 @@ class ResearchSessionManager(
         /** Stable, plugin-owned frozen telemetry policy file name. */
         private const val POLICY_FILE_PREFIX = "telemetry-policy-"
         private const val POLICY_FILE_EXTENSION = ".json"
+
+        /** Stable, proxy-owned content-free delivery status file name. */
+        private const val STATUS_FILE_PREFIX = "telemetry-status-"
+        private const val STATUS_FILE_EXTENSION = ".json"
 
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 

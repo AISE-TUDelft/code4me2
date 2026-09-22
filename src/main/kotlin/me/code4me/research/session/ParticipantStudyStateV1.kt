@@ -94,6 +94,10 @@ enum class StudyBlockReason(val value: String) {
  * @property manifestDigest canonical manifest digest, when a manifest is held.
  * @property blockReason typed reason collection/launch is blocked.
  * @property deliveryState participant-safe spool-uploader posture (Gap 3).
+ * @property droppedTelemetryCount locally dropped proxy telemetry events as
+ * reported by the proxy's content-free status document, or `null` when unknown.
+ * Absence of a measurement is never a zero: the surface must not claim full
+ * coverage it cannot prove.
  */
 data class ParticipantStudyStateV1(
     val enrollmentId: String? = null,
@@ -109,6 +113,7 @@ data class ParticipantStudyStateV1(
     val blockReason: StudyBlockReason? = null,
     val blockReasonDetail: String? = null,
     val deliveryState: SpoolDeliveryState = SpoolDeliveryState.UNAVAILABLE,
+    val droppedTelemetryCount: Int? = null,
 ) {
     /** True only when every component is available and nothing blocks. */
     val isCollecting: Boolean
@@ -148,6 +153,7 @@ data class ParticipantStudyStateV1(
             "block_reason" to blockReason?.value,
             "block_reason_detail" to blockReasonDetail,
             "delivery_state" to deliveryState.value,
+            "dropped_telemetry_count" to droppedTelemetryCount,
         )
 
     /** Deterministic JSON for the state surface. */
