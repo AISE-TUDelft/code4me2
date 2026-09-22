@@ -16,6 +16,17 @@ COMPONENT_DIR = Path(__file__).resolve().parents[1]
 if str(COMPONENT_DIR) not in sys.path:
     sys.path.insert(0, str(COMPONENT_DIR))
 
+# The shared canonical contract lives in the server tree. Bootstrap it here so a
+# single test module (e.g. test_normalization.py) can be run on its own, not
+# only as part of a full-suite run where an earlier module happens to import the
+# package first.
+try:
+    from telemetry_acp_proxy._bootstrap import ensure_research_on_path
+
+    ensure_research_on_path()
+except Exception:  # pragma: no cover - a missing server checkout is not fatal here
+    pass
+
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 

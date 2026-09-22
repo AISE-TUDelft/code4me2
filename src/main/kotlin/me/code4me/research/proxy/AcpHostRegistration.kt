@@ -60,8 +60,10 @@ class AcpHostRegistration internal constructor(
      * Register (or refresh) the research proxy entry.
      *
      * @param resolved the verified packaged proxy runtime.
-     * @param agentArgv the real agent argv array, or `null` to use
-     * [ResolvedProxyRuntime.agentArgv] when the manifest declared one.
+     * @param agentArgv the installed agent argv array; it is the `--agent-cmd`
+     * REMAINDER and is always the last option on the command line. It is empty
+     * only for an explicitly enabled development (source) runtime, which carries
+     * no packaged agent; the entry then pins no agent contract.
      * @param spoolEndpoint the local spool endpoint, or `null` to omit the spool.
      * @param capabilityFile the fallback file the one-time capability is written to;
      * the proxy reads it without deleting it. Required when [spoolEndpoint] is set.
@@ -75,28 +77,40 @@ class AcpHostRegistration internal constructor(
      * `--adapter` (the proxy's validated allowlist) and also carried in the
      * entry `env` as a durable, non-secret marker.
      * @param adapterVersion non-secret adapter version paired with [adapterId].
+     * @param agentRunId the native agent run id minted for this activation, or
+     * `null` when the caller has none. It is emitted as `--agent-run-id` and
+     * carried in the entry `env` as [RUN_ID_ENV_VAR] so the proxy stamps
+     * `agent_run_id` on every canonical event it produces.
      * @param policyFile the frozen telemetry policy JSON the proxy enforces; it
      * is emitted as `--telemetry-policy` and is never inlined on the command
      * line.
      * @param policyDigest the digest the policy document declares; it is emitted
      * as `--telemetry-policy-digest` and makes a tampered/stale policy fail
      * closed at launch.
+     * @param statusFile the plugin-owned, per-context delivery status document
+     * the proxy writes (drop counters). It is emitted as `--status-file` and
+     * carried in the entry `env` as [STATUS_FILE_ENV_VAR] so the participant
+     * status surface can read the proxy's local telemetry loss. Content-free:
+     * the path travels, never any payload.
      * @param agentEnv release-declared BYOA configuration overrides for the
      * agent child, emitted as repeated `--agent-env KEY=VALUE`. Blank when the
      * release declares none.
      */
     fun register(
         resolved: ResolvedProxyRuntime,
-        agentArgv: List<String>?,
+        agentArgv: List<String>,
         spoolEndpoint: String?,
         capabilityFile: Path?,
         env: Map<String, String> = emptyMap(),
         agentDigest: String? = null,
+        digestFallbackToAgentArgv: Boolean = true,
         capabilityValue: String? = null,
         adapterId: String? = null,
         adapterVersion: String? = null,
+        agentRunId: String? = null,
         policyFile: Path? = null,
         policyDigest: String? = null,
+        statusFile: Path? = null,
         agentEnv: Map<String, String> = emptyMap(),
     ): Result<Unit> =
         runCatching {
@@ -121,6 +135,8 @@ class AcpHostRegistration internal constructor(
                     putAll(env)
                     adapterId?.takeIf { it.isNotBlank() }?.let { put(ADAPTER_ID_ENV_VAR, it) }
                     adapterVersion?.takeIf { it.isNotBlank() }?.let { put(ADAPTER_VERSION_ENV_VAR, it) }
+                    agentRunId?.takeIf { it.isNotBlank() }?.let { put(RUN_ID_ENV_VAR, it) }
+                    statusFile?.let { put(STATUS_FILE_ENV_VAR, it.toAbsolutePath().normalize().toString()) }
                     if (capability != null) put(CAPABILITY_ENV_VAR, capability)
                 }
 
@@ -131,11 +147,9 @@ class AcpHostRegistration internal constructor(
             val args =
                 buildList {
                     addAll(resolved.proxyArgv.drop(1))
-                    val effectiveAgent = agentArgv ?: resolved.agentArgv
-                    val effectiveDigest = agentDigest ?: resolved.agentDigest
-                    if (!effectiveAgent.isNullOrEmpty()) {
+                    if (digestFallbackToAgentArgv) {
                         add(AGENT_DIGEST_FLAG)
-                        add(effectiveDigest ?: agentDigestOf(effectiveAgent.first()))
+                        add(agentDigest ?: agentDigestOf(agentArgv.first()))
                     }
                     if (spoolEndpoint != null && capability != null && capabilityFile != null) {
                         add(SPOOL_ENDPOINT_FLAG)
@@ -151,17 +165,25 @@ class AcpHostRegistration internal constructor(
                             add(it)
                         }
                     }
+                    statusFile?.let {
+                        add(STATUS_FILE_FLAG)
+                        add(it.toAbsolutePath().normalize().toString())
+                    }
                     adapterId?.takeIf { it.isNotBlank() }?.let {
                         add(ADAPTER_FLAG)
+                        add(it)
+                    }
+                    agentRunId?.takeIf { it.isNotBlank() }?.let {
+                        add(AGENT_RUN_ID_FLAG)
                         add(it)
                     }
                     agentEnv.toSortedMap().forEach { (key, value) ->
                         add(AGENT_ENV_FLAG)
                         add("$key=$value")
                     }
-                    if (!effectiveAgent.isNullOrEmpty()) {
+                    if (agentArgv.isNotEmpty()) {
                         add(AGENT_CMD_FLAG)
-                        addAll(effectiveAgent)
+                        addAll(agentArgv)
                     }
                 }
 
@@ -221,8 +243,21 @@ class AcpHostRegistration internal constructor(
         /** Expected digest of the frozen policy; a mismatch exits with a usage error. */
         const val TELEMETRY_POLICY_DIGEST_FLAG: String = "--telemetry-policy-digest"
 
+        /**
+         * Content-free delivery status document the proxy writes (drop
+         * counters). It is the only channel that makes local telemetry loss
+         * visible to the participant status surface.
+         */
+        const val STATUS_FILE_FLAG: String = "--status-file"
+
         /** Allowlisted adapter id the proxy resolves for enrichment. */
         const val ADAPTER_FLAG: String = "--adapter"
+
+        /**
+         * Native agent run id minted for this activation. The proxy stamps it as
+         * `agent_run_id` on every canonical event it produces.
+         */
+        const val AGENT_RUN_ID_FLAG: String = "--agent-run-id"
 
         /** Release-declared BYOA configuration override for the agent child. */
         const val AGENT_ENV_FLAG: String = "--agent-env"
@@ -242,6 +277,19 @@ class AcpHostRegistration internal constructor(
 
         /** The ACP entry env key carrying the adapter version paired with the id. */
         const val ADAPTER_VERSION_ENV_VAR: String = "CODE4ME_AGENT_ADAPTER_VERSION"
+
+        /**
+         * The ACP entry env key carrying the native agent run id. Durable like
+         * the capability, it is the proxy's fallback when `--agent-run-id` is
+         * absent, so a launch never loses run attribution.
+         */
+        const val RUN_ID_ENV_VAR: String = "CODE4ME_RESEARCH_RUN_ID"
+
+        /**
+         * The ACP entry env key carrying the delivery status document path. The
+         * proxy's fallback when `--status-file` is absent.
+         */
+        const val STATUS_FILE_ENV_VAR: String = "CODE4ME_RESEARCH_STATUS_FILE"
 
         /** The default JetBrains ACP registry the AI Assistant reads. */
         fun defaultRegistryPath(): Path = Path.of(System.getProperty("user.home"), ".jetbrains", "acp.json")

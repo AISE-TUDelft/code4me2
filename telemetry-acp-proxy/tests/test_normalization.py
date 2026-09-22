@@ -567,3 +567,124 @@ def test_acp_session_id_is_stamped_on_events_that_do_not_carry_it():
     stamped = {sid for ids in by_type.values() for sid in ids if sid is not None}
     assert stamped == {"sess-synthetic-1"}
 
+
+# ---------------------------------------------------------------------------
+# TA-02: native turn correlation
+# ---------------------------------------------------------------------------
+
+
+def _prompt(prompt_id, session_id="sess-1"):
+    return {
+        "jsonrpc": "2.0",
+        "id": prompt_id,
+        "method": "session/prompt",
+        "params": {"sessionId": session_id, "prompt": [{"type": "text", "text": "hi"}]},
+    }
+
+
+def _chunk(session_id="sess-1"):
+    return {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+            "sessionId": session_id,
+            "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "hi"},
+            },
+        },
+    }
+
+
+def test_turn_id_follows_the_native_prompt_request_id():
+    events = _events_from(
+        [
+            (AcpDirection.HOST_TO_AGENT, _prompt(3)),
+            (AcpDirection.AGENT_TO_HOST, _chunk()),
+            (
+                AcpDirection.AGENT_TO_HOST,
+                _tool_update("call-turn", kind="tool_call", status="pending"),
+            ),
+            (AcpDirection.AGENT_TO_HOST, _usage_update({"totalTokens": 7})),
+            (AcpDirection.AGENT_TO_HOST, _permission_request(4)),
+            (
+                AcpDirection.HOST_TO_AGENT,
+                {"jsonrpc": "2.0", "id": 4, "result": {"outcome": {"outcome": "selected", "optionId": "allow"}}},
+            ),
+            (AcpDirection.AGENT_TO_HOST, {"jsonrpc": "2.0", "id": 3, "result": {"stopReason": "end_turn"}}),
+        ]
+    )
+
+    assert events[0].event_type == CanonicalEventType.AGENT_MESSAGE_STARTED.value
+    assert events[-1].event_type == CanonicalEventType.AGENT_MESSAGE_COMPLETED.value
+    assert all(event.correlations.turn_id == "3" for event in events), [
+        (event.event_type, event.correlations.turn_id) for event in events
+    ]
+
+
+def test_turn_id_is_null_without_a_pending_prompt():
+    event = _events_from([(AcpDirection.AGENT_TO_HOST, _chunk())])[0]
+
+    assert event.correlations.turn_id is None
+
+
+def test_turn_id_clears_after_the_prompt_completes():
+    events = _events_from(
+        [
+            (AcpDirection.HOST_TO_AGENT, _prompt(3)),
+            (AcpDirection.AGENT_TO_HOST, _chunk()),
+            (AcpDirection.AGENT_TO_HOST, {"jsonrpc": "2.0", "id": 3, "result": {}}),
+            (AcpDirection.AGENT_TO_HOST, _chunk()),
+        ]
+    )
+
+    assert events[1].correlations.turn_id == "3"
+    assert events[2].correlations.turn_id == "3"
+    # Once the prompt completes the turn is closed; no id is invented.
+    assert events[3].correlations.turn_id is None
+
+
+def test_concurrent_sessions_do_not_share_a_turn():
+    events = _events_from(
+        [
+            (AcpDirection.HOST_TO_AGENT, _prompt(3, "sess-a")),
+            (AcpDirection.HOST_TO_AGENT, _prompt(9, "sess-b")),
+            (AcpDirection.AGENT_TO_HOST, _chunk("sess-a")),
+            (AcpDirection.AGENT_TO_HOST, _chunk("sess-b")),
+        ]
+    )
+
+    assert [event.correlations.turn_id for event in events] == ["3", "9", "3", "9"]
+
+
+def test_turn_state_is_isolated_per_normalizer_stream():
+    first = ProxyNormalizer()
+    second = ProxyNormalizer()
+    observer = Observer()
+    try:
+        first.normalize_observed(
+            observer.observe(AcpDirection.HOST_TO_AGENT, encode_message(_prompt(3)))[0]
+        )
+        second.normalize_observed(
+            observer.observe(AcpDirection.HOST_TO_AGENT, encode_message(_prompt(9)))[0]
+        )
+        chunk = observer.observe(AcpDirection.AGENT_TO_HOST, encode_message(_chunk()))[0]
+
+        assert first.normalize_observed(chunk)[0].correlations.turn_id == "3"
+        assert second.normalize_observed(chunk)[0].correlations.turn_id == "9"
+    finally:
+        observer.close()
+
+
+def _permission_request(permission_id, session_id="sess-1"):
+    return {
+        "jsonrpc": "2.0",
+        "id": permission_id,
+        "method": "session/request_permission",
+        "params": {
+            "sessionId": session_id,
+            "toolCall": {"toolCallId": "call-turn"},
+            "options": [{"optionId": "allow", "kind": "allow_once"}],
+        },
+    }
+

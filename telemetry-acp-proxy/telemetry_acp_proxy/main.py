@@ -10,6 +10,7 @@ a digest-pinned agent artifact:
         --capability-file /run/code4me/capability \
         --telemetry-policy /etc/code4me/telemetry-policy.json \
         --telemetry-policy-digest <64 hex> \
+        --status-file /run/code4me/status.json \
         --adapter codex-v1 \
         --agent-cmd /opt/code4me/agents/codex-agent --stdio
 
@@ -32,6 +33,14 @@ the durable carrier: the ACP host entry persists it, so a launch keeps working
 even after the plugin removes its fallback file. When a spool endpoint is
 configured but the token is still missing, the proxy retries briefly (a few
 seconds) before exiting so a launch racing activation can still succeed.
+
+``--status-file`` names a content-free delivery status document the proxy writes
+atomically (temp file then replace) at startup, after every dispatch, and once at
+shutdown: canonical JSON of the delivery counters (``dropped`` and friends),
+never a payload, event id, path, or capability. The path resolves from
+``--status-file``, then ``CODE4ME_RESEARCH_STATUS_FILE`` in the entry
+environment. Writing is best effort: a failure is logged and never changes the
+exit code, and with no path configured nothing is written.
 
 Exit codes:
     0   clean shutdown
@@ -63,6 +72,7 @@ from research.telemetry.privacy import PrivacyPolicy  # noqa: E402
 
 from .adapters import get_adapter  # noqa: E402
 from .delivery import (  # noqa: E402
+    DEFAULT_CAPACITY,
     DEFAULT_CLOSE_TIMEOUT_SECONDS,
     DeliveryBatch,
     DeliveryQueue,
@@ -97,19 +107,34 @@ EXIT_SPOOL_REJECTED = 22
 #: persists it, so a proxy launch no longer depends on a file surviving teardown.
 CAPABILITY_ENV_VAR = "CODE4ME_RESEARCH_CAPABILITY"
 
+#: Environment variable carrying the native agent run id. The ACP host entry
+#: persists it, so the proxy can stamp ``agent_run_id`` even when the plugin did
+#: not pass ``--agent-run-id`` on the command line.
+AGENT_RUN_ID_ENV_VAR = "CODE4ME_RESEARCH_RUN_ID"
+
+#: Environment variable carrying the content-free delivery status document path.
+#: The ACP host entry persists it, so the proxy still reports local telemetry
+#: loss even when the plugin did not pass ``--status-file`` on the command line.
+STATUS_FILE_ENV_VAR = "CODE4ME_RESEARCH_STATUS_FILE"
+
 #: Bounded window the proxy waits for a required capability to appear.
 CAPABILITY_RETRY_SECONDS = 5.0
 CAPABILITY_RETRY_INTERVAL_SECONDS = 0.1
 
 __all__ = [
+    "AGENT_RUN_ID_ENV_VAR",
     "CAPABILITY_ENV_VAR",
+    "STATUS_FILE_ENV_VAR",
     "build_parser",
     "computed_policy_digest",
     "main",
     "policy_digest_mismatch",
+    "resolve_agent_run_id",
     "resolve_capability",
     "resolve_capability_with_retry",
+    "resolve_status_file",
     "run_proxy",
+    "write_status_document",
 ]
 
 
@@ -187,6 +212,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--adapter",
         default=None,
         help="Optional adapter name (for example 'codex-v1').",
+    )
+    parser.add_argument(
+        "--agent-run-id",
+        default=None,
+        help=(
+            "Native agent run id for this activation, stamped as 'agent_run_id' "
+            "on every canonical event. Falls back to CODE4ME_RESEARCH_RUN_ID in "
+            "the entry environment."
+        ),
+    )
+    parser.add_argument(
+        "--status-file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Write a content-free JSON delivery status document (drop counters) "
+            "to PATH. Falls back to CODE4ME_RESEARCH_STATUS_FILE in the entry "
+            "environment. Best effort: a write failure never changes the exit "
+            "code, and with no path configured nothing is written."
+        ),
     )
     parser.add_argument(
         "--agent-env",
@@ -280,6 +325,89 @@ def policy_digest_mismatch(
             f"policy digest {computed}"
         )
     return None
+
+
+def resolve_agent_run_id(
+    agent_run_id: Optional[str],
+    environment: Optional[Mapping[str, str]] = None,
+) -> Optional[str]:
+    """Resolve the native agent run id: ``--agent-run-id`` then the entry env.
+
+    The flag wins; ``CODE4ME_RESEARCH_RUN_ID`` is the durable fallback the ACP
+    host entry persists. A blank value on either side resolves to ``None`` so the
+    proxy never stamps a blank run id.
+    """
+    if agent_run_id is not None:
+        stripped = agent_run_id.strip()
+        if stripped:
+            return stripped
+    source = os.environ if environment is None else environment
+    token = source.get(AGENT_RUN_ID_ENV_VAR)
+    if token is None:
+        return None
+    stripped = token.strip()
+    return stripped or None
+
+
+def resolve_status_file(
+    status_file: Optional[str],
+    environment: Optional[Mapping[str, str]] = None,
+) -> Optional[str]:
+    """Resolve the delivery status document path: ``--status-file`` then env.
+
+    The flag wins; ``CODE4ME_RESEARCH_STATUS_FILE`` is the durable fallback the
+    ACP host entry persists. A blank value on either side resolves to ``None`` so
+    the proxy never writes to an empty path.
+    """
+    if status_file is not None:
+        stripped = status_file.strip()
+        if stripped:
+            return stripped
+    source = os.environ if environment is None else environment
+    token = source.get(STATUS_FILE_ENV_VAR)
+    if token is None:
+        return None
+    stripped = token.strip()
+    return stripped or None
+
+
+def _zero_delivery_snapshot() -> dict[str, Any]:
+    """The startup status document: a fresh, all-zero delivery health snapshot."""
+    return {
+        "capacity": DEFAULT_CAPACITY,
+        "enqueued": 0,
+        "delivered": 0,
+        "dropped_full": 0,
+        "dropped_error": 0,
+        "dropped_shutdown": 0,
+        "dropped": 0,
+        "pending": 0,
+        "closed": False,
+        "worker_alive": False,
+        "healthy": True,
+    }
+
+
+def write_status_document(
+    path: str,
+    snapshot: Mapping[str, Any],
+    diagnostics: Callable[[str], None],
+) -> None:
+    """Atomically write the content-free delivery status document (best effort).
+
+    The document is canonical JSON (sorted keys, compact separators) of the
+    delivery snapshot: numeric counters and booleans only, never a payload, event
+    id, path, or capability. It is written to ``<path>.tmp`` and replaced into
+    place so a reader never observes a partial document. Any write failure is
+    logged and swallowed so it can never change the proxy's exit code.
+    """
+    document = json.dumps(dict(snapshot), sort_keys=True, separators=(",", ":"))
+    temporary = f"{path}.tmp"
+    try:
+        Path(temporary).write_text(document, encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError as error:
+        diagnostics(f"proxy: cannot write status file {path}: {error}")
 
 
 def _capability_from_environment(
@@ -376,6 +504,18 @@ def _deliver(
     return result
 
 
+def _stamp_agent_run_id(event, agent_run_id: Optional[str]):
+    """Return [event] carrying [agent_run_id] when it has none.
+
+    Events are frozen: the stamp is an additive copy, never a mutation. An event
+    that already names a run is authoritative and is left untouched, so the
+    proxy never relabels another producer's attribution.
+    """
+    if agent_run_id is None or event.agent_run_id is not None:
+        return event
+    return event.model_copy(update={"agent_run_id": agent_run_id})
+
+
 def _deliverable(events: Sequence, diagnostics) -> list:
     """Drop events the privacy gate blocked; they never reach the spool.
 
@@ -424,6 +564,8 @@ def run_proxy(
     runtime_root: Optional[str] = None,
     proxy_digest: str = "",
     emitter_id: Optional[str] = None,
+    agent_run_id: Optional[str] = None,
+    status_file: Optional[str] = None,
     agent_env: Optional[Mapping[str, str]] = None,
     host_read=None,
     host_write=None,
@@ -441,6 +583,16 @@ def run_proxy(
     allocator restarts at 1 on every launch, so a constant id would collide on
     the server's ``(research_session_id, emitter_id, emitter_sequence)`` unique
     constraint across the one-process-per-chat proxy fleet.
+
+    ``agent_run_id`` is the native run minted for this activation. When set, it
+    is stamped centrally on every canonical event (normalized and proxy-owned
+    lifecycle) that does not already carry one, immediately before delivery.
+
+    ``status_file`` is the plugin-owned content-free delivery status document.
+    When set, an all-zero snapshot is written at startup, the snapshot is
+    refreshed after every dispatch so drops surface promptly, and the final
+    snapshot is written after shutdown flushing. Every write is best effort and
+    can never change the returned exit code.
     """
     host_read = host_read if host_read is not None else sys.stdin.buffer
     host_write = host_write if host_write is not None else sys.stdout.buffer
@@ -506,6 +658,31 @@ def run_proxy(
     # waits on the network. Its consumer calls the existing `_deliver` path.
     delivery: Optional[DeliveryQueue[DeliveryBatch]] = None
 
+    def current_status() -> Mapping[str, Any]:
+        """The live delivery snapshot, or an all-zero one before the queue exists."""
+        if delivery is not None:
+            return delivery.snapshot()
+        return _zero_delivery_snapshot()
+
+    def write_status(snapshot: Optional[Mapping[str, Any]] = None) -> None:
+        """Best-effort refresh of the content-free delivery status document."""
+        if status_file is None:
+            return
+        write_status_document(
+            status_file, current_status() if snapshot is None else snapshot, diag
+        )
+
+    def deliverable(events: Sequence) -> list:
+        """Stamp the activation's run id, then drop privacy-blocked events.
+
+        This is the single outbound seam for both normalized ACP events and
+        proxy-owned lifecycle events (parse failures, agent crashes), so a
+        run-scoped activation can never leak an unstamped event.
+        """
+        return _deliverable(
+            [_stamp_agent_run_id(event, agent_run_id) for event in events], diag
+        )
+
     def dispatch(observed: ObservedAcpMessageV1, events: Sequence) -> None:
         """Route normalized, privacy-gated events off the forwarding thread."""
         if not events or delivery is None:
@@ -525,6 +702,7 @@ def run_proxy(
                 session_id=session_id,
             )
         )
+        write_status()
 
     def handle(observed: ObservedAcpMessageV1) -> None:
         if not observed.ok:
@@ -536,13 +714,17 @@ def run_proxy(
                 emitter_id=emitter_id,
                 allocator=allocator,
             )
-            dispatch(observed, _deliverable([event], diag))
+            dispatch(observed, deliverable([event]))
             diag(f"proxy: malformed protocol frame ({observed.error_code})")
             return
         events = [gate.filter(event) for event in normalizer.normalize_observed(observed)]
-        dispatch(observed, _deliverable(events, diag))
+        dispatch(observed, deliverable(events))
 
     observer.on_observation = handle
+
+    # The status document exists from startup with dropped=0, so the plugin can
+    # read health immediately instead of treating an absent file as a loss.
+    write_status()
 
     process = ProxyProcess(
         [str(artifact), *list(agent_cmd[1:])],
@@ -572,7 +754,9 @@ def run_proxy(
     # Shutdown: flush queued telemetry within a bounded window, then report
     # exactly what was delivered and what was lost.
     if delivery is not None:
-        _log_delivery(delivery.close(timeout=DEFAULT_CLOSE_TIMEOUT_SECONDS), diag)
+        final = delivery.close(timeout=DEFAULT_CLOSE_TIMEOUT_SECONDS)
+        _log_delivery(final, diag)
+        write_status(final)
 
     return_code = (
         process.wait(timeout=5)
@@ -589,7 +773,7 @@ def run_proxy(
             emitter_id=emitter_id,
             allocator=allocator,
         )
-        _deliver(_deliverable([gate.filter(event)], diag), spool, diag)
+        _deliver(deliverable([gate.filter(event)]), spool, diag)
         diag(f"proxy: agent exited unexpectedly with status {return_code}")
         return EXIT_AGENT_CRASH
     if malformed:
@@ -620,6 +804,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if agent_env_error is not None:
         print(f"proxy: {agent_env_error}", file=sys.stderr)
         return EXIT_USAGE
+    agent_run_id = resolve_agent_run_id(args.agent_run_id)
+    status_file = resolve_status_file(args.status_file)
     return run_proxy(
         agent_cmd=args.agent_cmd,
         agent_digest=args.agent_digest,
@@ -632,6 +818,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         proxy_digest=args.proxy_digest or "",
         # An explicit --emitter-id always wins; otherwise run_proxy mints one.
         emitter_id=args.emitter_id,
+        # --agent-run-id wins; CODE4ME_RESEARCH_RUN_ID is the entry-env fallback.
+        agent_run_id=agent_run_id,
+        # --status-file wins; CODE4ME_RESEARCH_STATUS_FILE is the entry-env fallback.
+        status_file=status_file,
         agent_env=agent_env,
     )
 
