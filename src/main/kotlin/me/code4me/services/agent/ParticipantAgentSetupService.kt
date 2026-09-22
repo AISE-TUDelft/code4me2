@@ -234,11 +234,16 @@ class ParticipantAgentSetupService : Disposable {
      */
     private fun studyActive(project: Project): ParticipantSetupStatus? {
         if (!hasStudyContext(project)) return null
-        // A study is authoritative: never register the direct managed entry and
-        // never fall through to the legacy ACP handoff. The research activation
-        // path owns the ACP registration for this project. Dropping the bridge
-        // claim also means a stale direct entry cannot mint grants for it.
-        bridge.unregister(project)
+        // A study is authoritative: do not register the direct managed ACP
+        // entry, but keep the authenticated bridge claim for this project. The
+        // research proxy uses the same loopback bridge to obtain its scoped
+        // grant, including after the project has been reopened.
+        runCatching {
+            bridge.register(project)
+            projects += project
+        }.onFailure { error ->
+            log.warn("Could not register the research authentication bridge", error)
+        }
         return ParticipantSetupStatus(ParticipantSetupStep.STUDY_ACTIVE, STUDY_ACTIVE_MESSAGE)
     }
 
