@@ -299,6 +299,8 @@ class CanonicalEventSerializationTest {
             setOf(
                 "interaction.started",
                 "interaction.completed",
+                "agent.run.started",
+                "agent.run.completed",
                 "agent.message.started",
                 "agent.message.completed",
                 "tool.created",
