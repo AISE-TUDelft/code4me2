@@ -204,8 +204,10 @@ class GroundTruth : PluginModule {
         modelName: String,
     ) {
         val moduleId = getPreferenceId()
-        val leftChars = getIntPreference(moduleId, "leftTokens", DEFAULT_LEFT_CHARS)
-        val rightChars = getIntPreference(moduleId, "rightTokens", DEFAULT_RIGHT_CHARS)
+        // Preference keys must match getPreferenceList() ("leftChars"/"rightChars"),
+        // otherwise user configuration is ignored and defaults are always used.
+        val leftChars = getIntPreference(moduleId, "leftChars", DEFAULT_LEFT_CHARS)
+        val rightChars = getIntPreference(moduleId, "rightChars", DEFAULT_RIGHT_CHARS)
 
         val startOffset = rangeMarker.startOffset
         val endOffset = rangeMarker.endOffset
