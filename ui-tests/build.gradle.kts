@@ -7,7 +7,7 @@
 //   cd code4me2 && ./gradlew :runIdeForUiTests   # boots the sandbox IDE
 //   ./gradlew :ui-tests:test --rerun             # drives it through robot-server
 //
-// `python3 -m code4me_e2e ui-test` orchestrates both and records the result.
+// `./code4me2-server/e2e/test --json` orchestrates both and records the result.
 //
 // The suite is inert unless CODE4ME_UI_TEST=1 (class-level
 // @EnabledIfEnvironmentVariable), so a plain `./gradlew test` neither needs a

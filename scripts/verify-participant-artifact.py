@@ -345,7 +345,7 @@ def verify_release_catalog(
     """Verify the simplified release inventory and the single managed agent identity.
 
     The plugin derives ``participant_release`` from the shipped recipe: the
-    declared platforms plus the three framework identities. The recipe
+    declared platforms plus the managed and optional external framework identities. The recipe
     (``code4me-runtime/manifest.json``) is the actual agent identity, so the
     managed entry's ``version`` must equal the recipe's ``runtime_version``; there
     is no server-derived ``release_id`` or execution inventory to compare.
@@ -376,17 +376,21 @@ def verify_release_catalog(
     ):
         findings.append("participant release must cover all four native platforms exactly once")
     releases = inventory.get("releases", [])
-    if not isinstance(releases, list) or len(releases) != 3 or {
-        r.get("framework") for r in releases if isinstance(r, dict)
-    } != {"code4me2-agent", "goose", "codex"}:
-        findings.append("participant inventory must contain the three assigned-agent definitions")
+    if not isinstance(releases, list) or not releases or not all(
+        isinstance(r, dict) and isinstance(r.get("framework"), str) for r in releases
+    ):
+        findings.append("participant inventory must contain a managed agent")
         return
-    by_framework = {r["framework"]: r for r in releases}
+    by_framework = {r.get("framework"): r for r in releases}
+    if len(by_framework) != len(releases) or "code4me2-agent" not in by_framework or set(by_framework) - {"code4me2-agent", "goose", "codex"}:
+        findings.append("participant inventory has missing, duplicate or unsupported agent definitions")
+        return
     managed = by_framework["code4me2-agent"]
     if managed.get("distribution_mode") != "PACKAGED" or any(
-        by_framework[f].get("distribution_mode") != "BYOA_EXTERNAL" for f in ("goose", "codex")
+        agent.get("distribution_mode") != "BYOA_EXTERNAL"
+        for framework, agent in by_framework.items() if framework != "code4me2-agent"
     ):
-        findings.append("participant inventory must bundle Code4Me and use installed Goose/Codex")
+        findings.append("participant inventory must bundle Code4Me and mark external agents as BYOA")
     verify_agent_recipe(
         label,
         archive,

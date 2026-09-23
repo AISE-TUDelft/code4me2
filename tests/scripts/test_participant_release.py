@@ -96,6 +96,7 @@ def test_generated_catalog_passes_verifier_and_missing_proxy_or_agent_fails(tmp_
     platforms = ["macos-arm64", "macos-x64", "linux-x64", "windows-x64"]
     catalog = proxy_catalog(platforms)
     catalog["participant_release"] = inventory(platforms)
+    catalog["participant_release"]["releases"] = catalog["participant_release"]["releases"][:1]
     payloads = {
         platform_entry["files"][0]["path"]: b"proxy"
         for platform_entry in catalog["platforms"]
@@ -257,6 +258,6 @@ def test_preflight_detects_later_conflict_before_registering_first_record(tmp_pa
 
 def test_release_mode_and_framework_must_be_complete(tmp_path):
     recipe = fixtures.make_inputs(tmp_path / "inputs").model_dump()
-    recipe["agents"].pop()
-    with pytest.raises(ValueError, match="exactly once"):
+    recipe["agents"].pop(0)
+    with pytest.raises(ValueError, match="managed agent"):
         fixtures.ParticipantRecipe.model_validate(recipe)

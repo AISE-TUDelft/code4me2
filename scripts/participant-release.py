@@ -268,7 +268,8 @@ def main():
                "-Pcode4me.serverUrl=" + args.server_url,
                "-PresearchProxyPlatforms=" + ",".join(platforms),
                "-PrequireResearchProxyBundles=true"]
-    if local_release:
+    server_url = urlsplit(args.server_url)
+    if local_release or (server_url.scheme == "http" and server_url.hostname in {"localhost", "127.0.0.1"}):
         command.append("-PparticipantLocalRelease=true")
     subprocess.run(command, cwd=PLUGIN_ROOT, check=True)
     # BuildPlugin's archive name is resolved by Gradle into this output manifest.

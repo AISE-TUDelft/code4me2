@@ -59,7 +59,7 @@ def test_full_release_derives_the_supported_matrix(tmp_path: Path) -> None:
     matrix_line = next(line for line in outputs.splitlines() if line.startswith("matrix="))
     matrix = json.loads(matrix_line.removeprefix("matrix="))
     by_platform = {entry["platform"]: entry for entry in matrix}
-    assert by_platform["macos-aarch64"]["runner"] == "macos-14"
+    assert by_platform["macos-aarch64"]["runner"] == "macos-15"
     assert by_platform["macos-x64"]["runner"] == "macos-15-intel"
     assert by_platform["linux-x64"]["runner"] == "ubuntu-24.04"
     assert by_platform["windows-x64"]["runner"] == "windows-2022"

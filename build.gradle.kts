@@ -1131,6 +1131,20 @@ tasks.register("integrationTest") {
 intellijPlatformTesting {
     runIde {
         register("runIdeForUiTests") {
+            prepareSandboxTask {
+                providers.gradleProperty("participantHostZip").orNull?.let { archive ->
+                    val pluginZip = file(archive)
+                    inputs.file(pluginZip)
+                    doLast {
+                        val plugins = defaultDestinationDirectory.get().asFile
+                        delete(plugins.resolve(pluginName.get()))
+                        copy {
+                            from(zipTree(pluginZip))
+                            into(plugins)
+                        }
+                    }
+                }
+            }
             task {
                 // The harness supplies a private home/config/system directory.
                 // No test touches the developer's ACP registry or saved accounts.

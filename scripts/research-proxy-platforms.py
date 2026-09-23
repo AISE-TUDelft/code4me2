@@ -30,7 +30,7 @@ from pathlib import Path
 # so every entry names a runner whose CPU architecture matches the bundle.
 # (`macos-13` is retired; Intel macOS runners are labeled `macos-15-intel`.)
 SUPPORTED_PLATFORMS = (
-    ("macos-aarch64", "macos-14"),
+    ("macos-aarch64", "macos-15"),
     ("macos-x64", "macos-15-intel"),
     ("linux-x64", "ubuntu-24.04"),
     ("windows-x64", "windows-2022"),

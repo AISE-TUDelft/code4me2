@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit
  *
  * It talks to the robot-server that the `:runIdeForUiTests` Gradle task starts
  * in a **real** IntelliJ IDEA sandbox with the plugin (and AI Assistant)
- * installed. It does not boot the IDE itself — `python3 -m code4me_e2e ui-test`
+ * installed. It does not boot the IDE itself — `./code4me2-server/e2e/test`
  * owns that lifecycle and supplies the environment contract below.
  *
  * The suite is inert unless the gate is set, so a plain `./gradlew test` never
@@ -857,7 +857,7 @@ class Code4MeUiNavigationTest {
                 field.set(configSvc, cfg);
                 String(appSvc.getApiBaseUrl())
                 """.trimIndent()
-            val resolved = robot.callJs<String>(script, true)
+            val resolved = robot.callJs<String>(script, false)
             check(resolved.startsWith(baseUrl)) {
                 "could not point the plugin at $baseUrl (it reports $resolved)"
             }
