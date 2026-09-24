@@ -147,6 +147,10 @@ class AcpHostRegistration internal constructor(
             val args =
                 buildList {
                     addAll(resolved.proxyArgv.drop(1))
+                    // The bundled proxy is digest-pinned to this plugin, so the
+                    // compatibility flag is part of the pinned contract and is
+                    // always emitted (see COMPAT_IDEMPOTENT_INITIALIZE_FLAG).
+                    add(COMPAT_IDEMPOTENT_INITIALIZE_FLAG)
                     if (digestFallbackToAgentArgv) {
                         add(AGENT_DIGEST_FLAG)
                         add(agentDigest ?: agentDigestOf(agentArgv.first()))
@@ -196,10 +200,28 @@ class AcpHostRegistration internal constructor(
                 ).getOrThrow()
         }
 
-    /** Remove exactly this component's ACP entry (idempotent, never throws). */
+    /**
+     * Remove exactly this component's ACP entry (idempotent, never throws).
+     *
+     * Removal is verified rather than trusted: the writer's reported success is
+     * not enough, because a concurrent writer can leave the entry in place. A
+     * still-present entry is removed once more and, if it survives that retry,
+     * the caller receives an [IllegalStateException] naming the entry instead of
+     * a silent success — an unremoved entry would otherwise outlive its
+     * capability and be read as a pre-existing entry on the next login.
+     */
     fun unregister(): Result<Unit> =
         runCatching {
-            registryWriterFactory(registryPath).removeEntry(entryName).getOrThrow()
+            val writer = registryWriterFactory(registryPath)
+            writer.removeEntry(entryName).getOrThrow()
+            if (writer.hasEntry(entryName)) {
+                writer.removeEntry(entryName).getOrThrow()
+                if (writer.hasEntry(entryName)) {
+                    throw IllegalStateException(
+                        "ACP registry entry '$entryName' is still present after removal",
+                    )
+                }
+            }
         }
 
     /** Whether this component currently has an ACP entry. */
@@ -236,6 +258,20 @@ class AcpHostRegistration internal constructor(
         const val AGENT_DIGEST_FLAG: String = "--agent-digest"
         const val SPOOL_ENDPOINT_FLAG: String = "--spool-endpoint"
         const val CAPABILITY_FILE_FLAG: String = "--capability-file"
+
+        /**
+         * Opt-in proxy compatibility mode: answer a repeated `initialize` on the
+         * same connection from the cached handshake result instead of forwarding
+         * it to the agent.
+         *
+         * JetBrains AI Assistant resubmits a failed prompt by creating a new
+         * session on an already-initialized proxy process; the duplicate
+         * `initialize` reaches a strict ACP agent, which rejects it with JSON-RPC
+         * `-32603` ("Already initialized") and wedges the chat. The bundled proxy
+         * is digest-pinned to this plugin, so the flag is always emitted; the
+         * proxy's default (no flag) remains byte-preserving.
+         */
+        const val COMPAT_IDEMPOTENT_INITIALIZE_FLAG: String = "--compat-idempotent-initialize"
 
         /** Path to the frozen study privacy policy JSON the proxy enforces. */
         const val TELEMETRY_POLICY_FLAG: String = "--telemetry-policy"

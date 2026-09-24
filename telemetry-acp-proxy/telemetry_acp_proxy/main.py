@@ -42,6 +42,15 @@ never a payload, event id, path, or capability. The path resolves from
 environment. Writing is best effort: a failure is logged and never changes the
 exit code, and with no path configured nothing is written.
 
+``--compat-idempotent-initialize`` opts into one host compatibility behavior for
+which the default is deliberately off: a repeated ``initialize`` request on the
+same connection is answered from the cached handshake result instead of being
+forwarded to the agent. JetBrains AI Assistant resubmits a failed prompt by
+creating a new session on an already-initialized proxy process; a strict agent
+rejects the duplicate with JSON-RPC ``-32603`` and the chat wedges. Any other
+chunk (multiple frames, a partial tail, another method) is still forwarded
+byte-preserving.
+
 Exit codes:
     0   clean shutdown
     2   usage/configuration error
@@ -57,6 +66,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,7 +87,8 @@ from .delivery import (  # noqa: E402
     DeliveryBatch,
     DeliveryQueue,
 )
-from .forwarder import AcpForwarder  # noqa: E402
+from .forwarder import AcpForwarder, InterceptCallback  # noqa: E402
+from .initialize_replay import InitializeReplay  # noqa: E402
 from .lifecycle import (  # noqa: E402
     ArtifactVerificationError,
     ProxyProcess,
@@ -212,6 +223,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--adapter",
         default=None,
         help="Optional adapter name (for example 'codex-v1').",
+    )
+    parser.add_argument(
+        "--compat-idempotent-initialize",
+        action="store_true",
+        help=(
+            "Opt-in host compatibility: answer a repeated 'initialize' on the "
+            "same connection from the cached handshake result instead of "
+            "forwarding the duplicate to the agent (an IDE that recreates a "
+            "session on a live process would otherwise trigger JSON-RPC -32603). "
+            "Default off: the proxy stays byte-preserving."
+        ),
     )
     parser.add_argument(
         "--agent-run-id",
@@ -397,17 +419,38 @@ def write_status_document(
 
     The document is canonical JSON (sorted keys, compact separators) of the
     delivery snapshot: numeric counters and booleans only, never a payload, event
-    id, path, or capability. It is written to ``<path>.tmp`` and replaced into
-    place so a reader never observes a partial document. Any write failure is
-    logged and swallowed so it can never change the proxy's exit code.
+    id, path, or capability. It is staged to a uniquely named temporary file in
+    the destination directory and replaced into place, so a reader never observes
+    a partial document and concurrent proxies sharing one ``--status-file`` never
+    stage through — and delete — each other's temporary file. The temporary file
+    is always removed. Any write failure is logged and swallowed so it can never
+    change the proxy's exit code.
     """
-    document = json.dumps(dict(snapshot), sort_keys=True, separators=(",", ":"))
-    temporary = f"{path}.tmp"
+    target = os.path.abspath(path)
+    parent = os.path.dirname(target)
+    temporary: Optional[str] = None
     try:
-        Path(temporary).write_text(document, encoding="utf-8")
-        os.replace(temporary, path)
-    except OSError as error:
+        document = json.dumps(dict(snapshot), sort_keys=True, separators=(",", ":"))
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=parent,
+            prefix=f"{os.path.basename(target)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = stream.name
+            stream.write(document)
+        os.replace(temporary, target)
+        temporary = None
+    except Exception as error:
         diagnostics(f"proxy: cannot write status file {path}: {error}")
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
 
 
 def _capability_from_environment(
@@ -567,6 +610,7 @@ def run_proxy(
     agent_run_id: Optional[str] = None,
     status_file: Optional[str] = None,
     agent_env: Optional[Mapping[str, str]] = None,
+    compat_idempotent_initialize: bool = False,
     host_read=None,
     host_write=None,
     diagnostics=None,
@@ -593,6 +637,11 @@ def run_proxy(
     refreshed after every dispatch so drops surface promptly, and the final
     snapshot is written after shutdown flushing. Every write is best effort and
     can never change the returned exit code.
+
+    ``compat_idempotent_initialize`` enables the opt-in host compatibility mode:
+    a repeated ``initialize`` on the same connection is answered from the cached
+    handshake result instead of being forwarded to the agent. The default
+    (``False``) keeps the proxy byte-preserving.
     """
     host_read = host_read if host_read is not None else sys.stdin.buffer
     host_write = host_write if host_write is not None else sys.stdout.buffer
@@ -742,7 +791,19 @@ def run_proxy(
             diagnostics=diag,
         )
 
-    forwarder = AcpForwarder(observer=observer, diagnostics=diag)
+    # The opt-in compatibility mode answers a repeated `initialize` on this
+    # connection from the cached handshake result; the default path constructs
+    # no interceptor and stays byte-preserving.
+    intercept: Optional[InterceptCallback] = None
+    if compat_idempotent_initialize:
+        replay = InitializeReplay(
+            on_replay=lambda: diag(
+                "proxy: answered repeated initialize from the cached handshake"
+            )
+        )
+        intercept = replay.intercept
+
+    forwarder = AcpForwarder(observer=observer, diagnostics=diag, intercept=intercept)
     forwarder.run(
         host_read,
         host_write,
@@ -823,6 +884,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # --status-file wins; CODE4ME_RESEARCH_STATUS_FILE is the entry-env fallback.
         status_file=status_file,
         agent_env=agent_env,
+        compat_idempotent_initialize=args.compat_idempotent_initialize,
     )
 
 
