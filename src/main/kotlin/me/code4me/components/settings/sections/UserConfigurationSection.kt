@@ -23,7 +23,6 @@ import me.code4me.api.generated.model.UpdateUser
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.services.app.AppService
 import me.code4me.services.app.getAppService
-import me.code4me.services.project.getProjectChatService
 import me.code4me.services.state.AuthState
 import me.code4me.settings.ConfigurationConfigurable
 import java.awt.BorderLayout
@@ -774,30 +773,9 @@ class UserSection(
 
             if (confirmResult == Messages.YES) {
                 try {
-                    // Clear chat data explicitly for all projects before account deletion
-                    ProjectManager.getInstance().openProjects.forEach { project ->
-                        try {
-                            val chatService = getProjectChatService(project)
-                            chatService.clearAllChatsAndMemory()
-
-                            // Force persistence of the cleared state
-                            ApplicationManager.getApplication().invokeAndWait {
-                                project.save()
-                            }
-
-                            LOG.info("Cleared all chat sessions for project: ${project.name}")
-                        } catch (e: ProcessCanceledException) {
-                            throw e // ProcessCanceledException cannot be caught
-                        } catch (e: Exception) {
-                            LOG.error("Failed to clear chat data for project: ${project.name}", e)
-                        }
-                    }
-
-                    // Pass the checkbox state to determine if user data should be deleted
-                    appService.deleteUser(willDeleteData)
-
-                    // Clear local data immediately after account deletion
-                    authState.clearUserData()
+                    val deletionGeneration = authState.tokenGeneration()
+                    // AppService clears local chats after the server confirms deletion.
+                    appService.deleteUser(willDeleteData, deletionGeneration)
 
                     val successMessage =
                         if (willDeleteData) {
