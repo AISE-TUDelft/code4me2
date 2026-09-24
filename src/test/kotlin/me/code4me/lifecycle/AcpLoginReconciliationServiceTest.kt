@@ -9,6 +9,35 @@ import java.util.ArrayDeque
 
 class AcpLoginReconciliationServiceTest {
     @Test
+    fun `preparation feedback stays through retries and clears on readiness or logout`() {
+        val scheduler = ManualScheduler()
+        val feedback = mutableListOf<Boolean>()
+        var ready = false
+        val controller = AcpLoginReconciliationController(
+            scheduler,
+            attempt = { if (ready) ReconciliationAttemptResult.COMPLETE else ReconciliationAttemptResult.RETRY },
+            cleanup = {},
+            retryDelaysMs = listOf(1L),
+            onPreparingChanged = feedback::add,
+        )
+
+        controller.start(initiallyAuthenticated = true)
+        scheduler.runImmediate()
+        scheduler.runNextDelay()
+        assertEquals(listOf(true), feedback)
+
+        ready = true
+        controller.trigger()
+        scheduler.runImmediate()
+        assertEquals(listOf(true, false), feedback)
+
+        controller.authenticationChanged(false)
+        controller.authenticationChanged(true)
+        controller.dispose()
+        assertEquals(listOf(true, false, false, false, true, false), feedback)
+    }
+
+    @Test
     fun `reconciler acquisitions do not create cross-project retry storms`() {
         val firstScheduler = ManualScheduler()
         val secondScheduler = ManualScheduler()

@@ -21,6 +21,8 @@ import me.code4me.services.agent.mayPrepareDeveloperAgents
 import me.code4me.services.app.getAppService
 import me.code4me.services.state.TOKEN_PROPERTY
 import me.code4me.services.state.getAuthState
+import me.code4me.utils.notification.AcpPreparationLease
+import me.code4me.utils.notification.getAcpPreparationProgress
 import java.beans.PropertyChangeListener
 
 fun getAcpLoginReconciliationService(project: Project): AcpLoginReconciliationService = project.service()
@@ -75,6 +77,7 @@ internal class AcpLoginReconciliationController(
     private val attempt: ((() -> Boolean) -> ReconciliationAttemptResult),
     private val cleanup: (quarantine: Boolean) -> Unit,
     private val retryDelaysMs: List<Long> = DEFAULT_RETRY_DELAYS_MS,
+    private val onPreparingChanged: (Boolean) -> Unit = {},
 ) {
     private val lock = Any()
     private var disposed = false
@@ -95,6 +98,7 @@ internal class AcpLoginReconciliationController(
             started = true
             authenticated = initiallyAuthenticated
             generation++
+            if (authenticated) reportPreparing(true)
             if (authenticated) generation else null
         }
         runGeneration?.let(::requestRun)
@@ -109,6 +113,8 @@ internal class AcpLoginReconciliationController(
             val wasAuthenticated = authenticated
             generation++
             authenticated = isAuthenticated
+            reportPreparing(false)
+            if (authenticated) reportPreparing(true)
             completedGeneration = -1L
             retryIndex = 0
             retryTask?.cancel()
@@ -144,6 +150,7 @@ internal class AcpLoginReconciliationController(
             disposed = true
             generation++
             authenticated = false
+            reportPreparing(false)
             cleanupVersion++
             retryTask?.cancel()
             retryTask = null
@@ -204,6 +211,7 @@ internal class AcpLoginReconciliationController(
                 completedGeneration = attemptGeneration
                 rerunRequested = false
                 retryIndex = 0
+                reportPreparing(false)
             } else if (rerunRequested) {
                 running = false
                 rerunRequested = false
@@ -281,6 +289,10 @@ internal class AcpLoginReconciliationController(
     private fun isCurrentLocked(attemptGeneration: Long): Boolean =
         !disposed && authenticated && attemptGeneration == generation
 
+    private fun reportPreparing(preparing: Boolean) {
+        runCatching { onPreparingChanged(preparing) }
+    }
+
     companion object {
         internal val DEFAULT_RETRY_DELAYS_MS = listOf(1_000L, 2_000L, 5_000L, 10_000L, 30_000L, 60_000L, 300_000L)
     }
@@ -293,15 +305,26 @@ class AcpLoginReconciliationService(private val project: Project) : Disposable {
     private val authState = getAuthState()
     private val appService = getAppService()
     private val scheduler = CoroutineReconciliationScheduler()
+    private val preparationProgress = getAcpPreparationProgress(project)
+    private var automaticPreparation: AcpPreparationLease? = null
     private val controller =
         AcpLoginReconciliationController(
             scheduler = scheduler,
             attempt = ::reconcile,
             cleanup = ::cleanupProject,
+            onPreparingChanged = { preparing ->
+                if (preparing) {
+                    if (automaticPreparation == null) automaticPreparation = preparationProgress.acquire()
+                } else {
+                    automaticPreparation?.finish()
+                    automaticPreparation = null
+                }
+            },
         )
     private val authListener =
         PropertyChangeListener { event ->
             val token = event.newValue as? String
+            preparationProgress.cancelAll()
             controller.authenticationChanged(!token.isNullOrBlank())
         }
     private val sessionReadyListener: () -> Unit = { controller.trigger() }
