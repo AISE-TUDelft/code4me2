@@ -9,6 +9,13 @@ then handed to a non-blocking delivery sink (by default ``observer.observe``,
 whose callback only normalizes and enqueues). The spool POST and its retries run
 on the delivery worker thread, so a degraded spool cannot stall ACP streaming.
 
+An optional ``intercept`` compatibility hook is consulted after a chunk is
+parsed (and observed through ``on_frame``) but before the forwarding decision:
+when it returns bytes for a HOST_TO_AGENT chunk, those bytes are written to the
+host stream instead and the chunk never reaches the agent. The intercepted chunk
+and the synthesized response both travel the normal telemetry path. With no
+interceptor configured the pump is exactly the original byte-preserving forward.
+
 Closing semantics:
 
 * when the child closes its stdout, the host side is closed (EOF);
@@ -19,6 +26,7 @@ Closing semantics:
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import threading
 from typing import Any, BinaryIO, Callable, Optional
@@ -26,7 +34,7 @@ from typing import Any, BinaryIO, Callable, Optional
 from .framing import Frame, FrameReader
 from .observe import AcpDirection, Observer
 
-__all__ = ["AcpForwarder", "ForwardResult"]
+__all__ = ["AcpForwarder", "ForwardResult", "InterceptCallback"]
 
 DEFAULT_BUFFER_SIZE = 64 * 1024
 SELF_EXIT_GRACE_SECONDS = 5.0
@@ -36,6 +44,14 @@ FrameCallback = Callable[[AcpDirection, bytes, list[Frame]], None]
 #: ``Observer.observe`` whose callback only normalizes and enqueues. Network
 #: I/O and retries happen on the delivery worker thread.
 DeliveryCallback = Callable[[AcpDirection, bytes], Any]
+#: Optional compatibility hook consulted for every observed chunk. It receives
+#: the direction, the raw chunk, the frames decoded from it, and the reader's
+#: ``buffered_bytes`` after the feed. Returning bytes for a HOST_TO_AGENT chunk
+#: answers the chunk without forwarding it to the agent: the bytes are written
+#: to the host instead. ``None`` (or bytes for the other direction) preserves
+#: the byte-preserving forward exactly as before. Must be cheap and must not
+#: block: it runs on the forwarding pump thread.
+InterceptCallback = Callable[[AcpDirection, bytes, list[Frame], int], Optional[bytes]]
 
 
 def read_available(stream: BinaryIO, size: int) -> bytes:
@@ -80,6 +96,10 @@ class AcpForwarder:
     ``delivery`` is the test-visible seam for the observation sink. It defaults
     to ``observer.observe`` and must be non-blocking; the pump forwards the next
     chunk without waiting for telemetry transport.
+
+    ``intercept`` is the optional compatibility seam (see
+    [InterceptCallback]). With no interceptor configured the forwarding path is
+    exactly the original byte-preserving pump.
     """
 
     def __init__(
@@ -90,11 +110,13 @@ class AcpForwarder:
         diagnostics: Optional[Callable[[str], None]] = None,
         buffer_size: int = DEFAULT_BUFFER_SIZE,
         on_frame: Optional[FrameCallback] = None,
+        intercept: Optional[InterceptCallback] = None,
     ) -> None:
         self.observer = observer
         self.delivery: DeliveryCallback = delivery or observer.observe
         self.buffer_size = buffer_size
         self.on_frame = on_frame
+        self.intercept = intercept
         self._diagnostics = diagnostics or (lambda message: print(message, file=sys.stderr))
 
     def _emit(self, message: str) -> None:
@@ -114,6 +136,38 @@ class AcpForwarder:
         counters = {"host_to_agent": 0, "agent_to_host": 0}
         host_eof = threading.Event()
         agent_eof = threading.Event()
+        # The host->agent pump can now write the host stream (a replayed
+        # response), which the agent->host pump also writes: one lock guards
+        # every write+flush to the host so frames can never interleave.
+        host_write_lock = threading.Lock()
+        # Frame counters are read-modify-written by both pumps; keep them exact.
+        counters_lock = threading.Lock()
+
+        def _count(direction: AcpDirection, frames: list[Frame]) -> None:
+            with counters_lock:
+                counters[direction.value] += len(frames)
+
+        def _deliver_replay(replacement: bytes) -> None:
+            """Write a synthesized response to the host and observe it.
+
+            The bytes travel the same telemetry path as a real AGENT_TO_HOST
+            chunk (``on_frame`` when set, then ``delivery``), so normalization
+            still sees the response the host actually received.
+            """
+            try:
+                with host_write_lock:
+                    host_write.write(replacement)
+                    host_write.flush()
+            except (BrokenPipeError, OSError, ValueError) as error:
+                # A dead host stream must not take the forwarding pump down.
+                self._emit(f"proxy: {AcpDirection.AGENT_TO_HOST.value} stream closed: {error}")
+                return
+            frames = FrameReader().feed(replacement)
+            if frames:
+                _count(AcpDirection.AGENT_TO_HOST, frames)
+                if self.on_frame is not None:
+                    self.on_frame(AcpDirection.AGENT_TO_HOST, replacement, frames)
+            self.delivery(AcpDirection.AGENT_TO_HOST, replacement)
 
         def _pump(
             reader_stream: BinaryIO,
@@ -129,15 +183,32 @@ class AcpForwarder:
                         break
                     frames = reader.feed(chunk)
                     if frames:
-                        counters[direction.value] += len(frames)
+                        _count(direction, frames)
                         if self.on_frame is not None:
                             self.on_frame(direction, chunk, frames)
+                    if self.intercept is not None:
+                        replacement = self.intercept(
+                            direction, chunk, frames, reader.buffered_bytes
+                        )
+                        if direction is AcpDirection.HOST_TO_AGENT and replacement is not None:
+                            # The intercepted chunk is still observed, but it is
+                            # never forwarded: the agent only ever sees the first
+                            # handshake, and the host receives the cached answer.
+                            self.delivery(direction, chunk)
+                            _deliver_replay(replacement)
+                            continue
                     # Forward first, deliver second: the peer must never wait on
                     # telemetry. Delivery must be non-blocking (normalize +
                     # enqueue); the spool POST + retries happen only on the
                     # delivery worker thread.
-                    writer_stream.write(chunk)
-                    writer_stream.flush()
+                    guard = (
+                        host_write_lock
+                        if direction is AcpDirection.AGENT_TO_HOST
+                        else contextlib.nullcontext()
+                    )
+                    with guard:
+                        writer_stream.write(chunk)
+                        writer_stream.flush()
                     self.delivery(direction, chunk)
             except (BrokenPipeError, OSError, ValueError) as error:
                 self._emit(f"proxy: {direction.value} stream closed: {error}")

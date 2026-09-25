@@ -13,6 +13,9 @@ import me.code4me.services.app.ProjectAcpPreparation
 import me.code4me.services.agent.ParticipantSetupStatus
 import me.code4me.services.agent.ParticipantSetupStep
 import me.code4me.services.agent.getParticipantAgentSetupService
+import me.code4me.utils.notification.AcpPreparationIndicator
+import me.code4me.utils.notification.AcpPreparationLease
+import me.code4me.utils.notification.getAcpPreparationProgress
 import me.code4me.utils.notification.showAuthNotification
 import me.code4me.utils.notification.showAuthSuccessNotification
 import me.code4me.utils.notification.showErrorNotification
@@ -32,35 +35,69 @@ class PrepareAcpAgentSessionAction(
         ApplicationManager.getApplication().executeOnPooledThread(task)
     },
     private val notify: (Project, ParticipantSetupStatus) -> Unit = ::showPrepareNotification,
+    private val progressFor: (Project) -> AcpPreparationIndicator = ::getAcpPreparationProgress,
 ) : AnAction() {
     private val log = thisLogger()
 
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.getData(CommonDataKeys.PROJECT) ?: return
 
-        backgroundRunner {
-            try {
-                val status = setup(project, preparation)
-                if (status.step != ParticipantSetupStep.READY && status.step != ParticipantSetupStep.STUDY_ACTIVE) {
-                    throw AcpPreparationException(status.message)
+        val lease = runCatching { progressFor(project).acquire(delayMs = 0) }
+            .onFailure { log.warn("Could not show ACP preparation progress", it) }
+            .getOrNull()
+
+        try {
+            backgroundRunner {
+                try {
+                    val status = setup(project, preparation)
+                    if (status.step != ParticipantSetupStep.READY && status.step != ParticipantSetupStep.STUDY_ACTIVE) {
+                        throw AcpPreparationException(status.message)
+                    }
+                    finishProgress(lease, ready = true) { notifySafely { notify(project, status) } }
+                } catch (error: AcpPreparationException) {
+                    finishProgress(lease, ready = false) {
+                        notifySafely {
+                            project.showErrorNotification(
+                                title = "ACP Agent Session Preparation Failed",
+                                message = error.message,
+                            )
+                        }
+                    }
+                } catch (error: Exception) {
+                    log.warn("Unexpected ACP preparation failure for project: ${project.name}", error)
+                    finishProgress(lease, ready = false) {
+                        notifySafely {
+                            project.showErrorNotification(
+                                title = "ACP Agent Session Preparation Failed",
+                                message = "Code4Me hit an unexpected error while preparing the ACP agent session.",
+                            )
+                        }
+                    }
                 }
-                notifySafely { notify(project, status) }
-            } catch (error: AcpPreparationException) {
+            }
+        } catch (error: Exception) {
+            log.warn("Could not start ACP preparation for project: ${project.name}", error)
+            finishProgress(lease, ready = false) {
                 notifySafely {
                     project.showErrorNotification(
                         title = "ACP Agent Session Preparation Failed",
-                        message = error.message,
-                    )
-                }
-            } catch (error: Exception) {
-                log.warn("Unexpected ACP preparation failure for project: ${project.name}", error)
-                notifySafely {
-                    project.showErrorNotification(
-                        title = "ACP Agent Session Preparation Failed",
-                        message = "Code4Me hit an unexpected error while preparing the ACP agent session.",
+                        message = "Code4Me could not start ACP preparation.",
                     )
                 }
             }
+        }
+    }
+
+    private fun finishProgress(lease: AcpPreparationLease?, ready: Boolean, showResult: () -> Unit) {
+        if (lease == null) {
+            showResult()
+            return
+        }
+        runCatching {
+            if (ready) lease.complete(showResult) else lease.finish(showResult)
+        }.onFailure {
+            log.warn("Could not clear ACP preparation progress", it)
+            showResult()
         }
     }
 

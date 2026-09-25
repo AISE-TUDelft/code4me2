@@ -63,6 +63,7 @@ import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.state.AuthSettings
 import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.fromSerializableMap
@@ -76,11 +77,41 @@ import toApiModel
 import java.io.File
 import java.io.IOException
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 fun getAppService(): AppService {
     return service<AppService>()
+}
+
+internal fun publishSessionReady(
+    publish: Boolean,
+    listeners: Iterable<() -> Unit>,
+    onFailure: (Throwable) -> Unit = {},
+) {
+    if (!publish) return
+    listeners.forEach { listener -> runCatching(listener).onFailure(onFailure) }
+}
+
+internal fun deleteAccountAndClearLocalSession(
+    authState: AuthSettings,
+    expectedGeneration: Long,
+    deleteAccount: () -> Unit,
+    clearCookies: () -> Unit,
+    clearAuth: () -> Unit = authState::clearUserData,
+): Boolean = authState.withTokenLock {
+    if (authState.tokenGeneration() != expectedGeneration) {
+        throw IllegalStateException("Authentication changed before account deletion; try again")
+    }
+    // The HTTP interceptor reads AuthSettings.getToken() when it sends DELETE.
+    // Hold the token lock through the response so another login cannot redirect
+    // this irreversible request to a different account.
+    deleteAccount()
+    if (authState.tokenGeneration() != expectedGeneration) return@withTokenLock false
+    clearCookies()
+    clearAuth()
+    true
 }
 
 /**
@@ -114,6 +145,7 @@ class AppService {
     private val configService = getConfig()
     private var serverConfig = configService.getServerConfig()
     private var sessionToken: String? = null
+    private val sessionReadyListeners = CopyOnWriteArraySet<() -> Unit>()
 
     private fun buildApiBaseUrl(
         host: String?,
@@ -530,13 +562,27 @@ class AppService {
      *
      * @param response The session response containing session token and message
      */
-    private fun storeSessionResponse(response: AcquireSessionGetResponse) {
+    private fun storeSessionResponse(
+        response: AcquireSessionGetResponse,
+        publishReady: Boolean,
+    ) {
         sessionToken = CookieAwareApiClient.getSessionToken()
         if (sessionToken.isNullOrBlank()) {
             LOG.warn("Session token is null or blank, using response message instead")
             sessionToken = response.sessionToken
         }
         LOG.info("Session data stored successfully: ${response.message}")
+        publishSessionReady(publishReady, sessionReadyListeners) { LOG.warn("Session-ready listener failed", it) }
+    }
+
+    /** Adds a listener that runs after a server session has been acquired and stored. */
+    fun addSessionReadyListener(listener: () -> Unit) {
+        sessionReadyListeners += listener
+    }
+
+    /** Removes a listener previously registered by [addSessionReadyListener]. */
+    fun removeSessionReadyListener(listener: () -> Unit) {
+        sessionReadyListeners -= listener
     }
 
     /**
@@ -556,13 +602,20 @@ class AppService {
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
     fun acquireSession(authToken: String? = "auth_token"): AcquireSessionGetResponse {
+        return acquireSession(authToken, publishReady = true)
+    }
+
+    private fun acquireSession(
+        authToken: String?,
+        publishReady: Boolean,
+    ): AcquireSessionGetResponse {
         authToken?.let { token ->
             require(token.isNotBlank()) { "Auth token cannot be blank" }
         }
 
         return try {
             val response = sessionApi.acquireSessionApiSessionAcquireGet(authToken)
-            storeSessionResponse(response)
+            storeSessionResponse(response, publishReady)
             LOG.info("Session acquired successfully with auth token")
             response
         } catch (e: Exception) {
@@ -585,14 +638,23 @@ class AppService {
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
     fun acquireSessionWithStoredToken(): AcquireSessionGetResponse {
+        return acquireSessionWithStoredToken(publishReady = true)
+    }
+
+    /** Reconciliation acquisition does not broadcast readiness back into every project loop. */
+    internal fun acquireSessionForReconciliation(): AcquireSessionGetResponse {
+        return acquireSessionWithStoredToken(publishReady = false)
+    }
+
+    private fun acquireSessionWithStoredToken(publishReady: Boolean): AcquireSessionGetResponse {
         val authSettings = getAuthState()
         val storedToken = authSettings.getToken()
 
         return if (storedToken?.isNotBlank() ?: false) {
-            acquireSession(storedToken)
+            acquireSession(storedToken, publishReady)
         } else {
             LOG.info("No stored auth token found, using default token for session acquisition")
-            acquireSession()
+            acquireSession("auth_token", publishReady)
         }
     }
 
@@ -813,45 +875,31 @@ class AppService {
      * [deleteUserData] is set to true.
      *
      * @param deleteUserData Whether to permanently delete all user data (defaults to false)
+     * @param expectedAuthGeneration Authentication state captured when deletion was confirmed
      * @throws IOException If there's a network connectivity issue
      * @throws ClientException If the user is not authenticated or deletion fails (4xx errors)
      * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalStateException If authentication changed before the request was sent
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
-    fun deleteUser(deleteUserData: Boolean = false) {
+    fun deleteUser(
+        deleteUserData: Boolean = false,
+        expectedAuthGeneration: Long = getAuthState().tokenGeneration(),
+    ) {
         try {
-            userApi.deleteUserApiUserDeleteDelete(deleteUserData)
-
-            // Clean up local session data
-            clearLocalSession()
+            val cleared = deleteAccountAndClearLocalSession(
+                getAuthState(),
+                expectedAuthGeneration,
+                { userApi.deleteUserApiUserDeleteDelete(deleteUserData) },
+                { CookieAwareApiClient.clearCookies() },
+            )
+            if (!cleared) {
+                LOG.info("Skipped deleted account cleanup because authentication changed")
+            }
             LOG.info("User account deleted successfully")
         } catch (e: Exception) {
             LOG.warn("Failed to delete user account", e)
             throw e
-        }
-    }
-
-    /**
-     * Clears all local session data including cookies and authentication state.
-     * This is a utility method used by both logout and deleteUser operations.
-     */
-    private fun clearLocalSession() {
-        CookieAwareApiClient.clearCookies()
-        // Stop every owned research context and quarantine its spool before the
-        // account's auth is cleared, so nothing uploads under the next account.
-        runCatching {
-            me.code4me.research.lifecycle.ResearchLogoutHook.stopAllContexts()
-        }.onFailure { LOG.warn("Failed to stop research contexts on sign out", it) }
-        runCatching {
-            me.code4me.services.agent.getParticipantAgentSetupService().onLogout()
-        }.onFailure { LOG.warn("Failed to stop managed grants on sign out", it) }
-        ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                getAuthState().clearUserData()
-                LOG.info("User data cleared successfully during sign out")
-            } catch (e: Exception) {
-                LOG.error("Failed to clear user data during sign out", e)
-            }
         }
     }
 

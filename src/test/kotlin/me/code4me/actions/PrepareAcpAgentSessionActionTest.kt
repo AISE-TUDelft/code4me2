@@ -4,11 +4,14 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.project.Project
+import me.code4me.services.app.AcpPreparationException
 import me.code4me.services.app.PreparedAcpRuntimeHandoff
 import me.code4me.services.app.ProjectAcpPreparation
+import me.code4me.services.agent.ParticipantAgentSetupService
 import me.code4me.services.agent.ParticipantSetupStatus
 import me.code4me.services.agent.ParticipantSetupStep
-import me.code4me.services.agent.ParticipantAgentSetupService
+import me.code4me.utils.notification.AcpPreparationIndicator
+import me.code4me.utils.notification.AcpPreparationLease
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -29,6 +32,47 @@ class PrepareAcpAgentSessionActionTest {
         event = mock()
         presentation = Presentation()
         whenever(event.presentation).thenReturn(presentation)
+    }
+
+    @Test
+    fun `manual prepare shows progress before background work and clears it when ready`() {
+        val project = mock<Project>()
+        whenever(event.getData(CommonDataKeys.PROJECT)).thenReturn(project)
+        val events = mutableListOf<String>()
+        lateinit var work: () -> Unit
+        val progress = recordingProgress(events)
+
+        PrepareAcpAgentSessionAction(
+            mock(),
+            setup = { _, _ ->
+                events += "setup"
+                ParticipantSetupStatus(ParticipantSetupStep.READY, "ready")
+            },
+            backgroundRunner = { work = it },
+            notify = { _, _ -> events += "ready" },
+            progressFor = { progress },
+        ).actionPerformed(event)
+
+        assertEquals(listOf("preparing"), events)
+        work()
+        assertEquals(listOf("preparing", "setup", "done", "ready"), events)
+    }
+
+    @Test
+    fun `manual prepare clears progress when setup fails`() {
+        val project = mock<Project>()
+        whenever(event.getData(CommonDataKeys.PROJECT)).thenReturn(project)
+        val events = mutableListOf<String>()
+        val progress = recordingProgress(events)
+
+        PrepareAcpAgentSessionAction(
+            mock(),
+            setup = { _, _ -> throw AcpPreparationException("unavailable") },
+            backgroundRunner = { it() },
+            progressFor = { progress },
+        ).actionPerformed(event)
+
+        assertEquals(listOf("preparing", "done"), events)
     }
 
     @Test
@@ -130,4 +174,23 @@ class PrepareAcpAgentSessionActionTest {
 
         verifyNoInteractions(preparation)
     }
+
+    private fun recordingProgress(events: MutableList<String>): AcpPreparationIndicator =
+        object : AcpPreparationIndicator {
+            override fun acquire(delayMs: Int): AcpPreparationLease {
+                assertEquals(0, delayMs)
+                events += "preparing"
+                return object : AcpPreparationLease {
+                    override fun finish(after: () -> Unit) {
+                        events += "done"
+                        after()
+                    }
+
+                    override fun complete(after: () -> Unit) {
+                        events += "done"
+                        after()
+                    }
+                }
+            }
+        }
 }

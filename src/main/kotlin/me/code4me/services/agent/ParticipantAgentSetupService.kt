@@ -45,11 +45,12 @@ fun getParticipantAgentSetupService(): ParticipantAgentSetupService = service()
 
 /** Application-scoped participant setup. Third-party developer runtimes remain opt-in. */
 @Service
-class ParticipantAgentSetupService : Disposable {
+class ParticipantAgentSetupService internal constructor(private val bridge: ManagedAuthBridge) : Disposable {
+    constructor() : this(ManagedAuthBridge(Path.of(PathManager.getSystemPath(), "code4me", "bridges")))
+
     private val log = thisLogger()
     private val bridgeDirectory = Path.of(PathManager.getSystemPath(), "code4me", "bridges")
     private val installer = ManagedRuntimeInstaller()
-    private val bridge = ManagedAuthBridge(bridgeDirectory)
     @Volatile private var runtimeResult: RuntimeInstallResult? = null
     @Volatile private var lastStatus: ParticipantSetupStatus? = null
     private val projects = java.util.concurrent.ConcurrentHashMap.newKeySet<Project>()
@@ -234,15 +235,31 @@ class ParticipantAgentSetupService : Disposable {
      */
     private fun studyActive(project: Project): ParticipantSetupStatus? {
         if (!hasStudyContext(project)) return null
+        val workspace = project.basePath?.takeIf { it.isNotBlank() }?.let { path ->
+            runCatching { Path.of(path).toRealPath() }.getOrNull()
+        }
+        if (workspace == null) {
+            return ParticipantSetupStatus(
+                ParticipantSetupStep.CHECK_SERVER,
+                "The research authentication bridge is waiting for this project's workspace. ACP setup will retry.",
+            )
+        }
         // A study is authoritative: do not register the direct managed ACP
         // entry, but keep the authenticated bridge claim for this project. The
         // research proxy uses the same loopback bridge to obtain its scoped
         // grant, including after the project has been reopened.
-        runCatching {
-            bridge.register(project)
+        val registration = runCatching {
+            // Track even a failed write: register adds the workspace before
+            // publishing discovery, so logout must still remove that claim.
             projects += project
-        }.onFailure { error ->
+            bridge.register(project)
+        }
+        registration.exceptionOrNull()?.let { error ->
             log.warn("Could not register the research authentication bridge", error)
+            return ParticipantSetupStatus(
+                ParticipantSetupStep.CHECK_SERVER,
+                "Code4Me could not register the research authentication bridge. ACP setup will retry.",
+            )
         }
         return ParticipantSetupStatus(ParticipantSetupStep.STUDY_ACTIVE, STUDY_ACTIVE_MESSAGE)
     }

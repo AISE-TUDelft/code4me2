@@ -21,6 +21,7 @@ import me.code4me.research.runtime.ContentHasher
 import me.code4me.research.runtime.ProcessOutcome
 import me.code4me.research.telemetry.parseCanonicalJsonObject
 import me.code4me.research.telemetry.sha256Hex
+import me.code4me.services.agent.AcpRegistryWriter
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -29,6 +30,10 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.times
+import org.mockito.kotlin.verify
+import org.mockito.kotlin.whenever
 
 // --------------------------------------------------------------------------
 // AcpHostRegistrationTest.kt
@@ -89,6 +94,14 @@ class AcpHostRegistrationTest {
         assertTrue(args.indexOf("--agent-digest") in 0 until agentCmdIndex)
         assertTrue(args.indexOf("--spool-endpoint") in 0 until agentCmdIndex)
         assertTrue(args.indexOf("--capability-file") in 0 until agentCmdIndex)
+        assertTrue(
+            AcpHostRegistration.COMPAT_IDEMPOTENT_INITIALIZE_FLAG in args,
+            "the bundled proxy compatibility mode must be enabled in the entry",
+        )
+        assertTrue(
+            args.indexOf(AcpHostRegistration.COMPAT_IDEMPOTENT_INITIALIZE_FLAG) in 0 until agentCmdIndex,
+            "the compatibility flag must precede the --agent-cmd REMAINDER",
+        )
 
         assertTrue(Files.exists(capabilityFile))
         assertTrue(Files.readString(capabilityFile).isNotBlank())
@@ -274,6 +287,10 @@ class AcpHostRegistrationTest {
         assertTrue(args.indexOf(AcpHostRegistration.AGENT_DIGEST_FLAG) in 0 until agentCmdIndex)
         assertTrue(args.indexOf(AcpHostRegistration.SPOOL_ENDPOINT_FLAG) in 0 until agentCmdIndex)
         assertTrue(args.indexOf(AcpHostRegistration.CAPABILITY_FILE_FLAG) in 0 until agentCmdIndex)
+        assertTrue(
+            args.indexOf(AcpHostRegistration.COMPAT_IDEMPOTENT_INITIALIZE_FLAG) in 0 until agentCmdIndex,
+            "the compatibility flag must precede the --agent-cmd REMAINDER",
+        )
     }
 
     @Test
@@ -343,6 +360,7 @@ class AcpHostRegistrationTest {
         assertTrue(args.indexOf("--adapter") in 0 until agentCmdIndex)
         assertTrue(args.indexOf("--telemetry-policy") in 0 until agentCmdIndex)
         assertTrue(args.indexOf("--telemetry-policy-digest") in 0 until agentCmdIndex)
+        assertTrue(args.indexOf(AcpHostRegistration.COMPAT_IDEMPOTENT_INITIALIZE_FLAG) in 0 until agentCmdIndex)
     }
 
     @Test
@@ -460,6 +478,10 @@ class AcpHostRegistrationTest {
                 .map { it.jsonPrimitive.content }
         assertFalse(args.contains(AcpHostRegistration.AGENT_CMD_FLAG))
         assertFalse(args.contains(AcpHostRegistration.AGENT_DIGEST_FLAG))
+        assertTrue(
+            AcpHostRegistration.COMPAT_IDEMPOTENT_INITIALIZE_FLAG in args,
+            "the compatibility flag is always emitted, even without a packaged agent",
+        )
     }
 
     @Test
@@ -491,6 +513,54 @@ class AcpHostRegistrationTest {
 
     private fun registration(entryName: String): AcpHostRegistration =
         AcpHostRegistration(registry, entryName = entryName)
+
+    /**
+     * An [AcpHostRegistration] whose registry writer is [writer]; the other
+     * injected collaborators are never exercised by [AcpHostRegistration.unregister].
+     */
+    private fun registrationWith(writer: AcpRegistryWriter): AcpHostRegistration =
+        AcpHostRegistration(
+            registryPath = registry,
+            entryName = AcpHostRegistration.DEFAULT_ENTRY_NAME,
+            registryWriterFactory = { writer },
+            capabilityWriter = { _, _ -> },
+            capabilityFactory = { "test-capability" },
+            digestFactory = { "test-digest" },
+        )
+
+    @Test
+    fun `unregister retries once when the entry survives the first removal`() {
+        val writer = mock<AcpRegistryWriter>()
+        whenever(writer.removeEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)).thenReturn(Result.success(Unit))
+        // The entry is reported present after the first removal and gone after
+        // the retry: the second removal must have been attempted.
+        whenever(writer.hasEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)).thenReturn(true, false)
+
+        val result = registrationWith(writer).unregister()
+
+        assertTrue(result.isSuccess)
+        verify(writer, times(2)).removeEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)
+        verify(writer, times(2)).hasEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)
+    }
+
+    @Test
+    fun `unregister fails when the entry survives the retry`() {
+        val writer = mock<AcpRegistryWriter>()
+        whenever(writer.removeEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)).thenReturn(Result.success(Unit))
+        whenever(writer.hasEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)).thenReturn(true)
+
+        val result = registrationWith(writer).unregister()
+
+        assertTrue(result.isFailure, "a surviving entry must not be reported as success")
+        val failure = result.exceptionOrNull()
+        assertTrue(failure is IllegalStateException, "expected an IllegalStateException, got $failure")
+        assertTrue(
+            failure?.message?.contains(AcpHostRegistration.DEFAULT_ENTRY_NAME) == true,
+            "the failure must name the surviving entry: ${failure?.message}",
+        )
+        verify(writer, times(2)).removeEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)
+        verify(writer, times(2)).hasEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)
+    }
 
     private fun runtime(proxyExecutable: Path): ResolvedProxyRuntime =
         ResolvedProxyRuntime(

@@ -215,7 +215,19 @@ class AuthState : SimplePersistentStateComponent<AuthSettings>(AuthSettings()) {
  * @since 1.0.0
  */
 
-class AuthSettings : BaseState() {
+class AuthSettings internal constructor(
+    initialUserName: String?,
+    initialUserEmail: String?,
+    initialToken: String?,
+    private val tokenWriter: (String) -> Unit,
+) : BaseState() {
+    constructor() : this(
+        AuthState.getUserInfo(USER_NAME_PROPERTY),
+        AuthState.getUserInfo(USER_EMAIL_PROPERTY),
+        AuthState.getAuthToken(TOKEN_PROPERTY),
+        { token -> AuthState.setAuthToken(TOKEN_PROPERTY, token) },
+    )
+
     companion object {
         private val LOG = thisLogger()
     }
@@ -227,37 +239,33 @@ class AuthSettings : BaseState() {
 
     // Cache for user information to avoid repeated secure storage access
     @Volatile
-    private var cachedUserName: String? = null
+    private var cachedUserName: String? = initialUserName
 
     @Volatile
-    private var cachedUserEmail: String? = null
+    private var cachedUserEmail: String? = initialUserEmail
 
     @Volatile
-    private var cachedToken: String? = null
+    private var cachedToken: String? = initialToken
+
+    @Volatile
+    private var tokenGeneration: Long = 0
+
+    fun tokenGeneration(): Long = tokenGeneration
+
+    /** Keeps request interceptors on the same token while account deletion is in flight. */
+    @Synchronized
+    internal fun <T> withTokenLock(action: () -> T): T = action()
+
+    /** Skips deferred logout UI work once a newer authentication generation exists. */
+    @Synchronized
+    internal fun runIfSignedOut(expectedGeneration: Long, action: () -> Unit): Boolean {
+        if (tokenGeneration != expectedGeneration || isAuthenticated()) return false
+        action()
+        return true
+    }
 
     @Volatile
     private var isVerified: Boolean? = false
-
-    init {
-        // Loaded synchronously so getToken() is correct for the very first caller. Deferring this
-        // to a background coroutine raced with plugin startup, which reads the token immediately
-        // and would decide the user was logged out. PasswordSafe reads hit the local OS keychain
-        // and are fast enough to do inline.
-        initializeCache()
-    }
-
-    /**
-     * Initializes the cache by loading user information from secure storage.
-     * This should be called once during service initialization.
-     */
-    private fun initializeCache() {
-        synchronized(this) {
-            cachedUserName = AuthState.getUserInfo(USER_NAME_PROPERTY)
-            cachedUserEmail = AuthState.getUserInfo(USER_EMAIL_PROPERTY)
-            cachedToken = AuthState.getAuthToken(TOKEN_PROPERTY)
-            LOG.debug("User information cache initialized")
-        }
-    }
 
     /**
      * Retrieves the user's authentication token.
@@ -277,14 +285,18 @@ class AuthSettings : BaseState() {
      * @param token The authentication token to store
      * @throws IllegalArgumentException if the token is blank
      */
+    @Synchronized
     fun setToken(token: String) {
         require(token.isNotBlank()) { "Authentication token cannot be blank" }
 
         val oldToken = getToken()
         try {
-            AuthState.setAuthToken(TOKEN_PROPERTY, token)
-            propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, token)
+            tokenWriter(token)
             cachedToken = token
+            tokenGeneration++
+            // Listeners may immediately ask for the current auth state. Publish the
+            // cache before the synchronous PropertyChangeSupport callback runs.
+            propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, token)
             LOG.debug("Authentication token updated successfully")
         } catch (e: Exception) {
             LOG.error("Failed to set authentication token", e)
@@ -381,6 +393,7 @@ class AuthSettings : BaseState() {
     /**
      * Clears all user authentication data, cache, and notifies listeners.
      */
+    @Synchronized
     fun clearUserData() {
         val oldToken = cachedToken
         val oldName = cachedUserName
@@ -392,6 +405,7 @@ class AuthSettings : BaseState() {
             if (oldToken != null) {
                 AuthState.removeSecureData(TOKEN_PROPERTY)
                 cachedToken = null
+                tokenGeneration++
                 propertyChangeSupport.firePropertyChange(TOKEN_PROPERTY, oldToken, null)
             }
 
@@ -424,6 +438,7 @@ class AuthSettings : BaseState() {
                     LOG.warn("Failed to fully clear chat data for project: ${project.name}", e)
                 }
             }
+            val logoutGeneration = tokenGeneration
             ApplicationManager.getApplication().invokeLater {
                 ProjectManager.getInstance().openProjects.forEach { project ->
                     val toolWindow =
@@ -433,7 +448,7 @@ class AuthSettings : BaseState() {
                     toolWindow?.contentManager?.contents?.forEach { content ->
                         val component = content.component
                         if (component is me.code4me.chatWindow.components.ChatPanel) {
-                            component.resetAllChatsAfterLogout()
+                            component.resetAllChatsAfterLogout(logoutGeneration)
                         }
                     }
                 }

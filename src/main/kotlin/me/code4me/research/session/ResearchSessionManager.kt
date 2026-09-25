@@ -537,7 +537,20 @@ class ResearchSessionManager(
                         markBlocked(StudyBlockReason.MANIFEST_INVALID, "validated manifest was not returned")
                         ResearchActivationResult.Blocked(StudyBlockReason.MANIFEST_INVALID, "validated manifest was not returned")
                     } else {
-                        startSession(enrollmentId, validManifest)
+                        // Serialize the resource-producing half of activation
+                        // with stop(). If logout won while bootstrap was in
+                        // flight, this old manager must never register a late
+                        // proxy or restart collectors.
+                        synchronized(lock) {
+                            if (stopped) {
+                                ResearchActivationResult.Blocked(
+                                    StudyBlockReason.REVOKED,
+                                    "research session manager is stopped",
+                                )
+                            } else {
+                                startSession(enrollmentId, validManifest)
+                            }
+                        }
                     }
                 }
                 BootstrapStatus.BLOCKED -> {
@@ -856,7 +869,19 @@ class ResearchSessionManager(
      * [close] is the explicit participant completion.
      */
     fun stop(): ResearchStopResult {
-        if (!stopped) {
+        val shouldStop = synchronized(lock) {
+            if (stopped) {
+                false
+            } else {
+                // Publish the terminal lifecycle state before teardown. An
+                // activation returning from bootstrap will either finish while
+                // holding this lock (then be torn down below) or observe stopped.
+                active = false
+                stopped = true
+                true
+            }
+        }
+        if (shouldStop) {
             deactivateRuntime()
             val current = session
             if (current != null && !current.isTerminal && current.state != SessionState.NOT_STARTED) {
@@ -871,10 +896,6 @@ class ResearchSessionManager(
                 sessionStore.save(suspended)
             } else if (current != null) {
                 sessionStore.save(current)
-            }
-            synchronized(lock) {
-                active = false
-                stopped = true
             }
         }
         val stats = flushSpool()
@@ -1620,7 +1641,27 @@ class ResearchSessionManager(
         runCatching { currentCollector?.stop() }
         runCatching { currentUploader?.close() }
         runCatching { currentIpc?.close() }
+        // Never silent: a failed unregistration leaves the previous account's
+        // entry in the ACP registry, where the next login reads it as a changed
+        // configuration instead of an added one. Teardown itself stays
+        // best-effort — the failure is reported, never thrown.
         runCatching { acpHostRegistration?.unregister() }
+            .onSuccess { outcome ->
+                outcome?.onFailure { failure ->
+                    log.warn(
+                        "Research proxy ACP entry could not be unregistered; a stale entry may remain: " +
+                            (failure.message ?: "unexpected error"),
+                        failure,
+                    )
+                }
+            }
+            .onFailure { exception ->
+                log.warn(
+                    "Research proxy ACP entry unregistration failed unexpectedly: " +
+                        (exception.message ?: "unexpected error"),
+                    exception,
+                )
+            }
         val staged = capabilityFile
         capabilityFile = null
         // The status document is read-only from the plugin's side; a stale one

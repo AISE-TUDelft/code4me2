@@ -81,7 +81,8 @@ internal class ManagedAuthBridge(
     }
 
     fun register(project: Project) {
-        val workspace = canonicalWorkspace(project) ?: return
+        val workspace = canonicalWorkspace(project)
+            ?: throw IllegalStateException("the project workspace is unavailable for auth bridge registration")
         projects[workspace] = project
         if (server == null) start() else writeDiscovery()
     }

@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import json
 import sys
+import threading
 
 from conftest import fixture_path, python_digest  # type: ignore[import-not-found]
 
@@ -222,3 +223,58 @@ def test_unwritable_status_path_does_not_change_the_exit_code(monkeypatch, tmp_p
     assert coded == baseline
     assert not unwritable.exists()
     assert any("status file" in message for message in diagnostics)
+
+
+def test_concurrent_status_writers_never_race_on_a_shared_path(monkeypatch, tmp_path):
+    """Concurrent proxies sharing one ``--status-file`` must not race staging.
+
+    Several proxy processes for the same enrollment are configured with the same
+    path. A single fixed ``<path>.tmp`` staging file lets one writer replace the
+    file out from under another, so the loser's ``os.replace`` fails with
+    ``FileNotFoundError`` (the observed ``.tmp -> ...json`` diagnostic). Every
+    writer must stage to a uniquely named temporary file in the same directory.
+    """
+    status_path = tmp_path / "status.json"
+    writers = 16
+    diagnostics: list[str] = []
+    failures: list[BaseException] = []
+    barrier = threading.Barrier(writers)
+    real_replace = proxy_main.os.replace
+    staged: list[str] = []
+    staged_lock = threading.Lock()
+
+    def interleaved_replace(source, destination):
+        with staged_lock:
+            staged.append(str(source))
+        # Release every writer together so all replacements race the same
+        # destination; with a shared staging file, every replace but the first
+        # would fail.
+        barrier.wait(timeout=10)
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(proxy_main.os, "replace", interleaved_replace)
+
+    def write_status(index: int) -> None:
+        snapshot = proxy_main._zero_delivery_snapshot()
+        snapshot["enqueued"] = index
+        snapshot["dropped"] = index
+        try:
+            proxy_main.write_status_document(str(status_path), snapshot, diagnostics.append)
+        except BaseException as error:  # pragma: no cover - asserted below
+            failures.append(error)
+
+    threads = [threading.Thread(target=write_status, args=(index,)) for index in range(writers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert not failures, f"status writers raised: {failures}"
+    assert all(not thread.is_alive() for thread in threads), "a status writer did not finish"
+    assert diagnostics == [], f"concurrent status writes failed: {diagnostics}"
+    document = json.loads(status_path.read_text(encoding="utf-8"))
+    assert set(document) == STATUS_DOCUMENT_KEYS
+    # Every writer must have staged through its own temporary path: a shared
+    # ``status.json.tmp`` collapses this set to one entry.
+    assert len(staged) == writers
+    assert len(set(staged)) == writers

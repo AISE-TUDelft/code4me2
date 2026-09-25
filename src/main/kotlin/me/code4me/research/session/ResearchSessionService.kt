@@ -39,20 +39,53 @@ import java.nio.file.Path
  * The manager is created lazily and stopped in [dispose], which the platform
  * calls when the project closes.
  */
-class ResearchSessionService(private val project: Project) : Disposable {
+sealed interface ResearchReconciliationResult {
+    /** The research proxy owns ACP setup for this project. */
+    data class StudyOwned(val activation: ResearchActivationResult?) : ResearchReconciliationResult {
+        val shouldRetry: Boolean
+            get() =
+                activation is ResearchActivationResult.Retryable ||
+                    activation is ResearchActivationResult.Failed ||
+                    (activation is ResearchActivationResult.Blocked &&
+                        activation.reason == StudyBlockReason.RUNTIME_UNAVAILABLE)
+    }
+
+    /** The signed-in account has no research enrollment. */
+    data object NoEnrollment : ResearchReconciliationResult
+
+    /** A terminal enrollment no longer owns ACP setup. */
+    data class Terminal(val status: String) : ResearchReconciliationResult
+
+    /** Membership could not be decided, so ordinary setup must remain fenced. */
+    data class Unavailable(val message: String) : ResearchReconciliationResult
+}
+
+class ResearchSessionService internal constructor(
+    private val project: Project,
+    private val discoveryOverride: (() -> EnrollmentDiscovery)?,
+    private val managerFactoryOverride: (() -> ResearchSessionManager)?,
+    private val enrollmentSettingsOverride: ResearchEnrollmentSettings?,
+) : Disposable {
+    constructor(project: Project) : this(project, null, null, null)
+
     @Volatile private var manager: ResearchSessionManager? = null
+    @Volatile private var disposed = false
 
     /** The lazily created manager (created on first use). */
     fun manager(): ResearchSessionManager =
-        manager ?: synchronized(this) {
-            manager ?: buildManager().also { manager = it }
-        }
+        managerOrNull() ?: error("research session service has been disposed")
+
+    private fun managerOrNull(): ResearchSessionManager? = synchronized(this) {
+        if (disposed) null else manager ?: buildManager().also { manager = it }
+    }
 
     /** Participant-visible state; safe to call before any activation. */
     fun state(): ParticipantStudyStateV1 = manager().state()
 
     /** Request manifest validation and session start for [enrollmentId]. */
-    fun activate(enrollmentId: String): ResearchActivationResult = manager().activate(enrollmentId)
+    fun activate(enrollmentId: String): ResearchActivationResult =
+        managerOrNull()?.activate(enrollmentId)
+            ?: ResearchActivationResult.Blocked(StudyBlockReason.REVOKED, "research session service has been disposed")
 
 
     /**
@@ -97,6 +130,7 @@ class ResearchSessionService(private val project: Project) : Disposable {
      * authoritative.
      */
     private fun discoverEnrollment(): EnrollmentDiscovery {
+        discoveryOverride?.let { return it() }
         val baseUrl = resolveConfiguredBaseUrl() ?: return EnrollmentDiscovery.Unavailable("research backend is not configured")
         return try {
             ResearchJoinCodeResolver(baseUrl).discover()
@@ -111,47 +145,61 @@ class ResearchSessionService(private val project: Project) : Disposable {
      * The project-local enrollment id is a hint only: the server's active
      * enrollment wins and replaces it; a terminal enrollment clears the hint and
      * returns blocked; no enrollment clears a stale hint and leaves the component
-     * inactive without error; an unreachable server keeps the hint and does
-     * nothing. Returns `null` when there is nothing to activate.
+     * inactive without error; an unreachable server keeps the hint and returns
+     * a retryable typed result so ordinary ACP setup remains fenced.
      */
-    fun reactivateFromServer(): ResearchActivationResult? {
-        val baseUrl = resolveConfiguredBaseUrl() ?: return null
-        val settings =
-            try {
-                project.getService(ResearchEnrollmentSettings::class.java)
-            } catch (_: Exception) {
-                null
-            } catch (_: LinkageError) {
-                null
-            }
-        return when (val discovery = ResearchJoinCodeResolver(baseUrl).discover()) {
+    fun reconcileFromServer(): ResearchReconciliationResult {
+        val settings = enrollmentSettings()
+        val discovery = discoverEnrollment()
+        if (disposed) return ResearchReconciliationResult.Unavailable("research session service has been disposed")
+        return when (discovery) {
             is EnrollmentDiscovery.Active -> {
                 settings?.setEnrollmentId(discovery.enrollmentId)
-                activate(discovery.enrollmentId)
+                val currentManager = manager
+                val currentState = currentManager?.state()
+                if (
+                    currentState?.enrollmentId == discovery.enrollmentId &&
+                    currentManager?.isActive == true
+                ) {
+                    // A provisioned study can still be NOT_STARTED until the first
+                    // qualifying activity. Its participant state then cannot launch,
+                    // but reactivating it would tear down a healthy proxy and mint
+                    // another agent run on every auth-bridge retry.
+                    ResearchReconciliationResult.StudyOwned(activation = null)
+                } else {
+                    ResearchReconciliationResult.StudyOwned(activate(discovery.enrollmentId))
+                }
             }
             is EnrollmentDiscovery.Terminal -> {
                 settings?.clear()
-                ResearchActivationResult.Blocked(
-                    StudyBlockReason.REVOKED,
-                    "This enrollment is ${discovery.status.lowercase()}; it cannot be reactivated.",
-                )
+                resetManager(quarantine = true)
+                ResearchReconciliationResult.Terminal(discovery.status)
             }
             EnrollmentDiscovery.None -> {
                 // No membership on the server (including a stale hint from a
                 // different account): clear the local id and stay inactive.
                 settings?.clear()
-                null
+                resetManager(quarantine = true)
+                ResearchReconciliationResult.NoEnrollment
             }
-            is EnrollmentDiscovery.Unavailable -> null
+            is EnrollmentDiscovery.Unavailable -> ResearchReconciliationResult.Unavailable(discovery.message)
         }
     }
+
+    /** Compatibility wrapper retained for callers that only need the activation result. */
+    fun reactivateFromServer(): ResearchActivationResult? =
+        (reconcileFromServer() as? ResearchReconciliationResult.StudyOwned)?.activation
 
     /** Stop any running participant session (idempotent). */
     fun stop(): ResearchStopResult = manager().stop()
 
+    /** Logout/account-switch cleanup; a later login receives a fresh manager. */
+    fun onLogout() {
+        resetManager(quarantine = true)
+    }
+
     override fun dispose() {
-        manager?.stop()
-        manager = null
+        resetManager(quarantine = false, terminal = true)
     }
 
     /** Stable, opaque project/window key used for context + spool scoping. */
@@ -172,6 +220,7 @@ class ResearchSessionService(private val project: Project) : Disposable {
     }
 
     private fun buildManager(): ResearchSessionManager {
+        managerFactoryOverride?.let { return it() }
         val contextId = ResearchSessionManager.opaqueContextId(projectKeyForSession())
         return ResearchSessionManager(
             projectKey = projectKeyForSession(),
@@ -202,6 +251,26 @@ class ResearchSessionService(private val project: Project) : Disposable {
             sessionStore = FileResearchSessionStore(),
             httpClient = CookieAwareApiClient.sharedOkHttpClient,
         )
+    }
+
+    private fun enrollmentSettings(): ResearchEnrollmentSettings? {
+        enrollmentSettingsOverride?.let { return it }
+        return try {
+            project.getService(ResearchEnrollmentSettings::class.java)
+        } catch (_: Exception) {
+            null
+        } catch (_: LinkageError) {
+            null
+        }
+    }
+
+    private fun resetManager(quarantine: Boolean, terminal: Boolean = false) {
+        val previous = synchronized(this) {
+            if (terminal) disposed = true
+            manager.also { manager = null }
+        } ?: return
+        runCatching { previous.stop() }
+        if (quarantine) runCatching { previous.quarantineSpool() }
     }
 
     /** Project runtime settings; a research misconfiguration never breaks the service. */

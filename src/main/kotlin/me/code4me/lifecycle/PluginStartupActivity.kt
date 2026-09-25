@@ -16,13 +16,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.model.UpdateMultiFileContext
-import me.code4me.services.agent.getParticipantAgentSetupService
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.ConfigService
 import me.code4me.services.modules.context.MultiFileContextRetrievalModule
 import me.code4me.services.modules.manager.getModuleManager
 import me.code4me.services.project.getProjectMultiFileContextService
-import me.code4me.services.state.TOKEN_PROPERTY
 import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.activateOrCreateProject
@@ -31,10 +29,8 @@ import me.code4me.utils.notification.showAuthNotification
 import me.code4me.utils.notification.showLoginRequiredNotification
 import me.code4me.utils.notification.showTokenInvalidationNotification
 import toApiModel
-import java.beans.PropertyChangeListener
 import java.io.File
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Project activity that initializes modules at startup.
@@ -55,6 +51,11 @@ class PluginStartupActivity : ProjectActivity {
      * @param project The IntelliJ project being initialized
      */
     override suspend fun execute(project: Project) {
+        // Register persistent login/session listeners before a stored-token session
+        // can be acquired below. start() is idempotent across startup activities,
+        // and a construction failure here must never abort the rest of startup.
+        runCatching { getAcpLoginReconciliationService(project).start() }
+            .onFailure { thisLogger().warn("ACP login reconciliation could not start", it) }
         // Handle authentication and session acquisition
         // (ProjectCloseListener is registered once at the end of
         // handleAuthenticationAndSession for all auth paths.)
@@ -107,7 +108,6 @@ class PluginStartupActivity : ProjectActivity {
                 thisLogger().info("Session acquired successfully.")
                 activateOrCreateProject(project, thisLogger())
                 startCacheValidation(project)
-                launchAgentSetup(project)
             } catch (e: ClientException) {
                 if (e.statusCode == 401) {
                     // The backend explicitly rejected the stored token — it's genuinely invalid
@@ -125,99 +125,38 @@ class PluginStartupActivity : ProjectActivity {
                 } else {
                     // Any other client error (e.g. a transient backend/proxy hiccup returning
                     // 5xx-shaped content as a 4xx, or a temporary outage) says nothing about
-                    // whether the token itself is valid — keep it and just retry on next open.
+                    // whether the token itself is valid — keep it while the project reconciler retries.
                     thisLogger().warn(
-                        "Could not verify stored session (HTTP ${e.statusCode}) — keeping credentials, will retry next time",
+                        "Could not verify stored session (HTTP ${e.statusCode}) — keeping credentials while agent setup retries",
                         e,
                     )
                     project.showAuthNotification(
                         title = "Code4Me could not reach the server",
-                        message = "Your login is kept — this will retry automatically next time the project opens.",
+                        message = "Your login is kept. Agent setup will retry automatically.",
                         type = NotificationType.WARNING,
                     )
                 }
-                // Either way, agent setup never ran this time. Arm the post-auth hook so a fresh
-                // login (or the notification's retry) brings the agent paths up without an IDE
-                // restart.
-                registerPostAuthAgentSetup(project)
             } catch (e: Exception) {
                 // Network/server-side failures (ServerException, IOException, ...): the token
                 // itself was never actually checked, so signing the user out here would be
                 // punishing them for a backend outage rather than an invalid credential.
-                thisLogger().warn("Could not verify stored session (non-client error) — keeping credentials, will retry next time", e)
+                thisLogger().warn("Could not verify stored session (non-client error) — keeping credentials while agent setup retries", e)
                 project.showAuthNotification(
                     title = "Code4Me could not reach the server",
-                    message = "Your login is kept — this will retry automatically next time the project opens.",
+                    message = "Your login is kept. Agent setup will retry automatically.",
                     type = NotificationType.WARNING,
                 )
-                registerPostAuthAgentSetup(project)
             }
         } else {
             thisLogger().warn("No authentication token found. Skipping session acquisition.")
             // Show notification prompting user to login
             project.showLoginRequiredNotification()
-            registerPostAuthAgentSetup(project)
         }
 
         // Register the ProjectCloseListener to save the last chat when a project is closed
         val connection: MessageBusConnection = project.messageBus.connect()
         connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener(project))
         thisLogger().info("ProjectCloseListener registered successfully.")
-    }
-
-    /** Starts managed participant setup off the startup thread; developer agents stay opt-in. */
-    private fun launchAgentSetup(project: Project) {
-        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
-            try {
-                val setup = getParticipantAgentSetupService()
-                var status = setup.prepareWithLegacyFallback(project)
-                // A fresh login stores the auth token just before its server
-                // session finishes initializing. Retry that short handoff so
-                // participants do not need to click Prepare after signing in.
-                // A study-active result is terminal: the research activation
-                // path owns the ACP entry and the direct path must not run.
-                repeat(2) { attempt ->
-                    if (
-                        status.step == me.code4me.services.agent.ParticipantSetupStep.READY ||
-                        status.step == me.code4me.services.agent.ParticipantSetupStep.STUDY_ACTIVE
-                    ) {
-                        return@repeat
-                    }
-                    delay((attempt + 1) * 1_000L)
-                    if (!project.isDisposed && getAuthState().isAuthenticated()) {
-                        status = setup.prepareWithLegacyFallback(project)
-                    }
-                }
-                LOG.info("Managed participant agent setup: ${status.step} (${status.message})")
-                // TODO: distribute and certify Goose/Codex as managed participant runtimes.
-                if (me.code4me.services.agent.mayPrepareDeveloperAgents(status)) {
-                    setup.prepareDeveloperAgents(project)
-                }
-            } catch (e: Exception) {
-                LOG.warn("Managed participant agent setup failed — non-blocking", e)
-            }
-        }
-    }
-
-    /**
-     * Registers a one-shot auth-token listener so [launchAgentSetup] runs as soon as the user logs
-     * in, instead of only at project open. Removes itself once fired, so a later token refresh in
-     * the same session doesn't provision a second task.
-     */
-    private fun registerPostAuthAgentSetup(project: Project) {
-        val listenerRef = AtomicReference<PropertyChangeListener>()
-        val listener =
-            PropertyChangeListener { event ->
-                val newToken = event.newValue as? String
-                if (!newToken.isNullOrBlank()) {
-                    listenerRef.get()?.let { getAuthState().removePropertyChangeListener(TOKEN_PROPERTY, it) }
-                    LOG.info("Post-auth trigger fired — starting agent setup")
-                    launchAgentSetup(project)
-                }
-            }
-        listenerRef.set(listener)
-        getAuthState().addPropertyChangeListener(TOKEN_PROPERTY, listener)
-        LOG.info("Post-auth agent setup listener registered")
     }
 
     /**
