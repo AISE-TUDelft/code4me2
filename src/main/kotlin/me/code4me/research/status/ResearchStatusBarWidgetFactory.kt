@@ -1,12 +1,17 @@
 package me.code4me.research.status
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.StatusBarWidget
 import com.intellij.openapi.wm.StatusBarWidgetFactory
+import com.intellij.util.concurrency.AppExecutorUtil
 import kotlinx.coroutines.CoroutineScope
 import me.code4me.research.session.ResearchSessionService
 import java.awt.Component
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * Reads the participant status view defensively (Issue 10).
@@ -54,8 +59,17 @@ class ResearchStatusBarWidgetFactory : StatusBarWidgetFactory {
     }
 }
 
-/** The status-bar widget itself; text/tooltip are recomputed on each presentation. */
+/**
+ * The status-bar widget itself; text/tooltip are recomputed on each presentation.
+ *
+ * The research state changes off the UI thread (activation, revocation, a new
+ * login) and nothing pushes those changes to the status bar, so the widget asks
+ * the status bar to repaint it periodically. Reading the state is cheap.
+ */
 class ResearchStatusBarWidget(private val project: Project) : StatusBarWidget {
+    @Volatile private var statusBar: StatusBar? = null
+    @Volatile private var refresh: ScheduledFuture<*>? = null
+
     override fun ID(): String = ResearchStatusBarWidgetFactory.WIDGET_ID
 
     @Suppress("DEPRECATION")
@@ -67,7 +81,30 @@ class ResearchStatusBarWidget(private val project: Project) : StatusBarWidget {
     override fun getPresentation(type: StatusBarWidget.PlatformType): StatusBarWidget.WidgetPresentation = presentation()
 
     override fun install(statusBar: StatusBar) {
+        this.statusBar = statusBar
         statusBar.updateWidget(ID())
+        refresh?.cancel(false)
+        refresh =
+            AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
+                {
+                    val bar = this.statusBar
+                    if (bar != null && !project.isDisposed) {
+                        ApplicationManager.getApplication().invokeLater(
+                            { if (!project.isDisposed) bar.updateWidget(ID()) },
+                            ModalityState.any(),
+                        )
+                    }
+                },
+                REFRESH_SECONDS,
+                REFRESH_SECONDS,
+                TimeUnit.SECONDS,
+            )
+    }
+
+    override fun dispose() {
+        refresh?.cancel(false)
+        refresh = null
+        statusBar = null
     }
 
     private fun presentation(): StatusBarWidget.WidgetPresentation =
@@ -78,4 +115,8 @@ class ResearchStatusBarWidget(private val project: Project) : StatusBarWidget {
 
             override fun getTooltipText(): String = ParticipantStatusSupport.of(project).tooltip
         }
+
+    private companion object {
+        const val REFRESH_SECONDS: Long = 5L
+    }
 }

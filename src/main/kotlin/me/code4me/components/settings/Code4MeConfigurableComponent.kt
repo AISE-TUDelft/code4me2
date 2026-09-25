@@ -166,7 +166,7 @@ class Code4MeConfigurableComponent {
                         val project = ProjectManager.getInstance().openProjects.firstOrNull()
                         if (project == null) statusLabel.text = "Open a project before preparing the agent."
                         else ApplicationManager.getApplication().executeOnPooledThread {
-                            val status = service.prepare(project)
+                            val status = service.prepare(project, reactivate = true)
                             SwingUtilities.invokeLater { statusLabel.text = status.message }
                         }
                     }
@@ -176,13 +176,16 @@ class Code4MeConfigurableComponent {
                         val project = ProjectManager.getInstance().openProjects.firstOrNull()
                         if (project == null) statusLabel.text = "Open a project before repairing the agent."
                         else ApplicationManager.getApplication().executeOnPooledThread {
-                            val status = service.prepare(project, repair = true)
+                            val status = service.prepare(project, repair = true, reactivate = true)
                             SwingUtilities.invokeLater { statusLabel.text = status.message }
                         }
                     }
                 })
             }, BorderLayout.EAST)
             refresh()
+            // The settings form is height-constrained; without this the row is
+            // squeezed to the label's height and the buttons are clipped.
+            minimumSize = preferredSize
         }
     }
 

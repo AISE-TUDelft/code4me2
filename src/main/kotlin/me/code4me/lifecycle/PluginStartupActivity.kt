@@ -51,6 +51,10 @@ class PluginStartupActivity : ProjectActivity {
      * @param project The IntelliJ project being initialized
      */
     override suspend fun execute(project: Project) {
+        // Warm the credential cache here, on a background thread: the first
+        // getAuthState() reads the keychain, which must not happen on the EDT.
+        runCatching { getAuthState() }
+            .onFailure { thisLogger().warn("Stored credentials could not be read at startup", it) }
         // Register persistent login/session listeners before a stored-token session
         // can be acquired below. start() is idempotent across startup activities,
         // and a construction failure here must never abort the rest of startup.

@@ -823,7 +823,7 @@ class ModulesLightTest : BasePlatformTestCase() {
         assertTrue("Should have behavioral telemetry records", behavioralTelemetryRecords.isNotEmpty())
 
         // Verify specific telemetry modules are working
-        val timeSinceLastShownKey = Record.key<Long>("time_since_last_completion")
+        val timeSinceLastShownKey = Record.key<Long>("time_since_last_shown")
         val hasTimingData = behavioralTelemetryRecords.any { record ->
             record.containsKey(timeSinceLastShownKey)
         }

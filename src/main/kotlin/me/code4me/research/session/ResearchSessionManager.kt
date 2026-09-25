@@ -350,7 +350,14 @@ class ResearchSessionManager(
     private val sessionIdFactory: () -> String = { UUID.randomUUID().toString() },
     private val runIdFactory: () -> String = { UUID.randomUUID().toString() },
     private val collectorFactory: (IdeActivitySource, CanonicalEventSink) -> IdeActivityCollector =
-        { ideSource, sink -> IdeActivityCollector(ideSource, sink) },
+        { ideSource, sink ->
+            // One emitter per activation, like each proxy launch: the collector's
+            // sequences restart at 1, and reusing the previous activation's emitter
+            // id within the same research session made the server reject the new
+            // events as integrity conflicts.
+            val activation = UUID.randomUUID().toString().replace("-", "").take(8)
+            IdeActivityCollector(ideSource, sink, emitterIdFactory = { contextId -> "ide:$contextId:$activation" })
+        },
     private val manifestCache: ManifestCache = InMemoryManifestCache(),
     private val nearExpiryWindow: Duration = BootstrapManifest.DEFAULT_NEAR_EXPIRY_WINDOW,
     private val defaultResumeGraceMs: Long = DEFAULT_RESUME_GRACE_MS,
@@ -367,6 +374,13 @@ class ResearchSessionManager(
      * failure never blocks: the bootstrap API remains authoritative.
      */
     private val enrollmentDiscoveryProvider: (() -> EnrollmentDiscovery)? = null,
+    /**
+     * Where IDE events are processed (privacy filter, durable spool append and
+     * session bookkeeping). The IDE service passes one background thread so the
+     * UI thread never waits on the manager lock, which activation holds across
+     * network calls, nor on spool I/O. `null` processes inline (tests).
+     */
+    private val eventExecutor: java.util.concurrent.Executor? = null,
 ) {
     init {
         require(projectKey.isNotBlank()) { "projectKey must not be blank" }
@@ -868,7 +882,7 @@ class ResearchSessionManager(
      * discarded) so a restart inside the revision grace window may resume it;
      * [close] is the explicit participant completion.
      */
-    fun stop(): ResearchStopResult {
+    fun stop(ipcGraceMs: Long = 0L): ResearchStopResult {
         val shouldStop = synchronized(lock) {
             if (stopped) {
                 false
@@ -882,7 +896,7 @@ class ResearchSessionManager(
             }
         }
         if (shouldStop) {
-            deactivateRuntime()
+            deactivateRuntime(ipcGraceMs)
             val current = session
             if (current != null && !current.isTerminal && current.state != SessionState.NOT_STARTED) {
                 val currentMachine = machine
@@ -968,6 +982,7 @@ class ResearchSessionManager(
                 ipcServerFactory?.invoke(resolvedSpool)
                     ?: ResearchSpoolIpcServer(
                         resolvedSpool,
+                        onEventAppended = { noteAgentActivity() },
                         eventContext = SpoolEventContext(
                             validManifest.studyId,
                             validManifest.enrollmentId,
@@ -1066,6 +1081,7 @@ class ResearchSessionManager(
                     sessionCapability = validManifest.sessionCapabilityObject(),
                     clientInstanceId = clientInstanceIdProvider(validManifest.enrollmentId),
                     httpClient = httpClient,
+                    researchSessionId = validManifest.researchSession.researchSessionId.takeIf { it.isNotBlank() },
                 )
             val delivery = uploaderFactory(context)
             delivery.start()
@@ -1567,6 +1583,23 @@ class ResearchSessionManager(
      */
     private fun onCanonicalEvent(event: CanonicalEvent) {
         if (!active || stopped) return
+        val executor = eventExecutor
+        if (executor == null) {
+            processCanonicalEvent(event)
+            return
+        }
+        try {
+            executor.execute { processCanonicalEvent(event) }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // The executor is shut down with the manager; a late event is dropped.
+        }
+    }
+
+    private fun processCanonicalEvent(event: CanonicalEvent) {
+        // No active/stopped check here: the event was accepted while the
+        // session was active (see onCanonicalEvent). A project close stops the
+        // manager before the queue drains, and those last events (final saves)
+        // must still reach the durable spool for the next activation.
         synchronized(lock) {
             val current = session ?: return
             if (current.isTerminal) return
@@ -1615,6 +1648,32 @@ class ResearchSessionManager(
         }
     }
 
+    @Volatile private var lastAgentActivityEpochMs: Long = 0L
+
+    /**
+     * An agent event the proxy appended to the spool is participant activity too:
+     * without this, agent-only use never refreshed the session and the idle
+     * timeout ended it in the middle of a chat. Throttled: the proxy appends one
+     * event per streamed chunk.
+     */
+    private fun noteAgentActivity() {
+        val now = clock()
+        if (now - lastAgentActivityEpochMs < AGENT_ACTIVITY_THROTTLE_MS) return
+        lastAgentActivityEpochMs = now
+        if (!active || stopped) return
+        synchronized(lock) {
+            val current = session ?: return
+            if (current.isTerminal) return
+            // Only refresh a session that participant activity already started:
+            // agent processes also report at startup with no participant action.
+            if (current.state == SessionState.NOT_STARTED || current.state == SessionState.SUSPENDED) return
+            val advanced = machine?.recordActivity(current, now) ?: current
+            session = advanced
+            sessionStore.save(advanced)
+            pendingActivityReport = true
+        }
+    }
+
     /**
      * Tear down every session-owned runtime resource. Idempotent and
      * exception-safe: a research teardown failure must never affect ordinary
@@ -1628,7 +1687,7 @@ class ResearchSessionManager(
      * travels in the entry env, so an unregistration that fails cannot strand a
      * launch.
      */
-    private fun deactivateRuntime() {
+    private fun deactivateRuntime(ipcGraceMs: Long = 0L) {
         stopMaintenance()
         pendingActivityReport = false
         val currentCollector = collector
@@ -1640,12 +1699,36 @@ class ResearchSessionManager(
         runCatching { currentCollector?.deactivate() }
         runCatching { currentCollector?.stop() }
         runCatching { currentUploader?.close() }
-        runCatching { currentIpc?.close() }
+        if (currentIpc != null && ipcGraceMs > 0L) {
+            // Project close: the assistant's agent processes flush their last
+            // events after the IDE tears the service down. Keep accepting them
+            // briefly; anything appended lands in the durable spool for the
+            // next activation of this context.
+            Thread(
+                {
+                    try {
+                        Thread.sleep(ipcGraceMs)
+                    } catch (_: InterruptedException) {
+                    }
+                    runCatching { currentIpc.close() }
+                },
+                "code4me-research-ipc-grace",
+            ).apply { isDaemon = true }.start()
+        } else {
+            runCatching { currentIpc?.close() }
+        }
         // Never silent: a failed unregistration leaves the previous account's
         // entry in the ACP registry, where the next login reads it as a changed
         // configuration instead of an added one. Teardown itself stays
         // best-effort — the failure is reported, never thrown.
-        runCatching { acpHostRegistration?.unregister() }
+        runCatching {
+            acpHostRegistration?.let { registration ->
+                me.code4me.services.agent.AcpRegistryVfs.beforeWrite(registration.registryLocation)
+                registration.unregister().also {
+                    me.code4me.services.agent.AcpRegistryVfs.afterWrite(registration.registryLocation)
+                }
+            }
+        }
             .onSuccess { outcome ->
                 outcome?.onFailure { failure ->
                     log.warn(
@@ -1844,6 +1927,9 @@ class ResearchSessionManager(
                         "CODE4ME_RESEARCH_SESSION_ID" to
                             validManifest.researchSession.researchSessionId,
                     )
+                // Load the registry's directory into VFS first, so AI Assistant
+                // observes a first-time create as well as a change.
+                me.code4me.services.agent.AcpRegistryVfs.beforeWrite(registration.registryLocation)
                 val result =
                     try {
                         // Research-only, manifest-driven registration. The
@@ -1872,6 +1958,7 @@ class ResearchSessionManager(
                     } catch (exception: Exception) {
                         Result.failure(exception)
                     }
+                me.code4me.services.agent.AcpRegistryVfs.afterWrite(registration.registryLocation)
                 if (result.isFailure) {
                     AcpHostRegistration.cleanupCapabilityFile(capability)
                     runtimeSetupFailure(
@@ -2234,6 +2321,12 @@ class ResearchSessionManager(
         const val DEFAULT_RESUME_GRACE_MS: Long = 120_000L
         const val DEFAULT_IDLE_TIMEOUT_MS: Long = 600_000L
 
+        /** How long a closing project keeps its spool IPC endpoint for in-flight proxies. */
+        const val IPC_CLOSE_GRACE_MS: Long = 5_000L
+
+        /** Agent events arrive per streamed chunk; the session marker needs far fewer writes. */
+        private const val AGENT_ACTIVITY_THROTTLE_MS: Long = 1_000L
+
         /**
          * How long before the session capability expires the plugin re-bootstraps.
          * A capability TTL is short (900 s server-side), so this must be a
@@ -2345,6 +2438,7 @@ class ResearchSessionManager(
                 sessionCapability = context.sessionCapability,
                 clientInstanceId = context.clientInstanceId,
                 httpClient = context.httpClient,
+                researchSessionId = context.researchSessionId,
             )
     }
 }

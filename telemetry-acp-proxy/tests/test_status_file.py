@@ -133,6 +133,24 @@ def test_status_file_flag_writes_a_content_free_document(monkeypatch, tmp_path):
     assert all(isinstance(value, (int, bool)) for value in document.values())
 
 
+def test_status_document_carries_the_previous_process_drop_counters(monkeypatch, tmp_path):
+    """One proxy per chat writes the same per-enrollment document: a new chat
+    must not reset the loss the plugin reports to zero."""
+    status_path = tmp_path / "status.json"
+    previous = dict(proxy_main._zero_delivery_snapshot(), dropped_full=2, dropped_error=1, dropped=3, healthy=False)
+    status_path.write_text(json.dumps(previous), encoding="utf-8")
+    _capture_spool(monkeypatch)
+
+    exit_code = _run_via_main(monkeypatch, [*_agent_argv("--status-file", str(status_path))])
+
+    assert exit_code == proxy_main.EXIT_OK
+    document = json.loads(status_path.read_text(encoding="utf-8"))
+    assert set(document) == STATUS_DOCUMENT_KEYS
+    assert document["dropped_full"] == 2 and document["dropped_error"] == 1
+    assert document["dropped"] == 3
+    assert document["healthy"] is False
+
+
 def test_status_document_never_carries_payload_or_id_content(monkeypatch, tmp_path):
     sentinel = "sentinel-4b1c9e-do-not-leak"
     frame = encode_message(

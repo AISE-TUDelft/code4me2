@@ -30,7 +30,7 @@ import me.code4me.utils.notification.showErrorNotification
 class PrepareAcpAgentSessionAction(
     private val preparation: ProjectAcpPreparation = AcpPreparationService(),
     private val setup: (Project, ProjectAcpPreparation) -> ParticipantSetupStatus =
-        { project, fallback -> getParticipantAgentSetupService().prepareWithLegacyFallback(project, fallback) },
+        { project, fallback -> getParticipantAgentSetupService().prepareWithLegacyFallback(project, fallback, reactivate = true) },
     private val backgroundRunner: ((() -> Unit) -> Unit) = { task ->
         ApplicationManager.getApplication().executeOnPooledThread(task)
     },
@@ -134,13 +134,21 @@ private fun showPrepareNotification(
                 title = "Code4Me Agent Prepared",
                 message = status.message,
             )
-        ParticipantSetupStep.STUDY_ACTIVE ->
+        ParticipantSetupStep.STUDY_ACTIVE -> {
+            // Repeated prepare requests must not stack the same balloon.
+            runCatching {
+                com.intellij.notification.NotificationsManager.getNotificationsManager()
+                    .getNotificationsOfType(com.intellij.notification.Notification::class.java, project)
+                    .filter { it.title == "Research study active" }
+                    .forEach { it.expire() }
+            }
             project.showAuthNotification(
                 title = "Research study active",
                 message = status.message,
                 type = NotificationType.INFORMATION,
                 includeSettingsAction = false,
             )
+        }
         else -> project.showErrorNotification(
             title = "ACP Agent Session Preparation Failed",
             message = status.message,

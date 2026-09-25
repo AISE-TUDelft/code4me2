@@ -19,8 +19,10 @@ import me.code4me.services.agent.ParticipantSetupStep
 import me.code4me.services.agent.getParticipantAgentSetupService
 import me.code4me.services.agent.mayPrepareDeveloperAgents
 import me.code4me.services.app.getAppService
+import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.TOKEN_PROPERTY
 import me.code4me.services.state.getAuthState
+import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.notification.AcpPreparationLease
 import me.code4me.utils.notification.getAcpPreparationProgress
 import java.beans.PropertyChangeListener
@@ -324,6 +326,11 @@ class AcpLoginReconciliationService(private val project: Project) : Disposable {
     private val authListener =
         PropertyChangeListener { event ->
             val token = event.newValue as? String
+            if (!token.isNullOrBlank()) {
+                // A new login is a new server session: the project activation
+                // stored from the previous session no longer authorizes grants.
+                runCatching { getProjectTokenService(project).setActivated(false) }
+            }
             preparationProgress.cancelAll()
             controller.authenticationChanged(!token.isNullOrBlank())
         }
@@ -347,6 +354,14 @@ class AcpLoginReconciliationService(private val project: Project) : Disposable {
         // can recover without another login or project reopen.
         appService.acquireSessionForReconciliation()
         if (!isCurrent() || project.isDisposed) return ReconciliationAttemptResult.RETRY
+        // Every ACP grant (research proxy included) needs this project activated
+        // in the current server session. The study path returned before the
+        // ordinary setup could do it, so after a sign-out/sign-in every grant
+        // was refused with 401 until the project was reopened.
+        if (!ensureProjectActivated()) {
+            log.info("Project activation is not ready; ACP reconciliation will retry")
+            return ReconciliationAttemptResult.RETRY
+        }
         val research = ResearchSessionService.getInstance(project).reconcileFromServer()
         return when (research) {
             is ResearchReconciliationResult.Unavailable -> {
@@ -370,6 +385,14 @@ class AcpLoginReconciliationService(private val project: Project) : Disposable {
         }
     }
 
+    private fun ensureProjectActivated(): Boolean {
+        val tokens = getProjectTokenService(project)
+        if (tokens.isActivated() && tokens.hasProjectToken()) return true
+        return runCatching { activateOrCreateProject(project, log) }
+            .onFailure { log.warn("Managed project activation is not ready", it) }
+            .isSuccess && tokens.isActivated() && tokens.hasProjectToken()
+    }
+
     private fun reconcileOrdinarySetup(isCurrent: () -> Boolean): ReconciliationAttemptResult {
         if (!isCurrent() || project.isDisposed) return ReconciliationAttemptResult.RETRY
         val setup = getParticipantAgentSetupService()
@@ -380,17 +403,25 @@ class AcpLoginReconciliationService(private val project: Project) : Disposable {
             runCatching { setup.unregister(project) }
             return ReconciliationAttemptResult.RETRY
         }
-        return if (
-            status.step == ParticipantSetupStep.READY ||
-            status.step == ParticipantSetupStep.STUDY_ACTIVE
-        ) {
-            if (status.step == ParticipantSetupStep.READY && mayPrepareDeveloperAgents(status)) {
-                setup.prepareDeveloperAgents(project)
+        return when (status.step) {
+            ParticipantSetupStep.READY, ParticipantSetupStep.STUDY_ACTIVE -> {
+                if (status.step == ParticipantSetupStep.READY && mayPrepareDeveloperAgents(status)) {
+                    setup.prepareDeveloperAgents(project)
+                }
+                ReconciliationAttemptResult.COMPLETE
             }
-            ReconciliationAttemptResult.COMPLETE
-        } else {
-            log.info("Managed participant ACP setup is not ready (${status.step}); reconciliation will retry")
-            ReconciliationAttemptResult.RETRY
+            ParticipantSetupStep.SIGN_IN, ParticipantSetupStep.PREPARE_AGENT -> {
+                // Needs the user (sign in, install JetBrains AI Assistant, Repair
+                // agent): retrying cannot change it, and would keep the
+                // "Preparing Code4Me agent" balloon up forever for an ordinary
+                // (non-study) setup. The settings page offers Prepare/Repair.
+                log.info("Managed participant ACP setup needs the user (${status.step}): ${status.message}")
+                ReconciliationAttemptResult.COMPLETE
+            }
+            ParticipantSetupStep.CHECK_SERVER -> {
+                log.info("Managed participant ACP setup is not ready (${status.step}); reconciliation will retry")
+                ReconciliationAttemptResult.RETRY
+            }
         }
     }
 

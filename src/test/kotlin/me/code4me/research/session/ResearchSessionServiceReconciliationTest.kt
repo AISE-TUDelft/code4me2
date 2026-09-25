@@ -192,7 +192,9 @@ class ResearchSessionServiceReconciliationTest {
 
         service.dispose()
 
-        verify(manager, times(1)).stop()
+        // A plain project close keeps the spool IPC endpoint up briefly for the
+        // assistant's agent processes to flush their last events.
+        verify(manager, times(1)).stop(ResearchSessionManager.IPC_CLOSE_GRACE_MS)
         verify(manager, never()).quarantineSpool()
     }
 

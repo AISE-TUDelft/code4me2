@@ -8,6 +8,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.ide.plugins.PluginManagerCore
+import me.code4me.research.session.ResearchActivationResult
 import me.code4me.research.session.ResearchSessionService
 import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.app.AcpPreparationService
@@ -56,8 +57,8 @@ class ParticipantAgentSetupService internal constructor(private val bridge: Mana
     private val projects = java.util.concurrent.ConcurrentHashMap.newKeySet<Project>()
 
     @Synchronized
-    fun prepare(project: Project, repair: Boolean = false): ParticipantSetupStatus {
-        studyActive(project)?.let { return remember(it) }
+    fun prepare(project: Project, repair: Boolean = false, reactivate: Boolean = false): ParticipantSetupStatus {
+        studyActive(project, reactivate)?.let { return remember(it) }
         if (!getAuthState().isAuthenticated()) {
             bridge.unregister(project)
             return remember(ParticipantSetupStatus(ParticipantSetupStep.SIGN_IN, "Sign in to Code4Me to prepare the agent."))
@@ -188,8 +189,9 @@ class ParticipantAgentSetupService internal constructor(private val bridge: Mana
         project: Project,
         preparation: ProjectAcpPreparation = AcpPreparationService(),
         repair: Boolean = false,
+        reactivate: Boolean = false,
     ): ParticipantSetupStatus {
-        studyActive(project)?.let { return remember(it) }
+        studyActive(project, reactivate)?.let { return remember(it) }
         val status = prepare(project, repair)
         if (!status.useLegacyAcpPreparation) return status
         return try {
@@ -233,8 +235,32 @@ class ParticipantAgentSetupService internal constructor(private val bridge: Mana
      * throws: a missing or failing research service means "no study context" and
      * ordinary managed setup proceeds.
      */
-    private fun studyActive(project: Project): ParticipantSetupStatus? {
+    private fun studyActive(project: Project, reactivate: Boolean = false): ParticipantSetupStatus? {
         if (!hasStudyContext(project)) return null
+        if (reactivate) {
+            // "Prepare agent" while the study session is blocked or failed (a
+            // study switch, an expired manifest) re-runs the research activation;
+            // the automatic reconciler already does this for its own attempts.
+            val research = runCatching { project.getServiceIfCreated(ResearchSessionService::class.java) }.getOrNull()
+            val state = runCatching { research?.state() }.getOrNull()
+            if (research != null && state != null && !state.isCollecting) {
+                when (val result = runCatching { research.reactivateFromServer() }.getOrNull()) {
+                    is ResearchActivationResult.Blocked ->
+                        return ParticipantSetupStatus(
+                            ParticipantSetupStep.CHECK_SERVER,
+                            "The research study could not be reactivated (reason: ${result.reason.value})" +
+                                (result.detail?.let { ": $it" } ?: "") + ". Sign in again or contact study support.",
+                        )
+                    is ResearchActivationResult.Retryable, is ResearchActivationResult.Failed ->
+                        return ParticipantSetupStatus(
+                            ParticipantSetupStep.CHECK_SERVER,
+                            "The research server could not be reached to reactivate the study. Check the network and choose Prepare agent again.",
+                        )
+                    else -> Unit
+                }
+                if (!hasStudyContext(project)) return null
+            }
+        }
         val workspace = project.basePath?.takeIf { it.isNotBlank() }?.let { path ->
             runCatching { Path.of(path).toRealPath() }.getOrNull()
         }

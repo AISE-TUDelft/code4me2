@@ -142,6 +142,10 @@ class AcpForwarder:
         host_write_lock = threading.Lock()
         # Frame counters are read-modify-written by both pumps; keep them exact.
         counters_lock = threading.Lock()
+        # A replayed response is observed as AGENT_TO_HOST traffic from the
+        # host pump thread, while the agent pump delivers real agent frames:
+        # the observer's per-direction frame reader is not thread-safe.
+        agent_observation_lock = threading.Lock()
 
         def _count(direction: AcpDirection, frames: list[Frame]) -> None:
             with counters_lock:
@@ -165,9 +169,10 @@ class AcpForwarder:
             frames = FrameReader().feed(replacement)
             if frames:
                 _count(AcpDirection.AGENT_TO_HOST, frames)
-                if self.on_frame is not None:
+            with agent_observation_lock:
+                if frames and self.on_frame is not None:
                     self.on_frame(AcpDirection.AGENT_TO_HOST, replacement, frames)
-            self.delivery(AcpDirection.AGENT_TO_HOST, replacement)
+                self.delivery(AcpDirection.AGENT_TO_HOST, replacement)
 
         def _pump(
             reader_stream: BinaryIO,
@@ -182,10 +187,16 @@ class AcpForwarder:
                     if not chunk:
                         break
                     frames = reader.feed(chunk)
+                    observation_guard = (
+                        agent_observation_lock
+                        if direction is AcpDirection.AGENT_TO_HOST
+                        else contextlib.nullcontext()
+                    )
                     if frames:
                         _count(direction, frames)
                         if self.on_frame is not None:
-                            self.on_frame(direction, chunk, frames)
+                            with observation_guard:
+                                self.on_frame(direction, chunk, frames)
                     if self.intercept is not None:
                         replacement = self.intercept(
                             direction, chunk, frames, reader.buffered_bytes
@@ -209,7 +220,8 @@ class AcpForwarder:
                     with guard:
                         writer_stream.write(chunk)
                         writer_stream.flush()
-                    self.delivery(direction, chunk)
+                    with observation_guard:
+                        self.delivery(direction, chunk)
             except (BrokenPipeError, OSError, ValueError) as error:
                 self._emit(f"proxy: {direction.value} stream closed: {error}")
             finally:

@@ -56,6 +56,10 @@ class AcpHostRegistration internal constructor(
         require(entryName.isNotBlank()) { "ACP entry name must not be blank" }
     }
 
+    /** Where this registration writes; the IDE layer refreshes VFS around writes. */
+    val registryLocation: Path
+        get() = registryPath
+
     /**
      * Register (or refresh) the research proxy entry.
      *

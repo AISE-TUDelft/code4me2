@@ -89,6 +89,7 @@ from .delivery import (  # noqa: E402
 )
 from .forwarder import AcpForwarder, InterceptCallback  # noqa: E402
 from .initialize_replay import InitializeReplay  # noqa: E402
+from .session_mode_guard import SessionModeGuard  # noqa: E402
 from .lifecycle import (  # noqa: E402
     ArtifactVerificationError,
     ProxyProcess,
@@ -233,6 +234,15 @@ def build_parser() -> argparse.ArgumentParser:
             "forwarding the duplicate to the agent (an IDE that recreates a "
             "session on a live process would otherwise trigger JSON-RPC -32603). "
             "Default off: the proxy stays byte-preserving."
+        ),
+    )
+    parser.add_argument(
+        "--allow-session-mode-changes",
+        action="store_true",
+        help=(
+            "Forward host 'session/set_mode' requests to the agent. By default the "
+            "proxy refuses them with a JSON-RPC error: a study arm's approval mode "
+            "is fixed, and the IDE's mode picker must not bypass it."
         ),
     )
     parser.add_argument(
@@ -391,6 +401,42 @@ def resolve_status_file(
         return None
     stripped = token.strip()
     return stripped or None
+
+
+def _carried_drop_counters(status_file: Optional[str]) -> dict[str, int]:
+    """The previous status document's drop counters, or nothing (best effort)."""
+    if status_file is None:
+        return {}
+    try:
+        data = json.loads(Path(status_file).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(data, Mapping):
+        return {}
+    carried = {}
+    for key in ("dropped_full", "dropped_error", "dropped_shutdown"):
+        value = data.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            carried[key] = value
+    return carried
+
+
+def _compose_interceptors(interceptors: Sequence[InterceptCallback]) -> InterceptCallback:
+    """Run every interceptor on each chunk; the first replacement wins.
+
+    Each interceptor keeps its own frame-boundary accounting, so all of them
+    must see every chunk even when an earlier one already answered it.
+    """
+
+    def intercept(direction, chunk, frames, buffered_partial):
+        replacement = None
+        for candidate in interceptors:
+            result = candidate(direction, chunk, frames, buffered_partial)
+            if replacement is None and result is not None:
+                replacement = result
+        return replacement
+
+    return intercept
 
 
 def _zero_delivery_snapshot() -> dict[str, Any]:
@@ -611,6 +657,7 @@ def run_proxy(
     status_file: Optional[str] = None,
     agent_env: Optional[Mapping[str, str]] = None,
     compat_idempotent_initialize: bool = False,
+    allow_session_mode_changes: bool = False,
     host_read=None,
     host_write=None,
     diagnostics=None,
@@ -642,6 +689,10 @@ def run_proxy(
     a repeated ``initialize`` on the same connection is answered from the cached
     handshake result instead of being forwarded to the agent. The default
     (``False``) keeps the proxy byte-preserving.
+
+    ``allow_session_mode_changes`` forwards host ``session/set_mode`` requests.
+    By default they are refused with a JSON-RPC error (see
+    :mod:`session_mode_guard`): the study fixes the approval mode.
     """
     host_read = host_read if host_read is not None else sys.stdin.buffer
     host_write = host_write if host_write is not None else sys.stdout.buffer
@@ -713,13 +764,24 @@ def run_proxy(
             return delivery.snapshot()
         return _zero_delivery_snapshot()
 
+    # One proxy process runs per chat, all writing the same per-enrollment
+    # document: carry the previous process's drop counters forward, or every
+    # new chat resets the loss the plugin reports to zero.
+    carried_drops = _carried_drop_counters(status_file)
+
     def write_status(snapshot: Optional[Mapping[str, Any]] = None) -> None:
         """Best-effort refresh of the content-free delivery status document."""
         if status_file is None:
             return
-        write_status_document(
-            status_file, current_status() if snapshot is None else snapshot, diag
-        )
+        document = dict(current_status() if snapshot is None else snapshot)
+        if carried_drops:
+            for key, value in carried_drops.items():
+                document[key] = int(document.get(key, 0)) + value
+            document["dropped"] = (
+                document["dropped_full"] + document["dropped_error"] + document["dropped_shutdown"]
+            )
+            document["healthy"] = document["dropped"] == 0
+        write_status_document(status_file, document, diag)
 
     def deliverable(events: Sequence) -> list:
         """Stamp the activation's run id, then drop privacy-blocked events.
@@ -794,14 +856,24 @@ def run_proxy(
     # The opt-in compatibility mode answers a repeated `initialize` on this
     # connection from the cached handshake result; the default path constructs
     # no interceptor and stays byte-preserving.
-    intercept: Optional[InterceptCallback] = None
+    interceptors: list[InterceptCallback] = []
     if compat_idempotent_initialize:
         replay = InitializeReplay(
             on_replay=lambda: diag(
                 "proxy: answered repeated initialize from the cached handshake"
             )
         )
-        intercept = replay.intercept
+        interceptors.append(replay.intercept)
+    if not allow_session_mode_changes:
+        guard = SessionModeGuard(
+            on_refusal=lambda: diag(
+                "proxy: refused a session/set_mode request; the study fixes the approval mode"
+            )
+        )
+        interceptors.append(guard.intercept)
+    intercept: Optional[InterceptCallback] = (
+        _compose_interceptors(interceptors) if interceptors else None
+    )
 
     forwarder = AcpForwarder(observer=observer, diagnostics=diag, intercept=intercept)
     forwarder.run(
@@ -885,6 +957,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         status_file=status_file,
         agent_env=agent_env,
         compat_idempotent_initialize=args.compat_idempotent_initialize,
+        allow_session_mode_changes=args.allow_session_mode_changes,
     )
 
 

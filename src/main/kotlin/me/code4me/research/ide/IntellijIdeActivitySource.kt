@@ -84,6 +84,9 @@ class IntellijIdeActivitySource(private val project: Project) : IdeActivitySourc
             object : FileDocumentManagerListener {
                 override fun beforeDocumentSaving(document: Document) {
                     val file = FileDocumentManager.getInstance().getFile(document) ?: return
+                    // The topic is application-wide: a save in another open
+                    // project must not be recorded as this project's activity.
+                    if (!belongsToProject(file)) return
                     publishFileSignal(IdeActivityKind.SAVED.wire, file)
                 }
             },
@@ -114,12 +117,22 @@ class IntellijIdeActivitySource(private val project: Project) : IdeActivitySourc
         EditorFactory.getInstance().addEditorFactoryListener(
             object : EditorFactoryListener {
                 override fun editorCreated(event: EditorFactoryEvent) {
+                    // Editors of every open project are announced here; only
+                    // this project's documents are this project's activity.
+                    if (event.editor.project !== project) return
                     registerDocument(event.editor.document)
                 }
             },
             this,
         )
     }
+
+    private fun belongsToProject(file: VirtualFile): Boolean =
+        runCatching {
+            com.intellij.openapi.application.ReadAction.compute<Boolean, RuntimeException> {
+                com.intellij.openapi.roots.ProjectFileIndex.getInstance(project).isInContent(file)
+            }
+        }.getOrDefault(true)
 
     /** Subscribe [callback]; it receives every subsequent raw signal. */
     override fun onActivity(callback: (IdeActivitySignal) -> Unit) {

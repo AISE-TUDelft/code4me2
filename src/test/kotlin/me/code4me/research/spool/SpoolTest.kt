@@ -752,6 +752,7 @@ class SpoolUploaderTest {
         clock: () -> Long = { 1_000L },
         diagnostics: (String) -> Unit = {},
         retryBackoff: RetryBackoff = RetryBackoff(baseDelayMs = 100, maxDelayMs = 400, jitterSource = { 0.0 }),
+        researchSessionId: String? = null,
         responder: (Request) -> Response,
     ): Pair<SpoolUploader, FakeCallFactory> {
         val factory = FakeCallFactory(responder)
@@ -765,8 +766,57 @@ class SpoolUploaderTest {
                 backoff = retryBackoff,
                 clock = clock,
                 diagnostics = diagnostics,
+                researchSessionId = researchSessionId,
             )
         return uploader to factory
+    }
+
+    @Test
+    fun `events of an ended research session are dropped instead of replayed under the new capability`() {
+        // The spool directory is per enrollment/context and outlives a session:
+        // after an overnight idle timeout the next activation opens a new one.
+        val spool = tempSpool()
+        val (stale, current) = events(2)
+        spool.append(stale.copy(researchSessionId = "session-old"))
+        spool.append(current.copy(researchSessionId = "session-new"))
+        val sentIds = ArrayList<List<String>>()
+        val diagnostics = ArrayList<String>()
+        val (uploader, _) =
+            uploader(spool, diagnostics = diagnostics::add, researchSessionId = "session-new") { request ->
+                val body = parseCanonicalJson(bodyOf(request)) as Map<*, *>
+                sentIds += (body["events"] as List<*>).map { (it as Map<*, *>)["event_id"] as String }
+                response(200, ack(accepted = listOf(current.eventId)))
+            }
+
+        val result = uploader.uploadOnce()
+
+        assertTrue(result.attempted)
+        assertEquals(listOf(listOf(current.eventId)), sentIds, "only the current session's event is uploaded")
+        assertTrue(spool.pending().isEmpty(), "the stale event is discarded, the current one acknowledged")
+        assertTrue(diagnostics.any { "ended research session" in it }, diagnostics.toString())
+        assertFalse(uploader.state().revoked)
+    }
+
+    @Test
+    fun `a terminal marker left by another research session does not silence the new one`() {
+        val spool = tempSpool()
+        spool.append(events(1).single().copy(researchSessionId = "session-new"))
+        Files.writeString(
+            spool.directory.resolve(SpoolUploader.TERMINAL_MARKER),
+            canonicalJson(linkedMapOf("reason" to "session terminal", "research_session_id" to "session-old")),
+        )
+        val (fresh, _) = uploader(spool, researchSessionId = "session-new") { response(200, ack()) }
+        assertFalse(fresh.state().revoked, "the marker belongs to the ended session")
+        assertTrue(fresh.uploadOnce().attempted)
+        assertFalse(Files.exists(spool.directory.resolve(SpoolUploader.TERMINAL_MARKER)))
+
+        // The same session's marker still means terminal.
+        Files.writeString(
+            spool.directory.resolve(SpoolUploader.TERMINAL_MARKER),
+            canonicalJson(linkedMapOf("reason" to "session terminal", "research_session_id" to "session-new")),
+        )
+        val (same, _) = uploader(spool, researchSessionId = "session-new") { response(200, ack()) }
+        assertTrue(same.state().revoked)
     }
 
     @Test
@@ -1167,7 +1217,8 @@ class SpoolUploaderTest {
                 linkedMapOf(
                     "receipt_id" to "receipt-1",
                     "server_time" to "2026-01-01T00:00:00Z",
-                    "retryable" to listOf(linkedMapOf("event_id" to sent.eventId, "retry_hint" to 7_000L)),
+                    // The wire hint is in seconds; the uploader schedules in milliseconds.
+                    "retryable" to listOf(linkedMapOf("event_id" to sent.eventId, "retry_hint" to 7L)),
                 ),
             )
         val (uploader, _) = uploader(spool, clock = { now }) { response(200, hintedAck) }

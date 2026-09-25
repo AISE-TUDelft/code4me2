@@ -69,6 +69,7 @@ class ResearchSessionService internal constructor(
     constructor(project: Project) : this(project, null, null, null)
 
     @Volatile private var manager: ResearchSessionManager? = null
+    @Volatile private var eventExecutor: java.util.concurrent.ExecutorService? = null
     @Volatile private var disposed = false
 
     /** The lazily created manager (created on first use). */
@@ -222,7 +223,16 @@ class ResearchSessionService internal constructor(
     private fun buildManager(): ResearchSessionManager {
         managerFactoryOverride?.let { return it() }
         val contextId = ResearchSessionManager.opaqueContextId(projectKeyForSession())
+        // IDE events are processed off the UI thread (see the manager's
+        // eventExecutor): one daemon thread keeps their order.
+        val executor =
+            java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "code4me-research-events").apply { isDaemon = true }
+            }
+        eventExecutor?.shutdown()
+        eventExecutor = executor
         return ResearchSessionManager(
+            eventExecutor = executor,
             projectKey = projectKeyForSession(),
             transport = participantTransport(resolveConfiguredBaseUrl(), { environment() }),
             compatibility = pluginCompatibility(),
@@ -265,12 +275,22 @@ class ResearchSessionService internal constructor(
     }
 
     private fun resetManager(quarantine: Boolean, terminal: Boolean = false) {
-        val previous = synchronized(this) {
+        val (previous, executor) = synchronized(this) {
             if (terminal) disposed = true
-            manager.also { manager = null }
-        } ?: return
-        runCatching { previous.stop() }
+            val current = manager.also { manager = null }
+            current to eventExecutor.also { eventExecutor = null }
+        }
+        if (previous == null) {
+            executor?.shutdown()
+            return
+        }
+        // A plain project close keeps the spool endpoint up briefly for the
+        // assistant's agent processes to flush; a logout does not.
+        val ipcGraceMs = if (terminal && !quarantine) ResearchSessionManager.IPC_CLOSE_GRACE_MS else 0L
+        runCatching { previous.stop(ipcGraceMs) }
         if (quarantine) runCatching { previous.quarantineSpool() }
+        // Queued events still append to the durable spool; the thread ends after them.
+        executor?.shutdown()
     }
 
     /** Project runtime settings; a research misconfiguration never breaks the service. */
