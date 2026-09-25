@@ -27,6 +27,7 @@ enum class SessionTerminalReason(val value: String) {
     RESUME_GRACE_EXPIRED("resume_grace_expired"),
     REVOKED("revoked"),
     FAILED("failed"),
+    STUDY_STOPPED("STUDY_STOPPED"),
 }
 
 /**
