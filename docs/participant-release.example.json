@@ -27,7 +27,56 @@
       },
       "agent_command": "REPLACE_WITH_QUALIFIED_GOOSE_ACP_COMMAND",
       "agent_command_args": [],
-      "byoa_config": []
+      "byoa_config": [
+        {
+          "field": "model",
+          "transport": "env",
+          "key": "GOOSE_MODEL"
+        },
+        {
+          "field": "max_steps",
+          "transport": "env",
+          "key": "GOOSE_MAX_TURNS"
+        },
+        {
+          "field": "approval_policy",
+          "transport": "env",
+          "key": "GOOSE_MODE",
+          "value_map": {
+            "auto": "auto",
+            "per_step": "approve",
+            "suggestion_only": "chat"
+          }
+        },
+        {
+          "field": "inference_gateway_host",
+          "transport": "env",
+          "key": "OPENAI_HOST"
+        },
+        {
+          "field": "inference_gateway_base_path",
+          "transport": "env",
+          "key": "OPENAI_BASE_PATH"
+        },
+        {
+          "field": "inference_gateway_credential",
+          "transport": "env",
+          "key": "OPENAI_API_KEY"
+        },
+        {
+          "field": "provider_kind",
+          "transport": "env",
+          "key": "GOOSE_PROVIDER",
+          "value_map": {
+            "openai_compatible": "openai"
+          }
+        },
+        {
+          "field": "state_dir",
+          "transport": "env",
+          "key": "GOOSE_PATH_ROOT"
+        }
+      ]
     },
     {
       "framework": "codex",

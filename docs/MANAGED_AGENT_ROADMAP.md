@@ -373,6 +373,16 @@ Collection must remain reliable when the network drops, an agent crashes, or con
 
 ### Backend inference
 
+> **Status (2026-09, participant budgets):** for Goose arms the "per-conversation
+> local inference gateway" in the diagram above is superseded by the *server-side*
+> research inference gateway (`POST /api/research/inference/v1/chat/completions`).
+> The plugin points Goose at the research server origin through the release's
+> runtime bindings, hands it a signed, scoped inference capability through an
+> owner-only credential file (never argv), and the backend reserves the call's
+> worst-case cost against the participant's budget before forwarding it with the
+> study's server-held key. Codex arms stay on ChatGPT login and are not relayed.
+
+
 Create one v2 inference service used by all engines:
 
 - Explicit `api_kind`: `chat_completions` or `responses`.

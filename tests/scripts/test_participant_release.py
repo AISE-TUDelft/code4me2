@@ -60,8 +60,11 @@ def inventory(platforms: list[str]) -> dict:
         ],
         "releases": [
             {"framework": "code4me2-agent", "version": "1.2.3", "distribution_mode": "PACKAGED"},
-            {"framework": "goose", "version": "goose-1", "distribution_mode": "BYOA_EXTERNAL"},
-            {"framework": "codex", "version": "codex-1", "distribution_mode": "BYOA_EXTERNAL"},
+            # The Gradle inventory records whether a BYOA release binds the
+            # research inference gateway credential; the verifier requires it
+            # for Goose (Codex signs in with ChatGPT and is not gateway-bound).
+            {"framework": "goose", "version": "goose-1", "distribution_mode": "BYOA_EXTERNAL", "inference_gateway": True},
+            {"framework": "codex", "version": "codex-1", "distribution_mode": "BYOA_EXTERNAL", "inference_gateway": False},
         ],
     }
 
@@ -141,6 +144,23 @@ def test_generated_catalog_passes_verifier_and_missing_proxy_or_agent_fails(tmp_
     zip_findings = []
     verifier.inspect_zip("recipe-partial.zip", archive, zip_findings, require_participant_release=True)
     assert any("cover exactly" in message for message in zip_findings)
+
+    # A Goose release that does not bind the research inference gateway
+    # credential is a finding: the arm would run on the participant's own key.
+    unbound = __import__("copy").deepcopy(catalog)
+    for release in unbound["participant_release"]["releases"]:
+        if release["framework"] == "goose":
+            release["inference_gateway"] = False
+    archive = artifact_fixtures.write_plugin_zip(
+        tmp_path / "unbound.zip",
+        unbound,
+        payloads,
+        recipe=recipe_manifest,
+        agent_archives=agent_payloads,
+    )
+    zip_findings = []
+    verifier.inspect_zip("unbound.zip", archive, zip_findings, require_participant_release=True)
+    assert any("inference gateway" in message for message in zip_findings)
 
     # A tampered agent archive fails against the recipe's declared sha256.
     tampered = dict(agent_payloads)

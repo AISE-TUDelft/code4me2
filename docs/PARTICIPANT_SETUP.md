@@ -30,6 +30,14 @@ instead. A session started through any other entry is not observed by the study.
 
 Code4Me installs its matching agent runtime from the plugin. You do not need a Code4Me source checkout, Python, Node.js, Docker, or a model-provider API key. Your project may still require its normal compiler or build tools.
 
+If your study runs Goose, the study provides the model access: Code4Me points
+Goose at the study's server and hands it a study-issued credential at each
+start. Your own Goose provider keys and `~/.config/goose` settings are not used
+in a study, and the study's credential is never shown to you. When your study's
+AI budget is used up, the status bar shows **Research: AI budget used up**: the
+agent refuses new requests until the study team tops the budget up, while
+research collection continues.
+
 ## Repair and diagnostics
 
 If the study does not become active, reopen the project or rejoin from the

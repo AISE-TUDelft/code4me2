@@ -1,9 +1,12 @@
 package me.code4me.research.proxy
 
 import me.code4me.research.runtime.ContentHasher
+import me.code4me.research.telemetry.canonicalJson
 import me.code4me.services.agent.AcpRegistryWriter
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.PosixFilePermission
 import java.util.UUID
@@ -30,6 +33,13 @@ import java.util.UUID
  * (`--telemetry-policy`, `--telemetry-policy-digest`, `--adapter`), so the proxy
  * enforces the frozen policy and resolves the allowlisted adapter from the same
  * contract the manifest declares.
+ *
+ * A gateway-bound (Goose) agent receives the study's inference credential the
+ * same way the proxy receives its IPC capability: only the **path** of the
+ * plugin-owned, owner-only credential file travels (`--inference-credential-file`
+ * plus the entry env [INFERENCE_CREDENTIAL_FILE_ENV_VAR]); the proxy reads the
+ * file and injects the credential into the agent child's environment. The
+ * credential value itself is never part of the argv or the entry env.
  */
 class AcpHostRegistration internal constructor(
     private val registryPath: Path,
@@ -98,7 +108,12 @@ class AcpHostRegistration internal constructor(
      * the path travels, never any payload.
      * @param agentEnv release-declared BYOA configuration overrides for the
      * agent child, emitted as repeated `--agent-env KEY=VALUE`. Blank when the
-     * release declares none.
+     * release declares none. Never carries a credential.
+     * @param inferenceCredentialFile the plugin-owned, owner-only file holding
+     * the study's inference credential for a gateway-bound agent, or `null`
+     * when the arm does not use the gateway. Only its path is emitted
+     * (`--inference-credential-file`, before `--agent-cmd`) and carried in the
+     * entry `env` as [INFERENCE_CREDENTIAL_FILE_ENV_VAR].
      */
     fun register(
         resolved: ResolvedProxyRuntime,
@@ -116,6 +131,7 @@ class AcpHostRegistration internal constructor(
         policyDigest: String? = null,
         statusFile: Path? = null,
         agentEnv: Map<String, String> = emptyMap(),
+        inferenceCredentialFile: Path? = null,
     ): Result<Unit> =
         runCatching {
             require(resolved.proxyArgv.isNotEmpty()) { "resolved proxy argv must not be empty" }
@@ -141,6 +157,9 @@ class AcpHostRegistration internal constructor(
                     adapterVersion?.takeIf { it.isNotBlank() }?.let { put(ADAPTER_VERSION_ENV_VAR, it) }
                     agentRunId?.takeIf { it.isNotBlank() }?.let { put(RUN_ID_ENV_VAR, it) }
                     statusFile?.let { put(STATUS_FILE_ENV_VAR, it.toAbsolutePath().normalize().toString()) }
+                    inferenceCredentialFile?.let {
+                        put(INFERENCE_CREDENTIAL_FILE_ENV_VAR, it.toAbsolutePath().normalize().toString())
+                    }
                     if (capability != null) put(CAPABILITY_ENV_VAR, capability)
                 }
 
@@ -188,6 +207,11 @@ class AcpHostRegistration internal constructor(
                     agentEnv.toSortedMap().forEach { (key, value) ->
                         add(AGENT_ENV_FLAG)
                         add("$key=$value")
+                    }
+                    // Only the path: the proxy reads the owner-only file itself.
+                    inferenceCredentialFile?.let {
+                        add(INFERENCE_CREDENTIAL_FILE_FLAG)
+                        add(it.toAbsolutePath().normalize().toString())
                     }
                     if (agentArgv.isNotEmpty()) {
                         add(AGENT_CMD_FLAG)
@@ -303,6 +327,23 @@ class AcpHostRegistration internal constructor(
         const val AGENT_ENV_FLAG: String = "--agent-env"
 
         /**
+         * Path of the plugin-owned inference credential file for a gateway-bound
+         * agent. The proxy reads it (never deletes it) and injects the credential
+         * into the agent child's environment under the file's `credential_env_key`.
+         */
+        const val INFERENCE_CREDENTIAL_FILE_FLAG: String = "--inference-credential-file"
+
+        /**
+         * The ACP entry env key carrying the inference credential file path; the
+         * proxy's fallback when `--inference-credential-file` is absent. Only
+         * the path, never the credential.
+         */
+        const val INFERENCE_CREDENTIAL_FILE_ENV_VAR: String = "CODE4ME_RESEARCH_INFERENCE_CREDENTIAL_FILE"
+
+        /** The credential file schema the proxy accepts. */
+        const val INFERENCE_CREDENTIAL_SCHEMA_VERSION: String = "1"
+
+        /**
          * The ACP entry env key carrying the one-time LOCAL IPC capability. It
          * persists with the entry, so the proxy can authenticate even after the
          * fallback capability file has been removed.
@@ -339,6 +380,9 @@ class AcpHostRegistration internal constructor(
             if (path == null) return
             runCatching { Files.deleteIfExists(path) }
         }
+
+        /** Delete the plugin-owned inference credential file; best effort, never throws. */
+        fun cleanupInferenceCredentialFile(path: Path?) = cleanupCapabilityFile(path)
     }
 }
 
@@ -372,3 +416,85 @@ internal fun writeOwnerOnlyFile(
         // Windows and non-POSIX filesystems: the ACL keeps the file user-scoped.
     }
 }
+
+private val ENV_KEY_PATTERN = Regex("[A-Za-z_][A-Za-z0-9_]*")
+
+/**
+ * Write [value] to [path] owner-only **and atomically**: the content is staged
+ * in a uniquely named temporary file in the same directory (created 0600 before
+ * any byte is written) and moved into place with `ATOMIC_MOVE`, so a reader
+ * never observes a partial or group-readable document. Used for the inference
+ * credential file, which is rewritten on every manifest refresh while a
+ * launch may be reading it (the proxy retries a briefly unreadable file).
+ */
+internal fun writeOwnerOnlyFileAtomically(
+    path: Path,
+    value: String,
+) {
+    val absolute = path.toAbsolutePath().normalize()
+    val directory = absolute.parent ?: throw IllegalArgumentException("the file path has no parent directory")
+    Files.createDirectories(directory)
+    val temporary = Files.createTempFile(directory, ".${absolute.fileName}.", ".tmp")
+    try {
+        try {
+            Files.setPosixFilePermissions(
+                temporary,
+                setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE),
+            )
+        } catch (_: UnsupportedOperationException) {
+            // Windows and non-POSIX filesystems: the ACL keeps the file user-scoped.
+        }
+        Files.writeString(temporary, value, StandardCharsets.UTF_8, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+        try {
+            Files.move(temporary, absolute, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            Files.move(temporary, absolute, StandardCopyOption.REPLACE_EXISTING)
+        }
+    } finally {
+        Files.deleteIfExists(temporary)
+    }
+}
+
+/**
+ * The inference credential document the proxy reads:
+ * `{"schema_version":"1","credential_env_key":<env var>,"credential":<bearer>}`
+ * (canonical JSON; key order is irrelevant to the proxy's JSON parser).
+ */
+internal fun inferenceCredentialDocument(
+    credentialEnvKey: String,
+    credential: String,
+): String =
+    canonicalJson(
+        linkedMapOf(
+            "schema_version" to AcpHostRegistration.INFERENCE_CREDENTIAL_SCHEMA_VERSION,
+            "credential_env_key" to credentialEnvKey,
+            "credential" to credential,
+        ),
+    )
+
+/**
+ * Write the study's inference credential for a gateway-bound agent to [path]:
+ * owner-only, atomically replaced, and read back verbatim so a launch can never
+ * pick up a document the proxy would reject. Fails (never throws) on an env key
+ * that is not a valid variable name or a credential that is blank or carries
+ * control characters — exactly the documents the proxy refuses. No failure
+ * message ever includes the credential.
+ */
+internal fun writeInferenceCredentialFile(
+    path: Path,
+    credentialEnvKey: String,
+    credential: String,
+): Result<Unit> =
+    runCatching {
+        require(ENV_KEY_PATTERN.matches(credentialEnvKey)) {
+            "the inference credential env key is not a valid environment variable name"
+        }
+        require(credential.isNotBlank()) { "the inference credential is blank" }
+        require(credential.none { it < ' ' || it == '\u007f' }) {
+            "the inference credential contains control characters"
+        }
+        val document = inferenceCredentialDocument(credentialEnvKey, credential)
+        writeOwnerOnlyFileAtomically(path, document)
+        val reloaded = Files.readString(path.toAbsolutePath().normalize(), StandardCharsets.UTF_8)
+        require(reloaded == document) { "the inference credential file could not be read back verbatim" }
+    }
