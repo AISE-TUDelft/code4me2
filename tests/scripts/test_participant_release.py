@@ -85,9 +85,6 @@ def test_generated_catalog_passes_verifier_and_missing_proxy_or_agent_fails(tmp_
         "artifacts": [
             {
                 **artifact,
-                # The recipe (and the verifier) spell the arm64 architecture as
-                # the host vocabulary `aarch64`; os names are already canonical.
-                "architecture": "aarch64" if artifact["architecture"] == "arm64" else artifact["architecture"],
                 "archive": f"code4me-runtime/{artifact['archive']}",
             }
             for artifact in plan["artifacts"]

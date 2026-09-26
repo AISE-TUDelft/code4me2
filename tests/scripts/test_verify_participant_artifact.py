@@ -24,6 +24,7 @@ VERIFIER = PLUGIN_ROOT / "scripts" / "verify-participant-artifact.py"
 RUNTIME_PREFIX = "research-runtime/"
 AGENT_PREFIX = "code4me-runtime/"
 PLATFORM_MATRIX = ("macos-aarch64", "macos-x64", "linux-x64", "windows-x64")
+AGENT_PLATFORM_MATRIX = ("macos-arm64", "macos-x64", "linux-x64", "windows-x64")
 
 
 def sha256(payload: bytes) -> str:
@@ -82,7 +83,7 @@ def agent_archive_bytes(platform_id: str, payload: bytes | None = None) -> bytes
     return buffer.getvalue()
 
 
-def agent_recipe(archive_bytes: bytes, platforms: tuple[str, ...] = PLATFORM_MATRIX) -> dict:
+def agent_recipe(archive_bytes: bytes, platforms: tuple[str, ...] = AGENT_PLATFORM_MATRIX) -> dict:
     """The single managed agent recipe: one artifact per platform."""
     artifacts = []
     for platform_id in platforms:
