@@ -52,7 +52,6 @@ jobs:
       matrix: ${{ steps.platforms.outputs.matrix }}
       platforms: ${{ steps.platforms.outputs.platforms }}
       server_commit: ${{ steps.platforms.outputs.server_commit }}
-      host_smoke_matrix: ${{ steps.platforms.outputs.host_smoke_matrix }}
     steps:
       - uses: actions/checkout@v5
       - name: Validate release inputs
@@ -99,9 +98,6 @@ jobs:
           fi
       - name: Derive research proxy platform matrix
         id: platforms
-        env:
-          PUBLISH_RELEASE: ${{ inputs.publishRelease }}
-          FULL_HOST_SMOKE: ${{ inputs.fullHostSmoke }}
         run: |
           python3 scripts/research-proxy-platforms.py \
             "$RUNNER_TEMP/runtimes/code4me-managed-runtime-release.json" \
@@ -112,21 +108,6 @@ jobs:
           from pathlib import Path
           manifest = json.loads((Path(os.environ["RUNNER_TEMP"]) / "runtimes/code4me-managed-runtime-release.json").read_text())
           print("server_commit=" + manifest["server_commit"])
-          platforms = json.loads(next(
-              line.split("=", 1)[1]
-              for line in Path(os.environ["GITHUB_OUTPUT"]).read_text().splitlines()
-              if line.startswith("matrix=")
-          ))
-          full_smoke = (
-              os.environ["PUBLISH_RELEASE"] == "true"
-              or os.environ["FULL_HOST_SMOKE"] == "true"
-          )
-          host_smoke = platforms if full_smoke else [
-              platform for platform in platforms if platform["platform"] == "linux-x64"
-          ]
-          if not host_smoke:
-              raise SystemExit("runtime release does not include the default linux-x64 smoke platform")
-          print("host_smoke_matrix=" + json.dumps(host_smoke, separators=(",", ":")))
           PY
       - name: Verify full E2E passed for these source revisions
         if: inputs.publishRelease && inputs.e2eRunId != ''
@@ -391,13 +372,14 @@ jobs:
           retention-days: 7
 
   host-smoke:
+    if: inputs.fullHostSmoke
     needs:
       - prepare-proxy-matrix
       - build
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.prepare-proxy-matrix.outputs.host_smoke_matrix) }}
+        include: ${{ fromJSON(needs.prepare-proxy-matrix.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
@@ -493,8 +475,8 @@ jobs:
   # per-platform proxy runtimes staged and verified above. Assets of a published
   # plugin release are never replaced.
   publish:
-    if: github.event_name == 'workflow_dispatch' && inputs.publishRelease
-    needs: host-smoke
+    if: ${{ always() && !cancelled() && inputs.publishRelease && needs.build.result == 'success' && (needs.host-smoke.result == 'success' || needs.host-smoke.result == 'skipped') }}
+    needs: [build, host-smoke]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
