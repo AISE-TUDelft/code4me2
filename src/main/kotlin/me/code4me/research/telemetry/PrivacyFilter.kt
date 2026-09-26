@@ -89,14 +89,32 @@ object FieldClassifier {
      * reclassify the proxy's `exit_status` payload key from BEHAVIORAL to
      * SYSTEM. Mirrors the server's `SYSTEM_KEY_EXACT`.
      */
-    private val systemKeyExact: Set<String> = setOf("exit_code")
+    private val systemKeyExact: Set<String> =
+        setOf(
+            "exit_code",
+            // The server's own relay markers (parity with SYSTEM_KEY_EXACT); the
+            // plugin never sends them, the classifier just agrees on them.
+            "legacy_kind",
+            "upstream_status",
+        )
 
     private val systemTokens: Set<String> =
         setOf(
             "duration", "latency", "timestamp", "clock", "process", "pid", "version",
             "schema", "emitter", "sequence", "count", "counts", "size", "bytes",
             "host", "os", "arch", "trace", "span", "level", "tokens", "tokens_used",
+            // Protocol metadata (parity with the server classifier): how a call
+            // was transported, not content.
+            "streaming",
         )
+
+    /**
+     * A bare magnitude of something (`tool_result_length`, `step_index`) is
+     * structural metadata, never content, even when the measured thing would be.
+     * Mirrors the server classifier's numeric-suffix rule.
+     */
+    private val numericSystemSuffixes: List<String> =
+        listOf("_length", "_count", "_counts", "_bytes", "_size", "_ms", "_index")
 
     private val behavioralTokens: Set<String> =
         setOf(
@@ -134,7 +152,9 @@ object FieldClassifier {
         value: Any?,
     ): FieldClass? {
         if (isSecretKey(name) || looksSecretValue(value)) return FieldClass.SECRET
-        if (normalizedKey(name) in systemKeyExact) return FieldClass.SYSTEM
+        val normalized = normalizedKey(name)
+        if (normalized in systemKeyExact) return FieldClass.SYSTEM
+        if (value is Number && numericSystemSuffixes.any { normalized.endsWith(it) }) return FieldClass.SYSTEM
         val tokens = tokensOf(name)
         if (tokens.any { it in contentTokens }) return FieldClass.CONTENT
         if (tokens.any { it in codeMetadataTokens }) return FieldClass.CODE_METADATA

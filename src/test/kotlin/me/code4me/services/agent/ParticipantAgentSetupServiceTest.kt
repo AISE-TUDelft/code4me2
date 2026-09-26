@@ -24,7 +24,12 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import org.mockito.kotlin.doNothing
+import org.mockito.kotlin.doThrow
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.nio.file.Path
@@ -42,7 +47,9 @@ import java.nio.file.Path
  * developer's real `~/.jetbrains/acp.json`.
  */
 class ParticipantAgentSetupServiceTest {
-    private val service = ParticipantAgentSetupService()
+    @TempDir lateinit var workspace: Path
+    private val bridge = mock<ManagedAuthBridge>()
+    private val service = ParticipantAgentSetupService(bridge)
 
     @AfterEach
     fun tearDown() {
@@ -83,6 +90,39 @@ class ParticipantAgentSetupServiceTest {
 
         assertEquals(ParticipantSetupStep.STUDY_ACTIVE, status.step)
         assertEquals(0, fallbackRuns, "the legacy ACP handoff must not run during a study")
+    }
+
+    @Test
+    fun `failed study bridge registration retries and recovers without direct setup`() {
+        val project = studyProject()
+        doThrow(IllegalStateException("temporary discovery write failure"))
+            .doNothing().whenever(bridge).register(project)
+
+        val failed = service.prepareWithLegacyFallback(project)
+        service.onLogout()
+        val recovered = service.prepareWithLegacyFallback(project)
+
+        assertEquals(ParticipantSetupStep.CHECK_SERVER, failed.step)
+        assertTrue(failed.message.contains("research authentication bridge"), failed.message)
+        assertFalse(failed.useLegacyAcpPreparation)
+        assertEquals(ParticipantSetupStep.STUDY_ACTIVE, recovered.step)
+        verify(bridge).unregister(project)
+        verify(bridge, times(2)).register(project)
+    }
+
+    @Test
+    fun `study bridge waits for a canonical workspace then recovers`() {
+        val project = studyProject(basePath = null)
+
+        val unavailable = service.prepare(project)
+        verify(bridge, never()).register(project)
+        whenever(project.basePath).thenReturn(workspace.toString())
+        val recovered = service.prepare(project)
+
+        assertEquals(ParticipantSetupStep.CHECK_SERVER, unavailable.step)
+        assertFalse(unavailable.useLegacyAcpPreparation)
+        assertEquals(ParticipantSetupStep.STUDY_ACTIVE, recovered.step)
+        verify(bridge).register(project)
     }
 
     @Test
@@ -205,8 +245,9 @@ class ParticipantAgentSetupServiceTest {
         }
     }
 
-    private fun studyProject(): Project {
+    private fun studyProject(basePath: String? = workspace.toString()): Project {
         val project = mock<Project>()
+        whenever(project.basePath).thenReturn(basePath)
         val research = mock<ResearchSessionService>()
         whenever(research.hasStudyContext()).thenReturn(true)
         whenever(project.getServiceIfCreated(ResearchSessionService::class.java)).thenReturn(research)

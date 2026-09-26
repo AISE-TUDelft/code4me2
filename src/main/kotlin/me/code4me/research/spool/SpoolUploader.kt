@@ -65,6 +65,8 @@ data class SpoolUploaderContext(
     val sessionCapability: Map<String, Any?>,
     val clientInstanceId: String,
     val httpClient: Call.Factory,
+    /** The research session this activation uploads for (see [SpoolUploader.researchSessionId]). */
+    val researchSessionId: String? = null,
 )
 
 /** Participant-safe snapshot of the uploader's delivery state. */
@@ -130,6 +132,17 @@ class SpoolUploader(
     private val pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS,
     private val batchIdFactory: (List<String>) -> String = { deterministicBatchId(it) },
     private val sleep: (Long) -> Unit = { millis -> Thread.sleep(millis) },
+    /**
+     * The research session this uploader delivers for. The spool directory is
+     * per enrollment/context and outlives a session: after an overnight idle
+     * timeout the next activation opens a new session in the same directory.
+     * Events of an ended session can never be accepted again (the server refuses
+     * a terminal session), so they are dropped instead of being replayed under
+     * the new capability, which the server answers with a terminal rejection
+     * that would stop every upload for good. `null` (tests, legacy callers)
+     * keeps every record. The capability's own `research_session_id` wins.
+     */
+    private val researchSessionId: String? = null,
 ) : SpoolDelivery {
     init {
         require(serverBaseUrl.isNotBlank()) { "serverBaseUrl must not be blank" }
@@ -153,6 +166,10 @@ class SpoolUploader(
     /** Durable marker recording a terminal/revoked state across restarts (TS-06). */
     private val terminalMarker: Path = spool.directory.resolve(TERMINAL_MARKER)
 
+    /**
+     * A marker written for another research session is stale: the session it
+     * recorded as terminal is not the one this uploader delivers for.
+     */
     private val persistedTerminalReason: String? = loadTerminalReason()
 
     @Volatile private var revoked: Boolean = persistedTerminalReason != null
@@ -231,15 +248,16 @@ class SpoolUploader(
                     pendingCount = pendingCount(),
                 )
             }
-            val records =
+            val pendingRecords =
                 try {
                     spool.pending(maxEventsPerBatch)
                 } catch (exception: Exception) {
                     return@synchronized failure("spool read failed: ${exception.message}")
                 }
+            val records = dropStaleSessionRecords(pendingRecords)
             if (records.isEmpty()) {
                 lastError = null
-                return@synchronized SpoolUploadResult(attempted = false, pendingCount = 0)
+                return@synchronized SpoolUploadResult(attempted = false, pendingCount = pendingCount())
             }
             val body = canonicalJson(buildBatch(records))
             when (val transport = execute(body)) {
@@ -424,14 +442,49 @@ class SpoolUploader(
         diagnostics("proxy: telemetry upload stopped: $detail")
     }
 
-    /** Load a persisted terminal/revoked reason, if any. Existence means terminal. */
+    /** The research session this uploader delivers for, if known. */
+    private fun currentSessionId(): String? =
+        (currentCapability["research_session_id"] as? String)?.takeIf { it.isNotBlank() }
+            ?: researchSessionId?.takeIf { it.isNotBlank() }
+
+    /**
+     * Drop records of a research session other than the current one; they can
+     * never be accepted again and would poison every batch they share.
+     */
+    private fun dropStaleSessionRecords(records: List<SpoolRecord>): List<SpoolRecord> {
+        val sessionId = currentSessionId() ?: return records
+        val (current, stale) =
+            records.partition { record ->
+                val recorded = record.event.researchSessionId
+                recorded.isNullOrBlank() || recorded == sessionId
+            }
+        if (stale.isNotEmpty()) {
+            diagnostics("proxy: dropping ${stale.size} event(s) of an ended research session; they cannot be uploaded")
+            runCatching { spool.discard(stale.map { it.eventId }) }
+        }
+        return current
+    }
+
+    /**
+     * Load a persisted terminal/revoked reason, if any. Existence means terminal,
+     * unless the marker names another research session: that one ended, and a
+     * marker left behind by its uploader must not silence this session too.
+     */
     private fun loadTerminalReason(): String? {
         return try {
             if (!Files.exists(terminalMarker)) {
                 null
             } else {
                 val parsed = runCatching { parseCanonicalJson(Files.readString(terminalMarker)) }.getOrNull()
-                (parsed as? Map<*, *>)?.get("reason") as? String ?: DEFAULT_TERMINAL_REASON
+                val marker = parsed as? Map<*, *>
+                val markedSession = marker?.get("research_session_id") as? String
+                val sessionId = currentSessionId()
+                if (!markedSession.isNullOrBlank() && sessionId != null && markedSession != sessionId) {
+                    clearTerminalMarker()
+                    null
+                } else {
+                    marker?.get("reason") as? String ?: DEFAULT_TERMINAL_REASON
+                }
             }
         } catch (_: Exception) {
             DEFAULT_TERMINAL_REASON
@@ -446,6 +499,7 @@ class SpoolUploader(
                     linkedMapOf(
                         "reason" to reason,
                         "revoked_at_ms" to clock(),
+                        "research_session_id" to currentSessionId(),
                     ),
                 )
             FileOutputStream(terminalMarker.toFile(), false).use { output ->

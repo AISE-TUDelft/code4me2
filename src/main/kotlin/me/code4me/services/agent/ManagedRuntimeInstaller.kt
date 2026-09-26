@@ -132,6 +132,9 @@ class ManagedRuntimeInstaller(
         require(root.getValue("managed_protocol_version").jsonPrimitive.content == SUPPORTED_MANAGED_PROTOCOL) {
             "Unsupported managed protocol version."
         }
+        // The server recipe declares the adapter once at the top level; the
+        // per-artifact block (when present) wins.
+        val recipeAdapterDigest = root["adapter"]?.jsonObject?.get("digest")?.jsonPrimitive?.content
         return root["artifacts"]?.jsonArray?.map { element ->
             val item = element.jsonObject
             RuntimeArtifact(
@@ -143,7 +146,8 @@ class ManagedRuntimeInstaller(
                 sha256 = item.getValue("sha256").jsonPrimitive.content,
                 executable = item.getValue("executable").jsonPrimitive.content,
                 managedProtocol = item.getValue("managed_protocol").jsonPrimitive.content,
-                adapterDigest = item["adapter"]?.jsonObject?.get("digest")?.jsonPrimitive?.content,
+                adapterDigest = item["adapter"]?.jsonObject?.get("digest")?.jsonPrimitive?.content
+                    ?: recipeAdapterDigest,
             )
         }?.firstOrNull { it.platform == platformId() && it.architecture == architectureId() }
             ?.also { artifact ->

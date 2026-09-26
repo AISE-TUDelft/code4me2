@@ -392,6 +392,12 @@ def verify_release_catalog(
         for framework, agent in by_framework.items() if framework != "code4me2-agent"
     ):
         findings.append("participant inventory must bundle Code4Me and mark external agents as BYOA")
+    goose = by_framework.get("goose")
+    if goose is not None and goose.get("inference_gateway") is not True:
+        findings.append(
+            "the Goose release must bind the research inference gateway credential "
+            "(byoa_config field inference_gateway_credential with the env transport)"
+        )
     verify_agent_recipe(
         label,
         archive,

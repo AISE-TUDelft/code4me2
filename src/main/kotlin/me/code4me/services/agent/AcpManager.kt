@@ -34,7 +34,13 @@ object AcpManager {
     fun registerManagedAgent(
         executable: String,
         bridgeDirectory: String,
-    ): Result<Unit> = AcpRegistryWriter(acpFile.toPath()).registerManagedAgent(executable, bridgeDirectory)
+    ): Result<Unit> {
+        val path = acpFile.toPath()
+        AcpRegistryVfs.beforeWrite(path)
+        return AcpRegistryWriter(path).registerManagedAgent(executable, bridgeDirectory).also {
+            AcpRegistryVfs.afterWrite(path)
+        }
+    }
 
     fun writeOrUpdate(
         goosePath: String?,
@@ -120,9 +126,11 @@ object AcpManager {
 
             val updatedRoot = JsonObject(existing.toMutableMap().also { it["agent_servers"] = JsonObject(servers) })
 
+            AcpRegistryVfs.beforeWrite(file.toPath())
             val tmp = File(file.parent, "acp.json.tmp")
             tmp.writeText(json.encodeToString(JsonObject.serializer(), updatedRoot))
             Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            AcpRegistryVfs.afterWrite(file.toPath())
 
             LOG.info("[AcpManager] acp.json written to ${file.absolutePath}")
         } catch (e: Exception) {
@@ -341,9 +349,14 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
         }
 
     private fun <T> withRegistryLock(action: () -> T): T {
-        val lockPath = registryPath.resolveSibling("${registryPath.fileName}.lock")
-        FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
-            return channel.lock().use { action() }
+        // The OS lock serializes processes; a JVM-wide monitor serializes the
+        // threads of this IDE, which would otherwise hit
+        // OverlappingFileLockException on the same channel.
+        synchronized(REGISTRY_MONITOR) {
+            val lockPath = registryPath.resolveSibling("${registryPath.fileName}.lock")
+            FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
+                return channel.lock().use { action() }
+            }
         }
     }
 
@@ -382,6 +395,9 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
     }
 
     companion object {
+        /** One monitor for every registry writer in this JVM (see [withRegistryLock]). */
+        private val REGISTRY_MONITOR = Any()
+
         const val MANAGED_ENTRY_NAME = "Code4Me Agent"
     }
 }

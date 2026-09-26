@@ -34,11 +34,26 @@ actual pinned inputs. Do not fill hashes with placeholders.
 - Choose qualified Goose/Codex ACP commands, adapters and configuration bindings
   for the intended versions. A version label or a discovered executable alone
   does not demonstrate agent compatibility.
+- A Goose release must also bind the five research inference gateway runtime
+  fields the plugin fills at launch: `inference_gateway_host` (the server origin
+  the plugin bootstrapped from), `inference_gateway_base_path` (the manifest's
+  relative gateway path), `inference_gateway_credential` (`env` transport only;
+  the plugin delivers the value through an owner-only file the proxy reads,
+  never through argv), `provider_kind` (with a `value_map` that translates
+  `openai_compatible` into the agent's vocabulary, for Goose `openai`) and
+  `state_dir` (a plugin-owned directory that isolates the agent's own
+  configuration). The example recipe binds them to `OPENAI_HOST`,
+  `OPENAI_BASE_PATH`, `OPENAI_API_KEY`, `GOOSE_PROVIDER` and `GOOSE_PATH_ROOT`.
+  Without all five the server refuses to bootstrap the arm
+  (`INFERENCE_GATEWAY_UNBOUND`) and the plugin refuses to launch
+  (`RUNTIME_UNAVAILABLE`).
 - Optional profiles use existing profile request fields: name, framework_version,
   connection_id, model, approval_policy, max_steps, tools_json, is_active,
   temperature and max_context_tokens. Provider connection IDs are non-secret;
-  provider credentials and participant paths must never enter a recipe. BYOA
-  continues to use participant credentials.
+  provider credentials and participant paths must never enter a recipe. Goose
+  arms spend from the study's server-held provider key through the research
+  inference gateway with a study-issued, revocable credential; Codex arms sign
+  in with ChatGPT. A participant's own provider keys are never used in a study.
 
 ## Prepare and build
 

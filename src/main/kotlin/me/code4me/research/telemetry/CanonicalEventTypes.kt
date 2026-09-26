@@ -13,6 +13,9 @@ object CanonicalEventTypes {
     const val INTERACTION_STARTED = "interaction.started"
     const val INTERACTION_COMPLETED = "interaction.completed"
 
+    const val AGENT_RUN_STARTED = "agent.run.started"
+    const val AGENT_RUN_COMPLETED = "agent.run.completed"
+
     const val AGENT_MESSAGE_STARTED = "agent.message.started"
     const val AGENT_MESSAGE_COMPLETED = "agent.message.completed"
 
@@ -46,6 +49,8 @@ object CanonicalEventTypes {
         setOf(
             INTERACTION_STARTED,
             INTERACTION_COMPLETED,
+            AGENT_RUN_STARTED,
+            AGENT_RUN_COMPLETED,
             AGENT_MESSAGE_STARTED,
             AGENT_MESSAGE_COMPLETED,
             TOOL_CREATED,

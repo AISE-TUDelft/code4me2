@@ -59,7 +59,9 @@ class TimeSinceLastShownCompletion : PluginModule {
         private val LOG = thisLogger()
 
         // Record key name following the underscore convention
-        private const val KEY_TIME_SINCE_LAST_COMPLETION = "time_since_last_completion"
+        // Must match BehavioralTelemetryData.time_since_last_shown (server + generated model),
+        // otherwise Moshi silently drops the value and the server stores null.
+        private const val KEY_TIME_SINCE_LAST_COMPLETION = "time_since_last_shown"
     }
 
     /**

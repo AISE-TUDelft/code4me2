@@ -4,10 +4,12 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.time.Instant
+import java.util.Base64
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.code4me.research.telemetry.canonicalJson
+import me.code4me.research.telemetry.parseCanonicalJson
 import okhttp3.OkHttpClient
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -1477,5 +1479,192 @@ class ResearchEnrollmentClassificationTest {
     fun `malformed documents parse to no enrollments`() {
         assertTrue(parseEnrollmentEntries("{not json").isEmpty())
         assertTrue(parseEnrollmentEntries("""{"enrollments":"nope"}""").isEmpty())
+    }
+}
+
+// --------------------------------------------------------------------------
+// InferenceGatewayManifestTest.kt
+// --------------------------------------------------------------------------
+
+/**
+ * The optional `inference_gateway` block (participant budgets): a second,
+ * signed, scoped capability bound to the manifest's own subject, which the
+ * plugin turns into the bearer token a gateway-bound (Goose) agent presents.
+ */
+class InferenceGatewayManifestTest {
+    private fun gatewayCapability(
+        audience: String = BootstrapManifest.INFERENCE_AUDIENCE,
+        scope: List<String> = listOf(BootstrapManifest.INFERENCE_SCOPE_RELAY),
+        issuedAt: String = "2026-01-01T00:00:00Z",
+        expiresAt: String = "2026-01-08T00:00:00Z",
+        enrollmentId: String = "enrollment-1",
+        researchSessionId: String = "session-1",
+        studyId: String = "study-1",
+    ): Map<String, Any?> =
+        linkedMapOf(
+            "capability_id" to "inference-capability-1",
+            "audience" to audience,
+            "scope" to scope,
+            "issued_at" to issuedAt,
+            "expires_at" to expiresAt,
+            "revocation_epoch" to 0L,
+            "enrollment_id" to enrollmentId,
+            "research_session_id" to researchSessionId,
+            "study_id" to studyId,
+            "signature" to "ab".repeat(32),
+        )
+
+    private fun gatewayBlock(
+        providerKind: String = "openai_compatible",
+        basePath: String = "api/research/inference/v1/chat/completions",
+        capability: Map<String, Any?> = gatewayCapability(),
+    ): Map<String, Any?> =
+        linkedMapOf("provider_kind" to providerKind, "base_path" to basePath, "capability" to capability)
+
+    private fun manifestWithGateway(block: Map<String, Any?>? = gatewayBlock()): BootstrapManifest =
+        BootstrapManifest.parse(
+            manifestJson(overrides = mapOf("inference_gateway" to block), researchSessionId = "session-1"),
+        )
+
+    @Test
+    fun `the inference gateway block parses into the typed model and validates`() {
+        val manifest = manifestWithGateway()
+
+        assertNotNull(manifest.inferenceGateway)
+        val gateway = manifest.inferenceGateway!!
+        assertEquals("openai_compatible", gateway.providerKind)
+        assertEquals("api/research/inference/v1/chat/completions", gateway.basePath)
+        assertEquals("inference-capability-1", gateway.capability.capabilityId)
+        assertEquals(BootstrapManifest.INFERENCE_AUDIENCE, gateway.capability.audience)
+        assertEquals(listOf(BootstrapManifest.INFERENCE_SCOPE_RELAY), gateway.capability.scope)
+        assertEquals("enrollment-1", gateway.capability.enrollmentId)
+        assertEquals("session-1", gateway.capability.researchSessionId)
+        assertEquals("study-1", gateway.capability.studyId)
+        // The session capability is untouched by the second one.
+        assertEquals("capability-1", manifest.sessionCapability.capabilityId)
+        // Digest-covered like every other key, and clean for the secret/path scanner.
+        val validation = manifest.validate(VALID_NOW, compatibility())
+        assertTrue(validation.valid, validation.message)
+        // The received object is exposed verbatim (signature and epoch included).
+        assertEquals(gatewayCapability(), manifest.inferenceGatewayCapabilityObject())
+        val canonical = manifest.toCanonicalMap()["inference_gateway"] as Map<*, *>
+        assertEquals("openai_compatible", canonical["provider_kind"])
+        assertEquals("session-1", (canonical["capability"] as Map<*, *>)["research_session_id"])
+    }
+
+    @Test
+    fun `a manifest without the block carries no gateway and no bearer`() {
+        val explicitNull = BootstrapManifest.parse(manifestJson(overrides = mapOf("inference_gateway" to null)))
+
+        assertNull(explicitNull.inferenceGateway)
+        assertNull(explicitNull.inferenceBearer())
+        assertNull(explicitNull.inferenceGatewayCapabilityObject())
+        assertTrue(explicitNull.validate(VALID_NOW, compatibility()).valid)
+        assertNull(validManifest().inferenceGateway)
+        assertNull(validManifest().toCanonicalMap()["inference_gateway"])
+    }
+
+    @Test
+    fun `a malformed inference gateway block is a typed parse error`() {
+        assertThrows(ManifestParseException::class.java) {
+            BootstrapManifest.parse(manifestJson(overrides = mapOf("inference_gateway" to "nope")))
+        }
+        assertThrows(ManifestParseException::class.java) {
+            BootstrapManifest.parse(
+                manifestJson(
+                    overrides =
+                        mapOf(
+                            "inference_gateway" to
+                                mapOf("provider_kind" to "openai_compatible", "base_path" to "api/x"),
+                        ),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `validation rejects an unusable gateway block as malformed`() {
+        val rejected: List<Pair<String, Map<String, Any?>>> =
+            listOf(
+                "audience" to gatewayBlock(capability = gatewayCapability(audience = AUDIENCE)),
+                "scope" to gatewayBlock(capability = gatewayCapability(scope = listOf("telemetry:write"))),
+                "base_path (scheme)" to gatewayBlock(basePath = "https://evil.example.org/v1/chat/completions"),
+                "base_path (traversal)" to gatewayBlock(basePath = "api/../../v1/chat/completions"),
+                "base_path (blank)" to gatewayBlock(basePath = ""),
+                "base_path (query)" to gatewayBlock(basePath = "api/research/inference/v1/chat/completions?x=1"),
+                "expires_at (expired)" to
+                    gatewayBlock(capability = gatewayCapability(expiresAt = "2026-01-01T00:10:00Z")),
+                "expires_at (before issued)" to
+                    gatewayBlock(capability = gatewayCapability(issuedAt = "2026-01-09T00:00:00Z")),
+                "enrollment_id" to gatewayBlock(capability = gatewayCapability(enrollmentId = "enrollment-2")),
+                "research_session_id" to
+                    gatewayBlock(capability = gatewayCapability(researchSessionId = "session-2")),
+                "study_id" to gatewayBlock(capability = gatewayCapability(studyId = "study-2")),
+                "provider_kind" to gatewayBlock(providerKind = ""),
+            )
+
+        for ((label, block) in rejected) {
+            val validation = manifestWithGateway(block).validate(VALID_NOW, compatibility())
+            assertFalse(validation.valid, "expected '$label' to be rejected")
+            assertEquals(ManifestValidationReason.MALFORMED, validation.reason, label)
+            assertTrue(validation.field?.startsWith("inference_gateway") == true, "$label: ${validation.field}")
+        }
+        // A leading slash is already an absolute local path for the scanner.
+        val absolute =
+            manifestWithGateway(gatewayBlock(basePath = "/api/research/inference/v1/chat/completions"))
+                .validate(VALID_NOW, compatibility())
+        assertFalse(absolute.valid)
+        assertEquals(ManifestValidationReason.ABSOLUTE_PATH_DETECTED, absolute.reason)
+    }
+
+    @Test
+    fun `the inference bearer is the unpadded base64url of the received capability object`() {
+        // Pinned against the server's own encode_capability_bearer for this exact object.
+        val capability =
+            linkedMapOf<String, Any?>(
+                "capability_id" to "7f1d2c3b-4a5e-4f60-8a71-9b82c93d0e1f",
+                "audience" to "inference",
+                "scope" to listOf("inference:relay"),
+                "issued_at" to "2026-01-01T00:00:00Z",
+                "expires_at" to "2026-01-08T00:00:00Z",
+                "revocation_epoch" to 3L,
+                "enrollment_id" to "0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9",
+                "research_session_id" to "1a2b3c4d-5e6f-4708-9a1b-2c3d4e5f6071",
+                "study_id" to "2b3c4d5e-6f70-4819-8b2c-3d4e5f607182",
+                "signature" to "ab".repeat(32),
+            )
+        val manifest =
+            BootstrapManifest.parse(
+                manifestJson(
+                    overrides =
+                        mapOf(
+                            "enrollment_id" to "0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9",
+                            "study_id" to "2b3c4d5e-6f70-4819-8b2c-3d4e5f607182",
+                            "inference_gateway" to gatewayBlock(capability = capability),
+                        ),
+                    researchSessionId = "1a2b3c4d-5e6f-4708-9a1b-2c3d4e5f6071",
+                ),
+            )
+        assertTrue(manifest.validate(VALID_NOW, compatibility()).valid)
+
+        val bearer = manifest.inferenceBearer()
+
+        assertEquals(SERVER_ENCODED_BEARER, bearer)
+        assertFalse(bearer!!.contains('='), "the bearer carries no padding")
+        assertTrue(Regex("^[A-Za-z0-9_-]+$").matches(bearer), "the bearer is url-safe base64")
+        // It decodes to exactly the canonical JSON the server hashes.
+        val decoded = String(Base64.getUrlDecoder().decode(bearer), Charsets.UTF_8)
+        assertEquals(SERVER_CANONICAL_PAYLOAD, decoded)
+        assertEquals(capability, parseCanonicalJson(decoded))
+    }
+
+    private companion object {
+        /** `encode_capability_bearer` output for the capability object above. */
+        const val SERVER_ENCODED_BEARER =
+            "eyJhdWRpZW5jZSI6ImluZmVyZW5jZSIsImNhcGFiaWxpdHlfaWQiOiI3ZjFkMmMzYi00YTVlLTRmNjAtOGE3MS05YjgyYzkzZDBlMWYiLCJlbnJvbGxtZW50X2lkIjoiMGIxYzJkM2UtNGY1MC00NjE3LTgyOTMtYTRiNWM2ZDdlOGY5IiwiZXhwaXJlc19hdCI6IjIwMjYtMDEtMDhUMDA6MDA6MDBaIiwiaXNzdWVkX2F0IjoiMjAyNi0wMS0wMVQwMDowMDowMFoiLCJyZXNlYXJjaF9zZXNzaW9uX2lkIjoiMWEyYjNjNGQtNWU2Zi00NzA4LTlhMWItMmMzZDRlNWY2MDcxIiwicmV2b2NhdGlvbl9lcG9jaCI6Mywic2NvcGUiOlsiaW5mZXJlbmNlOnJlbGF5Il0sInNpZ25hdHVyZSI6ImFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWIiLCJzdHVkeV9pZCI6IjJiM2M0ZDVlLTZmNzAtNDgxOS04YjJjLTNkNGU1ZjYwNzE4MiJ9"
+
+        /** `research.canonical.canonical_json` of the same object (sorted keys, compact). */
+        const val SERVER_CANONICAL_PAYLOAD =
+            """{"audience":"inference","capability_id":"7f1d2c3b-4a5e-4f60-8a71-9b82c93d0e1f","enrollment_id":"0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9","expires_at":"2026-01-08T00:00:00Z","issued_at":"2026-01-01T00:00:00Z","research_session_id":"1a2b3c4d-5e6f-4708-9a1b-2c3d4e5f6071","revocation_epoch":3,"scope":["inference:relay"],"signature":"abababababababababababababababababababababababababababababababab","study_id":"2b3c4d5e-6f70-4819-8b2c-3d4e5f607182"}"""
     }
 }

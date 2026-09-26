@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.code4me.services.app.getAppService
 import me.code4me.services.project.getProjectTokenService
+import me.code4me.utils.api.activateOrCreateProject
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -81,7 +82,8 @@ internal class ManagedAuthBridge(
     }
 
     fun register(project: Project) {
-        val workspace = canonicalWorkspace(project) ?: return
+        val workspace = canonicalWorkspace(project)
+            ?: throw IllegalStateException("the project workspace is unavailable for auth bridge registration")
         projects[workspace] = project
         if (server == null) start() else writeDiscovery()
     }
@@ -120,7 +122,21 @@ internal class ManagedAuthBridge(
             if (pathFormat != pathFormat()) return respond(exchange, 400, "{\"error\":\"path_format_mismatch\"}")
             val launchId = body["launch_id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
                 ?: return respond(exchange, 400, "{\"error\":\"launch_id_required\"}")
-            val backendResponse = issuer.issue(project, projectId, requestedWorkspace, pathFormat, launchId)
+            val backendResponse =
+                try {
+                    issuer.issue(project, projectId, requestedWorkspace, pathFormat, launchId)
+                } catch (error: java.io.IOException) {
+                    // A 401 after a sign-out/sign-in means the project is not
+                    // activated in the new server session; activate and retry once.
+                    if (error.message?.contains("HTTP 401") != true) throw error
+                    log.info("ACP grant refused (401); re-activating the project and retrying once")
+                    activateOrCreateProject(project, log)
+                    // Activation may replace a rejected project token with a new project.
+                    val activatedProjectId = getProjectTokenService(project).getProjectToken()?.let {
+                        runCatching { UUID.fromString(it) }.getOrNull()
+                    } ?: throw error
+                    issuer.issue(project, activatedProjectId, requestedWorkspace, pathFormat, launchId)
+                }
             val result = json.parseToJsonElement(backendResponse).jsonObject.toMutableMap().also {
                 it["backend_url"] = JsonPrimitive(backendUrlProvider())
             }

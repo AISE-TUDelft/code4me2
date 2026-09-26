@@ -6,7 +6,11 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
+import com.intellij.openapi.project.Project
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -14,6 +18,21 @@ import java.net.http.HttpResponse
 import java.nio.file.Files
 
 class ManagedAuthBridgeTest {
+    @Test
+    fun `register fails when workspace vanished before registration`() {
+        val directory = Files.createTempDirectory("managed-bridge-missing-workspace")
+        val project = mock<Project>()
+        whenever(project.basePath).thenReturn(directory.resolve("vanished").toString())
+        val bridge = ManagedAuthBridge(directory)
+
+        try {
+            assertThrows(IllegalStateException::class.java) { bridge.register(project) }
+            assertFalse(Files.exists(bridge.discoveryPath))
+        } finally {
+            bridge.close()
+        }
+    }
+
     @Test
     fun `discovery is private and grant endpoint requires capability`() {
         val directory = Files.createTempDirectory("managed-bridge")

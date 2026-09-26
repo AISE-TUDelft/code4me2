@@ -138,7 +138,7 @@ class LandingPageComponent {
                         if (project == null) show("Open a project before preparing the agent.")
                         else com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
                             val status =
-                                me.code4me.services.agent.getParticipantAgentSetupService().prepare(project)
+                                me.code4me.services.agent.getParticipantAgentSetupService().prepare(project, reactivate = true)
                             javax.swing.SwingUtilities.invokeLater { show(status.message) }
                         }
                     }
@@ -150,7 +150,7 @@ class LandingPageComponent {
                         if (project == null) show("Open a project before repairing the agent.")
                         else com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
                             val status =
-                                me.code4me.services.agent.getParticipantAgentSetupService().prepare(project, repair = true)
+                                me.code4me.services.agent.getParticipantAgentSetupService().prepare(project, repair = true, reactivate = true)
                             javax.swing.SwingUtilities.invokeLater { show(status.message) }
                         }
                     }

@@ -88,10 +88,19 @@ class UserConfigurable : SearchableConfigurable {
     /**
      * Navigates to the main Code4Me landing page.
      */
+    /**
+     * The data context of this page's own panel resolves the Settings dialog it
+     * lives in; the focus-based context did not while a button was pressed, and
+     * the fallback opened another modal Settings dialog on every click.
+     */
+    private fun settingsDataContext() =
+        mainPanel?.let { panel -> runCatching { DataManager.getInstance().getDataContext(panel) }.getOrNull() }
+            ?: DataManager.getInstance().dataContextFromFocusAsync.blockingGet(100)
+
     private fun navigateToMainConfigurable() {
         ApplicationManager.getApplication().invokeLater {
             try {
-                val dataContext = DataManager.getInstance().dataContextFromFocusAsync.blockingGet(100)
+                val dataContext = settingsDataContext()
                 if (dataContext != null) {
                     val settingsDialog = Settings.KEY.getData(dataContext)
 
@@ -128,7 +137,7 @@ class UserConfigurable : SearchableConfigurable {
     private fun navigateToConfigurationConfigurable() {
         ApplicationManager.getApplication().invokeLater {
             try {
-                val dataContext = DataManager.getInstance().dataContextFromFocusAsync.blockingGet(100)
+                val dataContext = settingsDataContext()
                 if (dataContext != null) {
                     val settingsDialog = Settings.KEY.getData(dataContext)
 

@@ -42,6 +42,15 @@ never a payload, event id, path, or capability. The path resolves from
 environment. Writing is best effort: a failure is logged and never changes the
 exit code, and with no path configured nothing is written.
 
+``--compat-idempotent-initialize`` opts into one host compatibility behavior for
+which the default is deliberately off: a repeated ``initialize`` request on the
+same connection is answered from the cached handshake result instead of being
+forwarded to the agent. JetBrains AI Assistant resubmits a failed prompt by
+creating a new session on an already-initialized proxy process; a strict agent
+rejects the duplicate with JSON-RPC ``-32603`` and the chat wedges. Any other
+chunk (multiple frames, a partial tail, another method) is still forwarded
+byte-preserving.
+
 Exit codes:
     0   clean shutdown
     2   usage/configuration error
@@ -49,14 +58,25 @@ Exit codes:
     20  agent process crashed
     21  malformed protocol output observed (acp_parse_failed)
     22  spool endpoint rejected the capability / was unavailable
+
+Research inference gateway (Goose arms): ``--inference-credential-file`` (or the
+entry-env ``CODE4ME_RESEARCH_INFERENCE_CREDENTIAL_FILE``) names a plugin-owned
+JSON file whose one credential is injected into the agent child's environment
+under the release-declared variable (for example ``OPENAI_API_KEY``). The value
+never appears in argv or diagnostics; the file is read at launch and left in
+place.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import pathlib
+from dataclasses import dataclass
+import re
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,7 +97,9 @@ from .delivery import (  # noqa: E402
     DeliveryBatch,
     DeliveryQueue,
 )
-from .forwarder import AcpForwarder  # noqa: E402
+from .forwarder import AcpForwarder, InterceptCallback  # noqa: E402
+from .initialize_replay import InitializeReplay  # noqa: E402
+from .session_mode_guard import SessionModeGuard  # noqa: E402
 from .lifecycle import (  # noqa: E402
     ArtifactVerificationError,
     ProxyProcess,
@@ -116,6 +138,16 @@ AGENT_RUN_ID_ENV_VAR = "CODE4ME_RESEARCH_RUN_ID"
 #: The ACP host entry persists it, so the proxy still reports local telemetry
 #: loss even when the plugin did not pass ``--status-file`` on the command line.
 STATUS_FILE_ENV_VAR = "CODE4ME_RESEARCH_STATUS_FILE"
+
+#: Environment variable carrying the path of the plugin-owned inference
+#: credential file (research inference gateway). The ACP host entry persists
+#: it; the proxy reads the file at launch and injects the credential into the
+#: agent child's environment only. The value never appears on a command line
+#: or in a diagnostic line.
+INFERENCE_CREDENTIAL_FILE_ENV_VAR = "CODE4ME_RESEARCH_INFERENCE_CREDENTIAL_FILE"
+INFERENCE_CREDENTIAL_SCHEMA_VERSION = "1"
+INFERENCE_CREDENTIAL_MAX_BYTES = 64 * 1024
+_ENV_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 #: Bounded window the proxy waits for a required capability to appear.
 CAPABILITY_RETRY_SECONDS = 5.0
@@ -214,6 +246,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional adapter name (for example 'codex-v1').",
     )
     parser.add_argument(
+        "--compat-idempotent-initialize",
+        action="store_true",
+        help=(
+            "Opt-in host compatibility: answer a repeated 'initialize' on the "
+            "same connection from the cached handshake result instead of "
+            "forwarding the duplicate to the agent (an IDE that recreates a "
+            "session on a live process would otherwise trigger JSON-RPC -32603). "
+            "Default off: the proxy stays byte-preserving."
+        ),
+    )
+    parser.add_argument(
+        "--allow-session-mode-changes",
+        action="store_true",
+        help=(
+            "Forward host 'session/set_mode' requests to the agent. By default the "
+            "proxy refuses them with a JSON-RPC error: a study arm's approval mode "
+            "is fixed, and the IDE's mode picker must not bypass it."
+        ),
+    )
+    parser.add_argument(
         "--agent-run-id",
         default=None,
         help=(
@@ -231,6 +283,19 @@ def build_parser() -> argparse.ArgumentParser:
             "to PATH. Falls back to CODE4ME_RESEARCH_STATUS_FILE in the entry "
             "environment. Best effort: a write failure never changes the exit "
             "code, and with no path configured nothing is written."
+        ),
+    )
+    parser.add_argument(
+        "--inference-credential-file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Read the research inference gateway credential from the plugin-owned "
+            "JSON file at PATH ({schema_version, credential_env_key, credential}) "
+            "and set that one environment variable in the agent child only. Falls "
+            "back to CODE4ME_RESEARCH_INFERENCE_CREDENTIAL_FILE in the entry "
+            "environment. The credential never appears on a command line; a "
+            "missing or malformed file is a usage error before launch."
         ),
     )
     parser.add_argument(
@@ -371,6 +436,128 @@ def resolve_status_file(
     return stripped or None
 
 
+def resolve_inference_credential_file(
+    credential_file: Optional[str],
+    environment: Optional[Mapping[str, str]] = None,
+) -> Optional[str]:
+    """Resolve the credential file path: ``--inference-credential-file`` then env."""
+    if credential_file is not None:
+        stripped = credential_file.strip()
+        if stripped:
+            return stripped
+    source = os.environ if environment is None else environment
+    token = source.get(INFERENCE_CREDENTIAL_FILE_ENV_VAR)
+    if token is None:
+        return None
+    stripped = token.strip()
+    return stripped or None
+
+
+@dataclass(frozen=True)
+class InferenceCredential:
+    """The one environment variable the agent child receives for the gateway."""
+
+    env_key: str
+    value: str
+
+
+def load_inference_credential(
+    path: str,
+) -> tuple[Optional[InferenceCredential], Optional[str]]:
+    """Read and validate the plugin-owned credential file (never deleted).
+
+    The file is a JSON object ``{"schema_version": "1", "credential_env_key":
+    <env var name>, "credential": <non-blank string>}``. Anything else is a
+    usage error: the proxy fails closed instead of launching an agent that
+    would fall back to the participant's own provider configuration.
+    """
+    try:
+        raw = pathlib.Path(path).read_bytes()
+    except OSError as error:
+        return None, f"proxy: cannot read inference credential file {path}: {error}"
+    if len(raw) > INFERENCE_CREDENTIAL_MAX_BYTES:
+        return None, "proxy: inference credential file is too large"
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        return None, f"proxy: inference credential file is not valid JSON: {error}"
+    if not isinstance(document, dict):
+        return None, "proxy: inference credential file must hold a JSON object"
+    if str(document.get("schema_version")) != INFERENCE_CREDENTIAL_SCHEMA_VERSION:
+        return None, "proxy: inference credential file has an unsupported schema_version"
+    env_key = document.get("credential_env_key")
+    if not isinstance(env_key, str) or not _ENV_KEY_PATTERN.match(env_key):
+        return None, "proxy: inference credential file names an invalid environment variable"
+    value = document.get("credential")
+    if not isinstance(value, str) or not value.strip():
+        return None, "proxy: inference credential file holds no credential"
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        return None, "proxy: inference credential contains control characters"
+    return InferenceCredential(env_key=env_key, value=value.strip()), None
+
+
+def load_inference_credential_with_retry(
+    path: str,
+    *,
+    timeout_seconds: float = CAPABILITY_RETRY_SECONDS,
+    interval_seconds: float = CAPABILITY_RETRY_INTERVAL_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> tuple[Optional[InferenceCredential], Optional[str]]:
+    """Load the credential, briefly retrying an unreadable file.
+
+    The plugin replaces the file atomically on every manifest refresh, so a
+    launch can race a rewrite; a short bounded window absorbs that without
+    ever launching the agent unconfigured.
+    """
+    credential, error = load_inference_credential(path)
+    if credential is not None:
+        return credential, None
+    deadline = monotonic() + timeout_seconds
+    while monotonic() < deadline:
+        sleep(interval_seconds)
+        credential, error = load_inference_credential(path)
+        if credential is not None:
+            return credential, None
+    return None, error
+
+
+def _carried_drop_counters(status_file: Optional[str]) -> dict[str, int]:
+    """The previous status document's drop counters, or nothing (best effort)."""
+    if status_file is None:
+        return {}
+    try:
+        data = json.loads(Path(status_file).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(data, Mapping):
+        return {}
+    carried = {}
+    for key in ("dropped_full", "dropped_error", "dropped_shutdown"):
+        value = data.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            carried[key] = value
+    return carried
+
+
+def _compose_interceptors(interceptors: Sequence[InterceptCallback]) -> InterceptCallback:
+    """Run every interceptor on each chunk; the first replacement wins.
+
+    Each interceptor keeps its own frame-boundary accounting, so all of them
+    must see every chunk even when an earlier one already answered it.
+    """
+
+    def intercept(direction, chunk, frames, buffered_partial):
+        replacement = None
+        for candidate in interceptors:
+            result = candidate(direction, chunk, frames, buffered_partial)
+            if replacement is None and result is not None:
+                replacement = result
+        return replacement
+
+    return intercept
+
+
 def _zero_delivery_snapshot() -> dict[str, Any]:
     """The startup status document: a fresh, all-zero delivery health snapshot."""
     return {
@@ -397,17 +584,38 @@ def write_status_document(
 
     The document is canonical JSON (sorted keys, compact separators) of the
     delivery snapshot: numeric counters and booleans only, never a payload, event
-    id, path, or capability. It is written to ``<path>.tmp`` and replaced into
-    place so a reader never observes a partial document. Any write failure is
-    logged and swallowed so it can never change the proxy's exit code.
+    id, path, or capability. It is staged to a uniquely named temporary file in
+    the destination directory and replaced into place, so a reader never observes
+    a partial document and concurrent proxies sharing one ``--status-file`` never
+    stage through — and delete — each other's temporary file. The temporary file
+    is always removed. Any write failure is logged and swallowed so it can never
+    change the proxy's exit code.
     """
-    document = json.dumps(dict(snapshot), sort_keys=True, separators=(",", ":"))
-    temporary = f"{path}.tmp"
+    target = os.path.abspath(path)
+    parent = os.path.dirname(target)
+    temporary: Optional[str] = None
     try:
-        Path(temporary).write_text(document, encoding="utf-8")
-        os.replace(temporary, path)
-    except OSError as error:
+        document = json.dumps(dict(snapshot), sort_keys=True, separators=(",", ":"))
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=parent,
+            prefix=f"{os.path.basename(target)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = stream.name
+            stream.write(document)
+        os.replace(temporary, target)
+        temporary = None
+    except Exception as error:
         diagnostics(f"proxy: cannot write status file {path}: {error}")
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
 
 
 def _capability_from_environment(
@@ -567,6 +775,9 @@ def run_proxy(
     agent_run_id: Optional[str] = None,
     status_file: Optional[str] = None,
     agent_env: Optional[Mapping[str, str]] = None,
+    compat_idempotent_initialize: bool = False,
+    allow_session_mode_changes: bool = False,
+    inference_credential: Optional[InferenceCredential] = None,
     host_read=None,
     host_write=None,
     diagnostics=None,
@@ -593,6 +804,15 @@ def run_proxy(
     refreshed after every dispatch so drops surface promptly, and the final
     snapshot is written after shutdown flushing. Every write is best effort and
     can never change the returned exit code.
+
+    ``compat_idempotent_initialize`` enables the opt-in host compatibility mode:
+    a repeated ``initialize`` on the same connection is answered from the cached
+    handshake result instead of being forwarded to the agent. The default
+    (``False``) keeps the proxy byte-preserving.
+
+    ``allow_session_mode_changes`` forwards host ``session/set_mode`` requests.
+    By default they are refused with a JSON-RPC error (see
+    :mod:`session_mode_guard`): the study fixes the approval mode.
     """
     host_read = host_read if host_read is not None else sys.stdin.buffer
     host_write = host_write if host_write is not None else sys.stdout.buffer
@@ -625,13 +845,30 @@ def run_proxy(
         diag(f"proxy: {error}")
         return EXIT_USAGE
 
+    # The agent child's environment: the allowlisted inheritance plus the
+    # release-declared overrides plus, for a gateway-bound agent, the one
+    # credential variable read from the plugin-owned file. The credential is
+    # never an --agent-env value (argv is world-readable), so a collision means
+    # a misconfigured launch and fails closed.
+    child_overrides: dict[str, str] = dict(agent_env or {})
+    if inference_credential is not None:
+        if inference_credential.env_key in child_overrides:
+            diag(
+                "proxy: --agent-env must not set the inference credential variable "
+                f"{inference_credential.env_key}"
+            )
+            return EXIT_USAGE
+        child_overrides[inference_credential.env_key] = inference_credential.value
+
     # One startup line records the selected adapter and the policy digest; it
-    # never carries payload content. BYOA env keys are non-secret names.
+    # never carries payload content. BYOA env keys are non-secret names; the
+    # credential variable is logged by name only.
     diag(
         "proxy: telemetry policy active: "
         f"adapter={adapter_name if adapter is not None else 'generic'} "
         f"policy_digest={policy.policy_digest or 'default'} "
-        f"agent_env={sorted((agent_env or {}).keys())}"
+        f"agent_env={sorted((agent_env or {}).keys())} "
+        f"inference_credential_env={inference_credential.env_key if inference_credential else 'none'}"
     )
     gate = PrivacyGate(policy)
     # One allocator for the whole process: normalized events and proxy-owned
@@ -664,13 +901,24 @@ def run_proxy(
             return delivery.snapshot()
         return _zero_delivery_snapshot()
 
+    # One proxy process runs per chat, all writing the same per-enrollment
+    # document: carry the previous process's drop counters forward, or every
+    # new chat resets the loss the plugin reports to zero.
+    carried_drops = _carried_drop_counters(status_file)
+
     def write_status(snapshot: Optional[Mapping[str, Any]] = None) -> None:
         """Best-effort refresh of the content-free delivery status document."""
         if status_file is None:
             return
-        write_status_document(
-            status_file, current_status() if snapshot is None else snapshot, diag
-        )
+        document = dict(current_status() if snapshot is None else snapshot)
+        if carried_drops:
+            for key, value in carried_drops.items():
+                document[key] = int(document.get(key, 0)) + value
+            document["dropped"] = (
+                document["dropped_full"] + document["dropped_error"] + document["dropped_shutdown"]
+            )
+            document["healthy"] = document["dropped"] == 0
+        write_status_document(status_file, document, diag)
 
     def deliverable(events: Sequence) -> list:
         """Stamp the activation's run id, then drop privacy-blocked events.
@@ -728,7 +976,7 @@ def run_proxy(
 
     process = ProxyProcess(
         [str(artifact), *list(agent_cmd[1:])],
-        env_overrides=dict(agent_env or {}),
+        env_overrides=child_overrides,
     )
     try:
         process.start()
@@ -742,7 +990,29 @@ def run_proxy(
             diagnostics=diag,
         )
 
-    forwarder = AcpForwarder(observer=observer, diagnostics=diag)
+    # The opt-in compatibility mode answers a repeated `initialize` on this
+    # connection from the cached handshake result; the default path constructs
+    # no interceptor and stays byte-preserving.
+    interceptors: list[InterceptCallback] = []
+    if compat_idempotent_initialize:
+        replay = InitializeReplay(
+            on_replay=lambda: diag(
+                "proxy: answered repeated initialize from the cached handshake"
+            )
+        )
+        interceptors.append(replay.intercept)
+    if not allow_session_mode_changes:
+        guard = SessionModeGuard(
+            on_refusal=lambda: diag(
+                "proxy: refused a session/set_mode request; the study fixes the approval mode"
+            )
+        )
+        interceptors.append(guard.intercept)
+    intercept: Optional[InterceptCallback] = (
+        _compose_interceptors(interceptors) if interceptors else None
+    )
+
+    forwarder = AcpForwarder(observer=observer, diagnostics=diag, intercept=intercept)
     forwarder.run(
         host_read,
         host_write,
@@ -806,6 +1076,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return EXIT_USAGE
     agent_run_id = resolve_agent_run_id(args.agent_run_id)
     status_file = resolve_status_file(args.status_file)
+    inference_credential: Optional[InferenceCredential] = None
+    credential_file = resolve_inference_credential_file(args.inference_credential_file)
+    if credential_file is not None:
+        inference_credential, credential_error = load_inference_credential_with_retry(
+            credential_file
+        )
+        if credential_error is not None:
+            print(credential_error, file=sys.stderr)
+            return EXIT_USAGE
     return run_proxy(
         agent_cmd=args.agent_cmd,
         agent_digest=args.agent_digest,
@@ -823,6 +1102,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # --status-file wins; CODE4ME_RESEARCH_STATUS_FILE is the entry-env fallback.
         status_file=status_file,
         agent_env=agent_env,
+        compat_idempotent_initialize=args.compat_idempotent_initialize,
+        allow_session_mode_changes=args.allow_session_mode_changes,
+        # --inference-credential-file wins; CODE4ME_RESEARCH_INFERENCE_CREDENTIAL_FILE
+        # is the entry-env fallback. The value reaches the agent child only.
+        inference_credential=inference_credential,
     )
 
 

@@ -174,12 +174,22 @@ class HttpBootstrapTransport(
                 )
             }
             code == HTTP_FORBIDDEN -> {
-                log.warn("Bootstrap request to $RESEARCH_SESSIONS_PATH was not permitted (HTTP $code).")
-                BootstrapTransportResult.Failure(
-                    "Not permitted to bootstrap this enrollment.",
-                    retryable = false,
-                    rejection = BootstrapRejection.NOT_PERMITTED,
-                )
+                // The server answers a revoked/inactive enrollment and a stopped
+                // study with 403 plus a typed code; only an untyped 403 is a
+                // permission problem.
+                val rejection = rejectionFrom(body)
+                if (rejection != BootstrapRejection.UNKNOWN) {
+                    val reason = reasonFrom(body, response)
+                    log.warn("Bootstrap request to $RESEARCH_SESSIONS_PATH was refused with HTTP $code: $reason")
+                    BootstrapTransportResult.Revoked(reason, rejection)
+                } else {
+                    log.warn("Bootstrap request to $RESEARCH_SESSIONS_PATH was not permitted (HTTP $code).")
+                    BootstrapTransportResult.Failure(
+                        "Not permitted to bootstrap this enrollment.",
+                        retryable = false,
+                        rejection = BootstrapRejection.NOT_PERMITTED,
+                    )
+                }
             }
             code == HTTP_NOT_FOUND -> {
                 val reason = reasonFrom(body, response)

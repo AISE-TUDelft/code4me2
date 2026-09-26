@@ -30,19 +30,23 @@ import me.code4me.research.telemetry.CodeMetadataMode
 import me.code4me.research.telemetry.PrivacyFilter
 import me.code4me.research.telemetry.PrivacyPolicy
 import me.code4me.research.bootstrap.AgentDistributionMode
+import me.code4me.research.bootstrap.AgentReleaseRef
+import me.code4me.research.bootstrap.InferenceGatewayRef
 import me.code4me.research.proxy.AcpHostRegistration
 import me.code4me.research.proxy.ByoaAgentResolution
 import me.code4me.research.proxy.ByoaAgentResolver
 import me.code4me.research.proxy.ByoaAgentSpec
-import me.code4me.research.proxy.ByoaConfiguration
+import me.code4me.research.proxy.ByoaRuntimeValues
 import me.code4me.research.proxy.PackagedAgentInstall
 import me.code4me.research.proxy.PackagedAgentInstaller
 import me.code4me.research.proxy.ProxyRuntimeResolution
 import me.code4me.research.proxy.ProxyRuntimeResolver
 import me.code4me.research.proxy.ResolvedProxyRuntime
 import me.code4me.research.proxy.applyByoaConfiguration
+import me.code4me.research.proxy.credentialBindingViolation
 import me.code4me.research.proxy.missingByoaBindings
 import me.code4me.research.proxy.writeFrozenTelemetryPolicy
+import me.code4me.research.proxy.writeInferenceCredentialFile
 import me.code4me.research.spool.DurableSpool
 import me.code4me.research.spool.ResearchSpoolIpcServer
 import me.code4me.research.spool.SpoolEventContext
@@ -61,10 +65,12 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.PosixFilePermission
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -350,7 +356,14 @@ class ResearchSessionManager(
     private val sessionIdFactory: () -> String = { UUID.randomUUID().toString() },
     private val runIdFactory: () -> String = { UUID.randomUUID().toString() },
     private val collectorFactory: (IdeActivitySource, CanonicalEventSink) -> IdeActivityCollector =
-        { ideSource, sink -> IdeActivityCollector(ideSource, sink) },
+        { ideSource, sink ->
+            // One emitter per activation, like each proxy launch: the collector's
+            // sequences restart at 1, and reusing the previous activation's emitter
+            // id within the same research session made the server reject the new
+            // events as integrity conflicts.
+            val activation = UUID.randomUUID().toString().replace("-", "").take(8)
+            IdeActivityCollector(ideSource, sink, emitterIdFactory = { contextId -> "ide:$contextId:$activation" })
+        },
     private val manifestCache: ManifestCache = InMemoryManifestCache(),
     private val nearExpiryWindow: Duration = BootstrapManifest.DEFAULT_NEAR_EXPIRY_WINDOW,
     private val defaultResumeGraceMs: Long = DEFAULT_RESUME_GRACE_MS,
@@ -367,6 +380,13 @@ class ResearchSessionManager(
      * failure never blocks: the bootstrap API remains authoritative.
      */
     private val enrollmentDiscoveryProvider: (() -> EnrollmentDiscovery)? = null,
+    /**
+     * Where IDE events are processed (privacy filter, durable spool append and
+     * session bookkeeping). The IDE service passes one background thread so the
+     * UI thread never waits on the manager lock, which activation holds across
+     * network calls, nor on spool I/O. `null` processes inline (tests).
+     */
+    private val eventExecutor: java.util.concurrent.Executor? = null,
 ) {
     init {
         require(projectKey.isNotBlank()) { "projectKey must not be blank" }
@@ -410,6 +430,21 @@ class ResearchSessionManager(
      * to surface local telemetry loss in [state].
      */
     @Volatile private var statusFile: Path? = null
+
+    /**
+     * The plugin-owned, owner-only inference credential file (and the env key
+     * it names) for a gateway-bound agent, or `null` when the arm does not use
+     * the research inference gateway. It is rewritten on every manifest
+     * refresh and deleted on teardown; the ACP entry only carries its path.
+     */
+    @Volatile private var inferenceCredential: InferenceCredentialHandle? = null
+
+    /**
+     * The advisory AI budget the server last reported on a session response.
+     * Held only while the runtime is active (cleared on teardown); it never
+     * blocks anything, it only drives the status surface.
+     */
+    @Volatile private var inferenceBudget: InferenceBudgetState? = null
 
     @Volatile private var ipcServer: SpoolIpcServer? = null
 
@@ -500,6 +535,7 @@ class ResearchSessionManager(
             blockReasonDetail = blockReasonDetail,
             deliveryState = delivery.state,
             droppedTelemetryCount = delivery.droppedTelemetryCount,
+            inferenceBudget = inferenceBudget,
         )
     }
 
@@ -537,7 +573,20 @@ class ResearchSessionManager(
                         markBlocked(StudyBlockReason.MANIFEST_INVALID, "validated manifest was not returned")
                         ResearchActivationResult.Blocked(StudyBlockReason.MANIFEST_INVALID, "validated manifest was not returned")
                     } else {
-                        startSession(enrollmentId, validManifest)
+                        // Serialize the resource-producing half of activation
+                        // with stop(). If logout won while bootstrap was in
+                        // flight, this old manager must never register a late
+                        // proxy or restart collectors.
+                        synchronized(lock) {
+                            if (stopped) {
+                                ResearchActivationResult.Blocked(
+                                    StudyBlockReason.REVOKED,
+                                    "research session manager is stopped",
+                                )
+                            } else {
+                                startSession(enrollmentId, validManifest)
+                            }
+                        }
                     }
                 }
                 BootstrapStatus.BLOCKED -> {
@@ -855,9 +904,21 @@ class ResearchSessionManager(
      * discarded) so a restart inside the revision grace window may resume it;
      * [close] is the explicit participant completion.
      */
-    fun stop(): ResearchStopResult {
-        if (!stopped) {
-            deactivateRuntime()
+    fun stop(ipcGraceMs: Long = 0L): ResearchStopResult {
+        val shouldStop = synchronized(lock) {
+            if (stopped) {
+                false
+            } else {
+                // Publish the terminal lifecycle state before teardown. An
+                // activation returning from bootstrap will either finish while
+                // holding this lock (then be torn down below) or observe stopped.
+                active = false
+                stopped = true
+                true
+            }
+        }
+        if (shouldStop) {
+            deactivateRuntime(ipcGraceMs)
             val current = session
             if (current != null && !current.isTerminal && current.state != SessionState.NOT_STARTED) {
                 val currentMachine = machine
@@ -871,10 +932,6 @@ class ResearchSessionManager(
                 sessionStore.save(suspended)
             } else if (current != null) {
                 sessionStore.save(current)
-            }
-            synchronized(lock) {
-                active = false
-                stopped = true
             }
         }
         val stats = flushSpool()
@@ -947,6 +1004,7 @@ class ResearchSessionManager(
                 ipcServerFactory?.invoke(resolvedSpool)
                     ?: ResearchSpoolIpcServer(
                         resolvedSpool,
+                        onEventAppended = { noteAgentActivity() },
                         eventContext = SpoolEventContext(
                             validManifest.studyId,
                             validManifest.enrollmentId,
@@ -971,6 +1029,7 @@ class ResearchSessionManager(
         synchronized(lock) {
             capabilityFile = (runtimeSetup as? RuntimeSetup.Ready)?.capabilityFile
             statusFile = (runtimeSetup as? RuntimeSetup.Ready)?.statusFile
+            inferenceCredential = (runtimeSetup as? RuntimeSetup.Ready)?.inferenceCredential
         }
 
         // The uploader reads the same durable spool; without it the spool would
@@ -1045,6 +1104,7 @@ class ResearchSessionManager(
                     sessionCapability = validManifest.sessionCapabilityObject(),
                     clientInstanceId = clientInstanceIdProvider(validManifest.enrollmentId),
                     httpClient = httpClient,
+                    researchSessionId = validManifest.researchSession.researchSessionId.takeIf { it.isNotBlank() },
                 )
             val delivery = uploaderFactory(context)
             delivery.start()
@@ -1098,6 +1158,7 @@ class ResearchSessionManager(
             return null
         }
         heartbeatSeconds = heartbeatSecondsFrom(create.body)
+        applyBudgetFrom(create.body)
         when (val heartbeat = sendHeartbeatRequest(validManifest, authoritativeSession)) {
             is SessionHeartbeat.Ok -> heartbeatSeconds = heartbeat.heartbeatSeconds ?: heartbeatSeconds
             is SessionHeartbeat.Terminal -> handleServerTerminal(heartbeat.reason, heartbeat.detail)
@@ -1221,6 +1282,11 @@ class ResearchSessionManager(
                     // launch-time policy file/digest, and the server independently
                     // enforces the current consent at persistence. Rewriting either
                     // here would put the proxy's launch-time digest out of sync.
+                    // The inference credential file is the one launch file that
+                    // does follow a refresh: the entry keeps pointing at the same
+                    // path, and an agent launched later must present a capability
+                    // that is still valid (a running one keeps the bearer it read).
+                    refreshInferenceCredential(fresh)
                     val adopted = safeUpdateCapability(fresh.sessionCapabilityObject())
                     if (!adopted) {
                         log.warn("A refreshed research capability could not be adopted by the running uploader.")
@@ -1287,7 +1353,10 @@ class ResearchSessionManager(
             ) ?: return SessionHeartbeat.Retryable("the session request to $path could not be delivered")
         val reason = reasonCodeFrom(response.body)
         return when {
-            response.code in 200..299 -> SessionHeartbeat.Ok(heartbeatSecondsFrom(response.body), sessionStateFrom(response.body))
+            response.code in 200..299 -> {
+                applyBudgetFrom(response.body)
+                SessionHeartbeat.Ok(heartbeatSecondsFrom(response.body), sessionStateFrom(response.body))
+            }
             response.code == HTTP_UNAUTHORIZED || response.code == HTTP_FORBIDDEN ->
                 if (isTerminalServerCode(reason)) {
                     SessionHeartbeat.Terminal(serverTerminalReason(reason), reason)
@@ -1335,6 +1404,48 @@ class ResearchSessionManager(
         } catch (_: Exception) {
             null
         }
+
+    /**
+     * Adopt the advisory `budget` block of a session create/heartbeat/activity
+     * response. An absent key (a server that predates budgets) keeps what is
+     * held; `null` means an unmetered arm. Only a live activation holds a
+     * budget, so an answer that arrives after teardown is ignored. Never a
+     * block: the server enforces the budget on every relay call.
+     */
+    private fun applyBudgetFrom(body: String) {
+        val map =
+            try {
+                parseCanonicalJson(body) as? Map<*, *>
+            } catch (_: Exception) {
+                null
+            } ?: return
+        if (!map.containsKey("budget")) return
+        val parsed = InferenceBudgetState.fromWire(map["budget"])
+        synchronized(lock) {
+            if (active && !stopped) inferenceBudget = parsed
+        }
+    }
+
+    /**
+     * Rewrite the inference credential file from a refreshed manifest.
+     * Fail-soft: the running agent keeps the bearer it read at start (valid for
+     * its own TTL) and the next refresh retries. Nothing here logs the credential.
+     */
+    private fun refreshInferenceCredential(fresh: BootstrapManifest) {
+        val handle = inferenceCredential ?: return
+        val bearer = fresh.inferenceBearer()
+        if (bearer == null) {
+            log.warn("The refreshed research manifest carries no inference gateway; the agent keeps the previously delivered credential.")
+            return
+        }
+        val written = writeInferenceCredentialFile(handle.file, handle.envKey, bearer)
+        if (written.isFailure) {
+            log.warn(
+                "The refreshed inference credential could not be written: " +
+                    (written.exceptionOrNull()?.message ?: "unexpected error"),
+            )
+        }
+    }
 
     private fun sessionStateFrom(body: String): String? =
         try {
@@ -1546,6 +1657,23 @@ class ResearchSessionManager(
      */
     private fun onCanonicalEvent(event: CanonicalEvent) {
         if (!active || stopped) return
+        val executor = eventExecutor
+        if (executor == null) {
+            processCanonicalEvent(event)
+            return
+        }
+        try {
+            executor.execute { processCanonicalEvent(event) }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // The executor is shut down with the manager; a late event is dropped.
+        }
+    }
+
+    private fun processCanonicalEvent(event: CanonicalEvent) {
+        // No active/stopped check here: the event was accepted while the
+        // session was active (see onCanonicalEvent). A project close stops the
+        // manager before the queue drains, and those last events (final saves)
+        // must still reach the durable spool for the next activation.
         synchronized(lock) {
             val current = session ?: return
             if (current.isTerminal) return
@@ -1594,6 +1722,32 @@ class ResearchSessionManager(
         }
     }
 
+    @Volatile private var lastAgentActivityEpochMs: Long = 0L
+
+    /**
+     * An agent event the proxy appended to the spool is participant activity too:
+     * without this, agent-only use never refreshed the session and the idle
+     * timeout ended it in the middle of a chat. Throttled: the proxy appends one
+     * event per streamed chunk.
+     */
+    private fun noteAgentActivity() {
+        val now = clock()
+        if (now - lastAgentActivityEpochMs < AGENT_ACTIVITY_THROTTLE_MS) return
+        lastAgentActivityEpochMs = now
+        if (!active || stopped) return
+        synchronized(lock) {
+            val current = session ?: return
+            if (current.isTerminal) return
+            // Only refresh a session that participant activity already started:
+            // agent processes also report at startup with no participant action.
+            if (current.state == SessionState.NOT_STARTED || current.state == SessionState.SUSPENDED) return
+            val advanced = machine?.recordActivity(current, now) ?: current
+            session = advanced
+            sessionStore.save(advanced)
+            pendingActivityReport = true
+        }
+    }
+
     /**
      * Tear down every session-owned runtime resource. Idempotent and
      * exception-safe: a research teardown failure must never affect ordinary
@@ -1607,7 +1761,7 @@ class ResearchSessionManager(
      * travels in the entry env, so an unregistration that fails cannot strand a
      * launch.
      */
-    private fun deactivateRuntime() {
+    private fun deactivateRuntime(ipcGraceMs: Long = 0L) {
         stopMaintenance()
         pendingActivityReport = false
         val currentCollector = collector
@@ -1619,15 +1773,64 @@ class ResearchSessionManager(
         runCatching { currentCollector?.deactivate() }
         runCatching { currentCollector?.stop() }
         runCatching { currentUploader?.close() }
-        runCatching { currentIpc?.close() }
-        runCatching { acpHostRegistration?.unregister() }
+        if (currentIpc != null && ipcGraceMs > 0L) {
+            // Project close: the assistant's agent processes flush their last
+            // events after the IDE tears the service down. Keep accepting them
+            // briefly; anything appended lands in the durable spool for the
+            // next activation of this context.
+            Thread(
+                {
+                    try {
+                        Thread.sleep(ipcGraceMs)
+                    } catch (_: InterruptedException) {
+                    }
+                    runCatching { currentIpc.close() }
+                },
+                "code4me-research-ipc-grace",
+            ).apply { isDaemon = true }.start()
+        } else {
+            runCatching { currentIpc?.close() }
+        }
+        // Never silent: a failed unregistration leaves the previous account's
+        // entry in the ACP registry, where the next login reads it as a changed
+        // configuration instead of an added one. Teardown itself stays
+        // best-effort — the failure is reported, never thrown.
+        runCatching {
+            acpHostRegistration?.let { registration ->
+                me.code4me.services.agent.AcpRegistryVfs.beforeWrite(registration.registryLocation)
+                registration.unregister().also {
+                    me.code4me.services.agent.AcpRegistryVfs.afterWrite(registration.registryLocation)
+                }
+            }
+        }
+            .onSuccess { outcome ->
+                outcome?.onFailure { failure ->
+                    log.warn(
+                        "Research proxy ACP entry could not be unregistered; a stale entry may remain: " +
+                            (failure.message ?: "unexpected error"),
+                        failure,
+                    )
+                }
+            }
+            .onFailure { exception ->
+                log.warn(
+                    "Research proxy ACP entry unregistration failed unexpectedly: " +
+                        (exception.message ?: "unexpected error"),
+                    exception,
+                )
+            }
         val staged = capabilityFile
         capabilityFile = null
+        val credential = inferenceCredential
+        inferenceCredential = null
+        // The budget is advisory and belongs to the live activation only.
+        inferenceBudget = null
         // The status document is read-only from the plugin's side; a stale one
         // is superseded by the next activation, and clearing the path makes the
         // loss state `unknown` rather than stale.
         statusFile = null
         AcpHostRegistration.cleanupCapabilityFile(staged)
+        AcpHostRegistration.cleanupInferenceCredentialFile(credential?.file)
     }
 
     /** The participant-visible delivery posture and local telemetry loss. */
@@ -1692,6 +1895,8 @@ class ResearchSessionManager(
             val capabilityFile: Path?,
             /** The proxy's content-free delivery status document path, if any. */
             val statusFile: Path? = null,
+            /** The written inference credential file for a gateway-bound agent, if any. */
+            val inferenceCredential: InferenceCredentialHandle? = null,
         ) : RuntimeSetup
 
         /**
@@ -1793,6 +1998,32 @@ class ResearchSessionManager(
                 // the frozen policy; the participant status surface reads it so
                 // local telemetry loss is never silent. The proxy creates it.
                 val telemetryStatusFile = statusFileFor(validManifest.enrollmentId)
+                // A gateway-bound agent receives the study AI credential through
+                // an owner-only file written before the entry exists (a launch
+                // can never race an absent credential); only its path travels.
+                val credentialPlan = ready.inferenceCredential
+                val credentialFile =
+                    if (credentialPlan != null) {
+                        val file =
+                            inferenceCredentialFileFor(validManifest.enrollmentId)
+                                ?: return runtimeSetupFailure("the study AI credential file path could not be resolved")
+                        val written = writeInferenceCredentialFile(file, credentialPlan.envKey, credentialPlan.bearer)
+                        if (written.isFailure) {
+                            return runtimeSetupFailure(
+                                "the study AI credential could not be written: " +
+                                    (written.exceptionOrNull()?.message ?: "unexpected error"),
+                            )
+                        }
+                        file
+                    } else {
+                        null
+                    }
+                val credentialHandle =
+                    if (credentialFile != null && credentialPlan != null) {
+                        InferenceCredentialHandle(credentialFile, credentialPlan.envKey)
+                    } else {
+                        null
+                    }
                 val environment =
                     mapOf(
                         "CODE4ME_RESEARCH_PROXY" to runtime.proxyDigest,
@@ -1803,6 +2034,9 @@ class ResearchSessionManager(
                         "CODE4ME_RESEARCH_SESSION_ID" to
                             validManifest.researchSession.researchSessionId,
                     )
+                // Load the registry's directory into VFS first, so AI Assistant
+                // observes a first-time create as well as a change.
+                me.code4me.services.agent.AcpRegistryVfs.beforeWrite(registration.registryLocation)
                 val result =
                     try {
                         // Research-only, manifest-driven registration. The
@@ -1827,17 +2061,20 @@ class ResearchSessionManager(
                             policyDigest = policy.policyDigest,
                             statusFile = telemetryStatusFile,
                             agentEnv = ready.agentEnv,
+                            inferenceCredentialFile = credentialFile,
                         )
                     } catch (exception: Exception) {
                         Result.failure(exception)
                     }
+                me.code4me.services.agent.AcpRegistryVfs.afterWrite(registration.registryLocation)
                 if (result.isFailure) {
                     AcpHostRegistration.cleanupCapabilityFile(capability)
+                    AcpHostRegistration.cleanupInferenceCredentialFile(credentialFile)
                     runtimeSetupFailure(
                         result.exceptionOrNull()?.message ?: "the research proxy ACP entry could not be registered",
                     )
                 } else {
-                    RuntimeSetup.Ready(capability, telemetryStatusFile)
+                    RuntimeSetup.Ready(capability, telemetryStatusFile, credentialHandle)
                 }
             }
         }
@@ -1899,16 +2136,45 @@ class ResearchSessionManager(
      */
     private fun byoaAgentPlan(validManifest: BootstrapManifest): AgentPlan {
         val release = validManifest.agentRelease
-        // Defensive parity with server-side study creation: a profile field the
-        // release does not translate must never silently not govern the agent.
-        validManifest.agentProfile?.let { profile ->
-            val missing = missingByoaBindings(release.configBindings, profile)
+        val profile = validManifest.agentProfile
+        val gateway = validManifest.inferenceGateway
+        // Version skew fails closed: a study Goose must never run on the
+        // participant's own provider key. A pre-budget server issues a Goose
+        // manifest without the gateway block, so the release identity alone
+        // decides, regardless of what the release binds. Codex and the
+        // packaged runtime never reach this check.
+        if (gateway == null && isGooseRelease(release)) {
+            return AgentPlan.Failed(StudyBlockReason.RUNTIME_UNAVAILABLE, GOOSE_GATEWAY_REQUIRED_DETAIL)
+        }
+        // Fail closed in both directions: a manifest that carries the research
+        // inference gateway needs a release able to deliver the credential, and
+        // a release that binds one must never launch an agent that would fall
+        // back to the participant's own provider settings.
+        credentialBindingViolation(release.configBindings, gatewayPresent = gateway != null)?.let { violation ->
+            return AgentPlan.Failed(StudyBlockReason.RUNTIME_UNAVAILABLE, violation)
+        }
+        val runtime =
+            if (gateway != null) {
+                gatewayRuntimeValues(validManifest, gateway).getOrElse { failure ->
+                    return AgentPlan.Failed(
+                        StudyBlockReason.RUNTIME_UNAVAILABLE,
+                        failure.message ?: "the study AI gateway could not be configured",
+                    )
+                }
+            } else {
+                null
+            }
+        // Defensive parity with server-side study creation: a profile or gateway
+        // field the release does not translate must never silently not govern
+        // the agent.
+        if (profile != null || runtime != null) {
+            val missing = missingByoaBindings(release.configBindings, profile, runtime)
             if (missing.isNotEmpty()) {
                 return AgentPlan.Failed(
                     StudyBlockReason.RUNTIME_UNAVAILABLE,
                     "the release declares no configuration translation for " +
                         missing.joinToString(", ") +
-                        "; refusing to launch an agent whose profile would not govern it",
+                        "; refusing to launch an agent whose study configuration would not govern it",
                 )
             }
         }
@@ -1929,10 +2195,25 @@ class ResearchSessionManager(
                     exception.message ?: "the BYOA agent could not be resolved",
                 )
             }
-        val mapping =
-            validManifest.agentProfile?.let { profile ->
-                applyByoaConfiguration(release.configBindings, profile)
-            } ?: ByoaConfiguration()
+        val mapping = applyByoaConfiguration(release.configBindings, profile, runtime)
+        val credential =
+            if (gateway != null) {
+                val envKey =
+                    mapping.credentialEnvKey
+                        ?: return AgentPlan.Failed(
+                            StudyBlockReason.RUNTIME_UNAVAILABLE,
+                            "the release binds no environment variable for the study AI credential; refusing to launch",
+                        )
+                val bearer =
+                    validManifest.inferenceBearer()
+                        ?: return AgentPlan.Failed(
+                            StudyBlockReason.RUNTIME_UNAVAILABLE,
+                            "the study manifest carries no usable inference capability; refusing to launch",
+                        )
+                InferenceCredentialPlan(envKey, bearer)
+            } else {
+                null
+            }
         return when (resolution) {
             is ByoaAgentResolution.NotFound ->
                 AgentPlan.Failed(StudyBlockReason.AGENT_NOT_FOUND, resolution.detail)
@@ -1941,8 +2222,54 @@ class ResearchSessionManager(
                     argv = resolution.argv + mapping.args,
                     digest = resolution.identity.digest,
                     agentEnv = mapping.env,
+                    inferenceCredential = credential,
                 )
         }
+    }
+
+    /**
+     * The non-secret gateway values for a gateway-bound BYOA agent. The host is
+     * the origin this plugin bootstrapped from (never a manifest value, so a
+     * manifest cannot redirect prompts) and the state directory is plugin-owned
+     * and owner-only, so the participant's own agent configuration (for example
+     * `~/.config/goose`) can never bypass the gateway.
+     */
+    private fun gatewayRuntimeValues(
+        validManifest: BootstrapManifest,
+        gateway: InferenceGatewayRef,
+    ): Result<ByoaRuntimeValues> =
+        runCatching {
+            val origin =
+                serverOrigin()
+                    ?: error(
+                        "the research server origin is unknown, so the study AI gateway cannot be configured; " +
+                            "check the Code4Me server settings and reconnect",
+                    )
+            val stateDir =
+                agentStateDirFor(validManifest.enrollmentId)
+                    ?: error("the agent state directory could not be created under the research runtime root")
+            ByoaRuntimeValues(
+                host = origin,
+                basePath = gateway.basePath,
+                providerKind = gateway.providerKind,
+                stateDir = stateDir.toString(),
+            )
+        }
+
+    /** `scheme://host[:port]` of the configured research server, or `null` when unknown. */
+    private fun serverOrigin(): String? {
+        val base = safeValue { serverBaseUrlProvider() } ?: return null
+        val uri =
+            try {
+                URI(base.trim())
+            } catch (_: Exception) {
+                return null
+            }
+        val scheme = uri.scheme?.lowercase() ?: return null
+        if (scheme != "http" && scheme != "https") return null
+        val host = uri.host ?: return null
+        val authority = if (uri.port != -1) "$host:${uri.port}" else host
+        return "$scheme://$authority"
     }
 
     /**
@@ -1956,10 +2283,30 @@ class ResearchSessionManager(
             val argv: List<String>,
             val digest: String?,
             val agentEnv: Map<String, String> = emptyMap(),
+            /** The study AI credential a gateway-bound agent receives, if any. */
+            val inferenceCredential: InferenceCredentialPlan? = null,
         ) : AgentPlan
 
         data class Failed(val reason: StudyBlockReason, val detail: String) : AgentPlan
     }
+
+    /**
+     * The credential a gateway-bound agent receives: the env key the release
+     * binds and the bearer derived from the manifest. Not a data class and
+     * redacted in [toString], so it can never leak through a log or a message.
+     */
+    private class InferenceCredentialPlan(
+        val envKey: String,
+        val bearer: String,
+    ) {
+        override fun toString(): String = "InferenceCredentialPlan(envKey=$envKey, bearer=<redacted>)"
+    }
+
+    /** The written inference credential file and the env key it names. */
+    private data class InferenceCredentialHandle(
+        val file: Path,
+        val envKey: String,
+    )
 
     /**
      * Resolve the stable capability file for [enrollmentId].
@@ -2015,6 +2362,51 @@ class ResearchSessionManager(
                             ?: capabilityRootProvider().toAbsolutePath().normalize()
                     root.resolve("$STATUS_FILE_PREFIX${opaqueSessionKey(enrollmentId)}$STATUS_FILE_EXTENSION")
                 }
+        } catch (_: Exception) {
+            null
+        }
+
+    /** The owner-only root the launch files for [enrollmentId] live in (beside the capability). */
+    private fun runtimeRootFor(enrollmentId: String): Path =
+        capabilityFileFor(enrollmentId)?.toAbsolutePath()?.normalize()?.parent
+            ?: capabilityRootProvider().toAbsolutePath().normalize()
+
+    /**
+     * The plugin-owned state directory a gateway-bound agent is pointed at
+     * (`state_dir`, for Goose `GOOSE_PATH_ROOT`): created owner-only under the
+     * research runtime root, keyed by the non-reversible enrollment key. It
+     * isolates the agent's own configuration from the participant's home so
+     * their provider settings can never bypass the gateway. `null` on failure.
+     */
+    private fun agentStateDirFor(enrollmentId: String): Path? =
+        try {
+            val directory = runtimeRootFor(enrollmentId).resolve("$AGENT_STATE_DIR_PREFIX${opaqueSessionKey(enrollmentId)}")
+            Files.createDirectories(directory)
+            try {
+                Files.setPosixFilePermissions(
+                    directory,
+                    setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE),
+                )
+            } catch (_: UnsupportedOperationException) {
+                // Windows and non-POSIX filesystems: the ACL keeps the directory user-scoped.
+            }
+            directory
+        } catch (_: Exception) {
+            null
+        }
+
+    /**
+     * The stable, plugin-owned inference credential file for [enrollmentId] in
+     * this execution context. Context-scoped (unlike the shared state
+     * directory): each window rewrites and deletes only its own file, so closing
+     * one window never strands a launch registered by another window of the
+     * same enrollment. The proxy reads it and never deletes it.
+     */
+    private fun inferenceCredentialFileFor(enrollmentId: String): Path? =
+        try {
+            runtimeRootFor(enrollmentId).resolve(
+                "$INFERENCE_CREDENTIAL_FILE_PREFIX${opaqueSessionKey(sessionKey(enrollmentId))}$INFERENCE_CREDENTIAL_FILE_EXTENSION",
+            )
         } catch (_: Exception) {
             null
         }
@@ -2193,6 +2585,12 @@ class ResearchSessionManager(
         const val DEFAULT_RESUME_GRACE_MS: Long = 120_000L
         const val DEFAULT_IDLE_TIMEOUT_MS: Long = 600_000L
 
+        /** How long a closing project keeps its spool IPC endpoint for in-flight proxies. */
+        const val IPC_CLOSE_GRACE_MS: Long = 5_000L
+
+        /** Agent events arrive per streamed chunk; the session marker needs far fewer writes. */
+        private const val AGENT_ACTIVITY_THROTTLE_MS: Long = 1_000L
+
         /**
          * How long before the session capability expires the plugin re-bootstraps.
          * A capability TTL is short (900 s server-side), so this must be a
@@ -2245,6 +2643,38 @@ class ResearchSessionManager(
         /** Stable, proxy-owned content-free delivery status file name. */
         private const val STATUS_FILE_PREFIX = "telemetry-status-"
         private const val STATUS_FILE_EXTENSION = ".json"
+
+        /** Stable, plugin-owned inference credential file name (gateway-bound agents). */
+        private const val INFERENCE_CREDENTIAL_FILE_PREFIX = "inference-credential-"
+        private const val INFERENCE_CREDENTIAL_FILE_EXTENSION = ".json"
+
+        /** Plugin-owned, owner-only agent state directory name (gateway-bound agents). */
+        private const val AGENT_STATE_DIR_PREFIX = "agent-state-"
+
+        /** The logical Goose identity, as the BYOA resolver's package lookup spells it. */
+        private const val GOOSE_AGENT_IDENTITY = "goose"
+
+        /** Participant-readable refusal for a Goose manifest that carries no inference gateway. */
+        internal const val GOOSE_GATEWAY_REQUIRED_DETAIL =
+            "this study's Goose arm needs the research inference gateway; the server did not issue one — " +
+                "update the server/plugin"
+
+        /**
+         * Whether a BYOA release identifies Goose, by the same identity the
+         * resolver uses: `agent_id`, the logical `agent_package`, or the
+         * `agent_command` executable name, normalized (trimmed, lowercase,
+         * without a `.exe` suffix) like the resolver's package lookup.
+         */
+        internal fun isGooseRelease(release: AgentReleaseRef): Boolean {
+            if (!release.isByoa) return false
+            val names =
+                listOfNotNull(
+                    release.agentId,
+                    release.agentPackage,
+                    release.agentCommand?.substringAfterLast('/')?.substringAfterLast('\\'),
+                )
+            return names.any { it.trim().lowercase().removeSuffix(".exe") == GOOSE_AGENT_IDENTITY }
+        }
 
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
@@ -2304,6 +2734,7 @@ class ResearchSessionManager(
                 sessionCapability = context.sessionCapability,
                 clientInstanceId = context.clientInstanceId,
                 httpClient = context.httpClient,
+                researchSessionId = context.researchSessionId,
             )
     }
 }
