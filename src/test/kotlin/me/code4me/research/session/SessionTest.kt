@@ -7,6 +7,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermission
 import java.time.Duration
 import java.time.Instant
 import kotlinx.serialization.json.Json
@@ -55,6 +56,7 @@ import me.code4me.research.spool.SpoolDelivery
 import me.code4me.research.spool.SpoolIpcServer
 import me.code4me.research.spool.SpoolUploaderContext
 import me.code4me.research.spool.SpoolUploaderState
+import me.code4me.research.status.ParticipantStatusPresentation
 import me.code4me.research.telemetry.CanonicalEventTypes
 import me.code4me.research.telemetry.EventSource
 import me.code4me.research.telemetry.FieldClass
@@ -206,6 +208,87 @@ class ParticipantStudyStateV1Test {
         }
         assertTrue(json.contains("\"consent_state\":\"PAUSED\""), json)
         assertTrue(json.contains("\"block_reason\":\"REVOKED\""), json)
+    }
+}
+
+// --------------------------------------------------------------------------
+// InferenceBudgetStateTest.kt
+// --------------------------------------------------------------------------
+
+/** The advisory AI budget block: parsed from the wire, numbers and flags only, never a block. */
+class InferenceBudgetStateTest {
+    @Test
+    fun `a budget block parses from the wire and never changes collection or launch`() {
+        val wire =
+            parseCanonicalJson(
+                """{"unit":"micro_usd","limit":5000000,"consumed":4000000,"reserved":600000,"remaining":400000,""" +
+                    """"fraction_used":0.92,"warning_fraction":0.8,"warning":true,"exhausted":false,"exhausted_at":null,""" +
+                    """"as_of":"2026-01-01T00:30:00Z"}""",
+            )
+
+        val budget = InferenceBudgetState.fromWire(wire)
+
+        assertNotNull(budget)
+        assertEquals(5_000_000L, budget!!.limitMicroUsd)
+        assertEquals(4_000_000L, budget.consumedMicroUsd)
+        assertEquals(600_000L, budget.reservedMicroUsd)
+        assertEquals(400_000L, budget.remainingMicroUsd)
+        assertEquals(0.92, budget.fractionUsed, 1e-9)
+        assertEquals(0.8, budget.warningFraction, 1e-9)
+        assertEquals(92, budget.percentUsed)
+        assertTrue(budget.warning)
+        assertFalse(budget.exhausted)
+        assertNull(budget.exhaustedAt)
+        assertEquals("2026-01-01T00:30:00Z", budget.asOf)
+
+        val active =
+            ParticipantStudyStateV1(
+                consentState = StudyComponentState.AVAILABLE,
+                compatibilityState = StudyComponentState.AVAILABLE,
+                sessionState = StudyComponentState.AVAILABLE,
+                manifestDigest = "a".repeat(64),
+                manifestExpiry = "2026-01-01T01:00:00Z",
+                inferenceBudget = budget.copy(exhausted = true, warning = true, remainingMicroUsd = 0L),
+            )
+        assertTrue(active.isCollecting, "an exhausted budget never stops collection")
+        assertTrue(active.canLaunch, "an exhausted budget never blocks a launch")
+        assertNull(active.blockReason)
+        val canonical = active.toCanonicalMap()["inference_budget"] as Map<*, *>
+        assertEquals(
+            setOf(
+                "limit_micro_usd",
+                "consumed_micro_usd",
+                "reserved_micro_usd",
+                "remaining_micro_usd",
+                "fraction_used",
+                "warning_fraction",
+                "warning",
+                "exhausted",
+            ),
+            canonical.keys,
+        )
+        assertEquals(true, canonical["exhausted"])
+        assertNull(ParticipantStudyStateV1().toCanonicalMap()["inference_budget"])
+    }
+
+    @Test
+    fun `an absent or incomplete budget is null and derived fields follow the server definitions`() {
+        assertNull(InferenceBudgetState.fromWire(null))
+        assertNull(InferenceBudgetState.fromWire("budget"))
+        assertNull(InferenceBudgetState.fromWire(mapOf("limit" to 1L)))
+
+        val minimal = InferenceBudgetState.fromWire(mapOf("limit" to 100L, "consumed" to 100L, "reserved" to 0L))
+        assertNotNull(minimal)
+        assertTrue(minimal!!.exhausted)
+        assertTrue(minimal.warning)
+        assertEquals(0L, minimal.remainingMicroUsd)
+        assertEquals(100, minimal.percentUsed)
+        assertEquals("micro_usd", minimal.unit)
+
+        val zeroLimit = InferenceBudgetState.fromWire(mapOf("limit" to 0L, "consumed" to 0L, "reserved" to 0L))
+        assertNotNull(zeroLimit)
+        assertTrue(zeroLimit!!.exhausted, "a zero limit is exhausted (fail closed until configured)")
+        assertEquals(100, zeroLimit.percentUsed)
     }
 }
 
@@ -903,7 +986,7 @@ class ResearchSessionRuntimeWiringTest {
                 capabilityFile = capabilityFile,
                 // The release pins a portable command name; the participant host
                 // (or the settings override) supplies the absolute path.
-                manifest = manifestWithByoaRelease(command = "goose"),
+                manifest = manifestWithByoaRelease(command = "acp-agent"),
                 byoaResolver = byoa,
             )
 
@@ -930,7 +1013,7 @@ class ResearchSessionRuntimeWiringTest {
             manager(
                 resolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtimeWithoutAgent()) },
                 registration = registration,
-                manifest = manifestWithByoaRelease(command = "goose"),
+                manifest = manifestWithByoaRelease(command = "acp-agent"),
                 byoaResolver = ByoaAgentResolver { ByoaAgentResolution.NotFound("goose is not installed") },
             )
 
@@ -1104,7 +1187,7 @@ class ResearchSessionRuntimeWiringTest {
                     argv = listOf(agent.toString(), "acp"),
                 )
             }
-        val byoaManifest = manifestWithByoaRelease(command = "goose")
+        val byoaManifest = manifestWithByoaRelease(command = "acp-agent")
         val parsed = BootstrapManifest.parse(byoaManifest)
         assertTrue(parsed.agentRelease.isByoa)
         assertTrue(parsed.agentRelease.releaseId.isBlank(), "a BYOA distribution with no registered release pins no release id")
@@ -1124,9 +1207,9 @@ class ResearchSessionRuntimeWiringTest {
 
         assertTrue(result is ResearchActivationResult.Activated, (result as? ResearchActivationResult.Blocked)?.detail)
         // The pinned identity reached the resolver; no manifest digest was invented.
-        assertEquals("goose", capturedSpec?.command)
+        assertEquals("acp-agent", capturedSpec?.command)
         assertEquals(listOf("acp"), capturedSpec?.commandArgs)
-        assertEquals("goose", capturedSpec?.agentPackage)
+        assertEquals("acp-agent", capturedSpec?.agentPackage)
         // The ACP entry pins the locally observed identity, with `--agent-cmd` last.
         assertEquals(observedDigest, registeredAgentDigest(registry))
         val args = registeredArgs(registry)
@@ -1159,7 +1242,7 @@ class ResearchSessionRuntimeWiringTest {
                     argv = listOf(agent.toString(), "acp"),
                 )
             }
-        val manifest = manifestWithConfiguredByoaRelease(command = "goose")
+        val manifest = manifestWithConfiguredByoaRelease(command = "acp-agent")
         val registration = AcpHostRegistration(registry)
         val manager =
             manager(
@@ -1220,12 +1303,12 @@ class ResearchSessionRuntimeWiringTest {
                     mapOf(
                         "agent_release" to
                             linkedMapOf<String, Any?>(
-                                "agent_id" to "goose",
+                                "agent_id" to "acp-agent",
                                 "release_id" to "",
                                 "distribution_mode" to "BYOA_EXTERNAL",
-                                "agent_command" to "goose",
+                                "agent_command" to "acp-agent",
                                 "agent_command_args" to listOf("acp"),
-                                "agent_package" to "goose",
+                                "agent_package" to "acp-agent",
                             ),
                         "agent_profile" to
                             linkedMapOf<String, Any?>(
@@ -1401,20 +1484,26 @@ class ResearchSessionRuntimeWiringTest {
                 ),
         )
 
+    /**
+     * A generic BYOA release with a neutral identity. A release that identifies
+     * Goose is refused without an `inference_gateway` block (a study Goose must
+     * never run on the participant's own provider key); the gateway-bound Goose
+     * path is exercised by [ResearchSessionMaintenanceTest].
+     */
     private fun manifestWithByoaRelease(command: String): String =
         manifestJson(
             overrides =
                 mapOf(
                     "agent_release" to
                         linkedMapOf<String, Any?>(
-                            "agent_id" to "goose",
+                            "agent_id" to "acp-agent",
                             // A BYOA distribution with no registered release freezes
                             // no release id; the backend projects an empty string.
                             "release_id" to "",
                             "distribution_mode" to "BYOA_EXTERNAL",
                             "agent_command" to command,
                             "agent_command_args" to listOf("acp"),
-                            "agent_package" to "goose",
+                            "agent_package" to "acp-agent",
                         ),
                 ),
         )
@@ -1425,12 +1514,12 @@ class ResearchSessionRuntimeWiringTest {
                 mapOf(
                     "agent_release" to
                         linkedMapOf<String, Any?>(
-                            "agent_id" to "goose",
+                            "agent_id" to "acp-agent",
                             "release_id" to "",
                             "distribution_mode" to "BYOA_EXTERNAL",
                             "agent_command" to command,
                             "agent_command_args" to listOf("acp"),
-                            "agent_package" to "goose",
+                            "agent_package" to "acp-agent",
                             "config_bindings" to
                                 listOf(
                                     linkedMapOf(
@@ -3420,6 +3509,648 @@ class ResearchSessionMaintenanceTest {
         assertEquals(2, transport.fetches.get(), "the near-expiry capability must trigger a re-bootstrap")
         assertTrue(delivery.adoptedCapabilities.isEmpty(), "an expired manifest must never reach the uploader")
         assertTrue(manager.isActive)
+    }
+
+    // ------------------------------------------------------------------
+    // Advisory AI budget (participant budgets): never a block
+    // ------------------------------------------------------------------
+
+    /** The wire `budget` block of a metered arm. */
+    private fun budgetBlock(
+        exhausted: Boolean,
+        fractionUsed: Double = if (exhausted) 1.0 else 0.85,
+    ): Map<String, Any?> {
+        val limit = 5_000_000L
+        val consumed = (fractionUsed * limit).toLong()
+        return linkedMapOf(
+            "unit" to "micro_usd",
+            "limit" to limit,
+            "consumed" to consumed,
+            "reserved" to 0L,
+            "remaining" to (limit - consumed).coerceAtLeast(0L),
+            "fraction_used" to fractionUsed,
+            "warning_fraction" to 0.8,
+            "warning" to (exhausted || fractionUsed >= 0.8),
+            "exhausted" to exhausted,
+            "exhausted_at" to if (exhausted) "2026-01-01T00:20:00Z" else null,
+            "as_of" to "2026-01-01T00:30:00Z",
+        )
+    }
+
+    /** [body] with a `budget` key added; `null` models an unmetered arm. */
+    private fun withBudget(
+        body: String,
+        budget: Map<String, Any?>?,
+    ): String {
+        val document =
+            (parseCanonicalJson(body) as Map<*, *>)
+                .entries
+                .associate { it.key.toString() to it.value }
+                .toMutableMap()
+        document["budget"] = budget
+        return canonicalJson(document)
+    }
+
+    @Test
+    fun `an exhausted budget heartbeat never blocks and keeps collecting`() {
+        val source = FakeIdeSource()
+        var exhausted = false
+        val http =
+            MaintenanceHttp { request ->
+                when (request.url.encodedPath) {
+                    "/api/research/sessions/activity" ->
+                        jsonResponse(request, 200, withBudget(heartbeatBody(30L), budgetBlock(exhausted)))
+                    "/api/research/sessions/heartbeat" ->
+                        jsonResponse(request, 200, withBudget(heartbeatBody(30L), budgetBlock(exhausted)))
+                    else -> jsonResponse(request, 201, withBudget(createBody(30L), budgetBlock(exhausted = false)))
+                }
+            }
+        val scheduler = FakeScheduler()
+        val manager = manager(http, singleManifestTransport(), FakeDelivery(), scheduler, source = source)
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        // The create response already carries the advisory budget (nearly used up).
+        val afterCreate = manager.state()
+        assertEquals(true, afterCreate.inferenceBudget?.warning)
+        assertEquals(false, afterCreate.inferenceBudget?.exhausted)
+        assertEquals(85, afterCreate.inferenceBudget?.percentUsed)
+        source.push(activitySignal())
+        assertEquals(SessionState.RUNNING, manager.currentSession?.state)
+        val before = manager.state()
+        assertTrue(before.isCollecting)
+        exhausted = true
+
+        val maintenance = manager.performMaintenance()
+
+        assertTrue(maintenance is ResearchMaintenanceResult.Maintained, maintenance.toString())
+        val after = manager.state()
+        assertTrue(manager.isActive, "an exhausted budget is advisory, never terminal")
+        assertEquals(SessionState.RUNNING, manager.currentSession?.state)
+        assertNull(after.blockReason)
+        assertEquals(true, after.inferenceBudget?.exhausted)
+        assertEquals(before.isCollecting, after.isCollecting)
+        assertEquals(before.canLaunch, after.canLaunch)
+        assertEquals(before.consentState, after.consentState)
+        assertEquals(before.compatibilityState, after.compatibilityState)
+        val view = ParticipantStatusPresentation.of(after)
+        assertEquals(ParticipantStatusPresentation.BUDGET_EXHAUSTED_CODE, view.reasonCode)
+        assertTrue(ParticipantStatusPresentation.shouldNotify(view))
+        // A later tick keeps heartbeating: nothing was torn down.
+        assertTrue(manager.performMaintenance() is ResearchMaintenanceResult.Maintained)
+        assertTrue(http.requests.count { it.url.encodedPath.endsWith("/heartbeat") } >= 3)
+
+        // Teardown clears the advisory budget together with the runtime.
+        manager.stop()
+        assertNull(manager.state().inferenceBudget)
+    }
+
+    @Test
+    fun `an unmetered arm or a server without budgets leaves the budget absent`() {
+        val http =
+            MaintenanceHttp { request ->
+                if (request.url.encodedPath.endsWith("/heartbeat")) {
+                    jsonResponse(request, 200, withBudget(heartbeatBody(30L), null))
+                } else {
+                    // No `budget` key at all: a server that predates budgets.
+                    jsonResponse(request, 201, createBody(30L))
+                }
+            }
+        val manager = manager(http, singleManifestTransport(), FakeDelivery(), FakeScheduler())
+
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        assertNull(manager.state().inferenceBudget)
+        assertTrue(manager.performMaintenance() is ResearchMaintenanceResult.Maintained)
+        assertNull(manager.state().inferenceBudget)
+        assertTrue(manager.isActive)
+        // Without a budget the status surface never mentions one.
+        val view = ParticipantStatusPresentation.of(manager.state())
+        assertFalse(view.reasonCode == ParticipantStatusPresentation.BUDGET_EXHAUSTED_CODE)
+        assertFalse(view.reasonCode == ParticipantStatusPresentation.BUDGET_WARNING_CODE)
+        assertFalse(view.headline.contains("AI budget"), view.headline)
+    }
+
+    // ------------------------------------------------------------------
+    // Research inference gateway (Goose): credential delivery
+    // ------------------------------------------------------------------
+
+    private val spoolCounter = AtomicInteger()
+
+    private val ownerOnlyFile = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
+
+    private val ownerOnlyDirectory =
+        setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE)
+
+    private class GatewayFixture(
+        val registry: Path,
+        val capabilityFile: Path,
+        val researchRoot: Path,
+        val agent: Path,
+    )
+
+    private fun gatewayFixture(): GatewayFixture {
+        val agent = root.resolve("byoa/goose")
+        Files.createDirectories(agent.parent)
+        Files.writeString(agent, "goose-binary")
+        agent.toFile().setExecutable(true, false)
+        return GatewayFixture(
+            registry = root.resolve("acp.json"),
+            capabilityFile = root.resolve("research/capability.txt"),
+            researchRoot = root.resolve("research"),
+            agent = agent,
+        )
+    }
+
+    /** Release bindings for a Goose arm; the runtime and credential bindings are optional. */
+    private fun gatewayBindings(
+        includeRuntime: Boolean = true,
+        includeCredential: Boolean = includeRuntime,
+    ): List<Map<String, Any?>> =
+        buildList<Map<String, Any?>> {
+            add(linkedMapOf("field" to "model", "transport" to "env", "key" to "GOOSE_MODEL"))
+            if (includeRuntime) {
+                add(linkedMapOf("field" to "inference_gateway_host", "transport" to "env", "key" to "OPENAI_HOST"))
+                add(linkedMapOf("field" to "inference_gateway_base_path", "transport" to "env", "key" to "OPENAI_BASE_PATH"))
+                add(
+                    linkedMapOf(
+                        "field" to "provider_kind",
+                        "transport" to "env",
+                        "key" to "GOOSE_PROVIDER",
+                        "value_map" to linkedMapOf("openai_compatible" to "openai"),
+                    ),
+                )
+                add(linkedMapOf("field" to "state_dir", "transport" to "env", "key" to "GOOSE_PATH_ROOT"))
+            }
+            if (includeCredential) {
+                add(linkedMapOf("field" to "inference_gateway_credential", "transport" to "env", "key" to "OPENAI_API_KEY"))
+            }
+        }
+
+    private fun gatewayBlock(
+        inferenceCapabilityId: String,
+        sessionId: String,
+    ): Map<String, Any?> =
+        linkedMapOf(
+            "provider_kind" to "openai_compatible",
+            "base_path" to "api/research/inference/v1/chat/completions",
+            "capability" to
+                linkedMapOf<String, Any?>(
+                    "capability_id" to inferenceCapabilityId,
+                    "audience" to "inference",
+                    "scope" to listOf("inference:relay"),
+                    "issued_at" to "2026-01-01T00:00:00Z",
+                    "expires_at" to "2026-01-08T00:00:00Z",
+                    "revocation_epoch" to 0L,
+                    "enrollment_id" to "enrollment-1",
+                    "research_session_id" to sessionId,
+                    "study_id" to "study-1",
+                    "signature" to "ab".repeat(32),
+                ),
+        )
+
+    /** A Goose BYOA manifest, optionally carrying the research inference gateway. */
+    private fun gooseManifest(
+        capabilityId: String,
+        sessionId: String,
+        inferenceCapabilityId: String? = "inference-1",
+        bindings: List<Map<String, Any?>> = gatewayBindings(),
+        agentId: String = "goose",
+        agentPackage: String? = "goose",
+        agentCommand: String = "goose",
+    ): String =
+        manifestJson(
+            researchSessionId = sessionId,
+            overrides =
+                buildMap<String, Any?> {
+                    put(
+                        "session_capability",
+                        linkedMapOf<String, Any?>(
+                            "capability_id" to capabilityId,
+                            "audience" to "research-runtime",
+                            "scope" to listOf("telemetry:write", "session:heartbeat", "session:close"),
+                            "issued_at" to "2026-01-01T00:00:00Z",
+                            "expires_at" to "2026-01-01T01:00:00Z",
+                        ),
+                    )
+                    put(
+                        "agent_release",
+                        linkedMapOf<String, Any?>(
+                            "agent_id" to agentId,
+                            "release_id" to "",
+                            "distribution_mode" to "BYOA_EXTERNAL",
+                            "agent_command" to agentCommand,
+                            "agent_command_args" to listOf("acp"),
+                            "agent_package" to agentPackage,
+                            "config_bindings" to bindings,
+                        ),
+                    )
+                    put(
+                        "agent_profile",
+                        linkedMapOf<String, Any?>(
+                            "profile_id" to "11111111-1111-1111-1111-111111111111",
+                            "model" to "gpt-5",
+                            "tools_json" to "[]",
+                            "approval_policy" to "",
+                            "max_steps" to 0,
+                        ),
+                    )
+                    put("inference_gateway", inferenceCapabilityId?.let { gatewayBlock(it, sessionId) })
+                },
+        )
+
+    /** A manager with a resolved proxy runtime, an ACP registry, and a resolvable Goose. */
+    private fun gatewayManager(
+        fixture: GatewayFixture,
+        http: Call.Factory,
+        transport: BootstrapTransport,
+        delivery: SpoolDelivery = FakeDelivery(),
+        scheduler: MaintenanceScheduler = FakeScheduler(),
+        serverBaseUrl: String? = "http://localhost:8008",
+    ): ResearchSessionManager {
+        val proxyExecutable = root.resolve("runtime/bin/telemetry-acp-proxy")
+        Files.createDirectories(proxyExecutable.parent)
+        Files.writeString(proxyExecutable, "proxy-binary")
+        val runtime =
+            ResolvedProxyRuntime(
+                runtimeRoot = root.resolve("runtime"),
+                proxyArgv = listOf(proxyExecutable.toString(), "--stdio"),
+                proxyDigest = "ab".repeat(32),
+            )
+        val byoa =
+            ByoaAgentResolver {
+                ByoaAgentResolution.Resolved(
+                    identity =
+                        ObservedAgentIdentity(
+                            executable = fixture.agent,
+                            digest = ContentHasher.STREAMING.sha256(fixture.agent),
+                            version = "goose 1.51.0",
+                            source = AgentDiscoverySource.RELEASE_COMMAND,
+                        ),
+                    argv = listOf(fixture.agent.toString(), "acp"),
+                )
+            }
+        val spoolDirectory = root.resolve("spool-${spoolCounter.incrementAndGet()}")
+        return ResearchSessionManager(
+            projectKey = "project-under-test",
+            transport = transport,
+            compatibility = compatibility(),
+            spoolProvider = { DurableSpool(spoolDirectory) },
+            proxyRuntimeResolver = ProxyRuntimeResolver { ProxyRuntimeResolution.Resolved(runtime) },
+            acpHostRegistration = AcpHostRegistration(fixture.registry),
+            packagedAgentInstaller =
+                PackagedAgentInstaller {
+                    PackagedAgentInstall.Ready(
+                        argv = listOf(root.resolve("runtime/agents/code4me-agent").toString()),
+                        digest = VALID_ARTIFACT_DIGEST,
+                    )
+                },
+            capabilityFilePathProvider = { fixture.capabilityFile },
+            capabilityRootProvider = { fixture.researchRoot },
+            byoaAgentResolver = byoa,
+            serverBaseUrlProvider = { serverBaseUrl },
+            httpClient = http,
+            uploaderFactory = { delivery },
+            maintenanceScheduler = scheduler,
+            sessionStore = InMemoryResearchSessionStore(),
+            clock = { VALID_NOW.toEpochMilli() },
+            instantClock = { VALID_NOW },
+            sessionIdFactory = { "session-1" },
+            runIdFactory = { "run-1" },
+        )
+    }
+
+    private fun registryEntry(registry: Path): Map<*, *> {
+        val document = parseCanonicalJson(Files.readString(registry)) as Map<*, *>
+        val servers = document["agent_servers"] as Map<*, *>
+        return servers[AcpHostRegistration.DEFAULT_ENTRY_NAME] as Map<*, *>
+    }
+
+    private fun entryArgs(registry: Path): List<String> = (registryEntry(registry)["args"] as List<*>).map { it.toString() }
+
+    private fun entryEnv(registry: Path): Map<String, String> =
+        (registryEntry(registry)["env"] as Map<*, *>).entries.associate { it.key.toString() to it.value.toString() }
+
+    /** The values of every `--agent-env KEY=VALUE` pair, in order. */
+    private fun agentEnvOverrides(args: List<String>): List<String> =
+        args.indices.filter { args[it] == AcpHostRegistration.AGENT_ENV_FLAG }.map { args[it + 1] }
+
+    private fun credentialFileIn(researchRoot: Path): Path? {
+        if (!Files.isDirectory(researchRoot)) return null
+        return Files.newDirectoryStream(researchRoot).use { stream ->
+            stream.firstOrNull { it.fileName.toString().startsWith("inference-credential-") }
+        }
+    }
+
+    private fun assertOwnerOnly(
+        path: Path,
+        expected: Set<PosixFilePermission>,
+    ) {
+        try {
+            assertEquals(expected, Files.getPosixFilePermissions(path), "$path permissions")
+        } catch (_: UnsupportedOperationException) {
+            // Non-POSIX filesystem: the user ACL keeps the file scoped.
+        }
+    }
+
+    @Test
+    fun `a Goose gateway manifest writes the owner-only credential file and points the agent at the gateway`() {
+        val fixture = gatewayFixture()
+        val manifest = gooseManifest("capability-1", "session-1")
+        val manager = gatewayManager(fixture, sessionsHttp { 30L }, SequenceTransport(listOf(manifest)))
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Activated, (result as? ResearchActivationResult.Blocked)?.detail)
+        val credentialFile = credentialFileIn(fixture.researchRoot)
+        assertNotNull(credentialFile, "the credential file must exist under the research runtime root")
+        assertOwnerOnly(credentialFile!!, ownerOnlyFile)
+        val document = parseCanonicalJson(Files.readString(credentialFile)) as Map<*, *>
+        val expectedBearer = BootstrapManifest.parse(manifest).inferenceBearer()
+        assertNotNull(expectedBearer)
+        assertEquals("1", document["schema_version"])
+        assertEquals("OPENAI_API_KEY", document["credential_env_key"])
+        assertEquals(expectedBearer, document["credential"])
+
+        val args = entryArgs(fixture.registry)
+        val env = entryEnv(fixture.registry)
+        val overrides = agentEnvOverrides(args)
+        assertTrue(overrides.contains("OPENAI_HOST=http://localhost:8008"), overrides.toString())
+        assertTrue(overrides.contains("OPENAI_BASE_PATH=api/research/inference/v1/chat/completions"), overrides.toString())
+        assertTrue(overrides.contains("GOOSE_PROVIDER=openai"), overrides.toString())
+        assertTrue(overrides.contains("GOOSE_MODEL=gpt-5"), overrides.toString())
+        val stateDir = Path.of(overrides.single { it.startsWith("GOOSE_PATH_ROOT=") }.removePrefix("GOOSE_PATH_ROOT="))
+        assertTrue(stateDir.isAbsolute, stateDir.toString())
+        assertTrue(Files.isDirectory(stateDir), "the agent state directory must exist before the entry does")
+        assertTrue(stateDir.startsWith(fixture.researchRoot.toAbsolutePath().normalize()), stateDir.toString())
+        assertTrue(stateDir.fileName.toString().startsWith("agent-state-"), stateDir.toString())
+        assertOwnerOnly(stateDir, ownerOnlyDirectory)
+        val flagIndex = args.indexOf(AcpHostRegistration.INFERENCE_CREDENTIAL_FILE_FLAG)
+        val agentCmdIndex = args.indexOf(AcpHostRegistration.AGENT_CMD_FLAG)
+        assertTrue(flagIndex in 0 until agentCmdIndex, "--inference-credential-file must precede --agent-cmd: $args")
+        assertEquals(credentialFile.toAbsolutePath().normalize().toString(), args[flagIndex + 1])
+        assertEquals(args[flagIndex + 1], env[AcpHostRegistration.INFERENCE_CREDENTIAL_FILE_ENV_VAR])
+        // The credential itself never enters the persistent entry.
+        assertFalse(Files.readString(fixture.registry).contains(expectedBearer!!), "the bearer must never enter the ACP registry")
+        assertFalse(overrides.any { it.startsWith("OPENAI_API_KEY=") })
+        assertFalse(env.containsKey("OPENAI_API_KEY"))
+
+        manager.stop()
+
+        assertFalse(Files.exists(credentialFile), "deactivation must delete the credential file")
+        assertNull(credentialFileIn(fixture.researchRoot))
+        assertFalse(Files.readString(fixture.registry).contains(AcpHostRegistration.DEFAULT_ENTRY_NAME), "the entry is removed on stop")
+    }
+
+    @Test
+    fun `a gateway manifest is refused when the release cannot deliver the credential`() {
+        val fixture = gatewayFixture()
+        val unbound =
+            gatewayManager(
+                fixture,
+                sessionsHttp { 30L },
+                SequenceTransport(listOf(gooseManifest("capability-1", "session-1", bindings = gatewayBindings(includeRuntime = false)))),
+            )
+
+        val result = unbound.activate("enrollment-1")
+
+        val blocked = result as? ResearchActivationResult.Blocked
+        assertNotNull(blocked, result.toString())
+        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, blocked!!.reason)
+        assertTrue(blocked.detail?.contains("inference_gateway_credential") == true, blocked.detail)
+        assertFalse(unbound.isActive)
+        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, unbound.state().blockReason)
+        assertFalse(Files.exists(fixture.registry), "no ACP entry may be written")
+        assertNull(credentialFileIn(fixture.researchRoot), "no credential file may be written")
+
+        // The credential is bound but the other runtime fields are not.
+        val partial =
+            gatewayManager(
+                fixture,
+                sessionsHttp { 30L },
+                SequenceTransport(
+                    listOf(
+                        gooseManifest(
+                            "capability-1",
+                            "session-1",
+                            bindings = gatewayBindings(includeRuntime = false, includeCredential = true),
+                        ),
+                    ),
+                ),
+            )
+        val partialBlock = partial.activate("enrollment-1") as? ResearchActivationResult.Blocked
+        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, partialBlock?.reason)
+        assertTrue(partialBlock?.detail?.contains("inference_gateway_host") == true, partialBlock?.detail)
+        assertFalse(Files.exists(fixture.registry))
+        assertNull(credentialFileIn(fixture.researchRoot))
+    }
+
+    @Test
+    fun `a release that binds a credential is refused when the manifest carries no gateway`() {
+        // Goose: the identity rule wins (a study Goose never runs without the gateway).
+        val goose = gatewayFixture()
+        val gooseManager =
+            gatewayManager(
+                goose,
+                sessionsHttp { 30L },
+                SequenceTransport(listOf(gooseManifest("capability-1", "session-1", inferenceCapabilityId = null))),
+            )
+
+        val gooseResult = gooseManager.activate("enrollment-1")
+
+        val gooseBlocked = gooseResult as? ResearchActivationResult.Blocked
+        assertNotNull(gooseBlocked, gooseResult.toString())
+        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, gooseBlocked!!.reason)
+        assertTrue(gooseBlocked.detail?.contains("research inference gateway") == true, gooseBlocked.detail)
+        assertFalse(gooseManager.isActive)
+        assertFalse(Files.exists(goose.registry), "no ACP entry may be written")
+        assertNull(credentialFileIn(goose.researchRoot), "no credential file may be written")
+
+        // Any other BYOA release that binds a credential is refused by the binding rule.
+        val neutral = gatewayFixture()
+        val neutralManager =
+            gatewayManager(
+                neutral,
+                sessionsHttp { 30L },
+                SequenceTransport(
+                    listOf(
+                        gooseManifest(
+                            "capability-1",
+                            "session-1",
+                            inferenceCapabilityId = null,
+                            agentId = "acp-agent",
+                            agentPackage = "acp-agent",
+                            agentCommand = "acp-agent",
+                        ),
+                    ),
+                ),
+            )
+
+        val neutralResult = neutralManager.activate("enrollment-1")
+
+        val neutralBlocked = neutralResult as? ResearchActivationResult.Blocked
+        assertNotNull(neutralBlocked, neutralResult.toString())
+        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, neutralBlocked!!.reason)
+        assertTrue(neutralBlocked.detail?.contains("no inference gateway") == true, neutralBlocked.detail)
+        assertFalse(neutralManager.isActive)
+        assertFalse(Files.exists(neutral.registry), "no ACP entry may be written")
+        assertNull(credentialFileIn(neutral.researchRoot), "no credential file may be written")
+    }
+
+    @Test
+    fun `a Goose manifest without a gateway is refused even when the release binds no credential`() {
+        // Version skew (a pre-budget server) must fail closed: a study Goose never
+        // runs on the participant's own provider key. The identity rule is the
+        // resolver's: agent_id, the logical package, or the command name.
+        val identities =
+            listOf(
+                Triple("goose", "goose", "goose"),
+                Triple("acp-agent", null, "tools/goose"),
+                Triple("acp-agent", "goose", "acp-agent"),
+                Triple("Goose", "acp-agent", "acp-agent"),
+            )
+        for ((agentId, agentPackage, agentCommand) in identities) {
+            val fixture = gatewayFixture()
+            val manager =
+                gatewayManager(
+                    fixture,
+                    sessionsHttp { 30L },
+                    SequenceTransport(
+                        listOf(
+                            gooseManifest(
+                                "capability-1",
+                                "session-1",
+                                inferenceCapabilityId = null,
+                                bindings = gatewayBindings(includeRuntime = false),
+                                agentId = agentId,
+                                agentPackage = agentPackage,
+                                agentCommand = agentCommand,
+                            ),
+                        ),
+                    ),
+                )
+
+            val result = manager.activate("enrollment-1")
+
+            val label = "$agentId / $agentPackage / $agentCommand"
+            val blocked = result as? ResearchActivationResult.Blocked
+            assertNotNull(blocked, "$label: $result")
+            assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, blocked!!.reason, label)
+            assertTrue(blocked.detail?.contains("research inference gateway") == true, "$label: ${blocked.detail}")
+            assertFalse(manager.isActive, label)
+            assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, manager.state().blockReason, label)
+            assertFalse(Files.exists(fixture.registry), "$label: no ACP entry may be written for a gateway-less Goose")
+            assertNull(credentialFileIn(fixture.researchRoot), "$label: no credential file may be written")
+        }
+
+        // The rule is identity-based: a non-Goose BYOA arm without a gateway
+        // (and without a credential binding) still launches unchanged.
+        val neutral = gatewayFixture()
+        val manager =
+            gatewayManager(
+                neutral,
+                sessionsHttp { 30L },
+                SequenceTransport(
+                    listOf(
+                        gooseManifest(
+                            "capability-1",
+                            "session-1",
+                            inferenceCapabilityId = null,
+                            bindings = gatewayBindings(includeRuntime = false),
+                            agentId = "acp-agent",
+                            agentPackage = "acp-agent",
+                            agentCommand = "acp-agent",
+                        ),
+                    ),
+                ),
+            )
+        val result = manager.activate("enrollment-1")
+        assertTrue(result is ResearchActivationResult.Activated, (result as? ResearchActivationResult.Blocked)?.detail)
+        assertNull(credentialFileIn(neutral.researchRoot), "a gateway-less arm receives no credential file")
+        assertFalse(entryArgs(neutral.registry).contains(AcpHostRegistration.INFERENCE_CREDENTIAL_FILE_FLAG))
+        assertFalse(entryEnv(neutral.registry).containsKey(AcpHostRegistration.INFERENCE_CREDENTIAL_FILE_ENV_VAR))
+        assertFalse(agentEnvOverrides(entryArgs(neutral.registry)).any { it.startsWith("GOOSE_PATH_ROOT=") })
+        manager.stop()
+    }
+
+    @Test
+    fun `a Goose manifest with the gateway block still launches`() {
+        val fixture = gatewayFixture()
+        val manager = gatewayManager(fixture, sessionsHttp { 30L }, SequenceTransport(listOf(gooseManifest("capability-1", "session-1"))))
+
+        val result = manager.activate("enrollment-1")
+
+        assertTrue(result is ResearchActivationResult.Activated, (result as? ResearchActivationResult.Blocked)?.detail)
+        assertTrue(manager.isActive)
+        assertNotNull(credentialFileIn(fixture.researchRoot))
+        assertTrue(entryArgs(fixture.registry).contains(AcpHostRegistration.INFERENCE_CREDENTIAL_FILE_FLAG))
+        manager.stop()
+    }
+
+    @Test
+    fun `a gateway manifest is refused when the research server origin is unknown`() {
+        val fixture = gatewayFixture()
+        val manager =
+            gatewayManager(
+                fixture,
+                sessionsHttp { 30L },
+                SequenceTransport(listOf(gooseManifest("capability-1", "session-1"))),
+                serverBaseUrl = null,
+            )
+
+        val result = manager.activate("enrollment-1")
+
+        val blocked = result as? ResearchActivationResult.Blocked
+        assertNotNull(blocked, result.toString())
+        assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, blocked!!.reason)
+        assertTrue(blocked.detail?.contains("origin") == true, blocked.detail)
+        assertFalse(Files.exists(fixture.registry))
+        assertNull(credentialFileIn(fixture.researchRoot))
+    }
+
+    @Test
+    fun `a manifest refresh rewrites the credential file without re-registering the ACP entry`() {
+        val fixture = gatewayFixture()
+        var expired = false
+        val http =
+            MaintenanceHttp { request ->
+                when {
+                    request.url.encodedPath.endsWith("/heartbeat") && expired ->
+                        jsonResponse(request, 403, terminalBody("CAPABILITY_INVALID"))
+                    request.url.encodedPath.endsWith("/heartbeat") ->
+                        jsonResponse(request, 200, heartbeatBody(30L))
+                    else ->
+                        jsonResponse(request, 201, createBody(30L))
+                }
+            }
+        val first = gooseManifest("capability-1", "session-1", inferenceCapabilityId = "inference-1")
+        val second = gooseManifest("capability-2", "session-1", inferenceCapabilityId = "inference-2")
+        val delivery = FakeDelivery()
+        val manager = gatewayManager(fixture, http, SequenceTransport(listOf(first, second)), delivery)
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        val credentialFile = credentialFileIn(fixture.researchRoot)
+        assertNotNull(credentialFile)
+        val registryBefore = Files.readString(fixture.registry)
+        val contentBefore = Files.readString(credentialFile!!)
+        expired = true
+
+        val maintenance = manager.performMaintenance()
+
+        assertTrue(maintenance is ResearchMaintenanceResult.Maintained, maintenance.toString())
+        assertEquals("capability-2", delivery.adoptedCapabilities.single()["capability_id"])
+        val contentAfter = Files.readString(credentialFile)
+        assertNotEquals(contentBefore, contentAfter, "the refreshed capability must reach the credential file")
+        val document = parseCanonicalJson(contentAfter) as Map<*, *>
+        assertEquals(BootstrapManifest.parse(second).inferenceBearer(), document["credential"])
+        assertEquals("OPENAI_API_KEY", document["credential_env_key"])
+        assertOwnerOnly(credentialFile, ownerOnlyFile)
+        Files.newDirectoryStream(fixture.researchRoot).use { stream ->
+            assertTrue(stream.none { it.fileName.toString().endsWith(".tmp") }, "the replace leaves no staging file")
+        }
+        assertEquals(credentialFile, credentialFileIn(fixture.researchRoot), "the same file is replaced in place")
+        assertEquals(registryBefore, Files.readString(fixture.registry), "a refresh never re-registers the ACP entry")
+        assertTrue(manager.isActive)
+
+        manager.stop()
+
+        assertFalse(Files.exists(credentialFile), "deactivation must delete the credential file")
     }
 }
 

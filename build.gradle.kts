@@ -901,11 +901,21 @@ val stageResearchProxy =
                     )
                 @Suppress("UNCHECKED_CAST")
                 (recipe["agents"] as? List<Map<String, Any?>>)?.forEach { agent ->
+                    // A Goose release is gateway-bound: its byoa_config must
+                    // bind the research inference gateway credential through an
+                    // environment variable (the artifact verifier checks this).
+                    val bindings = agent["byoa_config"] as? List<Map<String, Any?>> ?: emptyList()
+                    val gatewayBound =
+                        bindings.any { binding ->
+                            binding["field"] == "inference_gateway_credential" &&
+                                binding["transport"] == "env"
+                        }
                     releases.add(
                         linkedMapOf(
                             "framework" to agent["framework"],
                             "version" to agent["version"],
                             "distribution_mode" to "BYOA_EXTERNAL",
+                            "inference_gateway" to gatewayBound,
                         ),
                     )
                 }

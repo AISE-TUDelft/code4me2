@@ -509,6 +509,76 @@ class AcpHostRegistrationTest {
         assertFalse(env.containsKey(AcpHostRegistration.RUN_ID_ENV_VAR))
     }
 
+    @Test
+    fun `register emits the inference credential file path before the agent command and never the credential`() {
+        val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
+        Files.createDirectories(proxyExecutable.parent)
+        Files.writeString(proxyExecutable, "proxy-binary")
+        val agentExecutable = directory.resolve("goose")
+        Files.writeString(agentExecutable, "agent-binary")
+        val credentialFile = directory.resolve("research/inference-credential-1.json")
+        val canary = "CANARY-BEARER-" + "x".repeat(24)
+        assertTrue(writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", canary).isSuccess)
+
+        val result =
+            registration().register(
+                resolved = runtime(proxyExecutable),
+                agentArgv = listOf(agentExecutable.toString(), "acp"),
+                spoolEndpoint = null,
+                capabilityFile = null,
+                agentEnv = mapOf("OPENAI_HOST" to "https://research.example.org", "GOOSE_PROVIDER" to "openai"),
+                inferenceCredentialFile = credentialFile,
+            )
+
+        assertTrue(result.isSuccess)
+        val entry = servers().getValue(AcpHostRegistration.DEFAULT_ENTRY_NAME).jsonObject
+        val args = entry.getValue("args").jsonArray.map { it.jsonPrimitive.content }
+        val env = entry.getValue("env").jsonObject.mapValues { (_, value) -> value.jsonPrimitive.content }
+        val expectedPath = credentialFile.toAbsolutePath().normalize().toString()
+        val flagIndex = args.indexOf(AcpHostRegistration.INFERENCE_CREDENTIAL_FILE_FLAG)
+        val agentCmdIndex = args.indexOf(AcpHostRegistration.AGENT_CMD_FLAG)
+        assertTrue(flagIndex >= 0, "the credential file flag must be present")
+        assertEquals(expectedPath, args[flagIndex + 1])
+        assertTrue(flagIndex < agentCmdIndex, "--inference-credential-file must precede the --agent-cmd REMAINDER")
+        assertEquals(expectedPath, env[AcpHostRegistration.INFERENCE_CREDENTIAL_FILE_ENV_VAR])
+        // Only the path travels: the credential never enters argv or the entry env.
+        assertFalse(Files.readString(registry).contains(canary), "the credential must never enter the ACP registry")
+        assertFalse(args.any { it.startsWith("OPENAI_API_KEY=") })
+        assertFalse(env.containsKey("OPENAI_API_KEY"))
+        assertTrue(Files.readString(credentialFile).contains(canary))
+    }
+
+    @Test
+    fun `the inference credential file is owner-only, atomically replaced, and shaped for the proxy`() {
+        val credentialFile = directory.resolve("research/inference-credential-2.json")
+
+        assertTrue(writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", "first-" + "a".repeat(20)).isSuccess)
+        assertTrue(writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", "second-" + "b".repeat(20)).isSuccess)
+
+        assertOwnerOnly(credentialFile)
+        Files.newDirectoryStream(credentialFile.parent).use { stream ->
+            assertTrue(stream.none { it.fileName.toString().endsWith(".tmp") }, "no staging file may remain")
+        }
+        val document = parseCanonicalJsonObject(Files.readString(credentialFile))
+        assertEquals(setOf("schema_version", "credential_env_key", "credential"), document.keys)
+        assertEquals("1", document["schema_version"])
+        assertEquals("OPENAI_API_KEY", document["credential_env_key"])
+        assertEquals("second-" + "b".repeat(20), document["credential"])
+    }
+
+    @Test
+    fun `the inference credential writer refuses documents the proxy would reject`() {
+        val credentialFile = directory.resolve("research/inference-credential-3.json")
+
+        assertTrue(writeInferenceCredentialFile(credentialFile, "not a var", "value").isFailure)
+        assertTrue(writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", "  ").isFailure)
+        assertTrue(writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", "bad\nvalue").isFailure)
+        assertFalse(Files.exists(credentialFile), "a refused document must not be written")
+        val failure = writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", "secret\u0000value").exceptionOrNull()
+        assertTrue(failure != null)
+        assertFalse(failure?.message?.contains("secret") == true, "failure messages never carry the credential")
+    }
+
     private fun registration(): AcpHostRegistration = AcpHostRegistration(registry)
 
     private fun registration(entryName: String): AcpHostRegistration =

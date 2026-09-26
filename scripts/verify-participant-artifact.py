@@ -387,6 +387,11 @@ def verify_release_catalog(
         by_framework[f].get("distribution_mode") != "BYOA_EXTERNAL" for f in ("goose", "codex")
     ):
         findings.append("participant inventory must bundle Code4Me and use installed Goose/Codex")
+    if by_framework["goose"].get("inference_gateway") is not True:
+        findings.append(
+            "the Goose release must bind the research inference gateway credential "
+            "(byoa_config field inference_gateway_credential with the env transport)"
+        )
     verify_agent_recipe(
         label,
         archive,
