@@ -50,7 +50,8 @@ MAX_NESTED_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_TEXT_SCAN_BYTES = 50 * 1024 * 1024
 RUNTIME_MANIFEST_SUFFIX = "research-runtime/proxy-manifest.json"
 AGENT_MANIFEST_SUFFIX = "code4me-runtime/manifest.json"
-PRODUCTION_PLATFORMS = {"macos-aarch64", "macos-x64", "linux-x64", "windows-x64"}
+PROXY_PRODUCTION_PLATFORMS = {"macos-aarch64", "macos-x64", "linux-x64", "windows-x64"}
+AGENT_PRODUCTION_PLATFORMS = {"macos-arm64", "macos-x64", "linux-x64", "windows-x64"}
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 # Mirror of the resolver's `pathSafety` (RuntimeManifestV2.kt): a declared path
@@ -288,10 +289,10 @@ def verify_agent_recipe(
         actual_platforms = {
             f"{a.get('platform')}-{a.get('architecture')}" for a in artifacts if isinstance(a, dict)
         }
-        if len(artifacts) != len(actual_platforms) or actual_platforms != PRODUCTION_PLATFORMS:
+        if len(artifacts) != len(actual_platforms) or actual_platforms != AGENT_PRODUCTION_PLATFORMS:
             findings.append(
                 f"{label}!{manifest_member}: the agent recipe must cover exactly "
-                f"{sorted(PRODUCTION_PLATFORMS)} once; got {sorted(actual_platforms)}"
+                f"{sorted(AGENT_PRODUCTION_PLATFORMS)} once; got {sorted(actual_platforms)}"
             )
     if runtime_version and managed_version is not None and str(managed_version) != runtime_version:
         findings.append(
@@ -371,8 +372,8 @@ def verify_release_catalog(
             findings.append("local test release platforms must match its inventory exactly")
     elif (
         len(actual) != 4
-        or set(actual) != PRODUCTION_PLATFORMS
-        or set(inventory.get("platforms", [])) != PRODUCTION_PLATFORMS
+        or set(actual) != PROXY_PRODUCTION_PLATFORMS
+        or set(inventory.get("platforms", [])) != PROXY_PRODUCTION_PLATFORMS
     ):
         findings.append("participant release must cover all four native platforms exactly once")
     releases = inventory.get("releases", [])
