@@ -11,10 +11,14 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import me.code4me.api.generated.api.AcpApi
 import me.code4me.api.generated.api.AuthenticationApi
@@ -26,6 +30,7 @@ import me.code4me.api.generated.api.ProjectApi
 import me.code4me.api.generated.api.SessionApi
 import me.code4me.api.generated.api.UserApi
 import me.code4me.api.generated.api.UserVerificationApi
+import me.code4me.api.generated.infrastructure.ClientError
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.AcquireSessionGetResponse
@@ -57,10 +62,12 @@ import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
+import me.code4me.research.lifecycle.ResearchLogoutHook
 import me.code4me.services.config.ConfigService
 import me.code4me.services.config.getConfig
 import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.project.getProjectChatService
 import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.project.getProjectTokenService
 import me.code4me.services.state.AuthSettings
@@ -71,6 +78,7 @@ import me.code4me.utils.api.mapsTo
 import me.code4me.utils.api.toSerializableMap
 import me.code4me.utils.record.Record
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import toApiModel
@@ -113,6 +121,143 @@ internal fun deleteAccountAndClearLocalSession(
     clearAuth()
     true
 }
+
+/**
+ * The server's reason for refusing an account deletion: the `message` of an HTTP 409 (the account
+ * owns research studies or agent profiles), or `null` for any other failure.
+ */
+internal fun accountDeletionRefusal(error: ClientException): String? {
+    if (error.statusCode != 409) return null
+    val body = (error.response as? ClientError<*>)?.body as? String ?: return null
+    return runCatching { Json.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.contentOrNull }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
+}
+
+/** Rows a privacy erase removed on the server, keyed like `stored_data` in the privacy API. */
+data class ErasedDataCounts(
+    val queries: Long,
+    val chats: Long,
+    val agentRuns: Long,
+    val studyEnrollments: Long,
+    val studyEvents: Long,
+)
+
+/**
+ * The server answered a privacy erase with a non-2xx status, so nothing was cleared locally.
+ * A [statusCode] of 401 means the account is no longer signed in on the server.
+ */
+class DataErasureException(
+    val statusCode: Int,
+    val serverMessage: String?,
+) : RuntimeException("Data erase failed: HTTP $statusCode" + (serverMessage?.let { " ($it)" } ?: ""))
+
+/** The user signed out or in again after confirming a privacy erase, so nothing was sent. */
+class AuthenticationChangedException(message: String) : IllegalStateException(message)
+
+/** Status code and body of a raw HTTP response. */
+internal data class RawHttpResponse(val code: Int, val body: String)
+
+// Erasing a large account can take the server longer than OkHttp's default 10 s read timeout
+private const val DATA_ERASE_READ_TIMEOUT_SECONDS = 60L
+
+/**
+ * Plain client for the privacy erase, created once. It has no [CookieAwareApiClient]
+ * interceptor, which would add a second Cookie header carrying the live token.
+ */
+internal val dataEraseHttpClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .readTimeout(DATA_ERASE_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .build()
+}
+
+/**
+ * `POST {baseUrl}/api/user/privacy/erase` authenticated only by [authToken], the token captured
+ * when the erase was confirmed; the endpoint needs no other cookie.
+ */
+internal fun sendDataErase(
+    baseUrl: String,
+    authToken: String,
+    client: OkHttpClient = dataEraseHttpClient,
+): RawHttpResponse {
+    val request =
+        Request.Builder()
+            .url("$baseUrl/api/user/privacy/erase")
+            .header("Cookie", "auth_token=$authToken")
+            .post("".toRequestBody("application/json".toMediaType()))
+            .build()
+
+    client.newCall(request).execute().use { response ->
+        return RawHttpResponse(response.code, response.body?.string().orEmpty())
+    }
+}
+
+/**
+ * Sends a privacy erase for the signed-in account, then runs the local [cleanupSteps] in order.
+ *
+ * The token lock is held only to check [expectedGeneration] and capture that authentication's
+ * token, never during the request. [eraseData] must send the captured token itself rather than
+ * through the cookie interceptor, which reads the live token: a sign-in that lands while the
+ * request is in flight then cannot redirect this irreversible request to a different account,
+ * and EDT code that takes the lock (sign-out, the chat panel's overlay) never waits for it.
+ * Each cleanup step runs only while [expectedGeneration] is still current: the local copies
+ * belong to the erased account, and once it signed out no later step runs, so none can reach a
+ * newer sign-in. A failing step goes to [onCleanupFailure] and the remaining steps still run,
+ * because the server has already erased the data.
+ *
+ * @return The erased counts, or `null` when the response did not report them
+ * @throws AuthenticationChangedException If authentication changed after the erase was confirmed
+ * @throws DataErasureException If nobody is signed in (401, and nothing is sent) or the server
+ *   answered with a non-2xx status; nothing is cleaned up
+ */
+internal fun eraseCollectedDataAndClearLocalData(
+    authState: AuthSettings,
+    expectedGeneration: Long,
+    eraseData: (authToken: String) -> RawHttpResponse,
+    cleanupSteps: List<() -> Unit>,
+    onCleanupFailure: (Throwable) -> Unit = {},
+): ErasedDataCounts? {
+    val authToken =
+        authState.withTokenLock {
+            if (authState.tokenGeneration() != expectedGeneration) {
+                throw AuthenticationChangedException("Authentication changed before the data erase; try again")
+            }
+            authState.getToken()
+        }
+    if (authToken.isNullOrBlank()) throw DataErasureException(401, "Not signed in; nothing was sent")
+    val response = eraseData(authToken)
+    if (response.code !in 200..299) throw DataErasureException(response.code, errorDetail(response.body))
+    for (step in cleanupSteps) {
+        if (authState.tokenGeneration() != expectedGeneration) break
+        runCatching(step).onFailure(onCleanupFailure)
+    }
+    return parseErasedCounts(response.body)
+}
+
+/** The `erased` counts of a 2xx erase response, or `null` when the body does not carry them. */
+private fun parseErasedCounts(body: String): ErasedDataCounts? {
+    val erased = runCatching { Json.parseToJsonElement(body).jsonObject["erased"]?.jsonObject }.getOrNull() ?: return null
+
+    fun count(key: String): Long = (erased[key] as? JsonPrimitive)?.longOrNull ?: 0L
+
+    return ErasedDataCounts(
+        queries = count("queries"),
+        chats = count("chats"),
+        agentRuns = count("agent_runs"),
+        studyEnrollments = count("study_enrollments"),
+        studyEvents = count("study_events"),
+    )
+}
+
+/** The human-readable `detail` of an error response: a plain string or `detail.message`. */
+private fun errorDetail(body: String): String? =
+    runCatching {
+        when (val detail = Json.parseToJsonElement(body).jsonObject["detail"]) {
+            is JsonPrimitive -> detail.contentOrNull
+            is JsonObject -> detail["message"]?.jsonPrimitive?.contentOrNull
+            else -> null
+        }
+    }.getOrNull()
 
 /**
  * Main application service for the Code4Me plugin.
@@ -872,12 +1017,13 @@ class AppService {
      * the local session is automatically cleared.
      *
      * **Warning**: This operation is irreversible. All user data will be permanently lost if
-     * [deleteUserData] is set to true.
+     * [deleteUserData] is set to true. Current servers ignore the flag and always delete the data.
      *
      * @param deleteUserData Whether to permanently delete all user data (defaults to false)
      * @param expectedAuthGeneration Authentication state captured when deletion was confirmed
      * @throws IOException If there's a network connectivity issue
-     * @throws ClientException If the user is not authenticated or deletion fails (4xx errors)
+     * @throws ClientException If the user is not authenticated or deletion fails (4xx errors); an
+     *   HTTP 409 carries the server's reason for refusing, see [accountDeletionRefusal]
      * @throws ServerException If the server encounters an internal error (5xx errors)
      * @throws IllegalStateException If authentication changed before the request was sent
      */
@@ -900,6 +1046,100 @@ class AppService {
         } catch (e: Exception) {
             LOG.warn("Failed to delete user account", e)
             throw e
+        }
+    }
+
+    /**
+     * Opts the signed-in account out of data collection and permanently erases the data Code4Me
+     * has collected about it. The account and its sign-in keep working.
+     *
+     * Only after the server confirms the erase are the local copies cleared, each step only while
+     * the erased account is still signed in: the storage preferences (turned off and synced), every
+     * research context with its pending spool, and the chat history of open projects. On any
+     * failure nothing changes locally.
+     *
+     * The request carries the auth token captured as it starts, so a sign-in that lands while it
+     * is in flight cannot redirect it, and no authentication lock is held while it runs. It is a
+     * blocking network call (read timeout 60 s); keep it off the EDT.
+     *
+     * @param expectedAuthGeneration Authentication state captured when the erase was confirmed
+     * @return The erased row counts, or `null` when the server's response did not report them
+     * @throws IOException If there's a network connectivity issue
+     * @throws DataErasureException If nobody is signed in or the server answered with a non-2xx
+     *   status (401: not signed in)
+     * @throws AuthenticationChangedException If authentication changed after the erase was confirmed
+     */
+    @Throws(IOException::class, DataErasureException::class, AuthenticationChangedException::class)
+    fun eraseCollectedData(expectedAuthGeneration: Long = getAuthState().tokenGeneration()): ErasedDataCounts? {
+        try {
+            val erased =
+                eraseCollectedDataAndClearLocalData(
+                    getAuthState(),
+                    expectedAuthGeneration,
+                    { authToken -> sendDataErase(apiBaseUrl, authToken) },
+                    localCleanupAfterErase(expectedAuthGeneration),
+                ) { LOG.warn("Local cleanup after the data erase failed", it) }
+            if (getAuthState().tokenGeneration() != expectedAuthGeneration) {
+                LOG.info("Authentication changed during the data erase; local cleanup may be incomplete")
+            }
+            LOG.info("Collected data erased")
+            return erased
+        } catch (e: Exception) {
+            LOG.warn("Failed to erase collected data", e)
+            throw e
+        }
+    }
+
+    /**
+     * Local cleanup steps after a confirmed erase, in order. [eraseCollectedDataAndClearLocalData]
+     * runs each one only while the erased account is still signed in. The user stays signed in.
+     */
+    private fun localCleanupAfterErase(expectedAuthGeneration: Long): List<() -> Unit> {
+        val stillCurrent = { getAuthState().tokenGeneration() == expectedAuthGeneration }
+        return listOf(
+            {
+                // Mirror the server-side opt-out in the settings UI; the server enforces it regardless.
+                getPrefState().apply {
+                    storeContext = false
+                    storeContextualTelemetry = false
+                    storeBehavioralTelemetry = false
+                    storeAgentContent = false
+                }
+            },
+            // Delete (not quarantine) pending research records so none collected before the erase uploads.
+            { ResearchLogoutHook.eraseAllContexts(stillCurrent) },
+            { clearLocalChatsAfterErase(expectedAuthGeneration) },
+            // Checked right before this step, so the sync goes to the erased account only.
+            { updateUser(UpdateUser(preference = getPrefState().toSerializableMap())) },
+        )
+    }
+
+    /**
+     * Clears the chat history of open projects on the EDT the way account deletion does: the
+     * stored history, then a full reset of every open chat panel (sessions, history and session
+     * manager). The user stays signed in, so the panels show no sign-in overlay. Nothing is
+     * cleared once the erased account signed out; the sign-out already cleared the chats.
+     */
+    private fun clearLocalChatsAfterErase(expectedAuthGeneration: Long) {
+        val authState = getAuthState()
+        ApplicationManager.getApplication().invokeLater {
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                try {
+                    authState.runIfSignedIn(expectedAuthGeneration) {
+                        getProjectChatService(project).clearAllChatsAndMemory()
+                    }
+                    com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+                        .getToolWindow("Code4Me")
+                        ?.contentManager
+                        ?.contents
+                        ?.forEach { content ->
+                            (content.component as? me.code4me.chatWindow.components.ChatPanel)
+                                ?.resetAllChatsAfterErase(expectedAuthGeneration)
+                        }
+                } catch (e: Exception) {
+                    LOG.warn("Failed to clear chat data after the data erase for project: ${project.name}", e)
+                }
+            }
         }
     }
 

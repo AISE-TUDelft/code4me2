@@ -264,6 +264,17 @@ class AuthSettings internal constructor(
         return true
     }
 
+    /** Skips deferred signed-in UI work once the user signed out or a newer authentication exists. */
+    @Synchronized
+    internal fun runIfSignedIn(
+        expectedGeneration: Long,
+        action: () -> Unit,
+    ): Boolean {
+        if (tokenGeneration != expectedGeneration || !isAuthenticated()) return false
+        action()
+        return true
+    }
+
     @Volatile
     private var isVerified: Boolean? = false
 

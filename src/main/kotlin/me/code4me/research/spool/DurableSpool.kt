@@ -104,6 +104,27 @@ class DurableSpool(
             null
         }
 
+    /**
+     * Permanently delete this spool's directory with every pending and
+     * acknowledged record, so nothing in it can ever be uploaded (privacy
+     * erase). Unlike [quarantine] nothing is kept aside, and unlike [discard]
+     * it removes the whole spool, not a few rejected ids. Best-effort and never
+     * throws; returns `true` once the directory is gone. Symbolic links are
+     * removed, never followed.
+     */
+    @Synchronized
+    fun discardAll(): Boolean =
+        try {
+            if (Files.exists(directory)) {
+                Files.walk(directory).use { paths ->
+                    paths.sorted(Comparator.reverseOrder()).forEach(Files::delete)
+                }
+            }
+            true
+        } catch (_: Exception) {
+            !Files.exists(directory)
+        }
+
     /** Append one sanitized event durably. Returns the created record. */
     @Synchronized
     fun append(event: CanonicalEvent): SpoolRecord {

@@ -199,6 +199,15 @@ class ResearchSessionService internal constructor(
         resetManager(quarantine = true)
     }
 
+    /**
+     * Privacy-erase cleanup: stop this context like [onLogout], then delete (not
+     * quarantine) its spool so records collected before the erase are never
+     * uploaded. Returns `false` when the context did not stop cleanly or its
+     * spool could not be moved aside or deleted; the spool then stays on disk,
+     * quarantined when it could be moved.
+     */
+    fun onErase(): Boolean = resetManager(quarantine = true, discard = true)
+
     override fun dispose() {
         resetManager(quarantine = false, terminal = true)
     }
@@ -274,7 +283,15 @@ class ResearchSessionService internal constructor(
         }
     }
 
-    private fun resetManager(quarantine: Boolean, terminal: Boolean = false) {
+    /**
+     * Returns `false` only when [discard] was requested and the spool stayed on
+     * disk instead of being deleted.
+     */
+    private fun resetManager(
+        quarantine: Boolean,
+        terminal: Boolean = false,
+        discard: Boolean = false,
+    ): Boolean {
         val (previous, executor) = synchronized(this) {
             if (terminal) disposed = true
             val current = manager.also { manager = null }
@@ -282,15 +299,32 @@ class ResearchSessionService internal constructor(
         }
         if (previous == null) {
             executor?.shutdown()
-            return
+            return true
         }
         // A plain project close keeps the spool endpoint up briefly for the
         // assistant's agent processes to flush; a logout does not.
         val ipcGraceMs = if (terminal && !quarantine) ResearchSessionManager.IPC_CLOSE_GRACE_MS else 0L
-        runCatching { previous.stop(ipcGraceMs) }
-        if (quarantine) runCatching { previous.quarantineSpool() }
+        val stop = runCatching { previous.stop(ipcGraceMs) }
+        var discarded = true
+        if (quarantine) {
+            val quarantined = runCatching { previous.quarantineSpool() }.getOrNull()
+            if (discard) {
+                // A privacy erase deletes the spool it just moved aside. Moving first
+                // means a late append can no longer reach it; a context that did not
+                // stop cleanly keeps it quarantined rather than deleted under it.
+                // No moved path while the stopped manager still reported a spool
+                // means the move failed and the spool stayed where it was.
+                discarded =
+                    if (quarantined != null) {
+                        stop.isSuccess && DurableSpool(quarantined).discardAll()
+                    } else {
+                        stop.isSuccess && (stop.getOrNull() as? ResearchStopResult.Stopped)?.spoolStats == null
+                    }
+            }
+        }
         // Queued events still append to the durable spool; the thread ends after them.
         executor?.shutdown()
+        return discarded
     }
 
     /** Project runtime settings; a research misconfiguration never breaks the service. */

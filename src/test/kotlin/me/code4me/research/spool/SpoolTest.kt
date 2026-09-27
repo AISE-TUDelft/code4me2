@@ -364,6 +364,52 @@ class DurableSpoolTest {
         assertEquals(400L, stats.oldestPendingAgeMs)
     }
 
+    @Test
+    fun `discard all deletes the spool directory with every pending record`() {
+        val directory = Files.createTempDirectory("spool-discard")
+        val (first, second, third) = events(3)
+        val spool = DurableSpool(directory)
+        spool.append(first)
+        spool.append(second)
+        spool.append(third)
+        spool.acknowledge(listOf(second.eventId))
+        assertEquals(2, spool.pending().size)
+
+        assertTrue(spool.discardAll())
+
+        assertFalse(Files.exists(directory))
+        // Nothing is left to upload, even for a spool reopened over the same path.
+        assertTrue(DurableSpool(directory).pending().isEmpty())
+    }
+
+    @Test
+    fun `discard all of a missing spool succeeds`() {
+        val directory = Files.createTempDirectory("spool-discard-missing")
+        val spool = DurableSpool(directory)
+        assertTrue(spool.discardAll())
+
+        assertTrue(spool.discardAll())
+        assertFalse(Files.exists(directory))
+    }
+
+    @Test
+    fun `a quarantined spool can be discarded without touching the live path`() {
+        val directory = Files.createTempDirectory("spool-quarantine-discard")
+        val (first, second) = events(2)
+        val spool = DurableSpool(directory)
+        spool.append(first)
+        spool.append(second)
+
+        val quarantined = spool.quarantine()
+
+        assertNotNull(quarantined)
+        assertFalse(Files.exists(directory))
+        assertEquals(2, DurableSpool(quarantined!!).pending().size)
+        assertTrue(DurableSpool(quarantined).discardAll())
+        assertFalse(Files.exists(quarantined))
+        assertFalse(Files.exists(directory))
+    }
+
     private fun quarantineFiles(directory: Path): List<Path> =
         Files.list(directory).use { stream ->
             stream.filter { it.fileName.toString().startsWith("quarantine-") }.toList()
