@@ -62,13 +62,24 @@ class ParticipantStatusPresentationTest {
     fun `inactive study is informational and never notifies`() {
         val view =
             ParticipantStatusPresentation.of(
-                state(session = StudyComponentState.UNAVAILABLE),
+                state(session = StudyComponentState.UNAVAILABLE, manifestDigest = null),
             )
 
         assertEquals(ParticipantStatusPresentation.INACTIVE_HEADLINE, view.headline)
         assertEquals(ParticipantStatusSeverity.INFO, view.severity)
         assertFalse(ParticipantStatusPresentation.shouldNotify(view))
         assertTrue(view.actionHint?.contains("research settings") == true)
+    }
+
+    @Test
+    fun `enrolled study awaiting first IDE activity is ready rather than unenrolled`() {
+        val view = ParticipantStatusPresentation.of(state(session = StudyComponentState.UNAVAILABLE))
+
+        assertEquals(ParticipantStatusPresentation.READY_HEADLINE, view.headline)
+        assertEquals(ParticipantStatusSeverity.INFO, view.severity)
+        assertFalse(view.isCollecting)
+        assertTrue(view.actionHint?.contains("open, edit, or save") == true)
+        assertFalse(ParticipantStatusPresentation.shouldNotify(view))
     }
 
     
@@ -385,9 +396,10 @@ class ParticipantStatusPresentationTest {
             ParticipantStatusPresentation.RECOVERING_HEADLINE,
             ParticipantStatusPresentation.of(state(delivery = SpoolDeliveryState.RECOVERING).copy(inferenceBudget = exhausted)).headline,
         )
-        // A warning-level budget is only shown while collecting.
+        // A warning-level budget is only shown while collecting; an enrolled
+        // context awaiting its first IDE activity reads as ready.
         assertEquals(
-            ParticipantStatusPresentation.INACTIVE_HEADLINE,
+            ParticipantStatusPresentation.READY_HEADLINE,
             ParticipantStatusPresentation
                 .of(state(session = StudyComponentState.UNAVAILABLE).copy(inferenceBudget = budget(exhausted = false, fractionUsed = 0.9)))
                 .headline,

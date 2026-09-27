@@ -11,6 +11,7 @@ import packageJson from "../package.json";
 import {logger} from "./Logger";
 import {runLoginCommand} from "./login";
 import {runCodexCli} from "./CodexCli";
+import {startCompatibleResponsesRelay} from "./CompatibleResponsesRelay";
 
 if (process.argv.includes("--version")) {
     console.log(`${packageJson.name} ${packageJson.version}`);
@@ -34,10 +35,18 @@ if (process.argv[2] === "login") {
             process.exit(1);
         });
 } else {
-    startAcpServer();
+    startAcpServer().catch((error) => {
+        console.error("Codex ACP startup failed:", error.message);
+        process.exit(1);
+    });
 }
 
-function startAcpServer() {
+async function startAcpServer() {
+    const compatibleRelay = await startCompatibleResponsesRelay();
+    if (compatibleRelay) {
+        process.env["CODEX_PROXY_URL"] = compatibleRelay.url;
+        process.once("exit", () => compatibleRelay.server.close());
+    }
     const codexPath = process.env["CODEX_PATH"];
     const configString = process.env["CODEX_CONFIG"];
     const authRequestString = process.env["DEFAULT_AUTH_REQUEST"];

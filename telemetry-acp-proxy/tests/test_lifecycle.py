@@ -70,6 +70,20 @@ def test_build_environment_allowlists_and_overrides():
     assert "SECRET_TOKEN" not in environment
 
 
+
+def test_provider_environment_requires_the_participant_opt_in_and_the_launch_permission():
+    source = {"PATH": "/bin", "OPENAI_API_KEY": "local-key", "SECRET_TOKEN": "hidden"}
+    assert "OPENAI_API_KEY" not in build_environment(source=source, provider_env=True)
+    source["CODE4ME_AGENT_PROVIDER_ENV"] = "OPENAI_API_KEY,SECRET_TOKEN"
+    environment = build_environment(source=source, provider_env=True)
+    assert environment["OPENAI_API_KEY"] == "local-key"
+    assert "SECRET_TOKEN" not in environment
+    assert "CODE4ME_AGENT_PROVIDER_ENV" not in environment
+    # A launch without the permission (a study-funded agent) ignores the opt-in.
+    assert "OPENAI_API_KEY" not in build_environment(source=source)
+    # Release overrides still win over an inherited provider setting.
+    assert build_environment(source=source, provider_env=True, overrides={"OPENAI_API_KEY": "x"})["OPENAI_API_KEY"] == "x"
+
 def test_proxy_process_terminates_child_process_group():
     process = ProxyProcess([sys.executable, "-c", "import time; time.sleep(30)"])
     process.start()

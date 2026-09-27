@@ -689,7 +689,7 @@ describe('ACP server test', { timeout: 40_000 }, () => {
 
         await expect(
             fixture.getCodexAcpAgent().resumeSession({cwd: "", sessionId: sessionId})
-        ).rejects.toThrow("invalid thread id");
+        ).rejects.toThrow(/invalid (thread|session) id/);
     });
 
     it('should return available builtin commands', async () => {
@@ -745,6 +745,7 @@ describe('ACP server test', { timeout: 40_000 }, () => {
         await codexAcpAgent.initialize({protocolVersion: 1});
 
         fixture.getCodexAcpClient().authRequired = vi.fn().mockResolvedValue(false);
+        vi.spyOn(fixture.getCodexAcpClient(), "listSkills").mockResolvedValue({ data: [] });
 
         const newSessionResponse = await codexAcpAgent.newSession({cwd: "", mcpServers: []});
 

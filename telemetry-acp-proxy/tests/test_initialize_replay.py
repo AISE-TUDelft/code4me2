@@ -573,7 +573,7 @@ def test_run_proxy_with_the_flag_answers_the_duplicate_and_logs_it(monkeypatch):
     errors: list[BaseException] = []
 
     class StubProcess:
-        def __init__(self, command, env_overrides=None):
+        def __init__(self, command, env_overrides=None, provider_env=False):
             self.stdin = agent_input
             self.stdout = agent_output
             self.state = ProxyState.STOPPED

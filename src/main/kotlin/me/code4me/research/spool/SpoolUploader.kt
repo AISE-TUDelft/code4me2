@@ -576,7 +576,10 @@ class SpoolUploader(
 
     /** Schedule the next attempt from a server-provided retry hint (TI-05). */
     private fun scheduleFromHint(hintMs: Long): Long {
-        val delay = hintMs.coerceAtLeast(1L)
+        // A zero/short hint is not permission to spin on an unchanged batch.
+        // In particular, an expired capability may need a later bootstrap
+        // refresh; retrying every millisecond only exhausts the API rate limit.
+        val delay = maxOf(hintMs, backoff.delayForAttempt(attempts + 1))
         attempts += 1
         lastBackoffMs = delay
         lastError = lastError ?: "telemetry upload will be retried"

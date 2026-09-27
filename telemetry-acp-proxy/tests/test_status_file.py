@@ -12,6 +12,7 @@ import io
 import json
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from conftest import fixture_path, python_digest  # type: ignore[import-not-found]
 
@@ -115,6 +116,25 @@ def test_resolve_status_file_prefers_the_flag_then_the_environment():
     assert proxy_main.resolve_status_file("   ", env) == "env-status.json"
     assert proxy_main.resolve_status_file(None, {}) is None
     assert proxy_main.resolve_status_file(None, {proxy_main.STATUS_FILE_ENV_VAR: "   "}) is None
+
+
+def test_concurrent_status_writers_use_distinct_temporary_files(tmp_path):
+    status_path = tmp_path / "status.json"
+    diagnostics: list[str] = []
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(
+            pool.map(
+                lambda index: proxy_main.write_status_document(
+                    str(status_path), {"dropped": index}, diagnostics.append
+                ),
+                range(32),
+            )
+        )
+
+    assert not diagnostics
+    assert json.loads(status_path.read_text(encoding="utf-8"))["dropped"] in range(32)
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_status_file_flag_writes_a_content_free_document(monkeypatch, tmp_path):

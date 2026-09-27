@@ -38,6 +38,9 @@ __all__ = ["AcpForwarder", "ForwardResult", "InterceptCallback"]
 
 DEFAULT_BUFFER_SIZE = 64 * 1024
 SELF_EXIT_GRACE_SECONDS = 5.0
+#: How long a replayed response waits for the agent to finish a frame it has
+#: partly written before it is written regardless.
+REPLAY_BOUNDARY_TIMEOUT_SECONDS = 5.0
 
 FrameCallback = Callable[[AcpDirection, bytes, list[Frame]], None]
 #: Handoff for one observed chunk. Must not block: production wires it to
@@ -140,6 +143,10 @@ class AcpForwarder:
         # response), which the agent->host pump also writes: one lock guards
         # every write+flush to the host so frames can never interleave.
         host_write_lock = threading.Lock()
+        # Agent chunks are not frame aligned: a replay must also wait until the
+        # agent side is not halfway through a frame it has partly written.
+        agent_boundary = threading.Condition(host_write_lock)
+        agent_mid_frame = [False]
         # Frame counters are read-modify-written by both pumps; keep them exact.
         counters_lock = threading.Lock()
         # A replayed response is observed as AGENT_TO_HOST traffic from the
@@ -156,23 +163,30 @@ class AcpForwarder:
 
             The bytes travel the same telemetry path as a real AGENT_TO_HOST
             chunk (``on_frame`` when set, then ``delivery``), so normalization
-            still sees the response the host actually received.
+            still sees the response the host actually received. It is written
+            and observed under the host lock, like an agent chunk, so neither
+            the host nor the telemetry framing sees it inside an agent frame.
+            An empty replacement (a withheld chunk) writes nothing.
             """
+            if not replacement:
+                return
+            frames = FrameReader().feed(replacement)
             try:
-                with host_write_lock:
+                with agent_boundary:
+                    agent_boundary.wait_for(
+                        lambda: not agent_mid_frame[0], timeout=REPLAY_BOUNDARY_TIMEOUT_SECONDS
+                    )
                     host_write.write(replacement)
                     host_write.flush()
+                    if frames:
+                        _count(AcpDirection.AGENT_TO_HOST, frames)
+                    with agent_observation_lock:
+                        if frames and self.on_frame is not None:
+                            self.on_frame(AcpDirection.AGENT_TO_HOST, replacement, frames)
+                        self.delivery(AcpDirection.AGENT_TO_HOST, replacement)
             except (BrokenPipeError, OSError, ValueError) as error:
                 # A dead host stream must not take the forwarding pump down.
                 self._emit(f"proxy: {AcpDirection.AGENT_TO_HOST.value} stream closed: {error}")
-                return
-            frames = FrameReader().feed(replacement)
-            if frames:
-                _count(AcpDirection.AGENT_TO_HOST, frames)
-            with agent_observation_lock:
-                if frames and self.on_frame is not None:
-                    self.on_frame(AcpDirection.AGENT_TO_HOST, replacement, frames)
-                self.delivery(AcpDirection.AGENT_TO_HOST, replacement)
 
         def _pump(
             reader_stream: BinaryIO,
@@ -213,18 +227,31 @@ class AcpForwarder:
                     # enqueue); the spool POST + retries happen only on the
                     # delivery worker thread.
                     guard = (
-                        host_write_lock
+                        agent_boundary
                         if direction is AcpDirection.AGENT_TO_HOST
                         else contextlib.nullcontext()
                     )
                     with guard:
                         writer_stream.write(chunk)
                         writer_stream.flush()
-                    with observation_guard:
-                        self.delivery(direction, chunk)
+                        if direction is AcpDirection.AGENT_TO_HOST:
+                            agent_mid_frame[0] = reader.buffered_bytes > 0
+                            agent_boundary.notify_all()
+                            # Observed before the lock is released: a replay
+                            # woken above cannot reach the telemetry first.
+                            with observation_guard:
+                                self.delivery(direction, chunk)
+                    if direction is not AcpDirection.AGENT_TO_HOST:
+                        with observation_guard:
+                            self.delivery(direction, chunk)
             except (BrokenPipeError, OSError, ValueError) as error:
                 self._emit(f"proxy: {direction.value} stream closed: {error}")
             finally:
+                if direction is AcpDirection.AGENT_TO_HOST:
+                    # A frame the agent never finished will not finish now.
+                    with agent_boundary:
+                        agent_mid_frame[0] = False
+                        agent_boundary.notify_all()
                 try:
                     writer_stream.close()
                 except OSError:

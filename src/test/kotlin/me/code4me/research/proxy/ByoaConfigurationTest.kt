@@ -190,6 +190,21 @@ class ByoaConfigurationTest {
     }
 
     @Test
+    fun `a gateway tools binding is enforced by the gateway and never by an env variable`() {
+        val gatewayTools = AgentConfigBindingRef("tools", "gateway", "tool_allowlist", format = "json")
+        val bindings = gatewayBindings() + gatewayTools
+
+        val mapping = applyByoaConfiguration(bindings, profile, runtime)
+        assertFalse(mapping.env.containsKey("tool_allowlist"))
+        assertFalse(mapping.env.values.any { it.contains("shell") })
+        assertTrue("tools" !in missingByoaBindings(bindings, profile, runtime))
+
+        // Without a gateway in the manifest nothing would enforce the selection:
+        // the launch must fail closed instead of running an unenforced arm.
+        assertTrue("tools" in missingByoaBindings(listOf(gatewayTools), profile))
+    }
+
+    @Test
     fun `runtime fields are required only when the manifest carries a gateway`() {
         val profileOnly = listOf(AgentConfigBindingRef("model", "env", "GOOSE_MODEL"))
         val bare =

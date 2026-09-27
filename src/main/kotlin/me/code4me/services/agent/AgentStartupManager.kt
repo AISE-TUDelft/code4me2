@@ -51,24 +51,32 @@ object AgentStartupManager {
             return
         }
 
-        if (task.frameworkVersion != "goose") {
+        val assignedFramework = task.frameworkVersion?.lowercase()
+        if (assignedFramework != "goose" && assignedFramework != "codex") {
             LOG.info(
                 "[AgentStartupManager] assigned runtime=${task.frameworkVersion ?: "unknown"}; " +
-                    "Goose entry will not be registered",
+                    "developer agent entries will not be registered",
             )
             AcpManager.removeDeveloperGooseEntry()
+            AcpManager.removeDeveloperCodexEntry()
             return
         }
 
-        LOG.info("[AgentStartupManager] detecting Goose binary…")
-        val goosePath = GooseRuntime.detect()
-        if (goosePath == null) {
-            // Goose is one optional runtime among several (Codex is the other) — its absence
-            // must not block registering whichever runtimes *are* available.
-            showGooseNotFoundNotification(project)
-        } else {
-            LOG.info("[AgentStartupManager] Goose binary resolved: $goosePath")
-        }
+        val goosePath =
+            if (assignedFramework == "goose") {
+                AcpManager.removeDeveloperCodexEntry()
+                LOG.info("[AgentStartupManager] detecting Goose binary…")
+                GooseRuntime.detect().also { path ->
+                    if (path == null) {
+                        showGooseNotFoundNotification(project)
+                    } else {
+                        LOG.info("[AgentStartupManager] Goose binary resolved: $path")
+                    }
+                }
+            } else {
+                AcpManager.removeDeveloperGooseEntry()
+                null
+            }
 
         val localProxyBaseUrl = LocalProxyServer.baseUrl()
         val envBundle = GooseRuntime.buildEnvBundle(localProxyBaseUrl, task.model)
@@ -77,7 +85,7 @@ object AgentStartupManager {
         // Resolve and prepare the vendored codex-acp proxy. We only register the Codex
         // entry if its npm dependencies are installed (auto-installing them on first run),
         // so we never hand the ACP runner a source dir that would crash on launch.
-        val rawCodexDir = detectCodexProxySourceDir()
+        val rawCodexDir = if (assignedFramework == "codex") detectCodexProxySourceDir() else null
         val codexSourceDir =
             if (rawCodexDir != null && withContext(Dispatchers.IO) { ensureCodexInstalled(rawCodexDir) }) rawCodexDir else null
         LOG.info("[AgentStartupManager] codex proxy source: ${codexSourceDir ?: "not available — skipping Codex entry"}")

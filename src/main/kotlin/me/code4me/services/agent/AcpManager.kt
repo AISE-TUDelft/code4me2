@@ -25,7 +25,6 @@ import java.nio.file.attribute.PosixFilePermission
  */
 object AcpManager {
     private val LOG = thisLogger()
-    private val json = Json { prettyPrint = true }
 
     internal val acpFile: File
         get() = File(System.getProperty("user.home"), ".jetbrains/acp.json")
@@ -49,146 +48,81 @@ object AcpManager {
         codexSourceDir: String? = null,
     ) {
         LOG.info("[AcpManager] writeOrUpdate called with goosePath=${goosePath ?: "<null>"}, codexSourceDir=${codexSourceDir ?: "<null>"}")
+        val path = acpFile.toPath()
+        AcpRegistryVfs.beforeWrite(path)
         try {
-            val file = acpFile
-            file.parentFile.mkdirs()
-
-            val existing: JsonObject =
-                if (file.exists()) {
-                    try {
-                        json.parseToJsonElement(file.readText()).jsonObject
-                    } catch (e: Exception) {
-                        LOG.warn("[AcpManager] Could not parse existing acp.json — starting fresh", e)
-                        JsonObject(emptyMap())
-                    }
-                } else {
-                    JsonObject(emptyMap())
-                }
-
-            // Preserve any pre-existing servers. For our own entries we're idempotent: keep a
-            // correctly-formatted entry as-is, and only (re)write it when it's missing or its
-            // shape/values don't match what's needed. We never touch third-party entries.
-            val existingServers = existing["agent_servers"]?.jsonObject ?: JsonObject(emptyMap())
-            val servers = existingServers.toMutableMap()
-            var changed = false
-
-            if (goosePath != null) {
-                val gooseEntry =
-                    JsonObject(
-                        mapOf(
-                            "command" to JsonPrimitive(goosePath),
-                            "args" to JsonArray(listOf(JsonPrimitive("acp"))),
-                            "env" to JsonObject(envBundle.mapValues { JsonPrimitive(it.value) }),
-                        ),
-                    )
-                if (servers.putIfCorrect(GOOSE_ENTRY_NAME, gooseEntry)) changed = true
-            } else {
-                LOG.info("[AcpManager] Goose not detected — leaving any existing '$GOOSE_ENTRY_NAME' entry untouched")
-            }
-
-            if (!codexSourceDir.isNullOrBlank()) {
-                val codexEntry =
-                    JsonObject(
-                        mapOf(
-                            "command" to JsonPrimitive("npx"),
-                            "args" to
-                                JsonArray(
-                                    listOf(
-                                        JsonPrimitive("npm"),
-                                        JsonPrimitive("run"),
-                                        JsonPrimitive("start"),
-                                        JsonPrimitive("--prefix"),
-                                        JsonPrimitive(codexSourceDir),
-                                    ),
-                                ),
-                            // The vendored codex-acp patch routes every Codex model call at
-                            // CODEX_PROXY_URL, so OPENAI_API_KEY is never used against OpenAI
-                            // directly — it only exists because the Codex CLI refuses to start
-                            // without one.
-                            "env" to
-                                JsonObject(
-                                    mapOf(
-                                        "CODEX_PROXY_URL" to JsonPrimitive("${localProxyBaseUrl.trimEnd('/')}/v1"),
-                                        "OPENAI_API_KEY" to JsonPrimitive(GooseRuntime.PROXY_API_KEY_PLACEHOLDER),
-                                    ),
-                                ),
-                        ),
-                    )
-                if (servers.putIfCorrect(CODEX_ENTRY_NAME, codexEntry)) changed = true
-            } else {
-                LOG.info("[AcpManager] codexSourceDir not set — leaving any existing '$CODEX_ENTRY_NAME' entry untouched")
-            }
-
-            if (!changed) {
-                LOG.info("[AcpManager] acp.json already up-to-date — skipping write")
-                return
-            }
-
-            val updatedRoot = JsonObject(existing.toMutableMap().also { it["agent_servers"] = JsonObject(servers) })
-
-            AcpRegistryVfs.beforeWrite(file.toPath())
-            val tmp = File(file.parent, "acp.json.tmp")
-            tmp.writeText(json.encodeToString(JsonObject.serializer(), updatedRoot))
-            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-            AcpRegistryVfs.afterWrite(file.toPath())
-
-            LOG.info("[AcpManager] acp.json written to ${file.absolutePath}")
-        } catch (e: Exception) {
-            LOG.warn("[AcpManager] Failed to write acp.json", e)
+            writeDeveloperEntries(path, goosePath, envBundle, localProxyBaseUrl, codexSourceDir)
+        } finally {
+            AcpRegistryVfs.afterWrite(path)
         }
     }
 
-    fun removeDeveloperGooseEntry() {
-        try {
-            val file = acpFile
-            if (!file.exists()) return
-            val root = json.parseToJsonElement(file.readText()).jsonObject
-            val servers = (root["agent_servers"]?.jsonObject ?: return).toMutableMap()
-            if (servers.remove(GOOSE_ENTRY_NAME) == null) return
-            val updated = JsonObject(root.toMutableMap().also { it["agent_servers"] = JsonObject(servers) })
-            val tmp = File(file.parent, "acp.json.tmp")
-            tmp.writeText(json.encodeToString(JsonObject.serializer(), updated))
-            try {
-                Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-            } catch (_: Exception) {
-                Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            }
-            LOG.info("[AcpManager] removed '$GOOSE_ENTRY_NAME' because it is not the assigned runtime")
-        } catch (e: Exception) {
-            LOG.warn("[AcpManager] Failed to remove stale '$GOOSE_ENTRY_NAME' entry", e)
+    /**
+     * Register the developer Goose/Codex entries in [registryPath].
+     *
+     * Every write goes through [AcpRegistryWriter]: under the JVM monitor and
+     * the file lock, through a unique temporary file, owner-only (the registry
+     * can carry a research entry's capability), idempotent, and never over a
+     * registry it cannot parse.
+     */
+    internal fun writeDeveloperEntries(
+        registryPath: java.nio.file.Path,
+        goosePath: String?,
+        envBundle: Map<String, String>,
+        localProxyBaseUrl: String,
+        codexSourceDir: String?,
+    ) {
+        val writer = AcpRegistryWriter(registryPath)
+        if (goosePath != null) {
+            writer
+                .registerProxyEntry(GOOSE_ENTRY_NAME, goosePath, listOf("acp"), envBundle)
+                .onFailure { LOG.warn("[AcpManager] Failed to register '$GOOSE_ENTRY_NAME'", it) }
+        } else {
+            LOG.info("[AcpManager] Goose not detected — leaving any existing '$GOOSE_ENTRY_NAME' entry untouched")
+        }
+        if (!codexSourceDir.isNullOrBlank()) {
+            writer
+                .registerProxyEntry(
+                    CODEX_ENTRY_NAME,
+                    "npx",
+                    // `--silent`: ACP stdout must carry JSON-RPC only, and `npm run`
+                    // otherwise prints its script banner there before the adapter starts.
+                    listOf("npm", "run", "--silent", "start", "--prefix", codexSourceDir),
+                    // The vendored codex-acp patch routes every Codex model call at
+                    // CODEX_PROXY_URL, so OPENAI_API_KEY is never used against OpenAI
+                    // directly — it only exists because the Codex CLI refuses to start
+                    // without one.
+                    mapOf(
+                        "CODEX_PROXY_URL" to "${localProxyBaseUrl.trimEnd('/')}/v1",
+                        "OPENAI_API_KEY" to GooseRuntime.PROXY_API_KEY_PLACEHOLDER,
+                    ),
+                ).onFailure { LOG.warn("[AcpManager] Failed to register '$CODEX_ENTRY_NAME'", it) }
+        } else {
+            LOG.info("[AcpManager] codexSourceDir not set — leaving any existing '$CODEX_ENTRY_NAME' entry untouched")
         }
     }
 
-    // Writes [expected] under [name] only if the current entry is missing or doesn't already
-    // match it exactly — a correctly-formatted entry is left as-is. Keeps acp.json stable
-    // across runs while still healing stale/malformed entries.
-    // Returns true if the map was modified (entry was missing or stale), false if already correct.
-    private fun MutableMap<String, JsonElement>.putIfCorrect(
-        name: String,
-        expected: JsonObject,
-    ): Boolean {
-        return when {
-            this[name] == expected -> {
-                LOG.info("[AcpManager] '$name' already present and correct — keeping")
-                false
-            }
+    fun removeDeveloperGooseEntry() = removeDeveloperEntry(acpFile.toPath(), GOOSE_ENTRY_NAME)
 
-            containsKey(name) -> {
-                LOG.info("[AcpManager] '$name' present but outdated/malformed — rewriting")
-                this[name] = expected
-                true
-            }
+    fun removeDeveloperCodexEntry() = removeDeveloperEntry(acpFile.toPath(), CODEX_ENTRY_NAME)
 
-            else -> {
-                LOG.info("[AcpManager] '$name' missing — writing")
-                this[name] = expected
-                true
-            }
-        }
+    /** Remove one developer entry the same locked, owner-only way (see [writeDeveloperEntries]). */
+    internal fun removeDeveloperEntry(
+        registryPath: java.nio.file.Path,
+        entryName: String,
+    ) {
+        val writer = AcpRegistryWriter(registryPath)
+        if (!writer.hasEntry(entryName)) return
+        AcpRegistryVfs.beforeWrite(registryPath)
+        writer
+            .removeEntry(entryName)
+            .onSuccess { LOG.info("[AcpManager] removed '$entryName' because it is not the assigned runtime") }
+            .onFailure { LOG.warn("[AcpManager] Failed to remove stale '$entryName' entry", it) }
+        AcpRegistryVfs.afterWrite(registryPath)
     }
 
-    private const val GOOSE_ENTRY_NAME = "Goose (Code4Me)"
-    private const val CODEX_ENTRY_NAME = "Codex (Code4Me)"
+    internal const val GOOSE_ENTRY_NAME = "Goose (Code4Me)"
+    internal const val CODEX_ENTRY_NAME = "Codex (Code4Me)"
 }
 
 internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
@@ -201,10 +135,7 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
     ): Result<Unit> =
         runCatching {
             Files.createDirectories(registryPath.parent)
-            val lockPath = registryPath.resolveSibling("${registryPath.fileName}.lock")
-            FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
-                channel.lock().use { updateRegistry(executable, bridgeDirectory) }
-            }
+            withRegistryLock { updateRegistry(executable, bridgeDirectory) }
         }
 
     private fun updateRegistry(

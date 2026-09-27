@@ -15,6 +15,10 @@ from telemetry_acp_proxy.normalize import ProxyNormalizer, build_capability_snap
 from telemetry_acp_proxy.observe import AcpDirection, Observer
 
 
+def test_generic_acp_release_identity_uses_base_normalizer():
+    assert get_adapter("generic-acp") is None
+
+
 def _transcript_observations():
     messages = json.loads(fixture_path("acp_transcript.json").read_text())
     observer = Observer()

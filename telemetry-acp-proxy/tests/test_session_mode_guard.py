@@ -159,3 +159,33 @@ def test_composed_interceptors_all_see_every_chunk_and_the_first_answer_wins():
     composed = proxy_main._compose_interceptors([first, second, third])
     assert composed(AcpDirection.HOST_TO_AGENT, b"", [], 0) == b"answer"
     assert seen == ["first", "second", "third"]
+
+
+def test_a_replay_waits_for_the_agent_to_finish_a_frame_it_has_partly_written():
+    import time
+
+    guard = SessionModeGuard()
+    forwarder = AcpForwarder(observer=Observer(), intercept=guard.intercept)
+    host_input, host_output = _MemoryChannel(), _MemoryChannel()
+    agent_input, agent_output = _MemoryChannel(), _MemoryChannel()
+    thread = threading.Thread(
+        target=lambda: forwarder.run(host_input, host_output, agent_output, agent_input, grace_seconds=2.0),
+        daemon=True,
+    )
+    thread.start()
+    update = encode_message({"jsonrpc": "2.0", "method": "session/update", "params": {"text": "x" * 100}})
+    try:
+        agent_output.write(update[:40])  # the agent is halfway through a frame
+        time.sleep(0.2)
+        host_input.write(_set_mode(7))  # a replay is due now
+        time.sleep(0.3)
+        agent_output.write(update[40:])  # the frame completes
+        time.sleep(0.3)
+    finally:
+        host_input.close()
+        agent_output.close()
+        thread.join(timeout=5.0)
+    lines = [json.loads(line) for line in bytes(host_output.written).split(b"\n") if line]
+    assert lines[0]["method"] == "session/update" and lines[0]["params"]["text"] == "x" * 100
+    assert lines[1]["id"] == 7 and lines[1]["error"]["code"] == SET_MODE_REFUSED_CODE
+

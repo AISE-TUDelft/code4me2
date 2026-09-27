@@ -38,6 +38,7 @@ class _Recorder:
     def __init__(self, argv, env_overrides=None, **kwargs):
         self.argv = argv
         self.env_overrides = dict(env_overrides or {})
+        self.kwargs = kwargs
         _Recorder.instances.append(self)
 
     def start(self):
@@ -185,3 +186,11 @@ def test_inherited_provider_variables_are_dropped_while_overrides_win():
         overrides={"OPENAI_API_KEY": CREDENTIAL, "GOOSE_PROVIDER": "openai"},
     )
     assert environment == {"HOME": "/home/p", "PATH": "/bin", "OPENAI_API_KEY": CREDENTIAL, "GOOSE_PROVIDER": "openai"}
+
+
+def test_only_a_launch_without_a_gateway_credential_may_inherit_provider_settings(tmp_path, monkeypatch):
+    credential, _ = proxy_main.load_inference_credential(str(_credential_file(tmp_path)))
+    _run(monkeypatch, credential=credential)
+    assert _Recorder.instances[-1].kwargs["provider_env"] is False
+    _run(monkeypatch, credential=None)
+    assert _Recorder.instances[-1].kwargs["provider_env"] is True

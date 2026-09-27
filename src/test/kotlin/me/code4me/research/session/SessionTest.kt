@@ -2974,6 +2974,17 @@ class ResearchSessionMaintenanceTest {
         assertEquals(SpoolDeliveryState.ACTIVE, manager.state().deliveryState)
     }
 
+    @Test
+    fun `new activation clears a persisted uploader terminal marker with its fresh capability`() {
+        val delivery = FakeDelivery(revoked = true)
+        val manager = manager(sessionsHttp { 30L }, singleManifestTransport(), delivery, FakeScheduler())
+
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        assertFalse(delivery.revoked)
+        assertEquals(1, delivery.adoptedCapabilities.size)
+        assertEquals(SpoolDeliveryState.ACTIVE, manager.state().deliveryState)
+    }
+
     // ------------------------------------------------------------------
     // Consent is mirrored from the manifest (D-1/TC-01..TC-05)
     // ------------------------------------------------------------------

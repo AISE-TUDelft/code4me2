@@ -44,6 +44,7 @@ data class ParticipantStatusView(
 
 object ParticipantStatusPresentation {
     const val ACTIVE_HEADLINE = "Research: active"
+    const val READY_HEADLINE = "Research: ready"
     const val PAUSED_HEADLINE = "Research: paused"
     const val BLOCKED_HEADLINE = "Research: blocked"
     const val FAILED_HEADLINE = "Research: failed"
@@ -308,6 +309,16 @@ object ParticipantStatusPresentation {
                             ParticipantStatusSeverity.OK,
                             null,
                             null,
+                        )
+                    state.manifestDigest != null &&
+                        state.consentState == StudyComponentState.AVAILABLE &&
+                        state.compatibilityState == StudyComponentState.AVAILABLE &&
+                        state.sessionState == StudyComponentState.UNAVAILABLE ->
+                        Resolved(
+                            READY_HEADLINE,
+                            ParticipantStatusSeverity.INFO,
+                            null,
+                            "Collection starts when you open, edit, or save a file in this project.",
                         )
                     else ->
                         Resolved(
