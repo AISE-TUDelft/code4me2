@@ -692,21 +692,40 @@ class ResearchSessionManagerTest {
     }
 
     @Test
-    fun `idle timeout ends the session and stops collection`() {
+    fun `idle timeout rotates the session and keeps collecting`() {
+        // D-01: an idle end must never tear the runtime down. The heartbeat that
+        // observes the idle boundary ends the session locally, re-bootstraps and
+        // adopts the fresh session the server names, all while the collector
+        // stays attached.
         val source = FakeIdeSource()
         val clock = newClock()
-        val manager = manager(validTransport(), clock = clock, source = source)
+        val fetches = AtomicInteger()
+        val transport =
+            BootstrapTransport { _, _ ->
+                val sessionId = if (fetches.getAndIncrement() == 0) "session-idle-1" else "session-idle-2"
+                BootstrapTransportResult.Success(manifestJson(researchSessionId = sessionId))
+            }
+        val manager = manager(transport, clock = clock, source = source)
         manager.activate("enrollment-1")
         source.push(activity())
+        assertEquals("session-idle-1", manager.currentSession?.sessionId)
 
         // Manifest policy: idle_timeout_seconds = 600.
         clock.advanceMs(600_001L)
 
         val heartbeat = manager.heartbeat()
 
-        assertEquals(SessionState.ENDED, (heartbeat as ResearchSessionResult.Applied).sessionState)
-        assertFalse(manager.isCollecting)
-        assertEquals(StudyBlockReason.SESSION_ENDED, manager.state().blockReason)
+        assertEquals(SessionState.NOT_STARTED, (heartbeat as ResearchSessionResult.Applied).sessionState)
+        assertEquals(2, fetches.get(), "the idle end must re-bootstrap exactly once")
+        assertEquals("session-idle-2", manager.currentSession?.sessionId, "the fresh server session is adopted")
+        assertTrue(manager.isActive)
+        assertTrue(manager.isCollecting, "the collector stays attached across the idle boundary")
+        assertNull(manager.state().blockReason, "a rotated session is not 'ended' for the participant")
+
+        // Later activity belongs to the new session and starts it.
+        source.push(activity())
+        assertEquals(SessionState.RUNNING, manager.currentSession?.state)
+        assertEquals("session-idle-2", manager.currentSession?.sessionId)
     }
 
     @Test
@@ -2039,7 +2058,7 @@ class ResearchSessionSpoolWiringTest {
     }
 
     @Test
-    fun `the default capability file path is stable per enrollment and is removed on teardown`() {
+    fun `the default capability file path is stable per enrollment and context and is removed on teardown`() {
         val spool = DurableSpool(root.resolve("spool"))
         val capabilityRoot = root.resolve("capability-root")
         val manager =
@@ -2053,10 +2072,18 @@ class ResearchSessionSpoolWiringTest {
         val firstPath = argAfter(registryArgs(), AcpHostRegistration.CAPABILITY_FILE_FLAG)
         assertNotNull(firstPath)
         val writtenFile = Path.of(firstPath!!)
+        // D-03: scoped per (enrollment, execution context) like the inference
+        // credential file, so two windows never overwrite each other's token.
+        val contextKey = ResearchSessionManager.sessionStoreKey("enrollment-1", manager.contextId)!!
         assertEquals(
+            capabilityRoot.resolve("capability-${ResearchSessionManager.opaqueSessionKey(contextKey)}.txt"),
+            writtenFile,
+            "the default capability file must be stable per enrollment and context, not a fresh temp file",
+        )
+        assertNotEquals(
             capabilityRoot.resolve("capability-${ResearchSessionManager.opaqueSessionKey("enrollment-1")}.txt"),
             writtenFile,
-            "the default capability file must be stable per enrollment, not a fresh temp file",
+            "the per-enrollment path would be shared by every window of the enrollment",
         )
         assertTrue(Files.exists(writtenFile), "the capability file is written for the proxy")
         assertEquals("ipc-capability", Files.readString(writtenFile).trim())
@@ -2835,16 +2862,27 @@ class ResearchSessionMaintenanceTest {
     }
 
     @Test
-    fun `maintenance ends a locally idle session and stops heartbeating`() {
+    fun `maintenance rotates a locally idle session and keeps heartbeating the new one`() {
+        // D-01: the idle boundary ends the session locally and the same tick
+        // re-bootstraps, adopts the fresh session and opens it on the server; the
+        // runtime (collector, delivery, loop) is never torn down.
         val source = FakeIdeSource()
         val epochMs = AtomicLong(VALID_NOW.toEpochMilli())
         val http = sessionsHttp { 30L }
         val scheduler = FakeScheduler()
+        val delivery = FakeDelivery()
+        val transport =
+            SequenceTransport(
+                listOf(
+                    manifestWithCapability("capability-1", "2026-01-01T01:00:00Z", "session-1"),
+                    manifestWithCapability("capability-2", "2026-01-01T02:00:00Z", "session-2"),
+                ),
+            )
         val manager =
             manager(
                 http,
-                singleManifestTransport(),
-                FakeDelivery(),
+                transport,
+                delivery,
                 scheduler,
                 source = source,
                 clockMs = { epochMs.get() },
@@ -2856,21 +2894,33 @@ class ResearchSessionMaintenanceTest {
         // not reset the idle clock (the manifest idle timeout is 600 s).
         epochMs.addAndGet(300_000L)
         assertTrue(manager.performMaintenance() is ResearchMaintenanceResult.Maintained)
+        val createsBeforeIdle = http.requests.count { it.url.encodedPath == "/api/research/sessions/" }
 
         epochMs.addAndGet(300_001L)
-        val requestsBeforeIdle = http.requests.size
         val idle = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
 
-        assertTrue(idle is ResearchMaintenanceResult.Ended)
-        assertEquals(StudyBlockReason.SESSION_ENDED, (idle as ResearchMaintenanceResult.Ended).reason)
-        assertEquals(SessionState.ENDED, manager.currentSession?.state)
-        assertEquals(requestsBeforeIdle, http.requests.size, "an idle session must stop heartbeating")
-        assertFalse(manager.isActive)
-        assertTrue(scheduler.cancelled.isNotEmpty(), "local idle expiry must cancel the maintenance loop")
+        assertTrue(idle is ResearchMaintenanceResult.Rotated, idle.toString())
+        assertEquals("session-2", (idle as ResearchMaintenanceResult.Rotated).sessionId)
+        assertEquals(2, transport.fetches.get(), "the idle end must re-bootstrap exactly once")
+        assertEquals(SessionState.NOT_STARTED, manager.currentSession?.state)
+        assertEquals("session-2", manager.currentSession?.sessionId)
+        assertEquals(
+            createsBeforeIdle + 1,
+            http.requests.count { it.url.encodedPath == "/api/research/sessions/" },
+            "the fresh session is opened on the server",
+        )
+        assertEquals("session-2", bodyOf(http.requests.last { it.url.encodedPath.endsWith("/heartbeat") })["research_session_id"])
+        assertTrue(manager.isActive)
+        assertTrue(manager.isCollecting, "the collector stays attached")
+        assertFalse(delivery.closed, "the uploader is never torn down by an idle end")
+        assertEquals("capability-2", delivery.adoptedCapabilities.last()["capability_id"])
+        assertTrue(scheduler.cancelled.isEmpty(), "the maintenance loop keeps running at the same cadence")
+        assertNull(manager.state().blockReason)
 
-        // No retry loop: later ticks are inert and emit nothing.
-        repeat(3) { assertTrue(manager.performMaintenance() is ResearchMaintenanceResult.Inactive) }
-        assertEquals(requestsBeforeIdle, http.requests.size)
+        // Later ticks heartbeat the new session; nothing is inert.
+        val heartbeatsAfterRotation = http.requests.count { it.url.encodedPath.endsWith("/heartbeat") }
+        assertTrue(manager.performMaintenance() is ResearchMaintenanceResult.Maintained)
+        assertEquals(heartbeatsAfterRotation + 1, http.requests.count { it.url.encodedPath.endsWith("/heartbeat") })
     }
 
     @Test
@@ -2897,7 +2947,7 @@ class ResearchSessionMaintenanceTest {
     fun `near-expiry maintenance re-bootstraps and the running uploader adopts the fresh capability`() {
         val http = sessionsHttp { 30L }
         val scheduler = FakeScheduler()
-        val delivery = FakeDelivery(revoked = true)
+        val delivery = FakeDelivery()
         val transport =
             SequenceTransport(
                 listOf(
@@ -2907,6 +2957,8 @@ class ResearchSessionMaintenanceTest {
             )
         val manager = manager(http, transport, delivery, scheduler)
         assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        // A 401 recorded by the running uploader (its capability expired).
+        delivery.revoked = true
         assertEquals(SpoolDeliveryState.REVOKED, manager.state().deliveryState)
 
         val maintenance = manager.performMaintenance()
@@ -2914,7 +2966,9 @@ class ResearchSessionMaintenanceTest {
         assertTrue(maintenance is ResearchMaintenanceResult.Maintained)
         assertTrue((maintenance as ResearchMaintenanceResult.Maintained).capabilityRefreshed)
         assertEquals(2, transport.fetches.get(), "the re-bootstrap must run before the capability expires")
-        val adopted = delivery.adoptedCapabilities.single()
+        // The activation capability is adopted at start (D-09); the refresh pushes the fresh one.
+        val adopted = delivery.adoptedCapabilities.last()
+        assertEquals(listOf("capability-1", "capability-2"), delivery.adoptedCapabilities.map { it["capability_id"] })
         assertEquals("capability-2", adopted["capability_id"])
         assertFalse(delivery.revoked, "adopting a fresh capability must clear the revoked state")
         assertEquals(SpoolDeliveryState.ACTIVE, manager.state().deliveryState)
@@ -3025,7 +3079,11 @@ class ResearchSessionMaintenanceTest {
         assertTrue(manager.isActive)
         assertFalse(manager.currentSession?.isTerminal ?: true)
         assertFalse(delivery.closed)
-        assertTrue(delivery.adoptedCapabilities.isEmpty(), "a failed tick must not push a bogus capability")
+        assertEquals(
+            listOf("capability-1"),
+            delivery.adoptedCapabilities.map { it["capability_id"] },
+            "a failed tick must not push a bogus capability (only the activation capability was adopted)",
+        )
     }
 
     @Test
@@ -3058,7 +3116,8 @@ class ResearchSessionMaintenanceTest {
         val maintenance = manager.performMaintenance()
 
         assertTrue(maintenance is ResearchMaintenanceResult.Maintained)
-        assertEquals("capability-2", delivery.adoptedCapabilities.single()["capability_id"])
+        assertEquals(listOf("capability-1", "capability-2"), delivery.adoptedCapabilities.map { it["capability_id"] })
+        assertEquals("capability-2", delivery.adoptedCapabilities.last()["capability_id"])
         assertTrue(manager.isActive, "an expired capability is recoverable, not terminal")
     }
 
@@ -3067,13 +3126,18 @@ class ResearchSessionMaintenanceTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `a terminal heartbeat ends the session and is never resurrected`() {
+    fun `a terminal heartbeat rotates the session instead of ending the runtime`() {
+        // D-01: a server SESSION_TERMINAL is the end of *that* session, not of
+        // the study: the same tick re-bootstraps, adopts the fresh session and
+        // keeps the runtime and the maintenance loop.
         var terminal = false
         val http =
             MaintenanceHttp { request ->
                 when {
-                    request.url.encodedPath.endsWith("/heartbeat") && terminal ->
+                    request.url.encodedPath.endsWith("/heartbeat") && terminal -> {
+                        terminal = false
                         jsonResponse(request, 409, terminalBody("SESSION_TERMINAL"))
+                    }
                     request.url.encodedPath.endsWith("/heartbeat") ->
                         jsonResponse(request, 200, heartbeatBody(30L))
                     else ->
@@ -3082,19 +3146,34 @@ class ResearchSessionMaintenanceTest {
             }
         val scheduler = FakeScheduler()
         val delivery = FakeDelivery()
-        val transport = SequenceTransport(listOf(manifestWithCapability("capability-1", "2026-01-01T01:00:00Z", "session-1")))
+        val transport =
+            SequenceTransport(
+                listOf(
+                    manifestWithCapability("capability-1", "2026-01-01T01:00:00Z", "session-1"),
+                    manifestWithCapability("capability-2", "2026-01-01T02:00:00Z", "session-2"),
+                ),
+            )
         val manager = manager(http, transport, delivery, scheduler)
         manager.activate("enrollment-1")
+        val createsBefore = http.requests.count { it.url.encodedPath == "/api/research/sessions/" }
         terminal = true
 
         val maintenance = assertDoesNotThrow<ResearchMaintenanceResult> { manager.performMaintenance() }
 
-        assertTrue(maintenance is ResearchMaintenanceResult.Ended)
-        assertEquals(StudyBlockReason.SESSION_ENDED, (maintenance as ResearchMaintenanceResult.Ended).reason)
-        assertFalse(manager.isActive)
-        assertEquals(SessionState.ENDED, manager.currentSession?.state)
-        assertEquals(StudyBlockReason.SESSION_ENDED, manager.state().blockReason)
-        assertTrue(scheduler.cancelled.isNotEmpty(), "the maintenance loop must stop")
+        assertTrue(maintenance is ResearchMaintenanceResult.Rotated, maintenance.toString())
+        assertEquals("session-2", (maintenance as ResearchMaintenanceResult.Rotated).sessionId)
+        assertEquals(2, transport.fetches.get(), "the server end re-bootstraps exactly once")
+        assertEquals(createsBefore + 1, http.requests.count { it.url.encodedPath == "/api/research/sessions/" })
+        assertTrue(manager.isActive)
+        assertEquals(SessionState.NOT_STARTED, manager.currentSession?.state)
+        assertEquals("session-2", manager.currentSession?.sessionId)
+        assertNull(manager.state().blockReason, "the ended session is never shown once the fresh one is adopted")
+        assertFalse(delivery.closed, "a session end never tears the uploader down")
+        assertTrue(scheduler.cancelled.isEmpty(), "the maintenance loop keeps running")
+
+        val next = manager.performMaintenance()
+        assertTrue(next is ResearchMaintenanceResult.Maintained, next.toString())
+        assertEquals("session-2", bodyOf(http.requests.last { it.url.encodedPath.endsWith("/heartbeat") })["research_session_id"])
     }
 
     @Test
@@ -3384,7 +3463,7 @@ class ResearchSessionMaintenanceTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `a stopped-study heartbeat ends the session as revoked and never resurrects it`() {
+    fun `a stopped-study heartbeat blocks in memory and suspends the session without persisting REVOKED`() {
         var stopped = false
         val http =
             MaintenanceHttp { request ->
@@ -3415,7 +3494,14 @@ class ResearchSessionMaintenanceTest {
         assertEquals("/api/research/sessions/heartbeat", heartbeat.url.encodedPath)
         assertEquals(sessionId, bodyOf(heartbeat)["research_session_id"])
         assertFalse(manager.isActive)
-        assertEquals(SessionState.REVOKED, manager.currentSession?.state)
+        assertEquals(StudyBlockReason.REVOKED, manager.state().blockReason, "the block is typed in memory")
+        // D-04: a stopped study is an operator action, not a confirmed revocation
+        // of this enrollment. The local session is never made REVOKED (it stays
+        // NOT_STARTED here since no activity started it; a running one would be
+        // suspended) so the next activation re-checks the server instead of
+        // being bricked.
+        assertEquals(SessionState.NOT_STARTED, manager.currentSession?.state)
+        assertFalse(manager.currentSession!!.isTerminal, "a stopped study must not persist a terminal session")
         assertTrue(delivery.closed, "a stopped study must tear the uploader down")
         assertTrue(scheduler.cancelled.isNotEmpty())
     }
@@ -3453,7 +3539,11 @@ class ResearchSessionMaintenanceTest {
 
         assertTrue(maintenance is ResearchMaintenanceResult.Retryable, "a failed re-bootstrap must not end the session")
         assertEquals(2, fetches.get(), "the stale capability must trigger exactly one forced refresh")
-        assertTrue(delivery.adoptedCapabilities.isEmpty(), "a failed refresh must not push a bogus capability")
+        assertEquals(
+            listOf("capability-1"),
+            delivery.adoptedCapabilities.map { it["capability_id"] },
+            "a failed refresh must not push a bogus capability (only the activation capability was adopted)",
+        )
         assertTrue(manager.isActive)
         assertFalse(manager.currentSession?.isTerminal ?: true)
         assertFalse(delivery.closed)
@@ -3482,7 +3572,11 @@ class ResearchSessionMaintenanceTest {
         assertTrue(maintenance is ResearchMaintenanceResult.Ended)
         assertEquals(StudyBlockReason.MANIFEST_INVALID, (maintenance as ResearchMaintenanceResult.Ended).reason)
         assertEquals(2, transport.fetches.get(), "the near-expiry capability must trigger a re-bootstrap")
-        assertTrue(delivery.adoptedCapabilities.isEmpty(), "a malformed manifest must never reach the uploader")
+        assertEquals(
+            listOf("capability-1"),
+            delivery.adoptedCapabilities.map { it["capability_id"] },
+            "a malformed manifest must never reach the uploader (only the activation capability was adopted)",
+        )
         assertFalse(manager.isActive)
         assertTrue(delivery.closed)
     }
@@ -3507,7 +3601,11 @@ class ResearchSessionMaintenanceTest {
         assertTrue(maintenance is ResearchMaintenanceResult.Maintained)
         assertFalse((maintenance as ResearchMaintenanceResult.Maintained).capabilityRefreshed)
         assertEquals(2, transport.fetches.get(), "the near-expiry capability must trigger a re-bootstrap")
-        assertTrue(delivery.adoptedCapabilities.isEmpty(), "an expired manifest must never reach the uploader")
+        assertEquals(
+            listOf("capability-1"),
+            delivery.adoptedCapabilities.map { it["capability_id"] },
+            "an expired manifest must never reach the uploader (only the activation capability was adopted)",
+        )
         assertTrue(manager.isActive)
     }
 
@@ -4134,7 +4232,7 @@ class ResearchSessionMaintenanceTest {
         val maintenance = manager.performMaintenance()
 
         assertTrue(maintenance is ResearchMaintenanceResult.Maintained, maintenance.toString())
-        assertEquals("capability-2", delivery.adoptedCapabilities.single()["capability_id"])
+        assertEquals("capability-2", delivery.adoptedCapabilities.last()["capability_id"])
         val contentAfter = Files.readString(credentialFile)
         assertNotEquals(contentBefore, contentAfter, "the refreshed capability must reach the credential file")
         val document = parseCanonicalJson(contentAfter) as Map<*, *>

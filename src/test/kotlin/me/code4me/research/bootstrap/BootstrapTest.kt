@@ -994,6 +994,8 @@ class HttpBootstrapTransportTest {
         assertEquals("IC-262.1234.5", reported.getValue("ide_build").jsonPrimitive.content)
         assertEquals("1.2.3", reported.getValue("plugin_version").jsonPrimitive.content)
         assertEquals("IntelliJ IDEA", reported.getValue("host_kind").jsonPrimitive.content)
+        // A-03: the ACP host version is reported so the server can stratify/refuse.
+        assertEquals("262.10315.125", reported.getValue("ai_assistant_version").jsonPrimitive.content)
         // The fetched manifest is then authenticated by the server before use.
         val verifyRequest = server.requests.first { it.path == TestBackend.VERIFY_PATH }
         val verifyBody = json.parseToJsonElement(verifyRequest.body).jsonObject
@@ -1200,6 +1202,7 @@ class HttpBootstrapTransportTest {
                 ideBuild = "IC-262.1234.5",
                 pluginVersion = "1.2.3",
                 hostKind = "IntelliJ IDEA",
+                aiAssistantVersion = "262.10315.125",
             )
     }
 }

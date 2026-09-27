@@ -149,6 +149,33 @@ enum class StudyBlockReason(val value: String) {
     AGENT_NOT_FOUND("AGENT_NOT_FOUND"),
     TRANSPORT_FAILED("TRANSPORT_FAILED"),
     UNKNOWN("UNKNOWN"),
+
+    /**
+     * The research session ended (idle timeout, server expiry) and the runtime
+     * is re-bootstrapping a fresh session. Transient: collectors, the IPC
+     * endpoint and the ACP entry stay alive; the participant does nothing.
+     */
+    SESSION_ROTATING("SESSION_ROTATING"),
+
+    /**
+     * The backend refuses to re-issue the study capability because the
+     * participant's sign-in expired and could not be renewed automatically.
+     * The runtime stays registered; signing in again clears it.
+     */
+    AUTHENTICATION_REQUIRED("AUTHENTICATION_REQUIRED"),
+
+    /**
+     * The study team engaged the operator kill switch: a temporary pause, not a
+     * revocation. The session and runtime are kept; collection resumes on the
+     * first accepted heartbeat.
+     */
+    KILL_SWITCH_ENGAGED("KILL_SWITCH_ENGAGED"),
+
+    /** JetBrains AI Assistant (the ACP host) is not installed or is disabled. */
+    AI_ASSISTANT_MISSING("AI_ASSISTANT_MISSING"),
+
+    /** JetBrains AI Assistant is older than the version the study requires. */
+    AI_ASSISTANT_OUTDATED("AI_ASSISTANT_OUTDATED"),
 }
 
 /**
@@ -175,6 +202,10 @@ enum class StudyBlockReason(val value: String) {
  * reported by the proxy's content-free status document, or `null` when unknown.
  * Absence of a measurement is never a zero: the surface must not claim full
  * coverage it cannot prove.
+ * @property discardedEventCount spooled events the uploader discarded after a
+ * permanent server rejection (for example a tail that missed its ended
+ * session's grace window), cumulative for the live uploader, or `null` when no
+ * uploader is attached. Counted and logged, never silent.
  * @property inferenceBudget the advisory AI budget the server last reported for
  * this session, or `null` (unmetered arm, or not reported yet). It never sets a
  * block reason and never changes [isCollecting]/[canLaunch].
@@ -194,6 +225,7 @@ data class ParticipantStudyStateV1(
     val blockReasonDetail: String? = null,
     val deliveryState: SpoolDeliveryState = SpoolDeliveryState.UNAVAILABLE,
     val droppedTelemetryCount: Int? = null,
+    val discardedEventCount: Int? = null,
     val inferenceBudget: InferenceBudgetState? = null,
 ) {
     /** True only when every component is available and nothing blocks. */
@@ -235,6 +267,7 @@ data class ParticipantStudyStateV1(
             "block_reason_detail" to blockReasonDetail,
             "delivery_state" to deliveryState.value,
             "dropped_telemetry_count" to droppedTelemetryCount,
+            "discarded_event_count" to discardedEventCount,
             "inference_budget" to inferenceBudget?.toCanonicalMap(),
         )
 

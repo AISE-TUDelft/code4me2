@@ -50,7 +50,12 @@ object ParticipantStatusPresentation {
     const val RECOVERING_HEADLINE = "Research: recovering"
     const val INACTIVE_HEADLINE = "Research: not active"
     const val UNAVAILABLE_HEADLINE = "Research: unavailable"
+    const val RECONNECTING_HEADLINE = "Research: reconnecting…"
+    const val PAUSED_BY_TEAM_HEADLINE = "Research: paused by the study team"
     const val BUDGET_EXHAUSTED_HEADLINE = "Research: AI budget used up"
+
+    /** The AI Assistant build the study requires, as shown to participants. */
+    const val AI_ASSISTANT_REQUIREMENT = "JetBrains AI Assistant 262.8665.344 or newer"
 
     /** Non-terminal reason codes for the advisory AI budget. */
     const val BUDGET_EXHAUSTED_CODE = "BUDGET_EXHAUSTED"
@@ -179,6 +184,48 @@ object ParticipantStatusPresentation {
                     ParticipantStatusSeverity.ERROR,
                     StudyBlockReason.UNKNOWN.value,
                     "Contact study support with the reason code.",
+                )
+            // Transient, automatic: the runtime is re-bootstrapping a fresh
+            // session after an idle/server end. Information only, never a banner.
+            StudyBlockReason.SESSION_ROTATING ->
+                Resolved(
+                    RECONNECTING_HEADLINE,
+                    ParticipantStatusSeverity.INFO,
+                    StudyBlockReason.SESSION_ROTATING.value,
+                    "The research session is being renewed; collection continues automatically.",
+                    tooltipLabel = "reconnecting",
+                )
+            StudyBlockReason.AUTHENTICATION_REQUIRED ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.AUTHENTICATION_REQUIRED.value,
+                    "Sign in again to continue the study.",
+                )
+            // An operator pause, not a revocation: nothing to do, it lifts itself.
+            StudyBlockReason.KILL_SWITCH_ENGAGED ->
+                Resolved(
+                    PAUSED_BY_TEAM_HEADLINE,
+                    ParticipantStatusSeverity.INFO,
+                    StudyBlockReason.KILL_SWITCH_ENGAGED.value,
+                    "The study team paused collection temporarily; it resumes automatically.",
+                    tooltipLabel = "paused by the study team",
+                )
+            StudyBlockReason.AI_ASSISTANT_MISSING ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.AI_ASSISTANT_MISSING.value,
+                    "Install and enable $AI_ASSISTANT_REQUIREMENT from Settings > Plugins, restart the IDE, " +
+                        "then reopen the project.",
+                )
+            StudyBlockReason.AI_ASSISTANT_OUTDATED ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.AI_ASSISTANT_OUTDATED.value,
+                    "Update to $AI_ASSISTANT_REQUIREMENT from Settings > Plugins, restart the IDE, " +
+                        "then reopen the project.",
                 )
             null ->
                 when {

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.times
@@ -54,7 +55,8 @@ class ResearchSessionServiceReconciliationTest {
 
         assertSame(ResearchReconciliationResult.NoEnrollment, result)
         assertNull(settings.enrollmentId())
-        verify(manager).stop()
+        // A quarantine path never uploads first.
+        verify(manager).stop(0L, drain = false, drainTimeoutMs = ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS)
         verify(manager).quarantineSpool()
     }
 
@@ -107,6 +109,19 @@ class ResearchSessionServiceReconciliationTest {
         }
 
         verify(manager, never()).activate("enrollment-1")
+    }
+
+    @Test
+    fun `pauses and runtime hiccups retry while participant-actionable blocks do not`() {
+        fun retries(reason: StudyBlockReason): Boolean =
+            ResearchReconciliationResult.StudyOwned(ResearchActivationResult.Blocked(reason, "detail")).shouldRetry
+
+        assertTrue(retries(StudyBlockReason.RUNTIME_UNAVAILABLE))
+        assertTrue(retries(StudyBlockReason.KILL_SWITCH_ENGAGED), "an operator pause lifts on its own")
+        assertFalse(retries(StudyBlockReason.AI_ASSISTANT_MISSING), "needs the participant: no retry storm")
+        assertFalse(retries(StudyBlockReason.AI_ASSISTANT_OUTDATED), "needs the participant: no retry storm")
+        assertFalse(retries(StudyBlockReason.REVOKED))
+        assertTrue(ResearchReconciliationResult.StudyOwned(ResearchActivationResult.Retryable("down")).shouldRetry)
     }
 
     @Test
@@ -181,7 +196,8 @@ class ResearchSessionServiceReconciliationTest {
 
         assertEquals("first-session", (firstResult.activation as ResearchActivationResult.Activated).sessionId)
         assertEquals("second-session", (secondResult.activation as ResearchActivationResult.Activated).sessionId)
-        verify(first).stop()
+        // A sign-out quarantines the spool; it never uploads first.
+        verify(first).stop(0L, drain = false, drainTimeoutMs = ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS)
         verify(first).quarantineSpool()
         verify(first, times(1)).activate("enrollment-1")
         verify(second, times(1)).activate("enrollment-1")
@@ -197,8 +213,13 @@ class ResearchSessionServiceReconciliationTest {
         service.dispose()
 
         // A plain project close keeps the spool IPC endpoint up briefly for the
-        // assistant's agent processes to flush their last events.
-        verify(manager, times(1)).stop(ResearchSessionManager.IPC_CLOSE_GRACE_MS)
+        // assistant's agent processes to flush their last events, and ships the
+        // spool tail once (bounded) before the uploader closes.
+        verify(manager, times(1)).stop(
+            ResearchSessionManager.IPC_CLOSE_GRACE_MS,
+            drain = true,
+            drainTimeoutMs = ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS,
+        )
         verify(manager, never()).quarantineSpool()
     }
 
@@ -220,7 +241,8 @@ class ResearchSessionServiceReconciliationTest {
 
         assertTrue(service.onErase())
 
-        verify(first).stop()
+        // Records the participant asked to erase are never uploaded first.
+        verify(first).stop(0L, drain = false, drainTimeoutMs = ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS)
         verify(first).quarantineSpool()
         assertFalse(Files.exists(quarantined))
         assertSame(second, service.manager(), "a later activation must receive a fresh manager")
@@ -230,7 +252,7 @@ class ResearchSessionServiceReconciliationTest {
     fun `a context that cannot be stopped keeps its spool quarantined on erase`() {
         val quarantined = quarantinedSpoolWithPendingRecord()
         val manager = mock<ResearchSessionManager>()
-        whenever(manager.stop()).thenThrow(IllegalStateException("runtime did not stop"))
+        whenever(manager.stop(any(), any(), any())).thenThrow(IllegalStateException("runtime did not stop"))
         whenever(manager.quarantineSpool()).thenReturn(quarantined)
         val service = service(EnrollmentDiscovery.None, manager, ResearchEnrollmentSettings())
         service.manager()
@@ -253,7 +275,7 @@ class ResearchSessionServiceReconciliationTest {
                 retainedBytes = 64L,
                 quotaExceeded = false,
             )
-        whenever(manager.stop()).thenReturn(ResearchStopResult.Stopped(SessionState.SUSPENDED, 2, stats))
+        whenever(manager.stop(any(), any(), any())).thenReturn(ResearchStopResult.Stopped(SessionState.SUSPENDED, 2, stats))
         // The manager reported a spool, but quarantine returned no path: the move failed.
         whenever(manager.quarantineSpool()).thenReturn(null)
         val service = service(EnrollmentDiscovery.None, manager, ResearchEnrollmentSettings())
@@ -267,7 +289,7 @@ class ResearchSessionServiceReconciliationTest {
     @Test
     fun `a context that never opened a spool reports its erase as complete`() {
         val manager = mock<ResearchSessionManager>()
-        whenever(manager.stop()).thenReturn(ResearchStopResult.Stopped(null, 0, null))
+        whenever(manager.stop(any(), any(), any())).thenReturn(ResearchStopResult.Stopped(null, 0, null))
         whenever(manager.quarantineSpool()).thenReturn(null)
         val service = service(EnrollmentDiscovery.None, manager, ResearchEnrollmentSettings())
         service.manager()

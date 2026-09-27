@@ -92,4 +92,25 @@ sealed interface ResearchMaintenanceResult {
 
     /** A transient failure; local state is intact and the next tick retries. */
     data class Retryable(val detail: String?) : ResearchMaintenanceResult
+
+    /**
+     * The research session ended (idle, server expiry) and a fresh server
+     * session [sessionId] was bootstrapped and adopted in this tick; the
+     * runtime (collector, IPC, ACP entry, uploader) was kept. [heartbeatSeconds]
+     * is the new session's declared cadence, when the server returned one.
+     */
+    data class Rotated(
+        val sessionId: String,
+        val heartbeatSeconds: Long?,
+    ) : ResearchMaintenanceResult
+
+    /**
+     * The server paused the session with a retryable typed [reason] (an operator
+     * kill switch); the runtime and session are kept and the next tick retries
+     * at the normal cadence.
+     */
+    data class Paused(
+        val reason: StudyBlockReason,
+        val detail: String?,
+    ) : ResearchMaintenanceResult
 }

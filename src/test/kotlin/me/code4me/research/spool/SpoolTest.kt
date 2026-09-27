@@ -818,29 +818,73 @@ class SpoolUploaderTest {
     }
 
     @Test
-    fun `events of an ended research session are dropped instead of replayed under the new capability`() {
+    fun `events of an ended research session are uploaded in their own batch instead of being discarded`() {
         // The spool directory is per enrollment/context and outlives a session:
-        // after an overnight idle timeout the next activation opens a new one.
+        // after an idle rotation it holds the previous session's tail and the new
+        // session's records. The server accepts the tail within its grace window,
+        // so nothing is dropped; every batch carries exactly one session (C-02/D-02).
         val spool = tempSpool()
-        val (stale, current) = events(2)
-        spool.append(stale.copy(researchSessionId = "session-old"))
-        spool.append(current.copy(researchSessionId = "session-new"))
+        val (older, newer) = events(2)
+        spool.append(older.copy(researchSessionId = "session-old"))
+        spool.append(newer.copy(researchSessionId = "session-new"))
         val sentIds = ArrayList<List<String>>()
+        val sentSessions = ArrayList<Set<String?>>()
         val diagnostics = ArrayList<String>()
-        val (uploader, _) =
+        val (uploader, factory) =
             uploader(spool, diagnostics = diagnostics::add, researchSessionId = "session-new") { request ->
                 val body = parseCanonicalJson(bodyOf(request)) as Map<*, *>
-                sentIds += (body["events"] as List<*>).map { (it as Map<*, *>)["event_id"] as String }
-                response(200, ack(accepted = listOf(current.eventId)))
+                val events = (body["events"] as List<*>).map { it as Map<*, *> }
+                sentIds += events.map { it["event_id"] as String }
+                sentSessions += events.map { it["research_session_id"] as? String }.toSet()
+                response(200, ack(accepted = events.map { it["event_id"] as String }))
             }
 
-        val result = uploader.uploadOnce()
+        val first = uploader.uploadOnce()
 
-        assertTrue(result.attempted)
-        assertEquals(listOf(listOf(current.eventId)), sentIds, "only the current session's event is uploaded")
-        assertTrue(spool.pending().isEmpty(), "the stale event is discarded, the current one acknowledged")
-        assertTrue(diagnostics.any { "ended research session" in it }, diagnostics.toString())
+        assertTrue(first.attempted)
+        assertEquals(1, first.acknowledged)
+        assertEquals(listOf(listOf(older.eventId)), sentIds, "the oldest session's group ships first, alone")
+        assertEquals(1, spool.pending().size, "the other session's record stays pending for the next pass")
+        assertEquals(0, first.discarded)
+        assertTrue(diagnostics.none { "dropping" in it }, diagnostics.toString())
+
+        val second = uploader.uploadOnce()
+
+        assertTrue(second.attempted)
+        assertEquals(listOf(listOf(older.eventId), listOf(newer.eventId)), sentIds)
+        assertEquals(listOf(setOf("session-old"), setOf("session-new")), sentSessions, "every batch is single-session")
+        assertTrue(spool.pending().isEmpty(), "both sessions' records were acknowledged, none discarded")
+        assertEquals(2, factory.requests.size)
         assertFalse(uploader.state().revoked)
+        assertEquals(0, uploader.state().discardedCount)
+    }
+
+    @Test
+    fun `unlabelled records join the current session's group and a batch never mixes sessions`() {
+        val spool = tempSpool()
+        val (unlabelled, current, other) = events(3)
+        spool.append(unlabelled) // no research_session_id: the current session's
+        spool.append(current.copy(researchSessionId = "session-new"))
+        spool.append(other.copy(researchSessionId = "session-old"))
+        val sentIds = ArrayList<List<String>>()
+        val (uploader, _) =
+            uploader(spool, researchSessionId = "session-new") { request ->
+                val body = parseCanonicalJson(bodyOf(request)) as Map<*, *>
+                val ids = (body["events"] as List<*>).map { (it as Map<*, *>)["event_id"] as String }
+                sentIds += ids
+                response(200, ack(accepted = ids))
+            }
+
+        uploader.uploadOnce()
+        uploader.uploadOnce()
+
+        assertEquals(
+            listOf(listOf(unlabelled.eventId, current.eventId), listOf(other.eventId)),
+            sentIds,
+            "the oldest group (unlabelled + current) ships first as one batch; the other session follows alone",
+        )
+        assertTrue(spool.pending().isEmpty())
+        assertEquals(0, uploader.state().discardedCount)
     }
 
     @Test
@@ -1161,27 +1205,39 @@ class SpoolUploaderTest {
     }
 
     @Test
-    fun `a session-terminal rejection is a revocation and is never discarded`() {
+    fun `a session-terminal rejection discards only the named events and never stops delivery`() {
+        // SESSION_TERMINAL names one event that missed its ended session's grace
+        // window; it is a permanent per-event rejection (counted, logged), not a
+        // revocation of the enrollment: the other records keep uploading.
         val spool = tempSpool()
         val (first, second) = events(2)
         spool.append(first)
         spool.append(second)
+        val diagnostics = ArrayList<String>()
         val (uploader, factory) =
-            uploader(spool) { response(200, ack(rejected = listOf(first.eventId to "SESSION_TERMINAL"))) }
+            uploader(spool, diagnostics = diagnostics::add) {
+                response(200, ack(accepted = listOf(second.eventId), rejected = listOf(first.eventId to "SESSION_TERMINAL")))
+            }
 
         val result = uploader.uploadOnce()
 
-        assertTrue(result.revoked)
-        assertEquals(0, result.acknowledged)
-        assertEquals(0, result.rejected, "a session-terminal rejection is never discarded as permanent")
-        assertEquals(0, result.discarded)
-        assertEquals(2, spool.pending().size, "a terminal session must never delete unacknowledged data")
-        assertTrue(uploader.state().revoked)
+        assertTrue(result.attempted)
+        assertFalse(result.revoked, "a session-terminal rejection is not a revocation")
+        assertEquals(1, result.acknowledged)
+        assertEquals(1, result.rejected)
+        assertEquals(1, result.discarded, "only the named event is discarded")
+        assertTrue(spool.pending().isEmpty(), "the accepted record is acknowledged and the late one discarded")
+        assertFalse(uploader.state().revoked)
+        assertEquals(1, uploader.state().discardedCount, "discards are counted, never silent")
+        assertTrue(diagnostics.any { "SESSION_TERMINAL" in it && "dropping" in it }, diagnostics.toString())
+        assertFalse(Files.exists(spool.directory.resolve(SpoolUploader.TERMINAL_MARKER)), "no terminal marker is written")
 
+        // Delivery continues: a later record is uploaded on the next pass.
+        spool.append(events(3).last())
         val after = uploader.uploadOnce()
 
-        assertFalse(after.attempted)
-        assertEquals(1, factory.requests.size, "a terminal-session uploader must not keep polling")
+        assertTrue(after.attempted, "a session-terminal rejection must not stop polling")
+        assertEquals(2, factory.requests.size)
     }
 
     @Test

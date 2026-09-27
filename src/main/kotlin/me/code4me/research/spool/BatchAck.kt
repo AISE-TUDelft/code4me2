@@ -34,9 +34,16 @@ data class TelemetryBatchAckV1(
         get() = accepted.isEmpty() && duplicate.isEmpty() && rejected.isEmpty() && retryable.isEmpty()
 
     companion object {
-        /** Permanent, revocation-class reasons that must stop further uploads. */
+        /**
+         * Permanent, revocation-class reasons that must stop further uploads.
+         *
+         * `SESSION_TERMINAL` is deliberately absent: it names one event that
+         * arrived after its (ended) session's grace window, not the enrollment.
+         * It is an ordinary permanent per-event rejection (discarded, counted)
+         * and must never stop delivery of every other record.
+         */
         val REVOCATION_REASONS: Set<String> =
-            setOf("REVOKED", "ENROLLMENT_NOT_ACTIVE", "SESSION_TERMINAL", "STUDY_STOPPED")
+            setOf("REVOKED", "ENROLLMENT_NOT_ACTIVE", "STUDY_STOPPED")
 
         /**
          * Parse the server's `TelemetryBatchAckV1` wire JSON.

@@ -22,6 +22,8 @@ data class BootstrapEnvironment(
     val ideBuild: String? = null,
     val pluginVersion: String? = null,
     val hostKind: String? = null,
+    /** Installed JetBrains AI Assistant (ACP host) version, or `null` when absent/unknown. */
+    val aiAssistantVersion: String? = null,
 )
 
 /**
@@ -147,6 +149,7 @@ class HttpBootstrapTransport(
                 reported.ideBuild?.takeIf { it.isNotBlank() }?.let { put("ide_build", it) }
                 reported.pluginVersion?.takeIf { it.isNotBlank() }?.let { put("plugin_version", it) }
                 reported.hostKind?.takeIf { it.isNotBlank() }?.let { put("host_kind", it) }
+                reported.aiAssistantVersion?.takeIf { it.isNotBlank() }?.let { put("ai_assistant_version", it) }
             }
         return buildJsonObject {
             put("enrollment_id", enrollmentId)

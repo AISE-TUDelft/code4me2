@@ -187,6 +187,37 @@ class ParticipantStatusPresentationTest {
     }
 
     @Test
+    fun `a pending rotation and an operator pause are informational and never nag`() {
+        val reconnecting = ParticipantStatusPresentation.of(state(blockReason = StudyBlockReason.SESSION_ROTATING))
+        assertEquals(ParticipantStatusPresentation.RECONNECTING_HEADLINE, reconnecting.headline)
+        assertEquals("SESSION_ROTATING", reconnecting.reasonCode)
+        assertFalse(ParticipantStatusPresentation.shouldNotify(reconnecting), "the participant does nothing")
+        assertTrue(reconnecting.tooltip.contains("reconnecting"), reconnecting.tooltip)
+
+        val paused = ParticipantStatusPresentation.of(state(blockReason = StudyBlockReason.KILL_SWITCH_ENGAGED))
+        assertEquals(ParticipantStatusPresentation.PAUSED_BY_TEAM_HEADLINE, paused.headline)
+        assertEquals("KILL_SWITCH_ENGAGED", paused.reasonCode)
+        assertFalse(ParticipantStatusPresentation.shouldNotify(paused))
+        assertTrue(paused.tooltip.contains("resumes automatically"), paused.tooltip)
+    }
+
+    @Test
+    fun `a required sign-in and a missing or outdated AI Assistant are actionable blocks naming the fix`() {
+        val signIn = ParticipantStatusPresentation.of(state(blockReason = StudyBlockReason.AUTHENTICATION_REQUIRED))
+        assertEquals(ParticipantStatusPresentation.BLOCKED_HEADLINE, signIn.headline)
+        assertEquals("Sign in again to continue the study.", signIn.actionHint)
+        assertTrue(ParticipantStatusPresentation.shouldNotify(signIn))
+
+        listOf(StudyBlockReason.AI_ASSISTANT_MISSING, StudyBlockReason.AI_ASSISTANT_OUTDATED).forEach { reason ->
+            val view = ParticipantStatusPresentation.of(state(blockReason = reason))
+            assertEquals(ParticipantStatusPresentation.BLOCKED_HEADLINE, view.headline, reason.name)
+            assertEquals(reason.value, view.reasonCode)
+            assertTrue(view.actionHint!!.contains("262.8665.344"), "$reason names the minimum version: ${view.actionHint}")
+            assertTrue(ParticipantStatusPresentation.shouldNotify(view), "$reason needs the participant")
+        }
+    }
+
+    @Test
     fun `status view never leaks study internals or canaries`() {
         val canaries =
             listOf(

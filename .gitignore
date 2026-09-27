@@ -27,5 +27,6 @@ src/main/resources/code4me-runtime/*.zip
 dist/
 telemetry-acp-proxy/agents/
 *.md
-!docs/PARTICIPANT_RELEASE.md
-!docs/PARTICIPANT_RELEASE_VERIFICATION.md
+# Participant/operator documentation is tracked (E-05); the *.md rule above
+# covers scratch notes elsewhere in the tree.
+!docs/**

@@ -3,6 +3,7 @@ package me.code4me.research.session
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationInfo
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.PluginId
@@ -17,11 +18,14 @@ import me.code4me.research.bootstrap.PluginCompatibility
 import me.code4me.research.bootstrap.ResearchJoinCodeResolver
 import me.code4me.research.actions.ResearchEnrollmentSettings
 import me.code4me.research.ide.IntellijIdeActivitySource
+import me.code4me.research.lifecycle.HostPreflight
+import me.code4me.research.lifecycle.HostPreflightResult
 import me.code4me.research.proxy.AcpHostRegistration
 import me.code4me.research.proxy.PackagedProxyRuntimeResolver
 import me.code4me.research.spool.DurableSpool
 import me.code4me.research.spool.SpoolUploadResult
 import me.code4me.research.session.ParticipantStudyStateV1
+import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.config.models.ServerConfig
 import okhttp3.Call
@@ -44,10 +48,17 @@ sealed interface ResearchReconciliationResult {
     data class StudyOwned(val activation: ResearchActivationResult?) : ResearchReconciliationResult {
         val shouldRetry: Boolean
             get() =
-                activation is ResearchActivationResult.Retryable ||
-                    activation is ResearchActivationResult.Failed ||
-                    (activation is ResearchActivationResult.Blocked &&
-                        activation.reason == StudyBlockReason.RUNTIME_UNAVAILABLE)
+                when (activation) {
+                    is ResearchActivationResult.Retryable, is ResearchActivationResult.Failed -> true
+                    // A runtime hiccup and an operator kill switch both lift on
+                    // their own; every other block (including a missing or outdated
+                    // AI Assistant) needs the participant and must not start a
+                    // retry storm.
+                    is ResearchActivationResult.Blocked ->
+                        activation.reason == StudyBlockReason.RUNTIME_UNAVAILABLE ||
+                            activation.reason == StudyBlockReason.KILL_SWITCH_ENGAGED
+                    is ResearchActivationResult.Activated, null -> false
+                }
     }
 
     /** The signed-in account has no research enrollment. */
@@ -269,8 +280,27 @@ class ResearchSessionService internal constructor(
             enrollmentDiscoveryProvider = { discoverEnrollment() },
             sessionStore = FileResearchSessionStore(),
             httpClient = CookieAwareApiClient.sharedOkHttpClient,
+            hostPreflightProvider = { hostPreflight() },
+            reauthenticate = { reacquireBackendSession() },
         )
     }
+
+    /**
+     * Re-acquire the backend session with the stored login token when a
+     * capability refresh is answered `NOT_AUTHENTICATED`/`NOT_PERMITTED`: the
+     * session cookie expires long before the login token does, and without this
+     * an expired cookie would end collection for the day. `true` only when a
+     * session was acquired; never throws.
+     */
+    private fun reacquireBackendSession(): Boolean =
+        try {
+            getAppService().acquireSessionForReconciliation()
+            true
+        } catch (_: Exception) {
+            false
+        } catch (_: LinkageError) {
+            false
+        }
 
     private fun enrollmentSettings(): ResearchEnrollmentSettings? {
         enrollmentSettingsOverride?.let { return it }
@@ -304,7 +334,14 @@ class ResearchSessionService internal constructor(
         // A plain project close keeps the spool endpoint up briefly for the
         // assistant's agent processes to flush; a logout does not.
         val ipcGraceMs = if (terminal && !quarantine) ResearchSessionManager.IPC_CLOSE_GRACE_MS else 0L
-        val stop = runCatching { previous.stop(ipcGraceMs) }
+        // Only a plain project close / IDE shutdown ships the tail first. A
+        // privacy erase must never upload the records it is about to delete, and
+        // a sign-out/account switch quarantines the spool instead of uploading it.
+        val drain = !quarantine && !discard
+        // Project disposal usually runs on the UI thread: keep the one bounded
+        // delivery attempt short there so a close never feels like a hang.
+        val drainTimeoutMs = if (isDispatchThread()) EDT_DRAIN_TIMEOUT_MS else ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS
+        val stop = runCatching { previous.stop(ipcGraceMs, drain = drain, drainTimeoutMs = drainTimeoutMs) }
         var discarded = true
         if (quarantine) {
             val quarantined = runCatching { previous.quarantineSpool() }.getOrNull()
@@ -326,6 +363,16 @@ class ResearchSessionService internal constructor(
         executor?.shutdown()
         return discarded
     }
+
+    /** True when called on the IDE's event dispatch thread; `false` without an application (headless tests). */
+    private fun isDispatchThread(): Boolean =
+        try {
+            ApplicationManager.getApplication()?.isDispatchThread == true
+        } catch (_: Exception) {
+            false
+        } catch (_: LinkageError) {
+            false
+        }
 
     /** Project runtime settings; a research misconfiguration never breaks the service. */
     private fun runtimeSettings(): ResearchRuntimeSettings? =
@@ -373,6 +420,9 @@ class ResearchSessionService internal constructor(
         private const val PLUGIN_ID = "me.code4me"
         private const val PARTICIPANT_AUDIENCE = "research-runtime"
         private const val NOT_CONFIGURED_MESSAGE = "Bootstrap transport is not configured for this build."
+
+        /** The stop-drain budget when a project is disposed on the UI thread. */
+        private const val EDT_DRAIN_TIMEOUT_MS: Long = 1_500L
 
         /** Non-identifying host kind reported to the bootstrap API. */
         const val HOST_KIND: String = "IntelliJ IDEA"
@@ -454,7 +504,43 @@ class ResearchSessionService internal constructor(
                         PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.version
                     },
                 hostKind = HOST_KIND,
+                aiAssistantVersion =
+                    safeEnvironmentValue {
+                        PluginManagerCore.getPlugin(PluginId.getId(HostPreflight.AI_ASSISTANT_PLUGIN_ID))?.version
+                    },
             )
+
+        /**
+         * A-03 host preflight: JetBrains AI Assistant (the ACP host) must be
+         * installed, enabled and at least [HostPreflight.MIN_AI_ASSISTANT_VERSION],
+         * otherwise the research entry can never be launched and the study would
+         * report "active" while observing nothing. A descriptor lookup failure is
+         * reported as missing (fail closed), never thrown.
+         */
+        fun hostPreflight(): HostPreflightResult {
+            val id = PluginId.getId(HostPreflight.AI_ASSISTANT_PLUGIN_ID)
+            val descriptor =
+                try {
+                    PluginManagerCore.getPlugin(id)
+                } catch (_: Exception) {
+                    null
+                } catch (_: LinkageError) {
+                    null
+                }
+            val disabled =
+                try {
+                    PluginManagerCore.isDisabled(id)
+                } catch (_: Exception) {
+                    true
+                } catch (_: LinkageError) {
+                    true
+                }
+            return HostPreflight.evaluate(
+                installed = descriptor != null,
+                enabled = descriptor != null && !disabled,
+                version = descriptor?.version,
+            )
+        }
 
         /** Local plugin/environment compatibility tuple evaluated against a manifest. */
         fun pluginCompatibility(): PluginCompatibility {

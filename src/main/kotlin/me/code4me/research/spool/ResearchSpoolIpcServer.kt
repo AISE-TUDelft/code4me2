@@ -30,6 +30,14 @@ interface SpoolIpcServer {
     /** The fresh per-session capability the proxy must present. */
     val capability: String
 
+    /**
+     * Bind later deliveries to [context] (a rotated research session / new
+     * agent run) without changing the endpoint or the capability, which are per
+     * activation. Thread-safe; the default is a no-op for servers that do not
+     * bind a context.
+     */
+    fun rebind(context: SpoolEventContext) = Unit
+
     /** Stop accepting deliveries; safe to call more than once. */
     fun close()
 }
@@ -96,11 +104,22 @@ class ResearchSpoolIpcServer(
     private val maxEventsPerRequest: Int = DEFAULT_MAX_EVENTS_PER_REQUEST,
     private val bindAddress: InetAddress = InetAddress.getLoopbackAddress(),
     private val onEventAppended: (CanonicalEvent) -> Unit = {},
-    private val eventContext: SpoolEventContext? = null,
+    eventContext: SpoolEventContext? = null,
 ) : SpoolIpcServer {
     init {
         require(maxBodyBytes > 0) { "maxBodyBytes must be positive" }
         require(maxEventsPerRequest > 0) { "maxEventsPerRequest must be positive" }
+    }
+
+    /**
+     * The session/run authority deliveries are bound to. Replaced atomically by
+     * [rebind] when the research session rotates; a request in flight binds
+     * against whichever context it read, never a mix.
+     */
+    @Volatile private var eventContext: SpoolEventContext? = eventContext
+
+    override fun rebind(context: SpoolEventContext) {
+        eventContext = context
     }
 
     override val capability: String =
@@ -189,9 +208,12 @@ class ResearchSpoolIpcServer(
         }
         val events = ArrayList<CanonicalEvent>(rawEvents.size)
         val invalid = ArrayList<Map<String, Any?>>()
+        // One context per request: a rotation racing this request must not bind
+        // half the events to the old session and half to the new one.
+        val context = eventContext
         for (raw in rawEvents) {
             val parsed = parseEvent(raw)
-            val bound = parsed?.let { event -> runCatching { eventContext?.bind(event) ?: event }.getOrNull() }
+            val bound = parsed?.let { event -> runCatching { context?.bind(event) ?: event }.getOrNull() }
             when {
                 bound != null -> events.add(bound)
                 else -> {
