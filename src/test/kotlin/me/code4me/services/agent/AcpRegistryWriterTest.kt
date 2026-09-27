@@ -8,8 +8,40 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermission
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class AcpRegistryWriterTest {
+    @Test
+    fun `concurrent project registrations preserve every proxy entry`() {
+        val directory = Files.createTempDirectory("acp-registry-concurrent")
+        val registry = directory.resolve("acp.json")
+        val workers = Executors.newFixedThreadPool(8)
+        val start = CountDownLatch(1)
+        try {
+            val writes =
+                (1..8).map { index ->
+                    workers.submit<Result<Unit>> {
+                        start.await()
+                        AcpRegistryWriter(registry).registerProxyEntry(
+                            name = "Code4Me Research Proxy $index",
+                            command = "/runtime/proxy",
+                            args = emptyList(),
+                            env = emptyMap(),
+                        )
+                    }
+                }
+            start.countDown()
+            writes.forEach { assertTrue(it.get(10, TimeUnit.SECONDS).isSuccess) }
+
+            val servers = Json.parseToJsonElement(Files.readString(registry)).jsonObject.getValue("agent_servers").jsonObject
+            assertEquals(8, servers.size)
+        } finally {
+            workers.shutdownNow()
+        }
+    }
+
     @Test
     fun `managed registration preserves third party entries and backs up local dev`() {
         val directory = Files.createTempDirectory("acp-registry")

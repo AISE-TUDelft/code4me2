@@ -61,13 +61,24 @@ class ParticipantStatusPresentationTest {
     fun `inactive study is informational and never notifies`() {
         val view =
             ParticipantStatusPresentation.of(
-                state(session = StudyComponentState.UNAVAILABLE),
+                state(session = StudyComponentState.UNAVAILABLE, manifestDigest = null),
             )
 
         assertEquals(ParticipantStatusPresentation.INACTIVE_HEADLINE, view.headline)
         assertEquals(ParticipantStatusSeverity.INFO, view.severity)
         assertFalse(ParticipantStatusPresentation.shouldNotify(view))
         assertTrue(view.actionHint?.contains("research settings") == true)
+    }
+
+    @Test
+    fun `enrolled study awaiting first IDE activity is ready rather than unenrolled`() {
+        val view = ParticipantStatusPresentation.of(state(session = StudyComponentState.UNAVAILABLE))
+
+        assertEquals(ParticipantStatusPresentation.READY_HEADLINE, view.headline)
+        assertEquals(ParticipantStatusSeverity.INFO, view.severity)
+        assertFalse(view.isCollecting)
+        assertTrue(view.actionHint?.contains("open, edit, or save") == true)
+        assertFalse(ParticipantStatusPresentation.shouldNotify(view))
     }
 
     

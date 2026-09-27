@@ -48,6 +48,9 @@ fun applyByoaConfiguration(
                 args += binding.key
                 args += value
             }
+            // The server's inference gateway enforces this selection; there is
+            // deliberately no agent process environment variable to set.
+            "gateway" -> Unit
         }
     }
     return ByoaConfiguration(env = env.toMap(), args = args)
@@ -67,7 +70,10 @@ fun missingByoaBindings(
     // unknown transport must fail closed rather than look covered.
     val mapped =
         bindings
-            .filter { it.transport == "env" || it.transport == "arg" }
+            .filter {
+                it.transport == "env" || it.transport == "arg" ||
+                    (it.transport == "gateway" && it.field == "tools" && it.key == "tool_allowlist")
+            }
             .map { it.field }
             .toSet()
     val required =

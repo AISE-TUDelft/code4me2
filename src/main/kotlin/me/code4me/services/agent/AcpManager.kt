@@ -1,6 +1,12 @@
 package me.code4me.services.agent
 
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
+import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -84,15 +90,13 @@ object AcpManager {
                 val codexEntry =
                     JsonObject(
                         mapOf(
-                            "command" to JsonPrimitive("npx"),
+                            // ACP stdout must contain JSON-RPC only. `npm run start` prints a
+                            // banner there before the adapter starts, corrupting the stream.
+                            "command" to JsonPrimitive(File(codexSourceDir, "node_modules/.bin/tsx").absolutePath),
                             "args" to
                                 JsonArray(
                                     listOf(
-                                        JsonPrimitive("npm"),
-                                        JsonPrimitive("run"),
-                                        JsonPrimitive("start"),
-                                        JsonPrimitive("--prefix"),
-                                        JsonPrimitive(codexSourceDir),
+                                        JsonPrimitive(File(codexSourceDir, "src/index.ts").absolutePath),
                                     ),
                                 ),
                             // The vendored codex-acp patch routes every Codex model call at
@@ -130,13 +134,17 @@ object AcpManager {
         }
     }
 
-    fun removeDeveloperGooseEntry() {
+    fun removeDeveloperGooseEntry() = removeDeveloperEntry(GOOSE_ENTRY_NAME)
+
+    fun removeDeveloperCodexEntry() = removeDeveloperEntry(CODEX_ENTRY_NAME)
+
+    private fun removeDeveloperEntry(entryName: String) {
         try {
             val file = acpFile
             if (!file.exists()) return
             val root = json.parseToJsonElement(file.readText()).jsonObject
             val servers = (root["agent_servers"]?.jsonObject ?: return).toMutableMap()
-            if (servers.remove(GOOSE_ENTRY_NAME) == null) return
+            if (servers.remove(entryName) == null) return
             val updated = JsonObject(root.toMutableMap().also { it["agent_servers"] = JsonObject(servers) })
             val tmp = File(file.parent, "acp.json.tmp")
             tmp.writeText(json.encodeToString(JsonObject.serializer(), updated))
@@ -145,9 +153,9 @@ object AcpManager {
             } catch (_: Exception) {
                 Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
-            LOG.info("[AcpManager] removed '$GOOSE_ENTRY_NAME' because it is not the assigned runtime")
+            LOG.info("[AcpManager] removed '$entryName' because it is not the assigned runtime")
         } catch (e: Exception) {
-            LOG.warn("[AcpManager] Failed to remove stale '$GOOSE_ENTRY_NAME' entry", e)
+            LOG.warn("[AcpManager] Failed to remove stale '$entryName' entry", e)
         }
     }
 
@@ -193,10 +201,7 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
     ): Result<Unit> =
         runCatching {
             Files.createDirectories(registryPath.parent)
-            val lockPath = registryPath.resolveSibling("${registryPath.fileName}.lock")
-            FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
-                channel.lock().use { updateRegistry(executable, bridgeDirectory) }
-            }
+            withRegistryLock { updateRegistry(executable, bridgeDirectory) }
         }
 
     private fun updateRegistry(
@@ -341,9 +346,13 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
         }
 
     private fun <T> withRegistryLock(action: () -> T): T {
-        val lockPath = registryPath.resolveSibling("${registryPath.fileName}.lock")
-        FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
-            return channel.lock().use { action() }
+        // File locks coordinate with other processes, but a second project in
+        // this IDE can otherwise get OverlappingFileLockException immediately.
+        synchronized(REGISTRY_JVM_LOCK) {
+            val lockPath = registryPath.resolveSibling("${registryPath.fileName}.lock")
+            FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
+                return channel.lock().use { action() }
+            }
         }
     }
 
@@ -357,9 +366,45 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
             } catch (_: Exception) {
                 Files.move(temp, registryPath, StandardCopyOption.REPLACE_EXISTING)
             }
+            // AI Assistant watches IntelliJ VFS events, not raw filesystem
+            // notifications. An atomic replacement can leave its cached ACP
+            // configuration unchanged until the next IDE restart unless the
+            // parent directory is refreshed through VFS.
+            notifyAcpConfigurationChanged()
         } finally {
             Files.deleteIfExists(temp)
         }
+    }
+
+    /** AI Assistant's ACP picker needs a document-change signal after an atomic file replacement. */
+    private fun notifyAcpConfigurationChanged() {
+        if (ApplicationManager.getApplication() == null) return // Pure registry tests have no IDE.
+        runCatching {
+            val localFiles = LocalFileSystem.getInstance()
+            localFiles.refreshNioFiles(listOf(registryPath.parent), true, true, null)
+            val file = localFiles.refreshAndFindFileByNioFile(registryPath) ?: return@runCatching
+            val document = ReadAction.compute<com.intellij.openapi.editor.Document?, RuntimeException> {
+                FileDocumentManager.getInstance().getDocument(file)
+            } ?: return@runCatching
+            // AI Assistant is optional. Its ACP service exposes no stable public reload API;
+            // use its document-change hook when present, and retain the VFS refresh above as
+            // the compatibility fallback for other versions.
+            val aiPlugin = PluginManagerCore.getPlugin(PluginId.getId("com.intellij.ml.llm")) ?: return@runCatching
+            val serviceClass = try {
+                (aiPlugin.pluginClassLoader ?: return@runCatching).loadClass(
+                    "com.intellij.ml.llm.agents.acp.runtime.config.AcpAgentsConfigService",
+                )
+            } catch (_: ClassNotFoundException) {
+                // Newer AI Assistant versions no longer expose this private hook.
+                return@runCatching
+            }
+            val companion = serviceClass.getField("Companion").get(null)
+            val service = companion.javaClass.getMethod("getInstance").invoke(companion)
+            serviceClass.methods.firstOrNull {
+                it.name.startsWith("configDocumentChanged$") &&
+                    it.parameterTypes.singleOrNull()?.isAssignableFrom(document.javaClass) == true
+            }?.invoke(service, document)
+        }.onFailure { log.warn("Could not notify AI Assistant of the updated ACP registry", it) }
     }
 
     /**
@@ -383,5 +428,6 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
 
     companion object {
         const val MANAGED_ENTRY_NAME = "Code4Me Agent"
+        private val REGISTRY_JVM_LOCK = Any()
     }
 }

@@ -7,6 +7,7 @@ import com.intellij.openapi.wm.StatusBarWidgetFactory
 import kotlinx.coroutines.CoroutineScope
 import me.code4me.research.session.ResearchSessionService
 import java.awt.Component
+import javax.swing.Timer
 
 /**
  * Reads the participant status view defensively (Issue 10).
@@ -54,8 +55,10 @@ class ResearchStatusBarWidgetFactory : StatusBarWidgetFactory {
     }
 }
 
-/** The status-bar widget itself; text/tooltip are recomputed on each presentation. */
+/** The status-bar widget itself; refreshes when the participant state changes. */
 class ResearchStatusBarWidget(private val project: Project) : StatusBarWidget {
+    private var refreshTimer: Timer? = null
+
     override fun ID(): String = ResearchStatusBarWidgetFactory.WIDGET_ID
 
     @Suppress("DEPRECATION")
@@ -67,7 +70,29 @@ class ResearchStatusBarWidget(private val project: Project) : StatusBarWidget {
     override fun getPresentation(type: StatusBarWidget.PlatformType): StatusBarWidget.WidgetPresentation = presentation()
 
     override fun install(statusBar: StatusBar) {
+        refreshTimer?.stop()
+        var displayed = ParticipantStatusSupport.of(project)
         statusBar.updateWidget(ID())
+        // IntelliJ caches TextPresentation.getText() until updateWidget() is
+        // called. The tooltip is queried afresh, which otherwise leaves the
+        // visible label stale after asynchronous study activation or teardown.
+        refreshTimer =
+            Timer(2_000) {
+                if (project.isDisposed) {
+                    refreshTimer?.stop()
+                } else {
+                    val current = ParticipantStatusSupport.of(project)
+                    if (current != displayed) {
+                        displayed = current
+                        statusBar.updateWidget(ID())
+                    }
+                }
+            }.also { it.start() }
+    }
+
+    override fun dispose() {
+        refreshTimer?.stop()
+        refreshTimer = null
     }
 
     private fun presentation(): StatusBarWidget.WidgetPresentation =

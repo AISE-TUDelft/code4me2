@@ -33,9 +33,12 @@ the durable carrier: the ACP host entry persists it, so a launch keeps working
 even after the plugin removes its fallback file. When a spool endpoint is
 configured but the token is still missing, the proxy retries briefly (a few
 seconds) before exiting so a launch racing activation can still succeed.
+For a running proxy launched with ``--capability-file``, each new host frame
+checks that the file still contains its original token. A stale chat stops
+before forwarding another request after session teardown or replacement.
 
 ``--status-file`` names a content-free delivery status document the proxy writes
-atomically (temp file then replace) at startup, after every dispatch, and once at
+atomically (unique temp file then replace) at startup, after every dispatch, and once at
 shutdown: canonical JSON of the delivery counters (``dropped`` and friends),
 never a payload, event id, path, or capability. The path resolves from
 ``--status-file``, then ``CODE4ME_RESEARCH_STATUS_FILE`` in the entry
@@ -56,7 +59,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
+import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,7 +93,7 @@ from .lifecycle import (  # noqa: E402
     verify_artifact,
 )
 from .normalize import SESSION_ID_KEY, ProxyNormalizer  # noqa: E402
-from .observe import ObservedAcpMessageV1, Observer  # noqa: E402
+from .observe import AcpDirection, ObservedAcpMessageV1, Observer  # noqa: E402
 from .privacy_gate import PrivacyGate, agent_crashed_event  # noqa: E402
 from .spool_client import (  # noqa: E402
     EMITTER_ID_PREFIX,
@@ -397,17 +403,28 @@ def write_status_document(
 
     The document is canonical JSON (sorted keys, compact separators) of the
     delivery snapshot: numeric counters and booleans only, never a payload, event
-    id, path, or capability. It is written to ``<path>.tmp`` and replaced into
-    place so a reader never observes a partial document. Any write failure is
+    id, path, or capability. Each writer uses its own temporary file, then
+    replaces the destination so concurrent proxy processes cannot rename one
+    another's temporary file. Any write failure is
     logged and swallowed so it can never change the proxy's exit code.
     """
     document = json.dumps(dict(snapshot), sort_keys=True, separators=(",", ":"))
-    temporary = f"{path}.tmp"
+    temporary: Optional[str] = None
     try:
-        Path(temporary).write_text(document, encoding="utf-8")
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{Path(path).name}.", suffix=".tmp", dir=str(Path(path).parent)
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(document)
         os.replace(temporary, path)
     except OSError as error:
         diagnostics(f"proxy: cannot write status file {path}: {error}")
+    finally:
+        if temporary is not None:
+            try:
+                Path(temporary).unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _capability_from_environment(
@@ -558,6 +575,7 @@ def run_proxy(
     agent_digest: str,
     spool_endpoint: Optional[str] = None,
     capability: Optional[str] = None,
+    capability_file: Optional[str] = None,
     policy: Optional[PrivacyPolicy] = None,
     policy_digest: Optional[str] = None,
     adapter_name: Optional[str] = None,
@@ -742,7 +760,26 @@ def run_proxy(
             diagnostics=diag,
         )
 
-    forwarder = AcpForwarder(observer=observer, diagnostics=diag)
+    stale_session = threading.Event()
+
+    def verify_live_session(direction, _chunk, _frames) -> None:
+        # An AI Chat process can outlive its study session. The plugin removes
+        # or rewrites this file on teardown/reactivation, while the old process
+        # still holds its original endpoint and token. Stop before forwarding a
+        # new host frame rather than letting the agent run without telemetry.
+        if direction != AcpDirection.HOST_TO_AGENT or capability_file is None:
+            return
+        try:
+            current = Path(capability_file).read_text(encoding="utf-8").strip()
+        except OSError:
+            current = ""
+        if not current or not secrets.compare_digest(current, capability or ""):
+            stale_session.set()
+            raise OSError("research session capability changed or ended")
+
+    forwarder = AcpForwarder(
+        observer=observer, diagnostics=diag, on_frame=verify_live_session
+    )
     forwarder.run(
         host_read,
         host_write,
@@ -776,6 +813,8 @@ def run_proxy(
         _deliver(deliverable([gate.filter(event)]), spool, diag)
         diag(f"proxy: agent exited unexpectedly with status {return_code}")
         return EXIT_AGENT_CRASH
+    if stale_session.is_set():
+        return EXIT_SPOOL_REJECTED
     if malformed:
         return EXIT_PARSE_FAILURE
     return EXIT_OK
@@ -811,6 +850,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         agent_digest=args.agent_digest,
         spool_endpoint=args.spool_endpoint,
         capability=capability,
+        capability_file=args.capability_file,
         policy=policy,
         policy_digest=args.telemetry_policy_digest,
         adapter_name=args.adapter,

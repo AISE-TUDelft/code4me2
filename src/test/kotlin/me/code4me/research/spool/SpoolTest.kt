@@ -1179,4 +1179,29 @@ class SpoolUploaderTest {
         assertEquals(now + 7_000L, uploader.state().nextAttemptAtEpochMs)
         assertEquals(listOf(sent.eventId), spool.pending().map { it.eventId })
     }
+
+    @Test
+    fun `zero retry hint still uses exponential backoff`() {
+        val spool = tempSpool()
+        val sent = events(1).single()
+        spool.append(sent)
+        var now = 1_000L
+        val ack =
+            canonicalJson(
+                linkedMapOf(
+                    "receipt_id" to "receipt-1",
+                    "server_time" to "2026-01-01T00:00:00Z",
+                    "retryable" to listOf(linkedMapOf("event_id" to sent.eventId, "retry_hint" to 0L)),
+                ),
+            )
+        val (uploader, requests) = uploader(spool, clock = { now }) { response(200, ack) }
+
+        val first = uploader.uploadOnce()
+        assertEquals(50L, first.backoffMs)
+        now += 1L
+        assertTrue(uploader.uploadOnce().deferred)
+        now += 49L
+        assertEquals(100L, uploader.uploadOnce().backoffMs)
+        assertEquals(2, requests.requests.size)
+    }
 }

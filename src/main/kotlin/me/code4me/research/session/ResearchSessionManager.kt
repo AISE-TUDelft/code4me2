@@ -328,6 +328,8 @@ class ResearchSessionManager(
      */
     private val packagedAgentInstaller: PackagedAgentInstaller = PackagedAgentInstaller.PRODUCTION,
     private val agentEnvProvider: () -> Map<String, String> = { emptyMap() },
+    /** Local, non-secret inference transport settings for a BYOA agent. */
+    private val byoaInferenceEnvProvider: (String?, String?) -> Map<String, String> = { _, _ -> emptyMap() },
     private val capabilityFilePathProvider: () -> Path? = { null },
     private val capabilityRootProvider: () -> Path = { defaultResearchSessionRoot() },
     /**
@@ -918,9 +920,11 @@ class ResearchSessionManager(
         val resumed = resolution.resumed && !adoptedManifestId
         val resolvedSpool =
             try {
-                // Context-scoped spool: two windows of the same enrollment never
-                // share a spool directory/queue.
-                spoolProvider("${validManifest.enrollmentId}::$contextId")
+                // A capability authorizes exactly one research session. Keep
+                // its spool separate so undeliverable events from a terminal
+                // session cannot sit at the head of a later session's queue.
+                // The key stays stable when that same session resumes.
+                spoolProvider("${validManifest.enrollmentId}::$contextId::${authoritativeSession.sessionId}")
             } catch (exception: Exception) {
                 markFailed(StudyBlockReason.TRANSPORT_FAILED, exception.message)
                 return ResearchActivationResult.Failed(exception.message)
@@ -1048,6 +1052,13 @@ class ResearchSessionManager(
                 )
             val delivery = uploaderFactory(context)
             delivery.start()
+            // A previous uploader can leave a durable terminal marker after its
+            // session expires. A newly validated bootstrap capability is the
+            // authority for this activation, so clear that stale marker now
+            // instead of leaving collection blocked until a later refresh tick.
+            if (delivery.state().revoked && !delivery.updateCapability(context.sessionCapability)) {
+                return UploaderStart.Failed("the spool uploader could not adopt the new session capability")
+            }
             UploaderStart.Started(delivery)
         } catch (exception: Exception) {
             UploaderStart.Failed(exception.message ?: "the spool uploader could not start")
@@ -1826,7 +1837,10 @@ class ResearchSessionManager(
                             policyFile = telemetryPolicyFile,
                             policyDigest = policy.policyDigest,
                             statusFile = telemetryStatusFile,
-                            agentEnv = ready.agentEnv,
+                            agentEnv = byoaInferenceEnvProvider(
+                                validManifest.agentRelease.agentPackage,
+                                validManifest.agentProfile?.model,
+                            ) + ready.agentEnv,
                         )
                     } catch (exception: Exception) {
                         Result.failure(exception)

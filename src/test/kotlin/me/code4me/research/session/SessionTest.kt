@@ -282,6 +282,26 @@ class ResearchSessionManagerTest {
         assertFalse(a.contains("project-a"))
     }
 
+    @Test
+    fun `different server sessions use separate durable spools`() {
+        val keys = ArrayList<String>()
+        val spoolProvider: (String) -> DurableSpool = { key ->
+            keys.add(key)
+            DurableSpool(root.resolve("spool-${keys.size}"))
+        }
+        val firstId = java.util.UUID.randomUUID().toString()
+        val secondId = java.util.UUID.randomUUID().toString()
+
+        val first = manager(validTransport(firstId), spoolProvider = spoolProvider)
+        val second = manager(validTransport(secondId), spoolProvider = spoolProvider)
+        assertTrue(first.activate("enrollment-1") is ResearchActivationResult.Activated)
+        assertTrue(second.activate("enrollment-1") is ResearchActivationResult.Activated)
+        assertEquals(2, keys.size)
+        assertNotEquals(keys[0], keys[1])
+        assertTrue(keys[0].endsWith("::$firstId"))
+        assertTrue(keys[1].endsWith("::$secondId"))
+    }
+
     private fun manager(
         transport: BootstrapTransport,
         clock: MutableClock = newClock(),
@@ -1168,6 +1188,9 @@ class ResearchSessionRuntimeWiringTest {
                 capabilityFile = capabilityFile,
                 manifest = manifest,
                 byoaResolver = byoa,
+                byoaInferenceEnvProvider = { agentPackage, _ ->
+                    if (agentPackage == "goose") mapOf("GOOSE_PROVIDER" to "openai", "GOOSE_MODEL" to "fallback") else emptyMap()
+                },
             )
 
         val result = manager.activate("enrollment-1")
@@ -1178,6 +1201,8 @@ class ResearchSessionRuntimeWiringTest {
         assertTrue(agentCmdIndex > 0, "the entry must still terminate with --agent-cmd")
         // Env bindings travel as explicit --agent-env overrides.
         assertTrue(args.contains("GOOSE_MODEL=gpt-5"))
+        assertTrue(args.contains("GOOSE_PROVIDER=openai"))
+        assertTrue(!args.contains("GOOSE_MODEL=fallback"), "the frozen profile must override a local fallback")
         assertTrue(args.contains("GOOSE_MAX_TURNS=4"))
         assertTrue(args.contains("GOOSE_EXTENSIONS=shell,read"))
         // Arg bindings append to the agent argv (after the release args).
@@ -1512,6 +1537,7 @@ class ResearchSessionRuntimeWiringTest {
         capabilityFile: Path? = null,
         manifest: String = manifestJson(),
         byoaResolver: ByoaAgentResolver? = null,
+        byoaInferenceEnvProvider: (String?, String?) -> Map<String, String> = { _, _ -> emptyMap() },
         installer: PackagedAgentInstaller? = null,
     ): ResearchSessionManager =
         ResearchSessionManager(
@@ -1531,6 +1557,7 @@ class ResearchSessionRuntimeWiringTest {
                     },
             capabilityFilePathProvider = { capabilityFile },
             byoaAgentResolver = byoaResolver ?: ByoaAgentResolver.DEFAULT,
+            byoaInferenceEnvProvider = byoaInferenceEnvProvider,
             sessionStore = InMemoryResearchSessionStore(),
             clock = { VALID_NOW.toEpochMilli() },
             instantClock = { VALID_NOW },
@@ -2808,7 +2835,7 @@ class ResearchSessionMaintenanceTest {
     fun `near-expiry maintenance re-bootstraps and the running uploader adopts the fresh capability`() {
         val http = sessionsHttp { 30L }
         val scheduler = FakeScheduler()
-        val delivery = FakeDelivery(revoked = true)
+        val delivery = FakeDelivery()
         val transport =
             SequenceTransport(
                 listOf(
@@ -2818,6 +2845,7 @@ class ResearchSessionMaintenanceTest {
             )
         val manager = manager(http, transport, delivery, scheduler)
         assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        delivery.revoked = true
         assertEquals(SpoolDeliveryState.REVOKED, manager.state().deliveryState)
 
         val maintenance = manager.performMaintenance()
@@ -2828,6 +2856,17 @@ class ResearchSessionMaintenanceTest {
         val adopted = delivery.adoptedCapabilities.single()
         assertEquals("capability-2", adopted["capability_id"])
         assertFalse(delivery.revoked, "adopting a fresh capability must clear the revoked state")
+        assertEquals(SpoolDeliveryState.ACTIVE, manager.state().deliveryState)
+    }
+
+    @Test
+    fun `new activation clears a persisted uploader terminal marker with its fresh capability`() {
+        val delivery = FakeDelivery(revoked = true)
+        val manager = manager(sessionsHttp { 30L }, singleManifestTransport(), delivery, FakeScheduler())
+
+        assertTrue(manager.activate("enrollment-1") is ResearchActivationResult.Activated)
+        assertFalse(delivery.revoked)
+        assertEquals(1, delivery.adoptedCapabilities.size)
         assertEquals(SpoolDeliveryState.ACTIVE, manager.state().deliveryState)
     }
 

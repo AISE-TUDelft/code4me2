@@ -72,6 +72,7 @@ export class CodexAcpClient {
                 config: {
                     name: "Code4Me Proxy",
                     base_url: proxyUrl,
+                    env_key: "OPENAI_API_KEY",
                     http_headers: { "X-Client-Feature-ID": "codex" },
                     wire_api: "responses" as const,
                 }
@@ -111,6 +112,7 @@ export class CodexAcpClient {
                 config: {
                     name: "Code4Me Proxy",
                     base_url: proxyUrl,
+                    env_key: "OPENAI_API_KEY",
                     http_headers: { "X-Client-Feature-ID": "codex" },
                     wire_api: "responses"
                 }
@@ -162,6 +164,7 @@ export class CodexAcpClient {
                     config: {
                         name: providerName,
                         base_url: baseUrl,
+                        ...(process.env["CODEX_PROXY_URL"] ? { env_key: "OPENAI_API_KEY" } : {}),
                         http_headers: headers,
                         wire_api: "responses"
                     }
@@ -458,7 +461,13 @@ export class CodexAcpClient {
         cwd: string,
     ): Promise<TurnCompletedNotification> {
         const input = buildPromptItems(request.prompt);
-        const effort = modelId.effort as ReasoningEffort | null; //TODO remove unsafe conversion
+        // A custom CODEX_MODEL may not occur in Codex's built-in model list.
+        // In that case the ACP session advertises a fallback model whose
+        // reasoning effort must not leak into the actual custom-model turn.
+        const override = this.modelOverrideParts();
+        const effort = override
+            ? (override.effort as ReasoningEffort | null)
+            : (modelId.effort as ReasoningEffort | null); //TODO remove unsafe conversion
 
         await this.refreshSkills(cwd, request._meta);
         return await this.codexClient.runTurn({
@@ -468,7 +477,10 @@ export class CodexAcpClient {
             sandboxPolicy: agentMode.sandboxPolicy,
             summary: disableSummary ? "none" : null,
             effort: effort,
-            model: modelId.model,
+            // The app server can report its built-in default model even when
+            // thread/start was given CODEX_MODEL. Enforce the study's frozen
+            // model on the actual turn, not just at thread creation.
+            model: override?.model ?? modelId.model,
             serviceTier: serviceTier,
         });
     }
@@ -689,6 +701,7 @@ interface GatewayConfig {
     config: {
         name: string,
         base_url: string,
+        env_key?: string,
         http_headers: Record<string, string>,
         wire_api: "responses"
     }

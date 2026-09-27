@@ -83,6 +83,16 @@ class ByoaConfigurationTest {
     }
 
     @Test
+    fun `gateway tool binding is enforced without an invented process variable`() {
+        val bindings = listOf(AgentConfigBindingRef("tools", "gateway", "tool_allowlist", format = "json"))
+
+        assertTrue(missingByoaBindings(bindings, profile).contains("model"))
+        assertTrue("tools" !in missingByoaBindings(bindings, profile))
+        assertEquals(emptyMap<String, String>(), applyByoaConfiguration(bindings, profile).env)
+        assertEquals(emptyList<String>(), applyByoaConfiguration(bindings, profile).args)
+    }
+
+    @Test
     fun `missing bindings report every set field`() {
         val missing =
             missingByoaBindings(

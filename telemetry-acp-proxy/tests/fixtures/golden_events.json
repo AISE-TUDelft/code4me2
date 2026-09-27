@@ -111,28 +111,6 @@
   },
   {
     "sequence": 11,
-    "event_type": "agent.message.started",
-    "source": "acp",
-    "fidelity": "normalized",
-    "coverage_state": "AVAILABLE",
-    "lifecycle_state": "started",
-    "usage_tokens": null,
-    "usage_state": "UNAVAILABLE",
-    "normalizer_version": "generic-acp-v1"
-  },
-  {
-    "sequence": 12,
-    "event_type": "agent.message.started",
-    "source": "acp",
-    "fidelity": "normalized",
-    "coverage_state": "AVAILABLE",
-    "lifecycle_state": "started",
-    "usage_tokens": null,
-    "usage_state": "UNAVAILABLE",
-    "normalizer_version": "generic-acp-v1"
-  },
-  {
-    "sequence": 13,
     "event_type": "plan.updated",
     "source": "acp",
     "fidelity": "normalized",
@@ -143,7 +121,7 @@
     "normalizer_version": "generic-acp-v1"
   },
   {
-    "sequence": 14,
+    "sequence": 12,
     "event_type": "usage.updated",
     "source": "acp",
     "fidelity": "normalized",
@@ -154,7 +132,7 @@
     "normalizer_version": "generic-acp-v1"
   },
   {
-    "sequence": 15,
+    "sequence": 13,
     "event_type": "usage.updated",
     "source": "acp",
     "fidelity": "normalized",
@@ -165,7 +143,7 @@
     "normalizer_version": "generic-acp-v1"
   },
   {
-    "sequence": 16,
+    "sequence": 14,
     "event_type": "agent.message.completed",
     "source": "acp",
     "fidelity": "normalized",
@@ -176,7 +154,7 @@
     "normalizer_version": "generic-acp-v1"
   },
   {
-    "sequence": 17,
+    "sequence": 15,
     "event_type": "agent.message.started",
     "source": "acp",
     "fidelity": "normalized",
@@ -187,7 +165,7 @@
     "normalizer_version": "generic-acp-v1"
   },
   {
-    "sequence": 18,
+    "sequence": 16,
     "event_type": "agent.message.completed",
     "source": "acp",
     "fidelity": "normalized",
@@ -198,7 +176,7 @@
     "normalizer_version": "generic-acp-v1"
   },
   {
-    "sequence": 19,
+    "sequence": 17,
     "event_type": "unknown_source_event",
     "source": "acp",
     "fidelity": "normalized",
@@ -209,7 +187,7 @@
     "normalizer_version": "generic-acp-v1"
   },
   {
-    "sequence": 20,
+    "sequence": 18,
     "event_type": "agent.error",
     "source": "acp",
     "fidelity": "normalized",

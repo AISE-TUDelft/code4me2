@@ -100,6 +100,53 @@ def test_capability_file_token_is_used_for_the_spool(monkeypatch, tmp_path):
     assert captured["endpoint"] == f"file://{tmp_path / 'spool.jsonl'}"
 
 
+def test_old_chat_refuses_new_study_session_capability(tmp_path):
+    class CapturedOutput(io.BytesIO):
+        def close(self) -> None:
+            pass
+
+    capability_file = tmp_path / "capability"
+    capability_file.write_text("new-session-token", encoding="utf-8")
+    host_output = CapturedOutput()
+    diagnostics: list[str] = []
+
+    exit_code = proxy_main.run_proxy(
+        agent_cmd=[sys.executable, str(fixture_path("echo_agent.py"))],
+        agent_digest=python_digest(),
+        spool_endpoint=f"file://{tmp_path / 'spool.jsonl'}",
+        capability="old-session-token",
+        capability_file=str(capability_file),
+        host_read=io.BytesIO(b'{"jsonrpc":"2.0","id":1,"method":"session/new"}\n'),
+        host_write=host_output,
+        diagnostics=diagnostics.append,
+    )
+
+    assert exit_code == proxy_main.EXIT_SPOOL_REJECTED
+    assert host_output.getvalue() == b""
+    assert any("research session capability changed or ended" in message for message in diagnostics)
+    assert "old-session-token" not in " ".join(diagnostics)
+    assert "new-session-token" not in " ".join(diagnostics)
+
+
+def test_old_chat_refuses_removed_study_session_capability(tmp_path):
+    host_output = io.BytesIO()
+    diagnostics: list[str] = []
+
+    exit_code = proxy_main.run_proxy(
+        agent_cmd=[sys.executable, str(fixture_path("echo_agent.py"))],
+        agent_digest=python_digest(),
+        spool_endpoint=f"file://{tmp_path / 'spool.jsonl'}",
+        capability="old-session-token",
+        capability_file=str(tmp_path / "removed-capability"),
+        host_read=io.BytesIO(b'{"jsonrpc":"2.0","id":1,"method":"session/new"}\n'),
+        host_write=host_output,
+        diagnostics=diagnostics.append,
+    )
+
+    assert exit_code == proxy_main.EXIT_SPOOL_REJECTED
+    assert any("research session capability changed or ended" in message for message in diagnostics)
+
+
 def test_environment_capability_is_used_when_the_file_is_missing(tmp_path):
     # The ACP entry persists CODE4ME_RESEARCH_CAPABILITY; the fallback file may
     # already have been removed, so a missing file must not fail the launch.
@@ -209,4 +256,3 @@ def test_an_optional_missing_capability_does_not_retry(tmp_path):
 
     assert token is None
     assert error is not None
-

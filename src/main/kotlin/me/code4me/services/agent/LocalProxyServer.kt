@@ -18,6 +18,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.InetSocketAddress
+import me.code4me.research.session.ResearchSessionService
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -123,6 +124,8 @@ object LocalProxyServer {
 
     /** Base URL agent runtimes should be pointed at. */
     fun baseUrl(): String = "http://127.0.0.1:${getPrefState().localProxyPort}"
+
+    fun isListening(): Boolean = server != null && boundPort > 0
 
     private fun handle(exchange: HttpExchange) {
         val method = exchange.requestMethod
@@ -281,7 +284,11 @@ object LocalProxyServer {
         val project = activeProject
         if (project == null || project.isDisposed) return null
         return try {
-            runBlocking { AgentStartupManager.ensureActiveTask(project) }
+            if (ResearchSessionService.getInstance(project).state().canLaunch) {
+                runBlocking { AgentStartupManager.ensureResearchTask() }
+            } else {
+                runBlocking { AgentStartupManager.ensureActiveTask(project) }
+            }
             getPrefState().pendingTaskId
         } catch (e: Exception) {
             LOG.warn("[LocalProxyServer] lazy task provisioning failed", e)

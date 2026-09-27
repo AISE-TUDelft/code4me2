@@ -50,6 +50,15 @@ DEFAULT_ENV_ALLOWLIST = (
     "CODE4ME_RESEARCH_SESSION_ID",
 )
 
+# A participant may explicitly opt in to passing *their own* provider settings
+# to a BYOA agent. Never inherit credentials merely because they happen to be
+# present in the IDE process: release authors must not gain ambient secrets.
+PROVIDER_ENV_NAMES = frozenset({
+    "GOOSE_PROVIDER", "GOOSE_MODEL", "OPENAI_BASE_URL", "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY", "CODEX_UPSTREAM_URL", "CODEX_UPSTREAM_API_KEY",
+    "CODEX_MAX_OUTPUT_TOKENS",
+})
+
 DEFAULT_TERMINATE_TIMEOUT_SECONDS = 5.0
 
 
@@ -134,6 +143,10 @@ def build_environment(
     """Build an explicit, allowlisted child environment."""
     origin = source if source is not None else os.environ
     environment = {name: origin[name] for name in allowlist if name in origin}
+    requested = origin.get("CODE4ME_AGENT_PROVIDER_ENV", "")
+    for name in (part.strip() for part in requested.split(",")):
+        if name in PROVIDER_ENV_NAMES and name in origin:
+            environment[name] = origin[name]
     if overrides:
         environment.update(overrides)
     return environment

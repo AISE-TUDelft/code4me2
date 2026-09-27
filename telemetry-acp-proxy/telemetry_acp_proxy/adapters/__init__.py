@@ -20,8 +20,8 @@ ADAPTER_REGISTRY: dict[str, type] = {
 
 
 def get_adapter(name: Optional[str]) -> Optional[AgentAdapter]:
-    """Return an adapter instance by registry name (``None``/``none`` = none)."""
-    if name is None or name == "none":
+    """Return an adapter by name; ``generic-acp`` uses base normalization only."""
+    if name is None or name in {"none", "generic-acp"}:
         return None
     factory = ADAPTER_REGISTRY.get(name)
     if factory is None:
