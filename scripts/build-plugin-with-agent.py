@@ -75,7 +75,12 @@ def artifact_for(release: dict, wanted: str, manifest_path: Path) -> dict:
 
 
 def sync_runtime(
-    source: dict, *, server_commit: str | None, manifest_path: Path, plugin_commit: str
+    source: dict,
+    *,
+    server_commit: str | None,
+    manifest_path: Path,
+    plugin_commit: str,
+    release: dict | None = None,
 ) -> tuple[Path, str]:
     """Copy the release archive and rewrite the recipe. Returns (archive, digest)."""
     source_zip = manifest_path.parent / Path(str(source["archive"])).name
@@ -114,6 +119,12 @@ def sync_runtime(
     }
     if source.get("tests"):
         artifact["tests"] = source["tests"]
+    # The plugin refuses a study launch unless the bundled recipe declares the
+    # adapter the bootstrap pins; the producer manifest carries it top-level
+    # (or per artifact), so it travels into the recipe on both levels.
+    adapter = source.get("adapter") or (release or {}).get("adapter")
+    if adapter:
+        artifact["adapter"] = adapter
     recipe = {
         "manifest_version": 1,
         "runtime_version": source["version"],
@@ -121,6 +132,7 @@ def sync_runtime(
         "server_commit": server_commit,
         "plugin_commit": plugin_commit,
         **{key: previous[key] for key in PRESERVED_RECIPE_FIELDS if key in previous},
+        **({"adapter": adapter} if adapter else {}),
         "artifacts": [artifact],
     }
     serialized = json.dumps(recipe, indent=2) + "\n"

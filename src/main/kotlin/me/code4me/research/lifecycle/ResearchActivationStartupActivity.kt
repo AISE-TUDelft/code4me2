@@ -4,31 +4,18 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import me.code4me.lifecycle.getAcpLoginReconciliationService
 import me.code4me.research.session.ResearchSessionService
 
-/**
- * Discovers the account's server-side research membership on project open.
- *
- * The membership authority is the server (`GET /api/research/participants/me`),
- * never a project-local enrollment id. The stored id is passed to the service as
- * a hint only: an active enrollment from the server is adopted and persisted, a
- * terminal (withdrawn/completed) enrollment clears the hint and blocks, and "no
- * enrollment" clears any stale hint and leaves the component inactive without an
- * error. Strictly best-effort: any failure is swallowed and never blocks ordinary
- * Code4Me startup.
- */
+/** Starts the shared project reconciler; the second startup hook is intentionally idempotent. */
 class ResearchActivationStartupActivity : ProjectActivity {
     private val log = thisLogger()
 
     override suspend fun execute(project: Project) {
-        withContext(Dispatchers.IO) {
-            try {
-                ResearchSessionService.getInstance(project).reactivateFromServer()
-            } catch (error: Exception) {
-                log.warn("Research enrollment discovery failed — non-blocking", error)
-            }
+        try {
+            getAcpLoginReconciliationService(project).start()
+        } catch (error: Exception) {
+            log.warn("ACP login reconciliation could not start — non-blocking", error)
         }
     }
 }
@@ -40,7 +27,8 @@ class ResearchActivationStartupActivity : ProjectActivity {
  * collectors, uploaders) and its spool is quarantined, so no queued record can be
  * uploaded under the next account. It only touches contexts that were already
  * created, never constructs one, and swallows every failure so ordinary login,
- * logout and chat are unaffected.
+ * logout and chat are unaffected. A privacy erase uses [eraseAllContexts], which
+ * deletes the spool instead of quarantining it.
  */
 object ResearchLogoutHook {
     private val log = thisLogger()
@@ -49,15 +37,37 @@ object ResearchLogoutHook {
         try {
             for (project in ProjectManager.getInstance().openProjects) {
                 val service = project.getServiceIfCreated(ResearchSessionService::class.java) ?: continue
-                runCatching { service.stop() }.onFailure {
+                runCatching { service.onLogout() }.onFailure {
                     log.warn("Stopping a research context on sign-out failed", it)
-                }
-                runCatching { service.quarantine() }.onFailure {
-                    log.warn("Quarantining a research spool on sign-out failed", it)
                 }
             }
         } catch (error: Exception) {
             log.warn("Research sign-out cleanup failed", error)
+        }
+    }
+
+    /**
+     * Privacy-erase hook: stop every open project's research context and delete
+     * its pending spool, so records collected before the erase are never
+     * uploaded. The user stays signed in. A context that cannot be stopped or
+     * deleted safely keeps its spool on disk (quarantined when it could be
+     * moved aside, as on sign-out) and is logged. Stops as soon
+     * as [stillCurrent] is false (the erased account signed out), so a newer
+     * sign-in's contexts are never touched.
+     */
+    fun eraseAllContexts(stillCurrent: () -> Boolean) {
+        try {
+            for (project in ProjectManager.getInstance().openProjects) {
+                if (!stillCurrent()) return
+                val service = project.getServiceIfCreated(ResearchSessionService::class.java) ?: continue
+                runCatching { service.onErase() }
+                    .onSuccess { deleted ->
+                        if (!deleted) log.warn("A research spool could not be deleted after the data erase and remains on disk")
+                    }
+                    .onFailure { log.warn("Stopping a research context after the data erase failed", it) }
+            }
+        } catch (error: Exception) {
+            log.warn("Research cleanup after the data erase failed", error)
         }
     }
 }

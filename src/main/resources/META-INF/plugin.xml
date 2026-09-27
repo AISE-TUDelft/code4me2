@@ -27,6 +27,7 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <notificationGroup id="Code4Me V2" displayType="BALLOON" isLogByDefault="true" />
+        <notificationGroup id="Code4Me ACP preparation" displayType="STICKY_BALLOON" isLogByDefault="true" />
 
         <!--        These are the extension-point definitions for both types of providing a completion          -->
         <inline.completion.provider id="Code4Me V2"

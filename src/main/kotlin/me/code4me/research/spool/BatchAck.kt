@@ -8,7 +8,9 @@ import me.code4me.research.spool.DurableSpool
  *
  * Event ids are grouped by disposition. `reasons` carries typed, permanent
  * reasons for [rejected]; `retryHints` may carry a server-suggested delay for
- * [retryable] ids. A missing acknowledgement is never treated as success: see
+ * [retryable] ids, in **milliseconds** (the wire `retry_hint` is in seconds and
+ * is converted on parse, so a "retry in 30 s" is never read as 30 ms). A
+ * missing acknowledgement is never treated as success: see
  * [BatchAckHandler.apply].
  */
 data class TelemetryBatchAckV1(
@@ -32,9 +34,16 @@ data class TelemetryBatchAckV1(
         get() = accepted.isEmpty() && duplicate.isEmpty() && rejected.isEmpty() && retryable.isEmpty()
 
     companion object {
-        /** Permanent, revocation-class reasons that must stop further uploads. */
+        /**
+         * Permanent, revocation-class reasons that must stop further uploads.
+         *
+         * `SESSION_TERMINAL` is deliberately absent: it names one event that
+         * arrived after its (ended) session's grace window, not the enrollment.
+         * It is an ordinary permanent per-event rejection (discarded, counted)
+         * and must never stop delivery of every other record.
+         */
         val REVOCATION_REASONS: Set<String> =
-            setOf("REVOKED", "ENROLLMENT_NOT_ACTIVE", "SESSION_TERMINAL", "STUDY_STOPPED")
+            setOf("REVOKED", "ENROLLMENT_NOT_ACTIVE", "STUDY_STOPPED")
 
         /**
          * Parse the server's `TelemetryBatchAckV1` wire JSON.
@@ -57,7 +66,7 @@ data class TelemetryBatchAckV1(
             val receiptId = map["receipt_id"] as? String
             require(!receiptId.isNullOrBlank()) { "acknowledgement is missing receipt_id" }
             val serverTime = map["server_time"] as? String ?: ""
-            val topLevelHint = (map["retry_hint"] as? Number)?.toLong()
+            val topLevelHint = (map["retry_hint"] as? Number)?.let(::hintSecondsToMillis)
             return TelemetryBatchAckV1(
                 receiptId = receiptId,
                 serverTime = serverTime,
@@ -107,12 +116,15 @@ data class TelemetryBatchAckV1(
             (value as? List<*>)?.forEach { item ->
                 if (item is Map<*, *>) {
                     val id = item["event_id"] as? String
-                    val hint = (item["retry_hint"] as? Number)?.toLong() ?: topLevelHint
+                    val hint = (item["retry_hint"] as? Number)?.let(::hintSecondsToMillis) ?: topLevelHint
                     if (id != null && hint != null) result[id] = hint
                 }
             }
             return result
         }
+
+        /** The server's `retry_hint` is whole seconds (`DEFAULT_RETRY_HINT_SECONDS`). */
+        private fun hintSecondsToMillis(seconds: Number): Long = (seconds.toDouble() * 1_000.0).toLong()
     }
 }
 

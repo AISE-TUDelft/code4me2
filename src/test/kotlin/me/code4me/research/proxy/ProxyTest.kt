@@ -21,6 +21,7 @@ import me.code4me.research.runtime.ContentHasher
 import me.code4me.research.runtime.ProcessOutcome
 import me.code4me.research.telemetry.parseCanonicalJsonObject
 import me.code4me.research.telemetry.sha256Hex
+import me.code4me.services.agent.AcpRegistryWriter
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -29,6 +30,10 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.times
+import org.mockito.kotlin.verify
+import org.mockito.kotlin.whenever
 
 // --------------------------------------------------------------------------
 // AcpHostRegistrationTest.kt
@@ -89,6 +94,14 @@ class AcpHostRegistrationTest {
         assertTrue(args.indexOf("--agent-digest") in 0 until agentCmdIndex)
         assertTrue(args.indexOf("--spool-endpoint") in 0 until agentCmdIndex)
         assertTrue(args.indexOf("--capability-file") in 0 until agentCmdIndex)
+        assertTrue(
+            AcpHostRegistration.COMPAT_IDEMPOTENT_INITIALIZE_FLAG in args,
+            "the bundled proxy compatibility mode must be enabled in the entry",
+        )
+        assertTrue(
+            args.indexOf(AcpHostRegistration.COMPAT_IDEMPOTENT_INITIALIZE_FLAG) in 0 until agentCmdIndex,
+            "the compatibility flag must precede the --agent-cmd REMAINDER",
+        )
 
         assertTrue(Files.exists(capabilityFile))
         assertTrue(Files.readString(capabilityFile).isNotBlank())
@@ -274,6 +287,10 @@ class AcpHostRegistrationTest {
         assertTrue(args.indexOf(AcpHostRegistration.AGENT_DIGEST_FLAG) in 0 until agentCmdIndex)
         assertTrue(args.indexOf(AcpHostRegistration.SPOOL_ENDPOINT_FLAG) in 0 until agentCmdIndex)
         assertTrue(args.indexOf(AcpHostRegistration.CAPABILITY_FILE_FLAG) in 0 until agentCmdIndex)
+        assertTrue(
+            args.indexOf(AcpHostRegistration.COMPAT_IDEMPOTENT_INITIALIZE_FLAG) in 0 until agentCmdIndex,
+            "the compatibility flag must precede the --agent-cmd REMAINDER",
+        )
     }
 
     @Test
@@ -343,6 +360,7 @@ class AcpHostRegistrationTest {
         assertTrue(args.indexOf("--adapter") in 0 until agentCmdIndex)
         assertTrue(args.indexOf("--telemetry-policy") in 0 until agentCmdIndex)
         assertTrue(args.indexOf("--telemetry-policy-digest") in 0 until agentCmdIndex)
+        assertTrue(args.indexOf(AcpHostRegistration.COMPAT_IDEMPOTENT_INITIALIZE_FLAG) in 0 until agentCmdIndex)
     }
 
     @Test
@@ -460,6 +478,10 @@ class AcpHostRegistrationTest {
                 .map { it.jsonPrimitive.content }
         assertFalse(args.contains(AcpHostRegistration.AGENT_CMD_FLAG))
         assertFalse(args.contains(AcpHostRegistration.AGENT_DIGEST_FLAG))
+        assertTrue(
+            AcpHostRegistration.COMPAT_IDEMPOTENT_INITIALIZE_FLAG in args,
+            "the compatibility flag is always emitted, even without a packaged agent",
+        )
     }
 
     @Test
@@ -487,10 +509,128 @@ class AcpHostRegistrationTest {
         assertFalse(env.containsKey(AcpHostRegistration.RUN_ID_ENV_VAR))
     }
 
+    @Test
+    fun `register emits the inference credential file path before the agent command and never the credential`() {
+        val proxyExecutable = directory.resolve("runtime/bin/telemetry-acp-proxy")
+        Files.createDirectories(proxyExecutable.parent)
+        Files.writeString(proxyExecutable, "proxy-binary")
+        val agentExecutable = directory.resolve("goose")
+        Files.writeString(agentExecutable, "agent-binary")
+        val credentialFile = directory.resolve("research/inference-credential-1.json")
+        val canary = "CANARY-BEARER-" + "x".repeat(24)
+        assertTrue(writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", canary).isSuccess)
+
+        val result =
+            registration().register(
+                resolved = runtime(proxyExecutable),
+                agentArgv = listOf(agentExecutable.toString(), "acp"),
+                spoolEndpoint = null,
+                capabilityFile = null,
+                agentEnv = mapOf("OPENAI_HOST" to "https://research.example.org", "GOOSE_PROVIDER" to "openai"),
+                inferenceCredentialFile = credentialFile,
+            )
+
+        assertTrue(result.isSuccess)
+        val entry = servers().getValue(AcpHostRegistration.DEFAULT_ENTRY_NAME).jsonObject
+        val args = entry.getValue("args").jsonArray.map { it.jsonPrimitive.content }
+        val env = entry.getValue("env").jsonObject.mapValues { (_, value) -> value.jsonPrimitive.content }
+        val expectedPath = credentialFile.toAbsolutePath().normalize().toString()
+        val flagIndex = args.indexOf(AcpHostRegistration.INFERENCE_CREDENTIAL_FILE_FLAG)
+        val agentCmdIndex = args.indexOf(AcpHostRegistration.AGENT_CMD_FLAG)
+        assertTrue(flagIndex >= 0, "the credential file flag must be present")
+        assertEquals(expectedPath, args[flagIndex + 1])
+        assertTrue(flagIndex < agentCmdIndex, "--inference-credential-file must precede the --agent-cmd REMAINDER")
+        assertEquals(expectedPath, env[AcpHostRegistration.INFERENCE_CREDENTIAL_FILE_ENV_VAR])
+        // Only the path travels: the credential never enters argv or the entry env.
+        assertFalse(Files.readString(registry).contains(canary), "the credential must never enter the ACP registry")
+        assertFalse(args.any { it.startsWith("OPENAI_API_KEY=") })
+        assertFalse(env.containsKey("OPENAI_API_KEY"))
+        assertTrue(Files.readString(credentialFile).contains(canary))
+    }
+
+    @Test
+    fun `the inference credential file is owner-only, atomically replaced, and shaped for the proxy`() {
+        val credentialFile = directory.resolve("research/inference-credential-2.json")
+
+        assertTrue(writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", "first-" + "a".repeat(20)).isSuccess)
+        assertTrue(writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", "second-" + "b".repeat(20)).isSuccess)
+
+        assertOwnerOnly(credentialFile)
+        Files.newDirectoryStream(credentialFile.parent).use { stream ->
+            assertTrue(stream.none { it.fileName.toString().endsWith(".tmp") }, "no staging file may remain")
+        }
+        val document = parseCanonicalJsonObject(Files.readString(credentialFile))
+        assertEquals(setOf("schema_version", "credential_env_key", "credential"), document.keys)
+        assertEquals("1", document["schema_version"])
+        assertEquals("OPENAI_API_KEY", document["credential_env_key"])
+        assertEquals("second-" + "b".repeat(20), document["credential"])
+    }
+
+    @Test
+    fun `the inference credential writer refuses documents the proxy would reject`() {
+        val credentialFile = directory.resolve("research/inference-credential-3.json")
+
+        assertTrue(writeInferenceCredentialFile(credentialFile, "not a var", "value").isFailure)
+        assertTrue(writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", "  ").isFailure)
+        assertTrue(writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", "bad\nvalue").isFailure)
+        assertFalse(Files.exists(credentialFile), "a refused document must not be written")
+        val failure = writeInferenceCredentialFile(credentialFile, "OPENAI_API_KEY", "secret\u0000value").exceptionOrNull()
+        assertTrue(failure != null)
+        assertFalse(failure?.message?.contains("secret") == true, "failure messages never carry the credential")
+    }
+
     private fun registration(): AcpHostRegistration = AcpHostRegistration(registry)
 
     private fun registration(entryName: String): AcpHostRegistration =
         AcpHostRegistration(registry, entryName = entryName)
+
+    /**
+     * An [AcpHostRegistration] whose registry writer is [writer]; the other
+     * injected collaborators are never exercised by [AcpHostRegistration.unregister].
+     */
+    private fun registrationWith(writer: AcpRegistryWriter): AcpHostRegistration =
+        AcpHostRegistration(
+            registryPath = registry,
+            entryName = AcpHostRegistration.DEFAULT_ENTRY_NAME,
+            registryWriterFactory = { writer },
+            capabilityWriter = { _, _ -> },
+            capabilityFactory = { "test-capability" },
+            digestFactory = { "test-digest" },
+        )
+
+    @Test
+    fun `unregister retries once when the entry survives the first removal`() {
+        val writer = mock<AcpRegistryWriter>()
+        whenever(writer.removeEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)).thenReturn(Result.success(Unit))
+        // The entry is reported present after the first removal and gone after
+        // the retry: the second removal must have been attempted.
+        whenever(writer.hasEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)).thenReturn(true, false)
+
+        val result = registrationWith(writer).unregister()
+
+        assertTrue(result.isSuccess)
+        verify(writer, times(2)).removeEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)
+        verify(writer, times(2)).hasEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)
+    }
+
+    @Test
+    fun `unregister fails when the entry survives the retry`() {
+        val writer = mock<AcpRegistryWriter>()
+        whenever(writer.removeEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)).thenReturn(Result.success(Unit))
+        whenever(writer.hasEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)).thenReturn(true)
+
+        val result = registrationWith(writer).unregister()
+
+        assertTrue(result.isFailure, "a surviving entry must not be reported as success")
+        val failure = result.exceptionOrNull()
+        assertTrue(failure is IllegalStateException, "expected an IllegalStateException, got $failure")
+        assertTrue(
+            failure?.message?.contains(AcpHostRegistration.DEFAULT_ENTRY_NAME) == true,
+            "the failure must name the surviving entry: ${failure?.message}",
+        )
+        verify(writer, times(2)).removeEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)
+        verify(writer, times(2)).hasEntry(AcpHostRegistration.DEFAULT_ENTRY_NAME)
+    }
 
     private fun runtime(proxyExecutable: Path): ResolvedProxyRuntime =
         ResolvedProxyRuntime(

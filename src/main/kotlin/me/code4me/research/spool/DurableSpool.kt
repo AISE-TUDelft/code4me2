@@ -63,6 +63,13 @@ class DurableSpool(
     private val spoolFile: Path = directory.resolve("spool.log")
     private val ackFile: Path = directory.resolve("ack.log")
 
+    /**
+     * True when an acknowledgement/discard landed since the last compaction, so
+     * compacting on append can actually shrink the log. Over quota with nothing
+     * acknowledged, every append would otherwise re-read the whole file.
+     */
+    @Volatile private var ackedSinceCompaction = true
+
     init {
         Files.createDirectories(directory)
     }
@@ -95,6 +102,27 @@ class DurableSpool(
             }
         } catch (_: Exception) {
             null
+        }
+
+    /**
+     * Permanently delete this spool's directory with every pending and
+     * acknowledged record, so nothing in it can ever be uploaded (privacy
+     * erase). Unlike [quarantine] nothing is kept aside, and unlike [discard]
+     * it removes the whole spool, not a few rejected ids. Best-effort and never
+     * throws; returns `true` once the directory is gone. Symbolic links are
+     * removed, never followed.
+     */
+    @Synchronized
+    fun discardAll(): Boolean =
+        try {
+            if (Files.exists(directory)) {
+                Files.walk(directory).use { paths ->
+                    paths.sorted(Comparator.reverseOrder()).forEach(Files::delete)
+                }
+            }
+            true
+        } catch (_: Exception) {
+            !Files.exists(directory)
         }
 
     /** Append one sanitized event durably. Returns the created record. */
@@ -135,6 +163,7 @@ class DurableSpool(
             val builder = StringBuilder()
             added.forEach { builder.append(it).append('\n') }
             appendText(ackFile, builder.toString())
+            ackedSinceCompaction = true
         }
         return added.size
     }
@@ -172,6 +201,7 @@ class DurableSpool(
             val builder = StringBuilder()
             added.forEach { builder.append(it).append('\n') }
             appendText(ackFile, builder.toString())
+            ackedSinceCompaction = true
         }
         return added.size
     }
@@ -205,7 +235,7 @@ class DurableSpool(
     }
 
     private fun enforceQuota(compactFirst: Boolean = true) {
-        if (compactFirst && isOverQuota()) compactAcknowledged()
+        if (compactFirst && ackedSinceCompaction && isOverQuota()) compactAcknowledged()
         // The indicator is a diagnostic artifact; it is never a reason to drop
         // un-acknowledged behavioral data.
         if (isOverQuota()) writeIndicator() else clearIndicator()
@@ -254,6 +284,7 @@ class DurableSpool(
     }
 
     private fun compactAcknowledged() {
+        ackedSinceCompaction = false
         val records = readRecords()
         if (records.isEmpty()) {
             truncateFile(ackFile)
@@ -314,6 +345,7 @@ class DurableSpool(
             }
             index++
         }
+        var repairedTail = false
         if (lineStart < bytes.size) {
             // Final line was never terminated: a crash mid-append.
             val line = String(bytes, lineStart, bytes.size - lineStart, StandardCharsets.UTF_8)
@@ -323,12 +355,13 @@ class DurableSpool(
             } else {
                 records.add(record)
                 valid.append(line).append('\n')
+                // Rewrite once with the terminator, or the next append glues
+                // its line onto this one and both become unparseable.
+                repairedTail = true
             }
         }
-        if (corrupt.size() > 0) {
-            quarantineBytes(corrupt.toByteArray())
-            rewriteSpool(valid.toString())
-        }
+        if (corrupt.size() > 0) quarantineBytes(corrupt.toByteArray())
+        if (corrupt.size() > 0 || repairedTail) rewriteSpool(valid.toString())
         return records
     }
 

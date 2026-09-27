@@ -8,6 +8,13 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.RangeMarker
 import com.intellij.openapi.project.Project
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withTimeout
 import me.code4me.completion.PluginInlineCompletionElement
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
@@ -35,6 +42,10 @@ import kotlin.concurrent.schedule
  * as well as the intervals at which to check for ground truth after insertion.
  *
  * This module is part of the after insertion modules.
+ *
+ * Document text is read only inside a read action; the HTTP submission runs on
+ * [Dispatchers.IO] with a bounded timeout, never under the read lock. The
+ * participant's source text is never written to the IDE log (lengths only).
  */
 class GroundTruth : PluginModule {
     companion object {
@@ -43,7 +54,21 @@ class GroundTruth : PluginModule {
         private const val DEFAULT_LEFT_CHARS = 32
         private const val DEFAULT_RIGHT_CHARS = 32
         private const val DEFAULT_CHECKING_INTERVALS = "15, 45, 90"
+
+        /** Upper bound for one ground-truth submission, including connect and read. */
+        const val SUBMIT_TIMEOUT_MS: Long = 10_000L
     }
+
+    /** Off-read-action submission scope; one failed submission never cancels another. */
+    private val submissions = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** What the read action gathers for one interval; the network call consumes it later. */
+    private class GroundTruthSnapshot(
+        val insertedLength: Int,
+        val extendedText: String,
+        val insertedRange: IntRange,
+        val extendedRange: IntRange,
+    )
 
     override val moduleName: String
         get() = "GroundTruth"
@@ -167,53 +192,44 @@ class GroundTruth : PluginModule {
         for (interval in checkingIntervals) {
             timer.schedule(delay = interval * 1000L) {
                 try {
-                    application.runReadAction {
-                        if (rangeMarker.isValid) {
-                            sendGroundTruthToServer(
-                                document,
-                                rangeMarker,
-                                completionId,
-                                project,
-                                modelName,
-                            )
-                        } else {
-                            LOG.warn("Range marker is no longer valid after $interval seconds")
+                    // Only the document read happens under the read lock; the
+                    // network call below runs off it with a timeout.
+                    val snapshot =
+                        application.runReadAction<GroundTruthSnapshot?> {
+                            if (rangeMarker.isValid) {
+                                snapshotGroundTruth(document, rangeMarker)
+                            } else {
+                                LOG.warn("Range marker is no longer valid after $interval seconds")
+                                null
+                            }
                         }
+                    if (snapshot != null) {
+                        sendGroundTruthToServer(snapshot, completionId, project, modelName)
                     }
                 } catch (e: Exception) {
-                    LOG.error("Error while collecting ground truth after $interval seconds", e)
+                    LOG.warn("Error while collecting ground truth after $interval seconds", e)
                 }
             }
         }
     }
 
     /**
-     * Sends the ground truth data to the server.
-     *
-     * @param document The document containing the inserted text.
-     * @param rangeMarker The range marker for the inserted text.
-     * @param completionId The ID of the completion request.
-     * @param project The current project.
-     * @param modelName The name of the model used for the completion.
+     * Read the inserted text and its surrounding window. Must run inside a read
+     * action. Returns lengths/ranges plus the extended text for the server; the
+     * text itself is never logged.
      */
-    private fun sendGroundTruthToServer(
+    private fun snapshotGroundTruth(
         document: Document,
         rangeMarker: RangeMarker,
-        completionId: UUID,
-        project: Project,
-        modelName: String,
-    ) {
+    ): GroundTruthSnapshot {
         val moduleId = getPreferenceId()
-        val leftChars = getIntPreference(moduleId, "leftTokens", DEFAULT_LEFT_CHARS)
-        val rightChars = getIntPreference(moduleId, "rightTokens", DEFAULT_RIGHT_CHARS)
+        // Preference keys must match getPreferenceList() ("leftChars"/"rightChars"),
+        // otherwise user configuration is ignored and defaults are always used.
+        val leftChars = getIntPreference(moduleId, "leftChars", DEFAULT_LEFT_CHARS)
+        val rightChars = getIntPreference(moduleId, "rightChars", DEFAULT_RIGHT_CHARS)
 
         val startOffset = rangeMarker.startOffset
         val endOffset = rangeMarker.endOffset
-
-        // Get the inserted text
-        val insertedText = document.text.substring(rangeMarker.startOffset, rangeMarker.endOffset)
-
-        // Calculate extended range with extra characters
         val documentText = document.text
 
         // Find left boundary (count leftChars characters to the left)
@@ -222,36 +238,63 @@ class GroundTruth : PluginModule {
         // Find right boundary (count rightChars characters to the right)
         val rightBoundary = Math.min(documentText.length, endOffset + rightChars)
 
-        // Get the extended text
-        val extendedText = documentText.substring(leftBoundary, rightBoundary)
+        return GroundTruthSnapshot(
+            insertedLength = endOffset - startOffset,
+            extendedText = documentText.substring(leftBoundary, rightBoundary),
+            insertedRange = startOffset until endOffset,
+            extendedRange = leftBoundary until rightBoundary,
+        )
+    }
 
-        // Print the ground truth
-        LOG.info("Ground Truth for inserted code:")
-        LOG.info("Inserted code range: [$startOffset, $endOffset]")
-        LOG.info("Inserted text: $insertedText")
-        LOG.info("Extended range: [$leftBoundary, $rightBoundary]")
-        LOG.info("Extended text: $extendedText")
+    /**
+     * Sends the ground truth data to the server on [Dispatchers.IO] with a
+     * bounded timeout; never under a read action.
+     *
+     * @param snapshot The text window gathered inside the read action.
+     * @param completionId The ID of the completion request.
+     * @param project The current project.
+     * @param modelName The name of the model used for the completion.
+     */
+    private fun sendGroundTruthToServer(
+        snapshot: GroundTruthSnapshot,
+        completionId: UUID,
+        project: Project,
+        modelName: String,
+    ) {
+        // Lengths and offsets only: participant source text never reaches idea.log.
+        LOG.info(
+            "Ground truth for inserted code: inserted range ${snapshot.insertedRange} " +
+                "(${snapshot.insertedLength} chars), extended range ${snapshot.extendedRange} " +
+                "(${snapshot.extendedText.length} chars)",
+        )
 
-        // Send the ground truth to the server
-        try {
-            // Use a default model ID (1) since we don't have access to the actual model ID
-            // The wasAccepted parameter is true since we're in the afterInsertion method
-            val response =
-                getAppService().submitCompletionFeedback(
-                    metaQueryId = completionId,
-                    modelId = getConfig().getModelsConfiguration()?.getModelIdByName(modelName) ?: 1,
-                    wasAccepted = true,
-                    groundTruth = extendedText,
-                    project = project,
-                )
+        submissions.launch {
+            try {
+                val response =
+                    withTimeout(SUBMIT_TIMEOUT_MS) {
+                        runInterruptible {
+                            // Use a default model ID (1) since we don't have access to the actual model ID
+                            // The wasAccepted parameter is true since we're in the afterInsertion method
+                            getAppService().submitCompletionFeedback(
+                                metaQueryId = completionId,
+                                modelId = getConfig().getModelsConfiguration()?.getModelIdByName(modelName) ?: 1,
+                                wasAccepted = true,
+                                groundTruth = snapshot.extendedText,
+                                project = project,
+                            )
+                        }
+                    }
 
-            if (response != null) {
-                LOG.info("Ground truth data sent to server successfully")
-            } else {
-                LOG.warn("Failed to send ground truth data to server")
+                if (response != null) {
+                    LOG.info("Ground truth data sent to server successfully")
+                } else {
+                    LOG.warn("Failed to send ground truth data to server")
+                }
+            } catch (e: TimeoutCancellationException) {
+                LOG.warn("Ground truth submission timed out after ${SUBMIT_TIMEOUT_MS}ms")
+            } catch (e: Exception) {
+                LOG.warn("Error sending ground truth data to server", e)
             }
-        } catch (e: Exception) {
-            LOG.error("Error sending ground truth data to server", e)
         }
     }
 }

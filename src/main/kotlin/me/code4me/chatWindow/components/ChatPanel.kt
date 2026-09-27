@@ -234,7 +234,8 @@ class ChatPanel(boundProject: Project? = null) : JBPanel<ChatPanel>(BorderLayout
      * Shows overlay when user is not authenticated and clears all chat data for security.
      * Enables/disables chat components based on authentication state and forces UI refresh.
      */
-    private fun updateAuthOverlayVisibility() {
+    private fun updateAuthOverlayVisibility() = authState.withTokenLock {
+        val authGeneration = authState.tokenGeneration()
         val isAuthenticated = authState.isAuthenticated()
         authOverlayPanel.isVisible = !isAuthenticated
 
@@ -275,10 +276,12 @@ class ChatPanel(boundProject: Project? = null) : JBPanel<ChatPanel>(BorderLayout
 
             // Force UI refresh with empty content
             ApplicationManager.getApplication().invokeLater {
-                chatDisplayPanel.updateContent(emptyList())
-                chatDisplayPanel.forceRefresh()
-                historyPanel.refresh()
-                topBarPanel.updateTitle()
+                authState.runIfSignedOut(authGeneration) {
+                    chatDisplayPanel.updateContent(emptyList())
+                    chatDisplayPanel.forceRefresh()
+                    historyPanel.refresh()
+                    topBarPanel.updateTitle()
+                }
             }
 
             // Disable all chat functionality when not authenticated
@@ -876,55 +879,93 @@ class ChatPanel(boundProject: Project? = null) : JBPanel<ChatPanel>(BorderLayout
      * creates new session manager, and forces multiple UI refreshes to ensure
      * no chat data remains visible after logout.
      */
-    fun resetAllChatsAfterLogout() {
-        project?.let { proj: Project ->
-            LOG.info("Starting complete chat reset for project: ${proj.name}")
+    fun resetAllChatsAfterLogout(expectedGeneration: Long = authState.tokenGeneration()) {
+        authState.runIfSignedOut(expectedGeneration) {
+            project?.let { proj: Project ->
+                resetAllChats(proj) { refresh -> authState.runIfSignedOut(expectedGeneration, refresh) }
 
-            // Cancel all active jobs and clear timers
-            activeJobs.values.forEach { it.cancel() }
-            activeJobs.clear()
-            loadingTimers.values.forEach { it.stop() }
-            loadingTimers.clear()
+                // Update overlay visibility (this will also clear UI again)
+                updateAuthOverlayVisibility()
 
-            // IMMEDIATELY clear UI content first
-            chatDisplayPanel.updateContent(emptyList())
-            historyPanel.refresh()
-            topBarPanel.updateTitle()
-            resetToWelcome()
-
-            // Clear state service immediately
-            stateService?.setLastSessionId(null)
-
-            // Use the same logic as the "Delete All" button in HistoryPanel
-            sessionManager?.let { manager ->
-                // Get all sessions and delete them one by one (this clears both memory and repository)
-                val allSessions = manager.getAllSessions()
-                LOG.info("Found ${allSessions.size} sessions to delete")
-
-                allSessions.forEach { session ->
-                    manager.deleteSession(session, false) // Don't delete from server during logout
-                }
+                LOG.info("Completed chat reset for project: ${proj.name}")
             }
+        }
+    }
 
-            // Clear the repository completely
-            val chatService = getProjectChatService(proj)
-            chatService.clearAllChatsAndMemory()
+    /**
+     * Performs the same chat data cleanup as [resetAllChatsAfterLogout] after a privacy erase,
+     * while the user stays signed in: there is no sign-in overlay, and nothing happens once
+     * [expectedGeneration] (the erased account's authentication) is no longer the signed-in one.
+     */
+    fun resetAllChatsAfterErase(expectedGeneration: Long) {
+        authState.runIfSignedIn(expectedGeneration) {
+            project?.let { proj: Project ->
+                resetAllChats(proj) { refresh -> authState.runIfSignedIn(expectedGeneration, refresh) }
 
-            // Create a brand new session manager
-            sessionManager = ChatSessionManager(chatService)
-            topBarPanel.setSessionManager(sessionManager!!)
-            historyPanel.setSessionManager(sessionManager!!)
-            topBarPanel.updateTitle()
-            historyPanel.refresh()
-            refreshChatDisplay()
+                LOG.info("Completed chat reset after the data erase for project: ${proj.name}")
+            }
+        }
+    }
 
-            // Force immediate UI clearing multiple times
-            chatDisplayPanel.updateContent(emptyList())
-            historyPanel.refresh()
-            topBarPanel.updateTitle()
+    /**
+     * Shared by [resetAllChatsAfterLogout] and [resetAllChatsAfterErase]: cancels active jobs,
+     * deletes every local session, clears the repository and installs a brand new session
+     * manager, so neither the history panel nor a cached session can bring an old chat back.
+     * The deferred UI refresh runs through [runIfStillCurrent], which skips it once the
+     * authentication changed.
+     */
+    private fun resetAllChats(
+        proj: Project,
+        runIfStillCurrent: (() -> Unit) -> Unit,
+    ) {
+        LOG.info("Starting complete chat reset for project: ${proj.name}")
 
-            // Force a complete UI refresh
-            ApplicationManager.getApplication().invokeLater {
+        // Cancel all active jobs and clear timers
+        activeJobs.values.forEach { it.cancel() }
+        activeJobs.clear()
+        loadingTimers.values.forEach { it.stop() }
+        loadingTimers.clear()
+
+        // IMMEDIATELY clear UI content first
+        chatDisplayPanel.updateContent(emptyList())
+        historyPanel.refresh()
+        topBarPanel.updateTitle()
+        resetToWelcome()
+
+        // Clear state service immediately
+        stateService?.setLastSessionId(null)
+
+        // Use the same logic as the "Delete All" button in HistoryPanel
+        sessionManager?.let { manager ->
+            // Get all sessions and delete them one by one (this clears both memory and repository)
+            val allSessions = manager.getAllSessions()
+            LOG.info("Found ${allSessions.size} sessions to delete")
+
+            allSessions.forEach { session ->
+                manager.deleteSession(session, false) // Local only: never delete from the server here
+            }
+        }
+
+        // Clear the repository completely
+        val chatService = getProjectChatService(proj)
+        chatService.clearAllChatsAndMemory()
+
+        // Create a brand new session manager
+        sessionManager = ChatSessionManager(chatService)
+        topBarPanel.setSessionManager(sessionManager!!)
+        historyPanel.setSessionManager(sessionManager!!)
+        topBarPanel.updateTitle()
+        historyPanel.refresh()
+        refreshChatDisplay()
+
+        // Force immediate UI clearing multiple times
+        chatDisplayPanel.updateContent(emptyList())
+        historyPanel.refresh()
+        topBarPanel.updateTitle()
+
+        // Force a complete UI refresh
+        ApplicationManager.getApplication().invokeLater {
+            runIfStillCurrent {
                 chatDisplayPanel.updateContent(emptyList())
                 chatDisplayPanel.forceRefresh()
                 historyPanel.refresh()
@@ -945,11 +986,6 @@ class ChatPanel(boundProject: Project? = null) : JBPanel<ChatPanel>(BorderLayout
                     LOG.info("SUCCESS: All sessions cleared")
                 }
             }
-
-            // Update overlay visibility (this will also clear UI again)
-            updateAuthOverlayVisibility()
-
-            LOG.info("Completed chat reset for project: ${proj.name}")
         }
     }
 
@@ -966,8 +1002,9 @@ class ChatPanel(boundProject: Project? = null) : JBPanel<ChatPanel>(BorderLayout
      * Called when user logs out to update overlay visibility immediately
      */
     fun onUserLoggedOut() {
+        val logoutGeneration = authState.tokenGeneration()
         ApplicationManager.getApplication().invokeLater {
-            resetAllChatsAfterLogout()
+            resetAllChatsAfterLogout(logoutGeneration)
             updateAuthOverlayVisibility()
         }
     }

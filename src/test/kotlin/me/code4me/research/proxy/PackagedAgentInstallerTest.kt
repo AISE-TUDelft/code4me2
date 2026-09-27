@@ -23,13 +23,19 @@ import java.util.zip.ZipOutputStream
  * plugin resources, or the developer's runtime cache.
  */
 class PackagedAgentInstallerTest {
-    private val agentArchivePath = "code4me-runtime/code4me-agent-macos-arm64.zip"
+    // The installer selects the artifact for the running host, so the fixtures
+    // declare that platform (and a different one for the "no artifact" case).
+    private val hostPlatform = ManagedRuntimeInstaller.platformId()
+    private val hostArchitecture = ManagedRuntimeInstaller.architectureId()
+    private val otherPlatform = if (hostPlatform == "linux") "macos" else "linux"
+    private val otherArchitecture = if (hostArchitecture == "x64") "arm64" else "x64"
+    private val agentArchivePath = "code4me-runtime/code4me-agent-$hostPlatform-$hostArchitecture.zip"
 
     @Test
     fun `a matching pin installs the agent and returns its managed argv and digest`() {
         val installRoot = Files.createTempDirectory("packaged-agent-match")
         val zip = agentArchive()
-        val artifact = artifact(zip = zip, platform = "macos", architecture = "arm64")
+        val artifact = artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture)
         val seam = seam(installRoot, artifact, zip)
 
         val result = seam.install(sha256(zip))
@@ -60,7 +66,7 @@ class PackagedAgentInstallerTest {
     fun `a pin that differs from the recipe digest blocks before writing anything`() {
         val installRoot = Files.createTempDirectory("packaged-agent-mismatch")
         val zip = agentArchive()
-        val artifact = artifact(zip = zip, platform = "macos", architecture = "arm64")
+        val artifact = artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture)
         val seam = seam(installRoot, artifact, zip)
 
         val result = seam.install("a".repeat(64))
@@ -80,7 +86,7 @@ class PackagedAgentInstallerTest {
     fun `a malformed pin blocks without installing`() {
         val installRoot = Files.createTempDirectory("packaged-agent-malformed")
         val zip = agentArchive()
-        val artifact = artifact(zip = zip, platform = "macos", architecture = "arm64")
+        val artifact = artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture)
         val seam = seam(installRoot, artifact, zip)
 
         val result = seam.install("nope")
@@ -97,7 +103,7 @@ class PackagedAgentInstallerTest {
     fun `a recipe with no host-platform artifact blocks and names the host platform`() {
         val installRoot = Files.createTempDirectory("packaged-agent-platform")
         val zip = agentArchive()
-        val artifact = artifact(zip = zip, platform = "linux", architecture = "x64")
+        val artifact = artifact(zip = zip, platform = otherPlatform, architecture = otherArchitecture)
         val seam = seam(installRoot, artifact, zip)
 
         val result = seam.install(sha256(zip))
@@ -119,18 +125,36 @@ class PackagedAgentInstallerTest {
         val zip = agentArchive()
         val adapter = "cd".repeat(32)
         val seamWithAdapter =
-            seam(installRoot, artifact(zip = zip, platform = "macos", architecture = "arm64", adapter = adapter), zip)
+            seam(installRoot, artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture, adapter = adapter), zip)
 
         assertEquals(adapter, seamWithAdapter.recipeAdapterDigest())
 
         val withoutAdapter =
             seam(
                 Files.createTempDirectory("packaged-agent-no-adapter"),
-                artifact(zip = zip, platform = "macos", architecture = "arm64"),
+                artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture),
                 zip,
             )
 
         assertNull(withoutAdapter.recipeAdapterDigest(), "an adapter-less recipe must not invent an identity")
+    }
+
+    @Test
+    fun `a recipe that declares the adapter only at the top level still pins the agent`() {
+        // The server's participant recipe (and scripts/build-plugin-with-agent.py)
+        // carry the adapter once at the top level, not per artifact.
+        val zip = agentArchive()
+        val adapter = "ab".repeat(32)
+        val artifactJson = artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture)
+        val seam =
+            seam(
+                Files.createTempDirectory("packaged-agent-top-level-adapter"),
+                artifactJson,
+                zip,
+                manifest = recipe(artifactJson, adapter = adapter),
+            )
+
+        assertEquals(adapter, seam.recipeAdapterDigest())
     }
 
     // ------------------------------------------------------------------
@@ -170,8 +194,9 @@ class PackagedAgentInstallerTest {
             """"executable":"code4me2-agent","managed_protocol":"1","size":${zip.size}$adapterField}"""
     }
 
-    private fun recipe(artifactJson: String): String =
+    private fun recipe(artifactJson: String, adapter: String? = null): String =
         """{"manifest_version":1,"runtime_version":"9.9.9","managed_protocol_version":"1",""" +
+            (adapter?.let { """"adapter":{"digest":"$it"},""" } ?: "") +
             """"artifacts":[$artifactJson]}"""
 
     /** A real in-memory onedir-shaped ZIP: executable plus its dependency tree. */

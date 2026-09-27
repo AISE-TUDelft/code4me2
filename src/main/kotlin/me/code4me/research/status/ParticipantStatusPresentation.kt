@@ -18,6 +18,12 @@ import me.code4me.research.session.StudyComponentState
  * `UNAVAILABLE`, `PAUSED`, `BLOCKED`, `FAILED`). A `null` measurement is never
  * interpreted as "no activity".
  *
+ * The AI budget presentations ([ParticipantStatusPresentation.BUDGET_EXHAUSTED_CODE],
+ * [ParticipantStatusPresentation.BUDGET_WARNING_CODE]) are **non-terminal**: the
+ * server enforces the budget on every relay call, so they only inform the
+ * participant (a percentage, never an amount) while research collection
+ * continues. Any typed block or delivery problem outranks them.
+ *
  * [ParticipantStatusSeverity] is the icon/colour class; [ParticipantStatusView]
  * is the safe, non-identifying view returned to the status bar and editor banner.
  */
@@ -45,8 +51,21 @@ object ParticipantStatusPresentation {
     const val RECOVERING_HEADLINE = "Research: recovering"
     const val INACTIVE_HEADLINE = "Research: not active"
     const val UNAVAILABLE_HEADLINE = "Research: unavailable"
+    const val RECONNECTING_HEADLINE = "Research: reconnecting…"
+    const val PAUSED_BY_TEAM_HEADLINE = "Research: paused by the study team"
+    const val BUDGET_EXHAUSTED_HEADLINE = "Research: AI budget used up"
+
+    /** The AI Assistant build the study requires, as shown to participants. */
+    const val AI_ASSISTANT_REQUIREMENT = "JetBrains AI Assistant 262.8665.344 or newer"
+
+    /** Non-terminal reason codes for the advisory AI budget. */
+    const val BUDGET_EXHAUSTED_CODE = "BUDGET_EXHAUSTED"
+    const val BUDGET_WARNING_CODE = "BUDGET_WARNING"
 
     private const val NO_ACTION = "No action is required."
+
+    /** Status-bar headline while collection is active and the AI budget is nearly used up. */
+    fun budgetWarningHeadline(percentUsed: Int): String = "Research: active · AI budget $percentUsed% used"
 
     /** The view used when the research service itself cannot be read. */
     fun unavailable(): ParticipantStatusView =
@@ -82,6 +101,8 @@ object ParticipantStatusPresentation {
         val severity: ParticipantStatusSeverity,
         val reasonCode: String?,
         val actionHint: String?,
+        /** Tooltip wording when the headline is not a plain state label. */
+        val tooltipLabel: String? = null,
     )
 
     private fun resolve(state: ParticipantStudyStateV1): Resolved =
@@ -165,6 +186,48 @@ object ParticipantStatusPresentation {
                     StudyBlockReason.UNKNOWN.value,
                     "Contact study support with the reason code.",
                 )
+            // Transient, automatic: the runtime is re-bootstrapping a fresh
+            // session after an idle/server end. Information only, never a banner.
+            StudyBlockReason.SESSION_ROTATING ->
+                Resolved(
+                    RECONNECTING_HEADLINE,
+                    ParticipantStatusSeverity.INFO,
+                    StudyBlockReason.SESSION_ROTATING.value,
+                    "The research session is being renewed; collection continues automatically.",
+                    tooltipLabel = "reconnecting",
+                )
+            StudyBlockReason.AUTHENTICATION_REQUIRED ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.AUTHENTICATION_REQUIRED.value,
+                    "Sign in again to continue the study.",
+                )
+            // An operator pause, not a revocation: nothing to do, it lifts itself.
+            StudyBlockReason.KILL_SWITCH_ENGAGED ->
+                Resolved(
+                    PAUSED_BY_TEAM_HEADLINE,
+                    ParticipantStatusSeverity.INFO,
+                    StudyBlockReason.KILL_SWITCH_ENGAGED.value,
+                    "The study team paused collection temporarily; it resumes automatically.",
+                    tooltipLabel = "paused by the study team",
+                )
+            StudyBlockReason.AI_ASSISTANT_MISSING ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.AI_ASSISTANT_MISSING.value,
+                    "Install and enable $AI_ASSISTANT_REQUIREMENT from Settings > Plugins, restart the IDE, " +
+                        "then reopen the project.",
+                )
+            StudyBlockReason.AI_ASSISTANT_OUTDATED ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.AI_ASSISTANT_OUTDATED.value,
+                    "Update to $AI_ASSISTANT_REQUIREMENT from Settings > Plugins, restart the IDE, " +
+                        "then reopen the project.",
+                )
             null ->
                 when {
                     state.consentState == StudyComponentState.PAUSED ->
@@ -217,6 +280,29 @@ object ParticipantStatusPresentation {
                             SpoolDeliveryState.RECOVERING.value,
                             "Check your network connection; research delivery resumes automatically.",
                         )
+                    // Advisory AI budget (never a block): exhausted warns with a
+                    // banner because the agent will refuse new requests; nearly
+                    // used up is status-bar information only. The budget is held
+                    // only while the session runtime is active, so neither can
+                    // outlive a teardown.
+                    state.inferenceBudget?.exhausted == true ->
+                        Resolved(
+                            BUDGET_EXHAUSTED_HEADLINE,
+                            ParticipantStatusSeverity.WARNING,
+                            BUDGET_EXHAUSTED_CODE,
+                            "The agent will refuse new AI requests until the study team tops up your budget; " +
+                                "research collection continues.",
+                            tooltipLabel = "active, but the AI budget is used up",
+                        )
+                    state.inferenceBudget?.warning == true && state.isCollecting ->
+                        Resolved(
+                            budgetWarningHeadline(state.inferenceBudget.percentUsed),
+                            ParticipantStatusSeverity.INFO,
+                            BUDGET_WARNING_CODE,
+                            "AI budget ${state.inferenceBudget.percentUsed}% used; ask the study team about a top-up " +
+                                "before it runs out. Research collection continues.",
+                            tooltipLabel = "active",
+                        )
                     state.isCollecting ->
                         Resolved(
                             ACTIVE_HEADLINE,
@@ -245,7 +331,7 @@ object ParticipantStatusPresentation {
         }
 
     private fun tooltipOf(resolved: Resolved): String {
-        val label = resolved.headline.removePrefix("Research: ")
+        val label = resolved.tooltipLabel ?: resolved.headline.removePrefix("Research: ")
         val reason =
             if (resolved.reasonCode != null) {
                 "Reason code: ${resolved.reasonCode}."

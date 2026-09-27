@@ -2,7 +2,8 @@
 
 ## Supported computers
 
-The study release supports IntelliJ IDEA 2026.2.2 with the current AI Assistant plugin on:
+The study release supports IntelliJ IDEA 2026.2.2 with **JetBrains AI Assistant
+262.8665.344 or newer** (installed and enabled) on:
 
 - macOS 15 on Apple Silicon or Intel
 - Windows 11 x64
@@ -10,9 +11,18 @@ The study release supports IntelliJ IDEA 2026.2.2 with the current AI Assistant 
 
 WSL, remote development, containers, and Windows/Linux ARM64 are not supported by this release.
 
+Code4Me checks the AI Assistant requirement every time the study activates.
+Without it the study cannot observe anything, so activation is blocked and the
+status bar shows **Research: blocked** with the reason code
+`AI_ASSISTANT_MISSING` (not installed or disabled) or `AI_ASSISTANT_OUTDATED`
+(older than 262.8665.344) and the message *"Install and enable JetBrains AI
+Assistant 262.8665.344 or newer from Settings > Plugins, restart the IDE, then
+reopen the project."* Older AI Assistant builds on IntelliJ 2026.2 do not read the
+agent registry at all, which is why the minimum version is enforced.
+
 ## Install and start
 
-1. Install or update JetBrains AI Assistant from **Settings > Plugins**.
+1. Install or update JetBrains AI Assistant (262.8665.344 or newer) from **Settings > Plugins**.
 2. Download the versioned Code4Me ZIP supplied by the study coordinator.
 3. In **Settings > Plugins**, choose **Install Plugin from Disk**, select the ZIP, and restart the IDE when prompted.
 4. Open the project you will use in the study.
@@ -29,6 +39,25 @@ study is active for your project, Code4Me does not register or offer the direct
 instead. A session started through any other entry is not observed by the study.
 
 Code4Me installs its matching agent runtime from the plugin. You do not need a Code4Me source checkout, Python, Node.js, Docker, or a model-provider API key. Your project may still require its normal compiler or build tools.
+
+If your study runs Goose, the study provides the model access: Code4Me points
+Goose at the study's server and hands it a study-issued credential at each
+start. Your own Goose provider keys and `~/.config/goose` settings are not used
+in a study, and the study's credential is never shown to you. When your study's
+AI budget is used up, the status bar shows **Research: AI budget used up**: the
+agent refuses new requests until the study team tops the budget up, while
+research collection continues.
+
+## Idle periods, sleep and pauses
+
+You never have to act to keep the study collecting. After a break, a laptop
+sleep or an expired research session the plugin renews the session by itself
+(the status bar briefly shows **Research: reconnecting…**) while the agent entry,
+the collector and any queued data stay in place. If the study team pauses the
+study temporarily, the status bar shows **Research: paused by the study team**
+and collection resumes automatically. Only **Research: blocked** with the
+message *"Sign in again to continue the study"* needs you: sign in again from
+**Settings > Tools > Code4Me V2**.
 
 ## Repair and diagnostics
 

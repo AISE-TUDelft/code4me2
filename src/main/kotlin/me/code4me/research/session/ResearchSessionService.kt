@@ -3,6 +3,7 @@ package me.code4me.research.session
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationInfo
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.PluginId
@@ -17,11 +18,14 @@ import me.code4me.research.bootstrap.PluginCompatibility
 import me.code4me.research.bootstrap.ResearchJoinCodeResolver
 import me.code4me.research.actions.ResearchEnrollmentSettings
 import me.code4me.research.ide.IntellijIdeActivitySource
+import me.code4me.research.lifecycle.HostPreflight
+import me.code4me.research.lifecycle.HostPreflightResult
 import me.code4me.research.proxy.AcpHostRegistration
 import me.code4me.research.proxy.PackagedProxyRuntimeResolver
 import me.code4me.research.spool.DurableSpool
 import me.code4me.research.spool.SpoolUploadResult
 import me.code4me.research.session.ParticipantStudyStateV1
+import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.agent.GooseRuntime
@@ -43,20 +47,61 @@ import java.nio.file.Path
  * The manager is created lazily and stopped in [dispose], which the platform
  * calls when the project closes.
  */
-class ResearchSessionService(private val project: Project) : Disposable {
+sealed interface ResearchReconciliationResult {
+    /** The research proxy owns ACP setup for this project. */
+    data class StudyOwned(val activation: ResearchActivationResult?) : ResearchReconciliationResult {
+        val shouldRetry: Boolean
+            get() =
+                when (activation) {
+                    is ResearchActivationResult.Retryable, is ResearchActivationResult.Failed -> true
+                    // A runtime hiccup and an operator kill switch both lift on
+                    // their own; every other block (including a missing or outdated
+                    // AI Assistant) needs the participant and must not start a
+                    // retry storm.
+                    is ResearchActivationResult.Blocked ->
+                        activation.reason == StudyBlockReason.RUNTIME_UNAVAILABLE ||
+                            activation.reason == StudyBlockReason.KILL_SWITCH_ENGAGED
+                    is ResearchActivationResult.Activated, null -> false
+                }
+    }
+
+    /** The signed-in account has no research enrollment. */
+    data object NoEnrollment : ResearchReconciliationResult
+
+    /** A terminal enrollment no longer owns ACP setup. */
+    data class Terminal(val status: String) : ResearchReconciliationResult
+
+    /** Membership could not be decided, so ordinary setup must remain fenced. */
+    data class Unavailable(val message: String) : ResearchReconciliationResult
+}
+
+class ResearchSessionService internal constructor(
+    private val project: Project,
+    private val discoveryOverride: (() -> EnrollmentDiscovery)?,
+    private val managerFactoryOverride: (() -> ResearchSessionManager)?,
+    private val enrollmentSettingsOverride: ResearchEnrollmentSettings?,
+) : Disposable {
+    constructor(project: Project) : this(project, null, null, null)
+
     @Volatile private var manager: ResearchSessionManager? = null
+    @Volatile private var eventExecutor: java.util.concurrent.ExecutorService? = null
+    @Volatile private var disposed = false
 
     /** The lazily created manager (created on first use). */
     fun manager(): ResearchSessionManager =
-        manager ?: synchronized(this) {
-            manager ?: buildManager().also { manager = it }
-        }
+        managerOrNull() ?: error("research session service has been disposed")
+
+    private fun managerOrNull(): ResearchSessionManager? = synchronized(this) {
+        if (disposed) null else manager ?: buildManager().also { manager = it }
+    }
 
     /** Participant-visible state; safe to call before any activation. */
     fun state(): ParticipantStudyStateV1 = manager().state()
 
     /** Request manifest validation and session start for [enrollmentId]. */
-    fun activate(enrollmentId: String): ResearchActivationResult = manager().activate(enrollmentId)
+    fun activate(enrollmentId: String): ResearchActivationResult =
+        managerOrNull()?.activate(enrollmentId)
+            ?: ResearchActivationResult.Blocked(StudyBlockReason.REVOKED, "research session service has been disposed")
 
 
     /**
@@ -101,6 +146,7 @@ class ResearchSessionService(private val project: Project) : Disposable {
      * authoritative.
      */
     private fun discoverEnrollment(): EnrollmentDiscovery {
+        discoveryOverride?.let { return it() }
         val baseUrl = resolveConfiguredBaseUrl() ?: return EnrollmentDiscovery.Unavailable("research backend is not configured")
         return try {
             ResearchJoinCodeResolver(baseUrl).discover()
@@ -115,47 +161,70 @@ class ResearchSessionService(private val project: Project) : Disposable {
      * The project-local enrollment id is a hint only: the server's active
      * enrollment wins and replaces it; a terminal enrollment clears the hint and
      * returns blocked; no enrollment clears a stale hint and leaves the component
-     * inactive without error; an unreachable server keeps the hint and does
-     * nothing. Returns `null` when there is nothing to activate.
+     * inactive without error; an unreachable server keeps the hint and returns
+     * a retryable typed result so ordinary ACP setup remains fenced.
      */
-    fun reactivateFromServer(): ResearchActivationResult? {
-        val baseUrl = resolveConfiguredBaseUrl() ?: return null
-        val settings =
-            try {
-                project.getService(ResearchEnrollmentSettings::class.java)
-            } catch (_: Exception) {
-                null
-            } catch (_: LinkageError) {
-                null
-            }
-        return when (val discovery = ResearchJoinCodeResolver(baseUrl).discover()) {
+    fun reconcileFromServer(): ResearchReconciliationResult {
+        val settings = enrollmentSettings()
+        val discovery = discoverEnrollment()
+        if (disposed) return ResearchReconciliationResult.Unavailable("research session service has been disposed")
+        return when (discovery) {
             is EnrollmentDiscovery.Active -> {
                 settings?.setEnrollmentId(discovery.enrollmentId)
-                activate(discovery.enrollmentId)
+                val currentManager = manager
+                val currentState = currentManager?.state()
+                if (
+                    currentState?.enrollmentId == discovery.enrollmentId &&
+                    currentManager?.isActive == true
+                ) {
+                    // A provisioned study can still be NOT_STARTED until the first
+                    // qualifying activity. Its participant state then cannot launch,
+                    // but reactivating it would tear down a healthy proxy and mint
+                    // another agent run on every auth-bridge retry.
+                    ResearchReconciliationResult.StudyOwned(activation = null)
+                } else {
+                    ResearchReconciliationResult.StudyOwned(activate(discovery.enrollmentId))
+                }
             }
             is EnrollmentDiscovery.Terminal -> {
                 settings?.clear()
-                ResearchActivationResult.Blocked(
-                    StudyBlockReason.REVOKED,
-                    "This enrollment is ${discovery.status.lowercase()}; it cannot be reactivated.",
-                )
+                resetManager(quarantine = true)
+                ResearchReconciliationResult.Terminal(discovery.status)
             }
             EnrollmentDiscovery.None -> {
                 // No membership on the server (including a stale hint from a
                 // different account): clear the local id and stay inactive.
                 settings?.clear()
-                null
+                resetManager(quarantine = true)
+                ResearchReconciliationResult.NoEnrollment
             }
-            is EnrollmentDiscovery.Unavailable -> null
+            is EnrollmentDiscovery.Unavailable -> ResearchReconciliationResult.Unavailable(discovery.message)
         }
     }
+
+    /** Compatibility wrapper retained for callers that only need the activation result. */
+    fun reactivateFromServer(): ResearchActivationResult? =
+        (reconcileFromServer() as? ResearchReconciliationResult.StudyOwned)?.activation
 
     /** Stop any running participant session (idempotent). */
     fun stop(): ResearchStopResult = manager().stop()
 
+    /** Logout/account-switch cleanup; a later login receives a fresh manager. */
+    fun onLogout() {
+        resetManager(quarantine = true)
+    }
+
+    /**
+     * Privacy-erase cleanup: stop this context like [onLogout], then delete (not
+     * quarantine) its spool so records collected before the erase are never
+     * uploaded. Returns `false` when the context did not stop cleanly or its
+     * spool could not be moved aside or deleted; the spool then stays on disk,
+     * quarantined when it could be moved.
+     */
+    fun onErase(): Boolean = resetManager(quarantine = true, discard = true)
+
     override fun dispose() {
-        manager?.stop()
-        manager = null
+        resetManager(quarantine = false, terminal = true)
     }
 
     /** Stable, opaque project/window key used for context + spool scoping. */
@@ -176,8 +245,18 @@ class ResearchSessionService(private val project: Project) : Disposable {
     }
 
     private fun buildManager(): ResearchSessionManager {
+        managerFactoryOverride?.let { return it() }
         val contextId = ResearchSessionManager.opaqueContextId(projectKeyForSession())
+        // IDE events are processed off the UI thread (see the manager's
+        // eventExecutor): one daemon thread keeps their order.
+        val executor =
+            java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "code4me-research-events").apply { isDaemon = true }
+            }
+        eventExecutor?.shutdown()
+        eventExecutor = executor
         return ResearchSessionManager(
+            eventExecutor = executor,
             projectKey = projectKeyForSession(),
             transport = participantTransport(resolveConfiguredBaseUrl(), { environment() }),
             compatibility = pluginCompatibility(),
@@ -221,8 +300,99 @@ class ResearchSessionService(private val project: Project) : Disposable {
             enrollmentDiscoveryProvider = { discoverEnrollment() },
             sessionStore = FileResearchSessionStore(),
             httpClient = CookieAwareApiClient.sharedOkHttpClient,
+            hostPreflightProvider = { hostPreflight() },
+            reauthenticate = { reacquireBackendSession() },
         )
     }
+
+    /**
+     * Re-acquire the backend session with the stored login token when a
+     * capability refresh is answered `NOT_AUTHENTICATED`/`NOT_PERMITTED`: the
+     * session cookie expires long before the login token does, and without this
+     * an expired cookie would end collection for the day. `true` only when a
+     * session was acquired; never throws.
+     */
+    private fun reacquireBackendSession(): Boolean =
+        try {
+            getAppService().acquireSessionForReconciliation()
+            true
+        } catch (_: Exception) {
+            false
+        } catch (_: LinkageError) {
+            false
+        }
+
+    private fun enrollmentSettings(): ResearchEnrollmentSettings? {
+        enrollmentSettingsOverride?.let { return it }
+        return try {
+            project.getService(ResearchEnrollmentSettings::class.java)
+        } catch (_: Exception) {
+            null
+        } catch (_: LinkageError) {
+            null
+        }
+    }
+
+    /**
+     * Returns `false` only when [discard] was requested and the spool stayed on
+     * disk instead of being deleted.
+     */
+    private fun resetManager(
+        quarantine: Boolean,
+        terminal: Boolean = false,
+        discard: Boolean = false,
+    ): Boolean {
+        val (previous, executor) = synchronized(this) {
+            if (terminal) disposed = true
+            val current = manager.also { manager = null }
+            current to eventExecutor.also { eventExecutor = null }
+        }
+        if (previous == null) {
+            executor?.shutdown()
+            return true
+        }
+        // A plain project close keeps the spool endpoint up briefly for the
+        // assistant's agent processes to flush; a logout does not.
+        val ipcGraceMs = if (terminal && !quarantine) ResearchSessionManager.IPC_CLOSE_GRACE_MS else 0L
+        // Only a plain project close / IDE shutdown ships the tail first. A
+        // privacy erase must never upload the records it is about to delete, and
+        // a sign-out/account switch quarantines the spool instead of uploading it.
+        val drain = !quarantine && !discard
+        // Project disposal usually runs on the UI thread: keep the one bounded
+        // delivery attempt short there so a close never feels like a hang.
+        val drainTimeoutMs = if (isDispatchThread()) EDT_DRAIN_TIMEOUT_MS else ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS
+        val stop = runCatching { previous.stop(ipcGraceMs, drain = drain, drainTimeoutMs = drainTimeoutMs) }
+        var discarded = true
+        if (quarantine) {
+            val quarantined = runCatching { previous.quarantineSpool() }.getOrNull()
+            if (discard) {
+                // A privacy erase deletes the spool it just moved aside. Moving first
+                // means a late append can no longer reach it; a context that did not
+                // stop cleanly keeps it quarantined rather than deleted under it.
+                // No moved path while the stopped manager still reported a spool
+                // means the move failed and the spool stayed where it was.
+                discarded =
+                    if (quarantined != null) {
+                        stop.isSuccess && DurableSpool(quarantined).discardAll()
+                    } else {
+                        stop.isSuccess && (stop.getOrNull() as? ResearchStopResult.Stopped)?.spoolStats == null
+                    }
+            }
+        }
+        // Queued events still append to the durable spool; the thread ends after them.
+        executor?.shutdown()
+        return discarded
+    }
+
+    /** True when called on the IDE's event dispatch thread; `false` without an application (headless tests). */
+    private fun isDispatchThread(): Boolean =
+        try {
+            ApplicationManager.getApplication()?.isDispatchThread == true
+        } catch (_: Exception) {
+            false
+        } catch (_: LinkageError) {
+            false
+        }
 
     /** Project runtime settings; a research misconfiguration never breaks the service. */
     private fun runtimeSettings(): ResearchRuntimeSettings? =
@@ -278,6 +448,9 @@ class ResearchSessionService(private val project: Project) : Disposable {
         private const val PLUGIN_ID = "me.code4me"
         private const val PARTICIPANT_AUDIENCE = "research-runtime"
         private const val NOT_CONFIGURED_MESSAGE = "Bootstrap transport is not configured for this build."
+
+        /** The stop-drain budget when a project is disposed on the UI thread. */
+        private const val EDT_DRAIN_TIMEOUT_MS: Long = 1_500L
 
         /** Non-identifying host kind reported to the bootstrap API. */
         const val HOST_KIND: String = "IntelliJ IDEA"
@@ -359,7 +532,43 @@ class ResearchSessionService(private val project: Project) : Disposable {
                         PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.version
                     },
                 hostKind = HOST_KIND,
+                aiAssistantVersion =
+                    safeEnvironmentValue {
+                        PluginManagerCore.getPlugin(PluginId.getId(HostPreflight.AI_ASSISTANT_PLUGIN_ID))?.version
+                    },
             )
+
+        /**
+         * A-03 host preflight: JetBrains AI Assistant (the ACP host) must be
+         * installed, enabled and at least [HostPreflight.MIN_AI_ASSISTANT_VERSION],
+         * otherwise the research entry can never be launched and the study would
+         * report "active" while observing nothing. A descriptor lookup failure is
+         * reported as missing (fail closed), never thrown.
+         */
+        fun hostPreflight(): HostPreflightResult {
+            val id = PluginId.getId(HostPreflight.AI_ASSISTANT_PLUGIN_ID)
+            val descriptor =
+                try {
+                    PluginManagerCore.getPlugin(id)
+                } catch (_: Exception) {
+                    null
+                } catch (_: LinkageError) {
+                    null
+                }
+            val disabled =
+                try {
+                    PluginManagerCore.isDisabled(id)
+                } catch (_: Exception) {
+                    true
+                } catch (_: LinkageError) {
+                    true
+                }
+            return HostPreflight.evaluate(
+                installed = descriptor != null,
+                enabled = descriptor != null && !disabled,
+                version = descriptor?.version,
+            )
+        }
 
         /** Local plugin/environment compatibility tuple evaluated against a manifest. */
         fun pluginCompatibility(): PluginCompatibility {

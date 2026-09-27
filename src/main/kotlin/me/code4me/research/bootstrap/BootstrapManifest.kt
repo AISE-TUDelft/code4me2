@@ -2,11 +2,13 @@ package me.code4me.research.bootstrap
 
 import com.intellij.openapi.diagnostic.thisLogger
 import me.code4me.research.telemetry.canonicalJson
+import me.code4me.research.telemetry.canonicalJsonBytes
 import me.code4me.research.telemetry.parseCanonicalJson
 import me.code4me.research.telemetry.sha256Hex
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
+import java.util.Base64
 
 /** Raised when a bootstrap manifest document cannot be parsed into the typed model. */
 class ManifestParseException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
@@ -245,13 +247,23 @@ data class ManifestPolicies(
     val session: ManifestSessionPolicy? = null,
 )
 
-/** Short-lived, scoped session capability already issued by the server. */
+/**
+ * Short-lived, scoped capability already issued by the server.
+ *
+ * The subject bindings ([enrollmentId], [researchSessionId], [studyId]) are
+ * the ids the server signed the capability for; they are `null` on a manifest
+ * produced before the server projected them. The inference capability check in
+ * [BootstrapManifest.validate] requires them to equal the manifest's own ids.
+ */
 data class SessionCapabilityRef(
     val capabilityId: String,
     val audience: String,
     val scope: List<String>,
     val issuedAt: String,
     val expiresAt: String,
+    val enrollmentId: String? = null,
+    val researchSessionId: String? = null,
+    val studyId: String? = null,
 ) {
     init {
         require(capabilityId.isNotBlank()) { "capabilityId must not be blank" }
@@ -259,13 +271,34 @@ data class SessionCapabilityRef(
 }
 
 /**
+ * How a gateway-bound (Goose) agent reaches the study's provider key: through
+ * the research inference gateway on the origin the plugin bootstrapped from.
+ *
+ * The block deliberately carries no origin: the plugin supplies the server
+ * origin itself, so a manifest can never redirect prompts elsewhere.
+ * [basePath] is relative (no scheme, no leading slash) and [capability] is a
+ * second signed capability with audience `inference` and scope
+ * `inference:relay`; [BootstrapManifest.inferenceBearer] turns it into the
+ * agent's bearer token. Absent (`null`) for arms that do not use the gateway.
+ */
+data class InferenceGatewayRef(
+    val providerKind: String,
+    val basePath: String,
+    val capability: SessionCapabilityRef,
+)
+
+/**
  * Immutable, secret-free `BootstrapManifestV1` as consumed by the participant
  * client (Issue 05 / Issue 10).
  *
  * The model carries exactly the launch contract: study identity, sticky
  * profile assignment, pinned agent release, policy set, compatibility receipt reference,
- * and a scoped session capability. It never carries account identity, provider
- * credentials, raw consent, or arbitrary launch commands.
+ * a scoped session capability and, for a gateway-bound (Goose) arm, a second
+ * signed, scoped inference capability that the plugin turns into the agent's
+ * bearer token ([inferenceBearer]). It never carries account identity, raw
+ * provider credentials, raw consent, or arbitrary launch commands: both
+ * capabilities are short-lived, revocable, and bound to this
+ * enrollment/session/study.
  *
  * [raw] is the exact parsed JSON document. It is retained so the client can
  * recompute the manifest digest and scan the *complete* received document for
@@ -288,6 +321,8 @@ data class BootstrapManifest(
     val policies: ManifestPolicies,
     val compatibilityReceiptRef: String? = null,
     val sessionCapability: SessionCapabilityRef,
+    /** Research inference gateway contract; `null` for arms that do not use it. */
+    val inferenceGateway: InferenceGatewayRef? = null,
     val signature: String? = null,
     val raw: Map<String, Any?> = emptyMap(),
 ) {
@@ -325,6 +360,52 @@ data class BootstrapManifest(
             "issued_at" to sessionCapability.issuedAt,
             "expires_at" to sessionCapability.expiresAt,
         )
+    }
+
+    /**
+     * The signed `inference_gateway.capability` object exactly as received
+     * (including `signature`, `revocation_epoch` and the subject ids), or `null`
+     * when the manifest carries no gateway block. Falls back to the typed
+     * projection when the raw document is unavailable (a programmatically
+     * constructed manifest in a test).
+     */
+    fun inferenceGatewayCapabilityObject(): Map<String, Any?>? {
+        val gateway = inferenceGateway ?: return null
+        val received = (raw["inference_gateway"] as? Map<*, *>)?.get("capability")
+        if (received is Map<*, *>) {
+            val result = LinkedHashMap<String, Any?>(received.size)
+            for ((key, value) in received) {
+                result[key?.toString() ?: continue] = value
+            }
+            return result
+        }
+        val capability = gateway.capability
+        return linkedMapOf<String, Any?>(
+            "capability_id" to capability.capabilityId,
+            "audience" to capability.audience,
+            "scope" to capability.scope,
+            "issued_at" to capability.issuedAt,
+            "expires_at" to capability.expiresAt,
+        ).also { projection ->
+            capability.enrollmentId?.let { projection["enrollment_id"] = it }
+            capability.researchSessionId?.let { projection["research_session_id"] = it }
+            capability.studyId?.let { projection["study_id"] = it }
+        }
+    }
+
+    /**
+     * The bearer token a gateway-bound agent presents to the research inference
+     * gateway: base64url without padding of the canonical JSON (sorted keys,
+     * compact separators, UTF-8) of the received capability object, signature
+     * included. The server decodes the JSON and re-verifies the signature, so
+     * only the JSON content has to round-trip. `null` without a gateway block.
+     *
+     * The value is a credential: it is written to the owner-only credential
+     * file and never rendered into argv, the ACP entry, logs, or status.
+     */
+    fun inferenceBearer(): String? {
+        val capability = inferenceGatewayCapabilityObject() ?: return null
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(canonicalJsonBytes(capability))
     }
 
     /** True when the stored digest matches the recomputed canonical bytes. */
@@ -510,6 +591,18 @@ data class BootstrapManifest(
             )
         }
 
+        val gateway = inferenceGateway
+        if (gateway != null) {
+            val gatewayFailure = validateInferenceGateway(gateway, now)
+            if (gatewayFailure != null) {
+                log.warn(
+                    "Bootstrap manifest validation failed (field=${gatewayFailure.field}, " +
+                        "reason=${gatewayFailure.reason}): ${gatewayFailure.message}",
+                )
+                return gatewayFailure
+            }
+        }
+
         val adapterVersion = agentRelease.adapterVersion
         if (
             expectedPluginCompatibility.supportedAdapterVersions.isNotEmpty() &&
@@ -524,6 +617,70 @@ data class BootstrapManifest(
         }
 
         return ManifestValidation.ok()
+    }
+
+    /**
+     * The inference gateway block is a second, scoped capability: it must carry
+     * exactly the inference audience and scope, be bound to this manifest's own
+     * enrollment/session/study, still be valid at [now], and name a relative
+     * gateway path (the plugin supplies the origin it bootstrapped from, so a
+     * manifest can never redirect prompts). Every failure is
+     * [ManifestValidationReason.MALFORMED]: a manifest whose gateway block is
+     * unusable is not a launchable manifest.
+     */
+    private fun validateInferenceGateway(
+        gateway: InferenceGatewayRef,
+        now: Instant,
+    ): ManifestValidation? {
+        fun reject(
+            message: String,
+            field: String,
+        ): ManifestValidation = ManifestValidation.reject(ManifestValidationReason.MALFORMED, message, field)
+
+        val capability = gateway.capability
+        if (gateway.providerKind.isBlank()) {
+            return reject("inference gateway provider_kind must not be blank", "inference_gateway.provider_kind")
+        }
+        if (!isRelativeGatewayPath(gateway.basePath)) {
+            return reject(
+                "inference gateway base_path must be a relative path without a scheme, a leading slash, or '..'",
+                "inference_gateway.base_path",
+            )
+        }
+        if (capability.audience != INFERENCE_AUDIENCE) {
+            return reject(
+                "inference capability audience '${capability.audience}' is not '$INFERENCE_AUDIENCE'",
+                "inference_gateway.capability.audience",
+            )
+        }
+        if (INFERENCE_SCOPE_RELAY !in capability.scope) {
+            return reject(
+                "inference capability is missing required scope '$INFERENCE_SCOPE_RELAY'",
+                "inference_gateway.capability.scope",
+            )
+        }
+        val issued =
+            parseInstant(capability.issuedAt)
+                ?: return reject("inference capability issued_at is not a valid ISO-8601 timestamp", "inference_gateway.capability.issued_at")
+        val expires =
+            parseInstant(capability.expiresAt)
+                ?: return reject("inference capability expires_at is not a valid ISO-8601 timestamp", "inference_gateway.capability.expires_at")
+        if (issued.isAfter(expires)) {
+            return reject("inference capability issued_at is after expires_at", "inference_gateway.capability.issued_at")
+        }
+        if (!expires.isAfter(now)) {
+            return reject("inference capability has expired", "inference_gateway.capability.expires_at")
+        }
+        if (capability.enrollmentId != enrollmentId) {
+            return reject("inference capability is not bound to this enrollment", "inference_gateway.capability.enrollment_id")
+        }
+        if (capability.researchSessionId != researchSession.researchSessionId) {
+            return reject("inference capability is not bound to this research session", "inference_gateway.capability.research_session_id")
+        }
+        if (capability.studyId != studyId) {
+            return reject("inference capability is not bound to this study", "inference_gateway.capability.study_id")
+        }
+        return null
     }
 
     /** Canonical map form of the typed fields (diagnostics / re-serialization). */
@@ -597,12 +754,36 @@ data class BootstrapManifest(
                     "issued_at" to sessionCapability.issuedAt,
                     "expires_at" to sessionCapability.expiresAt,
                 ),
+            "inference_gateway" to
+                inferenceGateway?.let { gateway ->
+                    linkedMapOf(
+                        "provider_kind" to gateway.providerKind,
+                        "base_path" to gateway.basePath,
+                        "capability" to
+                            linkedMapOf(
+                                "capability_id" to gateway.capability.capabilityId,
+                                "audience" to gateway.capability.audience,
+                                "scope" to gateway.capability.scope,
+                                "issued_at" to gateway.capability.issuedAt,
+                                "expires_at" to gateway.capability.expiresAt,
+                                "enrollment_id" to gateway.capability.enrollmentId,
+                                "research_session_id" to gateway.capability.researchSessionId,
+                                "study_id" to gateway.capability.studyId,
+                            ),
+                    )
+                },
             "signature" to signature,
         )
 
     companion object {
         /** Conservative client window: refuse to launch a manifest about to expire. */
         val DEFAULT_NEAR_EXPIRY_WINDOW: Duration = Duration.ofSeconds(30)
+
+        /** The audience the server mints the inference capability for. */
+        const val INFERENCE_AUDIENCE: String = "inference"
+
+        /** The single scope an inference capability must carry. */
+        const val INFERENCE_SCOPE_RELAY: String = "inference:relay"
 
         /**
          * Tolerated skew for the not-yet-valid check. The client samples `now`
@@ -734,16 +915,40 @@ data class BootstrapManifest(
                     },
                 policies = parsePolicies(policies),
                 compatibilityReceiptRef = map["compatibility_receipt_ref"] as? String,
-                sessionCapability =
-                    SessionCapabilityRef(
-                        capabilityId = requiredString(capability, "capability_id"),
-                        audience = requiredString(capability, "audience"),
-                        scope = (capability["scope"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
-                        issuedAt = requiredString(capability, "issued_at"),
-                        expiresAt = requiredString(capability, "expires_at"),
-                    ),
+                sessionCapability = parseCapability(capability),
+                inferenceGateway = parseInferenceGateway(map),
                 signature = map["signature"] as? String,
                 raw = map,
+            )
+        }
+
+        private fun parseCapability(capability: Map<String, Any?>): SessionCapabilityRef =
+            SessionCapabilityRef(
+                capabilityId = requiredString(capability, "capability_id"),
+                audience = requiredString(capability, "audience"),
+                scope = (capability["scope"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
+                issuedAt = requiredString(capability, "issued_at"),
+                expiresAt = requiredString(capability, "expires_at"),
+                enrollmentId = capability["enrollment_id"] as? String,
+                researchSessionId = capability["research_session_id"] as? String,
+                studyId = capability["study_id"] as? String,
+            )
+
+        /**
+         * The optional `inference_gateway` block. Absent or `null` means the arm
+         * does not use the gateway; a present block must be an object carrying
+         * its capability, otherwise the document is malformed.
+         */
+        private fun parseInferenceGateway(map: Map<String, Any?>): InferenceGatewayRef? {
+            val block = map["inference_gateway"] ?: return null
+            if (block !is Map<*, *>) {
+                throw ManifestParseException("Manifest field 'inference_gateway' must be an object or null")
+            }
+            val gateway = stringKeyedMap(block)
+            return InferenceGatewayRef(
+                providerKind = (gateway["provider_kind"] as? String)?.trim().orEmpty(),
+                basePath = (gateway["base_path"] as? String)?.trim().orEmpty(),
+                capability = parseCapability(requiredObject(gateway, "capability")),
             )
         }
 
@@ -813,6 +1018,18 @@ internal fun normalizeSha256Hex(value: String?): String? {
     val text = value?.trim()?.lowercase() ?: return null
     val stripped = if (text.startsWith(SHA256_PREFIX)) text.substring(SHA256_PREFIX.length) else text
     return if (HEX64.matches(stripped)) stripped else null
+}
+
+/**
+ * True for a gateway `base_path` the plugin may append to the server origin:
+ * non-blank, no scheme, no leading slash, no backslash, no `..` segment, and
+ * no whitespace/query/fragment characters that could rewrite the request.
+ */
+internal fun isRelativeGatewayPath(path: String): Boolean {
+    if (path.isBlank()) return false
+    if (path.startsWith("/") || path.contains('\\') || path.contains("://")) return false
+    if (path.any { it.isWhitespace() || it < ' ' || it == '?' || it == '#' }) return false
+    return path.split('/').none { it == ".." }
 }
 
 internal fun parseInstant(value: String): Instant? {
