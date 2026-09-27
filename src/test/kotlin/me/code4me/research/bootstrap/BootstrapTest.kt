@@ -1459,7 +1459,7 @@ class ResearchEnrollmentClassificationTest {
 
     @Test
     fun `each server terminal status classifies terminal`() {
-        listOf("REVOKED", "STUDY_STOPPED", "COMPLETED").forEach { status ->
+        listOf("REVOKED", "STUDY_STOPPED", "COMPLETED", "WITHDRAWN").forEach { status ->
             val discovery = classifyEnrollmentDiscovery(listOf(ResolvedEnrollment("enr-1", "study-1", status)))
 
             assertEquals(EnrollmentDiscovery.Terminal(status), discovery)

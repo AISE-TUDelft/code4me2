@@ -1,8 +1,11 @@
 package me.code4me.services.app
 
+import me.code4me.api.generated.infrastructure.ClientError
+import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.services.state.AuthSettings
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -87,6 +90,27 @@ class AppServiceAccountDeletionTest {
         assertEquals("old-token", observedToken.get())
         assertEquals("new-token", authState.getToken())
     }
+
+    @Test
+    fun `refused deletion surfaces the server's reason`() {
+        val reason = "This account owns research studies. Transfer or delete them before deleting the account."
+
+        assertEquals(reason, accountDeletionRefusal(clientError(409, """{"message":"$reason"}""")))
+        assertNull(accountDeletionRefusal(clientError(401, """{"message":"Not authenticated"}""")))
+        assertNull(accountDeletionRefusal(clientError(409, "not json")))
+        assertNull(accountDeletionRefusal(clientError(409, """{"message":"  "}""")))
+        assertNull(accountDeletionRefusal(ClientException("Client error : 409", 409, null)))
+    }
+
+    private fun clientError(
+        statusCode: Int,
+        body: String,
+    ): ClientException =
+        ClientException(
+            "Client error : $statusCode",
+            statusCode,
+            ClientError<Any>(body = body, statusCode = statusCode),
+        )
 
     private fun waitUntilBlocked(thread: Thread): Boolean {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)

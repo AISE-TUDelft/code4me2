@@ -2,6 +2,7 @@ package me.code4me.components.settings.sections
 
 import com.intellij.ide.DataManager
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.options.ex.Settings
@@ -11,7 +12,6 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.JBColor
-import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
@@ -22,6 +22,10 @@ import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.UpdateUser
 import me.code4me.components.settings.fields.StateValueField
 import me.code4me.services.app.AppService
+import me.code4me.services.app.AuthenticationChangedException
+import me.code4me.services.app.DataErasureException
+import me.code4me.services.app.ErasedDataCounts
+import me.code4me.services.app.accountDeletionRefusal
 import me.code4me.services.app.getAppService
 import me.code4me.services.state.AuthState
 import me.code4me.settings.ConfigurationConfigurable
@@ -53,6 +57,7 @@ import javax.swing.border.AbstractBorder
  * This section provides comprehensive user account management including:
  * - User profile information display and modification
  * - Email verification status and controls
+ * - Opting out of data collection and erasing the collected data
  * - Account deletion functionality
  * - Sign out functionality
  * - Integration with ChatPanel overlay updates
@@ -518,6 +523,35 @@ class UserSection(
                 }
             }
 
+        // Privacy Card: opt out of data collection and erase what was collected
+        val privacyCard =
+            createCard("Privacy") {
+                JPanel(BorderLayout()).apply {
+                    background = JBColor.background()
+
+                    val descriptionLabel =
+                        JBLabel(
+                            "<html>Stop Code4Me from collecting data about you and permanently erase what it has " +
+                                "collected.<br>Your account stays signed in.</html>",
+                        ).apply {
+                            border = JBUI.Borders.emptyBottom(12)
+                        }
+
+                    val eraseButton = createStyledButton("Opt out & erase my data", ButtonType.DANGER)
+                    eraseButton.toolTipText = "Turn off data collection and permanently erase your collected data"
+                    eraseButton.addActionListener { showDataErasureDialog(eraseButton) }
+
+                    val buttonPanel =
+                        JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                            background = JBColor.background()
+                            add(eraseButton)
+                        }
+
+                    add(descriptionLabel, BorderLayout.NORTH)
+                    add(buttonPanel, BorderLayout.CENTER)
+                }
+            }
+
         val dangerCard =
             createCard("Exit options") {
                 JPanel(GridLayout(1, 2, 12, 0)).apply {
@@ -540,6 +574,8 @@ class UserSection(
             }
 
         panel.add(profileCard)
+        panel.add(Box.createVerticalStrut(SECTION_SPACING))
+        panel.add(privacyCard)
         panel.add(Box.createVerticalStrut(SECTION_SPACING))
         panel.add(dangerCard)
 
@@ -748,23 +784,18 @@ class UserSection(
 
     /**
      * Shows a dialog specifically for account deletion.
+     *
+     * Deleting the account always deletes the data Code4Me has collected too. The server refuses
+     * (HTTP 409, with its reason) while the account owns research studies or agent profiles.
      */
     private fun showAccountDeletionDialog() {
         val dialog = AccountDeletionDialog()
 
         if (dialog.showAndGet()) {
-            val willDeleteData = dialog.shouldDeleteData()
-
-            val confirmMessage =
-                if (willDeleteData) {
-                    "This will permanently delete your account AND all your data. This action cannot be undone."
-                } else {
-                    "This will permanently delete your account. This action cannot be undone."
-                }
-
             val confirmResult =
                 Messages.showYesNoDialog(
-                    confirmMessage,
+                    "This will permanently delete your account and all data Code4Me has collected about you. " +
+                        "This action cannot be undone.",
                     "Final Confirmation",
                     "Delete Account",
                     "Cancel",
@@ -775,17 +806,10 @@ class UserSection(
                 try {
                     val deletionGeneration = authState.tokenGeneration()
                     // AppService clears local chats after the server confirms deletion.
-                    appService.deleteUser(willDeleteData, deletionGeneration)
-
-                    val successMessage =
-                        if (willDeleteData) {
-                            "Your account and all associated data have been deleted successfully."
-                        } else {
-                            "Your account has been deleted successfully."
-                        }
+                    appService.deleteUser(true, deletionGeneration)
 
                     Messages.showInfoMessage(
-                        successMessage,
+                        "Your account and all data Code4Me has collected about you have been deleted.",
                         "Account Deleted",
                     )
 
@@ -794,7 +818,8 @@ class UserSection(
                 } catch (e: Exception) {
                     val errorMessage =
                         when (e) {
-                            is ClientException -> "Failed to delete account. Please check your authentication."
+                            is ClientException ->
+                                accountDeletionRefusal(e) ?: "Failed to delete account. Please check your authentication."
                             is ServerException -> "Server error occurred during account deletion. Please try again later."
                             is IOException -> "Network error occurred. Please check your connection."
                             is ProcessCanceledException -> throw e // ProcessCanceledException cannot be caught
@@ -809,6 +834,94 @@ class UserSection(
             }
         }
     }
+
+    /**
+     * Confirms, then opts the user out of data collection and erases their collected data.
+     *
+     * The erase runs on a pooled thread: it's a blocking network call, and IntelliJ's threading
+     * rules forbid slow I/O on the EDT (this button click starts on the EDT). Only the UI
+     * follow-up hops back via `invokeLater`, in the settings dialog's modality so it shows while
+     * the dialog is still open.
+     */
+    private fun showDataErasureDialog(eraseButton: JButton) {
+        val confirmResult =
+            Messages.showYesNoDialog(
+                """
+                This permanently erases the data Code4Me has collected about you:
+
+                • Completion and chat requests, with their code context and telemetry
+                • Chat conversations
+                • Agent runs
+                • Study participation and study telemetry
+
+                Data collection is then turned off for your account. Your account stays signed in.
+
+                This action cannot be undone.
+                """.trimIndent(),
+                "Opt Out & Erase My Data",
+                "Erase My Data",
+                "Cancel",
+                Messages.getWarningIcon(),
+            )
+        if (confirmResult != Messages.YES) return
+
+        val erasureGeneration = authState.tokenGeneration()
+        val modalityState = ModalityState.stateForComponent(eraseButton)
+        eraseButton.isEnabled = false
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                // AppService clears the local copies only after the server confirms the erase.
+                val erased = appService.eraseCollectedData(erasureGeneration)
+                ApplicationManager.getApplication().invokeLater(
+                    {
+                        eraseButton.isEnabled = true
+                        Messages.showInfoMessage(dataErasedMessage(erased), "Data Erased")
+                    },
+                    modalityState,
+                )
+            } catch (e: Exception) {
+                ApplicationManager.getApplication().invokeLater(
+                    {
+                        eraseButton.isEnabled = true
+                        Messages.showErrorDialog(dataErasureErrorMessage(e), "Erase Data Error")
+                    },
+                    modalityState,
+                )
+            }
+        }
+    }
+
+    /**
+     * Success text for a privacy erase, with the server's counts when it reported them.
+     */
+    private fun dataErasedMessage(erased: ErasedDataCounts?): String =
+        buildString {
+            append("Your data has been erased.")
+            if (erased != null) {
+                append("\n\nCompletion and chat requests: ${erased.queries}")
+                append("\nChat conversations: ${erased.chats}")
+                append("\nAgent runs: ${erased.agentRuns}")
+                append("\nStudy enrollments: ${erased.studyEnrollments}")
+                append("\nStudy telemetry events: ${erased.studyEvents}")
+            }
+            append("\n\nData collection is now turned off for your account. You are still signed in.")
+        }
+
+    /**
+     * Failure text for a privacy erase. Nothing was changed locally in any of these cases.
+     */
+    private fun dataErasureErrorMessage(e: Exception): String =
+        when {
+            e is DataErasureException && e.statusCode == 401 ->
+                "You are no longer signed in to Code4Me, so nothing was erased. Please sign in again and retry."
+            e is DataErasureException ->
+                "The server could not erase your data (HTTP ${e.statusCode}). Please try again later."
+            e is IOException ->
+                "Network error occurred, so your data may not have been erased. Please check your connection and try again."
+            e is AuthenticationChangedException ->
+                "Your sign-in changed before the erase was sent, so nothing was erased. Please try again."
+            else -> "An error occurred while erasing your data: ${e.message}"
+        }
 
     /**
      * Handles user sign out operation with immediate chat panel updates.
@@ -844,14 +957,11 @@ class UserSection(
     }
 
     /**
-     * Dialog for account deletion confirmation with data deletion option.
+     * Dialog for account deletion confirmation. The collected data is always deleted with the account.
      */
     private inner class AccountDeletionDialog : DialogWrapper(true) {
-        private val deleteDataCheckbox = JBCheckBox("Also delete my data")
-
         init {
             title = "Delete Account"
-            deleteDataCheckbox.toolTipText = "If checked, all your data will be permanently deleted"
             init()
         }
 
@@ -862,12 +972,12 @@ class UserSection(
             val messageLabel = JLabel("Are you sure you want to delete your account?")
             messageLabel.border = JBUI.Borders.emptyBottom(10)
 
+            val dataLabel = JLabel("Your account and all data Code4Me has collected about you will be permanently deleted.")
+
             panel.add(messageLabel, BorderLayout.NORTH)
-            panel.add(deleteDataCheckbox, BorderLayout.CENTER)
+            panel.add(dataLabel, BorderLayout.CENTER)
 
             return panel
         }
-
-        fun shouldDeleteData(): Boolean = deleteDataCheckbox.isSelected
     }
 }

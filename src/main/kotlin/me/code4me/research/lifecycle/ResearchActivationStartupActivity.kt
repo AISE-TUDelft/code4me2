@@ -27,7 +27,8 @@ class ResearchActivationStartupActivity : ProjectActivity {
  * collectors, uploaders) and its spool is quarantined, so no queued record can be
  * uploaded under the next account. It only touches contexts that were already
  * created, never constructs one, and swallows every failure so ordinary login,
- * logout and chat are unaffected.
+ * logout and chat are unaffected. A privacy erase uses [eraseAllContexts], which
+ * deletes the spool instead of quarantining it.
  */
 object ResearchLogoutHook {
     private val log = thisLogger()
@@ -42,6 +43,31 @@ object ResearchLogoutHook {
             }
         } catch (error: Exception) {
             log.warn("Research sign-out cleanup failed", error)
+        }
+    }
+
+    /**
+     * Privacy-erase hook: stop every open project's research context and delete
+     * its pending spool, so records collected before the erase are never
+     * uploaded. The user stays signed in. A context that cannot be stopped or
+     * deleted safely keeps its spool on disk (quarantined when it could be
+     * moved aside, as on sign-out) and is logged. Stops as soon
+     * as [stillCurrent] is false (the erased account signed out), so a newer
+     * sign-in's contexts are never touched.
+     */
+    fun eraseAllContexts(stillCurrent: () -> Boolean) {
+        try {
+            for (project in ProjectManager.getInstance().openProjects) {
+                if (!stillCurrent()) return
+                val service = project.getServiceIfCreated(ResearchSessionService::class.java) ?: continue
+                runCatching { service.onErase() }
+                    .onSuccess { deleted ->
+                        if (!deleted) log.warn("A research spool could not be deleted after the data erase and remains on disk")
+                    }
+                    .onFailure { log.warn("Stopping a research context after the data erase failed", it) }
+            }
+        } catch (error: Exception) {
+            log.warn("Research cleanup after the data erase failed", error)
         }
     }
 }
