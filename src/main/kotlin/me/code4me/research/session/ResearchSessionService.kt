@@ -28,10 +28,6 @@ import me.code4me.research.session.ParticipantStudyStateV1
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.getConfig
 import me.code4me.services.config.models.ServerConfig
-import me.code4me.services.agent.GooseRuntime
-import me.code4me.services.agent.LocalProxyServer
-import me.code4me.services.agent.AgentStartupManager
-import kotlinx.coroutines.runBlocking
 import okhttp3.Call
 import java.net.URI
 import java.nio.file.Path
@@ -275,22 +271,6 @@ class ResearchSessionService internal constructor(
                     entryName = AcpHostRegistration.contextEntryName(contextId),
                 ),
             agentEnvProvider = { managedAgentEnv() },
-            byoaInferenceEnvProvider = { agentPackage, model ->
-                when (agentPackage?.lowercase()) {
-                    "goose" -> {
-                        prepareResearchInference()
-                        GooseRuntime.buildEnvBundle(LocalProxyServer.baseUrl(), model)
-                    }
-                    "codex" -> {
-                        prepareResearchInference()
-                        mapOf(
-                            "CODEX_PROXY_URL" to "${LocalProxyServer.baseUrl()}/v1",
-                            "OPENAI_API_KEY" to GooseRuntime.PROXY_API_KEY_PLACEHOLDER,
-                        )
-                    }
-                    else -> emptyMap()
-                }
-            },
             capabilityFilePathProvider = {
                 runtimeSettings()?.capabilityFilePath()?.let { contextScopedCapabilityFile(it, contextId) }
             },
@@ -427,14 +407,6 @@ class ResearchSessionService internal constructor(
         } catch (_: Exception) {
             emptyMap()
         }
-
-    private fun prepareResearchInference() {
-        LocalProxyServer.start(project)
-        check(LocalProxyServer.isListening()) { "the local inference relay could not start" }
-        check(runBlocking { AgentStartupManager.ensureResearchTask() } != null) {
-            "the server could not provision an agent task for this study session"
-        }
-    }
 
     private fun spoolDirectory(enrollmentId: String): Path =
         Path.of(

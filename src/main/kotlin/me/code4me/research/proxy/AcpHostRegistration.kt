@@ -22,12 +22,13 @@ import java.util.UUID
  *
  * The one-time capability is the LOCAL IPC capability of the live spool server.
  * It is carried **in the ACP entry's `env`** as `CODE4ME_RESEARCH_CAPABILITY`
- * (the entry env persists with the entry, so a launch never depends on a file
- * surviving teardown) and, as a fallback, written to [capabilityFile] with
- * owner-only permissions where the filesystem supports them. The file is
- * plugin-owned: it is rewritten on every activation (the ACP entry is
- * persistent, so the proxy may be launched repeatedly) and the proxy only reads
- * it. Env is authoritative when the file cannot be read.
+ * (so a launch can start while the file cannot be read) and written, atomically
+ * and owner-only where the filesystem supports it, to [capabilityFile]. The file
+ * is plugin-owned: it is rewritten on every activation (the ACP entry is
+ * persistent, so the proxy may be launched repeatedly), removed at teardown, and
+ * only read by the proxy. A running proxy treats a removed or rewritten file as
+ * the end of its chat's session: it refuses further requests and stops the
+ * agent, so no agent keeps working after its telemetry path is gone.
  *
  * The study privacy policy and the selected adapter are passed as CLI flags
  * (`--telemetry-policy`, `--telemetry-policy-digest`, `--adapter`), so the proxy
@@ -57,7 +58,9 @@ class AcpHostRegistration internal constructor(
         registryPath = registryPath,
         entryName = entryName,
         registryWriterFactory = { AcpRegistryWriter(it) },
-        capabilityWriter = ::writeOwnerOnlyFile,
+        // Atomic: a running proxy re-reads this file before every host request
+        // to notice a torn-down session, and must never see it half written.
+        capabilityWriter = ::writeOwnerOnlyFileAtomically,
         capabilityFactory = { UUID.randomUUID().toString().replace("-", "") },
         digestFactory = { ContentHasher.STREAMING.sha256(it) },
     )
@@ -146,8 +149,9 @@ class AcpHostRegistration internal constructor(
                 } else {
                     null
                 }
-            // The capability travels with the entry: the proxy reads it from the
-            // env when its fallback file is gone, so an entry can never dangle.
+            // The capability also travels with the entry env, so a launch can
+            // start while the file cannot be read; the file stays the liveness
+            // signal of a running chat.
             // The adapter identity travels the same way as a durable, non-secret
             // marker; the effective selection is the `--adapter` argv flag.
             val entryEnv =
@@ -390,9 +394,8 @@ class AcpHostRegistration internal constructor(
  * Write [value] to [path] with owner-only permissions where the filesystem
  * supports POSIX permissions (Windows relies on the user ACL).
  *
- * Shared by the one-time capability and the frozen telemetry policy: both are
- * plugin-owned, rewritten on every activation, and read but never deleted by
- * the proxy.
+ * Used for the frozen telemetry policy: plugin-owned, rewritten on every
+ * activation, and read but never deleted by the proxy.
  */
 internal fun writeOwnerOnlyFile(
     path: Path,
@@ -425,7 +428,9 @@ private val ENV_KEY_PATTERN = Regex("[A-Za-z_][A-Za-z0-9_]*")
  * any byte is written) and moved into place with `ATOMIC_MOVE`, so a reader
  * never observes a partial or group-readable document. Used for the inference
  * credential file, which is rewritten on every manifest refresh while a
- * launch may be reading it (the proxy retries a briefly unreadable file).
+ * launch may be reading it (the proxy retries a briefly unreadable file), and
+ * for the one-time capability file, which a running proxy re-reads as its
+ * session-liveness signal.
  */
 internal fun writeOwnerOnlyFileAtomically(
     path: Path,

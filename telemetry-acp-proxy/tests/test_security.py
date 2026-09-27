@@ -83,11 +83,9 @@ def test_default_policy_does_not_capture_content():
             "params": {
                 "sessionId": "sess-1",
                 "update": {
-                "sessionUpdate": "tool_call",
-                "toolCallId": "call-1",
-                "kind": "read",
-                "status": "pending",
-                "content": [{"type": "text", "text": CANARY_PROMPT}],
+                    "sessionUpdate": "agent_message_chunk",
+                    "messageId": "m1",
+                    "content": {"type": "text", "text": CANARY_PROMPT},
                 },
             },
         },
@@ -95,9 +93,11 @@ def test_default_policy_does_not_capture_content():
     )
     serialized = "\n".join(event.model_dump_json() for event in events)
     assert CANARY_PROMPT not in serialized
-    tool_events = [event for event in events if event.event_type.startswith("tool.")]
-    assert tool_events
-    assert tool_events[0].payload["content"] == "[REDACTED]"
+    message_events = [
+        event for event in events if event.event_type.startswith("agent.message")
+    ]
+    assert message_events
+    assert message_events[0].payload["content"] == "[REDACTED]"
 
 
 def test_parse_failure_is_metadata_only_and_never_contains_raw_text():
@@ -131,11 +131,9 @@ def test_content_allowed_only_with_explicit_consent():
             "params": {
                 "sessionId": "sess-1",
                 "update": {
-                    "sessionUpdate": "tool_call",
-                    "toolCallId": "call-1",
-                    "kind": "read",
-                    "status": "pending",
-                    "content": [{"type": "text", "text": CANARY_PROMPT}],
+                    "sessionUpdate": "agent_message_chunk",
+                    "messageId": "m1",
+                    "content": {"type": "text", "text": CANARY_PROMPT},
                 },
             },
         },

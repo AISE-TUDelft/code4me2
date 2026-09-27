@@ -72,7 +72,6 @@ export class CodexAcpClient {
                 config: {
                     name: "Code4Me Proxy",
                     base_url: proxyUrl,
-                    env_key: "OPENAI_API_KEY",
                     http_headers: { "X-Client-Feature-ID": "codex" },
                     wire_api: "responses" as const,
                 }
@@ -112,7 +111,6 @@ export class CodexAcpClient {
                 config: {
                     name: "Code4Me Proxy",
                     base_url: proxyUrl,
-                    env_key: "OPENAI_API_KEY",
                     http_headers: { "X-Client-Feature-ID": "codex" },
                     wire_api: "responses"
                 }
@@ -164,7 +162,6 @@ export class CodexAcpClient {
                     config: {
                         name: providerName,
                         base_url: baseUrl,
-                        ...(process.env["CODEX_PROXY_URL"] ? { env_key: "OPENAI_API_KEY" } : {}),
                         http_headers: headers,
                         wire_api: "responses"
                     }
@@ -701,7 +698,6 @@ interface GatewayConfig {
     config: {
         name: string,
         base_url: string,
-        env_key?: string,
         http_headers: Record<string, string>,
         wire_api: "responses"
     }

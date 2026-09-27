@@ -50,14 +50,17 @@ DEFAULT_ENV_ALLOWLIST = (
     "CODE4ME_RESEARCH_SESSION_ID",
 )
 
-# A participant may explicitly opt in to passing *their own* provider settings
-# to a BYOA agent. Never inherit credentials merely because they happen to be
-# present in the IDE process: release authors must not gain ambient secrets.
+#: Provider settings a participant may pass to an agent that runs on their own
+#: provider (for example Codex with their own key), named in the
+#: ``CODE4ME_AGENT_PROVIDER_ENV`` list. Ambient credentials are otherwise never
+#: inherited: release authors must not gain the participant's secrets, and a
+#: study-funded (gateway-bound) agent never receives them at all.
 PROVIDER_ENV_NAMES = frozenset({
     "GOOSE_PROVIDER", "GOOSE_MODEL", "OPENAI_BASE_URL", "OPENAI_API_KEY",
     "OPENROUTER_API_KEY", "CODEX_UPSTREAM_URL", "CODEX_UPSTREAM_API_KEY",
     "CODEX_MAX_OUTPUT_TOKENS",
 })
+PROVIDER_ENV_OPT_IN = "CODE4ME_AGENT_PROVIDER_ENV"
 
 DEFAULT_TERMINATE_TIMEOUT_SECONDS = 5.0
 
@@ -139,14 +142,22 @@ def build_environment(
     *,
     source: Optional[Mapping[str, str]] = None,
     overrides: Optional[Mapping[str, str]] = None,
+    provider_env: bool = False,
 ) -> dict[str, str]:
-    """Build an explicit, allowlisted child environment."""
+    """Build an explicit, allowlisted child environment.
+
+    With ``provider_env`` the provider settings the participant named in
+    ``CODE4ME_AGENT_PROVIDER_ENV`` (only ``PROVIDER_ENV_NAMES``) are inherited
+    too; ``overrides`` still win over them. The proxy enables it for every launch
+    that carries no inference-gateway credential (a participant-provider BYOA
+    agent, or the managed runtime, which ignores these variables).
+    """
     origin = source if source is not None else os.environ
     environment = {name: origin[name] for name in allowlist if name in origin}
-    requested = origin.get("CODE4ME_AGENT_PROVIDER_ENV", "")
-    for name in (part.strip() for part in requested.split(",")):
-        if name in PROVIDER_ENV_NAMES and name in origin:
-            environment[name] = origin[name]
+    if provider_env:
+        for name in (part.strip() for part in origin.get(PROVIDER_ENV_OPT_IN, "").split(",")):
+            if name in PROVIDER_ENV_NAMES and name in origin:
+                environment[name] = origin[name]
     if overrides:
         environment.update(overrides)
     return environment
@@ -162,6 +173,7 @@ class ProxyProcess:
         working_directory: Optional[str | os.PathLike[str]] = None,
         env_allowlist: Iterable[str] = DEFAULT_ENV_ALLOWLIST,
         env_overrides: Optional[Mapping[str, str]] = None,
+        provider_env: bool = False,
         popen_factory: Callable[..., Any] = subprocess.Popen,
     ) -> None:
         self.argv = list(argv)
@@ -170,6 +182,7 @@ class ProxyProcess:
         self.working_directory = working_directory
         self.env_allowlist = tuple(env_allowlist)
         self.env_overrides = dict(env_overrides or {})
+        self.provider_env = provider_env
         self._popen_factory = popen_factory
         self._process: Optional[Any] = None
         self.state = ProxyState.IDLE
@@ -197,7 +210,7 @@ class ProxyProcess:
     def start(self) -> Any:
         """Launch the child with an argv array and an allowlisted environment."""
         environment = build_environment(
-            self.env_allowlist, overrides=self.env_overrides
+            self.env_allowlist, overrides=self.env_overrides, provider_env=self.provider_env
         )
         self.state = ProxyState.STARTING
         try:

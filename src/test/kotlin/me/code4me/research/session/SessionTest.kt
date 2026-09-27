@@ -365,26 +365,6 @@ class ResearchSessionManagerTest {
         assertFalse(a.contains("project-a"))
     }
 
-    @Test
-    fun `different server sessions use separate durable spools`() {
-        val keys = ArrayList<String>()
-        val spoolProvider: (String) -> DurableSpool = { key ->
-            keys.add(key)
-            DurableSpool(root.resolve("spool-${keys.size}"))
-        }
-        val firstId = java.util.UUID.randomUUID().toString()
-        val secondId = java.util.UUID.randomUUID().toString()
-
-        val first = manager(validTransport(firstId), spoolProvider = spoolProvider)
-        val second = manager(validTransport(secondId), spoolProvider = spoolProvider)
-        assertTrue(first.activate("enrollment-1") is ResearchActivationResult.Activated)
-        assertTrue(second.activate("enrollment-1") is ResearchActivationResult.Activated)
-        assertEquals(2, keys.size)
-        assertNotEquals(keys[0], keys[1])
-        assertTrue(keys[0].endsWith("::$firstId"))
-        assertTrue(keys[1].endsWith("::$secondId"))
-    }
-
     private fun manager(
         transport: BootstrapTransport,
         clock: MutableClock = newClock(),
@@ -1290,9 +1270,6 @@ class ResearchSessionRuntimeWiringTest {
                 capabilityFile = capabilityFile,
                 manifest = manifest,
                 byoaResolver = byoa,
-                byoaInferenceEnvProvider = { agentPackage, _ ->
-                    if (agentPackage == "goose") mapOf("GOOSE_PROVIDER" to "openai", "GOOSE_MODEL" to "fallback") else emptyMap()
-                },
             )
 
         val result = manager.activate("enrollment-1")
@@ -1303,8 +1280,6 @@ class ResearchSessionRuntimeWiringTest {
         assertTrue(agentCmdIndex > 0, "the entry must still terminate with --agent-cmd")
         // Env bindings travel as explicit --agent-env overrides.
         assertTrue(args.contains("GOOSE_MODEL=gpt-5"))
-        assertTrue(args.contains("GOOSE_PROVIDER=openai"))
-        assertTrue(!args.contains("GOOSE_MODEL=fallback"), "the frozen profile must override a local fallback")
         assertTrue(args.contains("GOOSE_MAX_TURNS=4"))
         assertTrue(args.contains("GOOSE_EXTENSIONS=shell,read"))
         // Arg bindings append to the agent argv (after the release args).
@@ -1645,7 +1620,6 @@ class ResearchSessionRuntimeWiringTest {
         capabilityFile: Path? = null,
         manifest: String = manifestJson(),
         byoaResolver: ByoaAgentResolver? = null,
-        byoaInferenceEnvProvider: (String?, String?) -> Map<String, String> = { _, _ -> emptyMap() },
         installer: PackagedAgentInstaller? = null,
     ): ResearchSessionManager =
         ResearchSessionManager(
@@ -1665,7 +1639,6 @@ class ResearchSessionRuntimeWiringTest {
                     },
             capabilityFilePathProvider = { capabilityFile },
             byoaAgentResolver = byoaResolver ?: ByoaAgentResolver.DEFAULT,
-            byoaInferenceEnvProvider = byoaInferenceEnvProvider,
             sessionStore = InMemoryResearchSessionStore(),
             clock = { VALID_NOW.toEpochMilli() },
             instantClock = { VALID_NOW },

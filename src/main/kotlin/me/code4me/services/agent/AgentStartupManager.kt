@@ -35,12 +35,6 @@ object AgentStartupManager {
     private const val SESSION_TOKEN_POLL_ATTEMPTS = 10
     private const val SESSION_TOKEN_POLL_INTERVAL_MS = 300L
 
-    /** Provision inference for a study without registering an uninstrumented direct ACP entry. */
-    suspend fun ensureResearchTask(): UUID? {
-        if (awaitSessionToken().isNullOrBlank()) return null
-        return provisionTask()?.taskId
-    }
-
     suspend fun ensureActiveTask(project: Project) {
         LOG.info("[AgentStartupManager] ensureActiveTask — begin")
 
@@ -73,8 +67,11 @@ object AgentStartupManager {
                 AcpManager.removeDeveloperCodexEntry()
                 LOG.info("[AgentStartupManager] detecting Goose binary…")
                 GooseRuntime.detect().also { path ->
-                    if (path == null) showGooseNotFoundNotification(project)
-                    else LOG.info("[AgentStartupManager] Goose binary resolved: $path")
+                    if (path == null) {
+                        showGooseNotFoundNotification(project)
+                    } else {
+                        LOG.info("[AgentStartupManager] Goose binary resolved: $path")
+                    }
                 }
             } else {
                 AcpManager.removeDeveloperGooseEntry()

@@ -28,17 +28,17 @@ adapter; an unknown id is a usage error (fail closed, never a silent import).
 ``--capability`` is mutually exclusive with ``--capability-file``. The token is
 resolved from (in order) ``--capability``, then ``--capability-file`` (read
 without deleting it, so repeated launches read the same token), then the
-``CODE4ME_RESEARCH_CAPABILITY`` environment variable. The environment variable is
-the durable carrier: the ACP host entry persists it, so a launch keeps working
-even after the plugin removes its fallback file. When a spool endpoint is
+``CODE4ME_RESEARCH_CAPABILITY`` environment variable. The environment variable
+lets a launch start while the file cannot be read. When a spool endpoint is
 configured but the token is still missing, the proxy retries briefly (a few
 seconds) before exiting so a launch racing activation can still succeed.
-For a running proxy launched with ``--capability-file``, each new host frame
-checks that the file still contains its original token. A stale chat stops
-before forwarding another request after session teardown or replacement.
+With ``--capability-file`` the file is also the liveness signal: once it is
+removed or holds another token (the study session was torn down or replaced),
+the chat is stale and its requests are refused (``stale_session_guard``) instead
+of reaching an agent whose telemetry would be lost.
 
 ``--status-file`` names a content-free delivery status document the proxy writes
-atomically (unique temp file then replace) at startup, after every dispatch, and once at
+atomically (temp file then replace) at startup, after every dispatch, and once at
 shutdown: canonical JSON of the delivery counters (``dropped`` and friends),
 never a payload, event id, path, or capability. The path resolves from
 ``--status-file``, then ``CODE4ME_RESEARCH_STATUS_FILE`` in the entry
@@ -78,9 +78,9 @@ import pathlib
 from dataclasses import dataclass
 import re
 import os
-import secrets
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -104,6 +104,7 @@ from .delivery import (  # noqa: E402
 from .forwarder import AcpForwarder, InterceptCallback  # noqa: E402
 from .initialize_replay import InitializeReplay  # noqa: E402
 from .session_mode_guard import SessionModeGuard  # noqa: E402
+from .stale_session_guard import StaleSessionGuard  # noqa: E402
 from .lifecycle import (  # noqa: E402
     ArtifactVerificationError,
     ProxyProcess,
@@ -113,7 +114,7 @@ from .lifecycle import (  # noqa: E402
     verify_artifact,
 )
 from .normalize import SESSION_ID_KEY, ProxyNormalizer  # noqa: E402
-from .observe import AcpDirection, ObservedAcpMessageV1, Observer  # noqa: E402
+from .observe import ObservedAcpMessageV1, Observer  # noqa: E402
 from .privacy_gate import PrivacyGate, agent_crashed_event  # noqa: E402
 from .spool_client import (  # noqa: E402
     EMITTER_ID_PREFIX,
@@ -129,8 +130,14 @@ EXIT_AGENT_CRASH = 20
 EXIT_PARSE_FAILURE = 21
 EXIT_SPOOL_REJECTED = 22
 
+#: How often a running chat re-checks that its research session is still live,
+#: and how long a refusal is given to reach the host before the agent is stopped.
+STALE_SESSION_POLL_SECONDS = 2.0
+STALE_AGENT_STOP_DELAY_SECONDS = 0.5
+
 #: Environment variable carrying the one-time IPC capability. The ACP host entry
-#: persists it, so a proxy launch no longer depends on a file surviving teardown.
+#: persists it, so a launch can start while the capability file cannot be read;
+#: with ``--capability-file`` a missing file still ends a running chat.
 CAPABILITY_ENV_VAR = "CODE4ME_RESEARCH_CAPABILITY"
 
 #: Environment variable carrying the native agent run id. The ACP host entry
@@ -647,8 +654,10 @@ def resolve_capability(
     2. ``--capability-file`` is read **without deleting it**: the plugin owns the
        file, rewrites it on every activation, and removes it only on teardown, so
        repeated proxy launches read the same valid token;
-    3. ``CODE4ME_RESEARCH_CAPABILITY`` from the environment. The ACP host entry
-       persists this, so a launch survives the plugin deleting its fallback file.
+    3. ``CODE4ME_RESEARCH_CAPABILITY`` from the environment (the ACP host entry
+       persists it), so a launch can start while the file cannot be read. With
+       ``--capability-file`` the running proxy also treats a removed or rewritten
+       file as the end of its session (``stale_session_guard``).
 
     Returns ``(token, error_message)``; exactly one is ``None`` (both are
     ``None`` when no capability was requested at all).
@@ -982,6 +991,10 @@ def run_proxy(
     process = ProxyProcess(
         [str(artifact), *list(agent_cmd[1:])],
         env_overrides=child_overrides,
+        # Only a launch without a gateway credential may inherit the provider
+        # settings a participant opted in: a study-funded (gateway-bound) agent
+        # never does, since they could point it past the metered gateway.
+        provider_env=inference_credential is None,
     )
     try:
         process.start()
@@ -999,6 +1012,27 @@ def run_proxy(
     # connection from the cached handshake result; the default path constructs
     # no interceptor and stays byte-preserving.
     interceptors: list[InterceptCallback] = []
+    stale_guard: Optional[StaleSessionGuard] = None
+    stopped_for_stale = threading.Event()
+    if capability_file is not None and capability:
+
+        def _stop_stale_agent() -> None:
+            diag("proxy: the research session for this chat has ended; its requests are refused and the agent is stopped")
+
+            def _stop() -> None:
+                if process.returncode is None:
+                    stopped_for_stale.set()
+                process.terminate()
+
+            # Shortly after, so the refusal reaches the host before the agent's
+            # side closes: nothing the agent does from now on can be observed.
+            stopper = threading.Timer(STALE_AGENT_STOP_DELAY_SECONDS, _stop)
+            stopper.daemon = True
+            stopper.start()
+
+        stale_guard = StaleSessionGuard(capability_file, capability, on_stale=_stop_stale_agent)
+        # First: a stale chat is refused even where another interceptor would answer.
+        interceptors.append(stale_guard.intercept)
     if compat_idempotent_initialize:
         replay = InitializeReplay(
             on_replay=lambda: diag(
@@ -1018,6 +1052,17 @@ def run_proxy(
     )
 
     forwarder = AcpForwarder(observer=observer, diagnostics=diag, intercept=intercept)
+    watch_stop = threading.Event()
+    if stale_guard is not None:
+        # Between host frames too: a session torn down mid-turn stops the agent.
+        guard = stale_guard
+
+        def _watch_session() -> None:
+            while not watch_stop.wait(STALE_SESSION_POLL_SECONDS):
+                if guard.check_now():
+                    return
+
+        threading.Thread(target=_watch_session, name="proxy-stale-session-watch", daemon=True).start()
     forwarder.run(
         host_read,
         host_write,
@@ -1025,6 +1070,7 @@ def run_proxy(
         process.stdin,
         terminate_agent=process.terminate,
     )
+    watch_stop.set()
 
     # Shutdown: flush queued telemetry within a bounded window, then report
     # exactly what was delivered and what was lost.
@@ -1040,7 +1086,9 @@ def run_proxy(
     )
 
     malformed = observer.malformed_count > 0
-    crashed = return_code is not None and return_code != 0
+    # Stopping the agent because its session ended is not a crash; an agent that
+    # failed on its own is still reported as one.
+    crashed = return_code is not None and return_code != 0 and not stopped_for_stale.is_set()
     if crashed:
         event = agent_crashed_event(
             occurred_at=datetime.now(timezone.utc),
@@ -1051,7 +1099,7 @@ def run_proxy(
         _deliver(deliverable([gate.filter(event)]), spool, diag)
         diag(f"proxy: agent exited unexpectedly with status {return_code}")
         return EXIT_AGENT_CRASH
-    if stale_session.is_set():
+    if stale_guard is not None and stale_guard.stale:
         return EXIT_SPOOL_REJECTED
     if malformed:
         return EXIT_PARSE_FAILURE

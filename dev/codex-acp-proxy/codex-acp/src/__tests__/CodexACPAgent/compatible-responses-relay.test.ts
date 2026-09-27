@@ -1,4 +1,4 @@
-import {createServer, type Server} from "node:http";
+import {createServer, request as httpRequest, type Server} from "node:http";
 import {describe, expect, it} from "vitest";
 import {normalizeCompatibleResponsesBody, startCompatibleResponsesRelay} from "../../CompatibleResponsesRelay";
 
@@ -66,4 +66,51 @@ describe("compatible Responses relay", () => {
             await close(upstream);
         }
     });
+
+    it("answers only on its secret path and for its own Host", async () => {
+        const relay = await startCompatibleResponsesRelay({
+            CODEX_UPSTREAM_URL: "https://provider.invalid/v1",
+            CODEX_UPSTREAM_API_KEY: "test-secret",
+        });
+        if (!relay) throw new Error("relay did not start");
+        try {
+            const url = new URL(relay.url);
+            expect(url.pathname).toMatch(/^\/[A-Za-z0-9_-]{32}\/v1$/);
+            const guessed = await fetch(`${url.origin}/v1/responses`, {method: "POST", body: "{}"});
+            expect(guessed.status).toBe(404);
+            const status = await new Promise<number>((resolve, reject) => {
+                const request = httpRequest({
+                    host: "127.0.0.1", port: Number(url.port), method: "POST",
+                    path: `${url.pathname}/responses`, headers: {host: `attacker.example:${url.port}`},
+                }, response => { response.resume(); resolve(response.statusCode ?? 0); });
+                request.on("error", reject);
+                request.end("{}");
+            });
+            expect(status).toBe(404);
+        } finally {
+            await close(relay.server);
+        }
+    });
+
+    it("spends only the key meant for the upstream", async () => {
+        await expect(startCompatibleResponsesRelay({
+            CODEX_UPSTREAM_URL: "https://openrouter.ai/api/v1",
+            OPENAI_API_KEY: "an-openai-key",
+        })).rejects.toThrow("CODEX_UPSTREAM_API_KEY");
+    });
+
+    it("accepts IPv6 loopback upstreams", async () => {
+        const relay = await startCompatibleResponsesRelay({
+            CODEX_UPSTREAM_URL: "http://[::1]:9/v1",
+            CODEX_UPSTREAM_API_KEY: "test-secret",
+        });
+        expect(relay).not.toBeNull();
+        if (relay) await close(relay.server);
+    });
+
+    it("keeps store false for an OpenAI upstream and drops it elsewhere", () => {
+        expect(normalizeCompatibleResponsesBody({store: true, input: []}, null, true)).toEqual({store: false, input: []});
+        expect(normalizeCompatibleResponsesBody({store: false, input: []}, null)).toEqual({input: []});
+    });
 });
+

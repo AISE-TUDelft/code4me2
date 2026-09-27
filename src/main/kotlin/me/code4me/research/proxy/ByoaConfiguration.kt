@@ -110,8 +110,8 @@ fun applyByoaConfiguration(
                 args += binding.key
                 args += value
             }
-            // The server's inference gateway enforces this selection; there is
-            // deliberately no agent process environment variable to set.
+            // The research inference gateway applies the selection; the agent
+            // (Goose) reads no tool setting, so nothing is set on the process.
             "gateway" -> Unit
         }
     }
@@ -185,8 +185,10 @@ fun credentialBindingViolation(
 
 /**
  * Whether [field] is covered by a binding the launch path can actually apply.
- * Only the `env`/`arg` transports count as mapped; an unknown transport must
- * fail closed rather than look covered.
+ * The `env`/`arg` transports count as mapped, and `gateway` counts for `tools`
+ * only when the manifest carries an inference gateway (the gateway is what
+ * enforces it; without one nothing would). An unknown transport must fail
+ * closed rather than look covered.
  */
 private fun isMappedByoaField(
     field: String,
@@ -201,6 +203,9 @@ private fun isMappedByoaField(
                     (binding.transport == "env" || binding.transport == "arg") &&
                         runtime != null &&
                         !binding.valueMap[runtime.providerKind].isNullOrBlank()
+                "tools" ->
+                    binding.transport == "env" || binding.transport == "arg" ||
+                        (binding.transport == "gateway" && runtime != null)
                 else -> binding.transport == "env" || binding.transport == "arg"
             }
     }

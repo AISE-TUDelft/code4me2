@@ -925,7 +925,6 @@ class AuthenticationSection : SettingsSection {
                 }
 
                 appService.acquireSessionWithStoredToken()
-                me.code4me.research.lifecycle.ResearchLoginHook.reactivateAllContexts()
 
                 ApplicationManager.getApplication().invokeLater {
                     authButton.isEnabled = true

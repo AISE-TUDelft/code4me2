@@ -12,6 +12,7 @@ import io
 import json
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from conftest import fixture_path, python_digest  # type: ignore[import-not-found]
 

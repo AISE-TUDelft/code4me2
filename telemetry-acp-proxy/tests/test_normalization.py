@@ -113,7 +113,7 @@ def test_adapter_enriches_without_deleting_generic_event():
     assert generic.event_type == enriched.event_type == CanonicalEventType.TOOL_CREATED.value
     assert generic.provenance.fidelity == enriched.provenance.fidelity
     assert enriched.payload["tool_call_id"] == "call-1"
-    assert enriched.payload["tool_name"] == "edit"
+    assert enriched.payload["tool_name"] == "Edit file"
     # The adapter only added a label.
     assert "normalized_tool_kind" not in generic.payload
     assert enriched.payload["normalized_tool_kind"] == "FILE_EDIT"
@@ -600,17 +600,6 @@ def _chunk(session_id="sess-1"):
     }
 
 
-def _plan_update(session_id="sess-1"):
-    return {
-        "jsonrpc": "2.0",
-        "method": "session/update",
-        "params": {
-            "sessionId": session_id,
-            "update": {"sessionUpdate": "plan", "entries": []},
-        },
-    }
-
-
 def test_turn_id_follows_the_native_prompt_request_id():
     events = _events_from(
         [
@@ -638,7 +627,7 @@ def test_turn_id_follows_the_native_prompt_request_id():
 
 
 def test_turn_id_is_null_without_a_pending_prompt():
-    event = _events_from([(AcpDirection.AGENT_TO_HOST, _plan_update())])[0]
+    event = _events_from([(AcpDirection.AGENT_TO_HOST, _chunk())])[0]
 
     assert event.correlations.turn_id is None
 
@@ -647,9 +636,9 @@ def test_turn_id_clears_after_the_prompt_completes():
     events = _events_from(
         [
             (AcpDirection.HOST_TO_AGENT, _prompt(3)),
-            (AcpDirection.AGENT_TO_HOST, _plan_update()),
+            (AcpDirection.AGENT_TO_HOST, _chunk()),
             (AcpDirection.AGENT_TO_HOST, {"jsonrpc": "2.0", "id": 3, "result": {}}),
-            (AcpDirection.AGENT_TO_HOST, _plan_update()),
+            (AcpDirection.AGENT_TO_HOST, _chunk()),
         ]
     )
 
@@ -664,8 +653,8 @@ def test_concurrent_sessions_do_not_share_a_turn():
         [
             (AcpDirection.HOST_TO_AGENT, _prompt(3, "sess-a")),
             (AcpDirection.HOST_TO_AGENT, _prompt(9, "sess-b")),
-            (AcpDirection.AGENT_TO_HOST, _plan_update("sess-a")),
-            (AcpDirection.AGENT_TO_HOST, _plan_update("sess-b")),
+            (AcpDirection.AGENT_TO_HOST, _chunk("sess-a")),
+            (AcpDirection.AGENT_TO_HOST, _chunk("sess-b")),
         ]
     )
 
@@ -683,10 +672,10 @@ def test_turn_state_is_isolated_per_normalizer_stream():
         second.normalize_observed(
             observer.observe(AcpDirection.HOST_TO_AGENT, encode_message(_prompt(9)))[0]
         )
-        plan = observer.observe(AcpDirection.AGENT_TO_HOST, encode_message(_plan_update()))[0]
+        chunk = observer.observe(AcpDirection.AGENT_TO_HOST, encode_message(_chunk()))[0]
 
-        assert first.normalize_observed(plan)[0].correlations.turn_id == "3"
-        assert second.normalize_observed(plan)[0].correlations.turn_id == "9"
+        assert first.normalize_observed(chunk)[0].correlations.turn_id == "3"
+        assert second.normalize_observed(chunk)[0].correlations.turn_id == "9"
     finally:
         observer.close()
 
@@ -702,3 +691,4 @@ def _permission_request(permission_id, session_id="sess-1"):
             "options": [{"optionId": "allow", "kind": "allow_once"}],
         },
     }
+

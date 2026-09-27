@@ -71,16 +71,3 @@ object ResearchLogoutHook {
         }
     }
 }
-
-/** Re-discover research membership after signing in without reopening the IDE. */
-object ResearchLoginHook {
-    private val log = thisLogger()
-
-    fun reactivateAllContexts() {
-        for (project in ProjectManager.getInstance().openProjects) {
-            if (project.isDisposed) continue
-            runCatching { ResearchSessionService.getInstance(project).reactivateFromServer() }
-                .onFailure { log.warn("Research reactivation after sign-in failed for ${project.name}", it) }
-        }
-    }
-}

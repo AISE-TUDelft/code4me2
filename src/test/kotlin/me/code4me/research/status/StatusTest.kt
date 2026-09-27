@@ -396,9 +396,10 @@ class ParticipantStatusPresentationTest {
             ParticipantStatusPresentation.RECOVERING_HEADLINE,
             ParticipantStatusPresentation.of(state(delivery = SpoolDeliveryState.RECOVERING).copy(inferenceBudget = exhausted)).headline,
         )
-        // A warning-level budget is only shown while collecting.
+        // A warning-level budget is only shown while collecting; an enrolled
+        // context awaiting its first IDE activity reads as ready.
         assertEquals(
-            ParticipantStatusPresentation.INACTIVE_HEADLINE,
+            ParticipantStatusPresentation.READY_HEADLINE,
             ParticipantStatusPresentation
                 .of(state(session = StudyComponentState.UNAVAILABLE).copy(inferenceBudget = budget(exhausted = false, fractionUsed = 0.9)))
                 .headline,

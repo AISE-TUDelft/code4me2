@@ -7,6 +7,7 @@ teardown, so the proxy must leave it in place for repeated launches.
 from __future__ import annotations
 
 import io
+import json
 import sys
 
 import pytest
@@ -100,52 +101,66 @@ def test_capability_file_token_is_used_for_the_spool(monkeypatch, tmp_path):
     assert captured["endpoint"] == f"file://{tmp_path / 'spool.jsonl'}"
 
 
-def test_old_chat_refuses_new_study_session_capability(tmp_path):
-    class CapturedOutput(io.BytesIO):
-        def close(self) -> None:
-            pass
 
-    capability_file = tmp_path / "capability"
-    capability_file.write_text("new-session-token", encoding="utf-8")
-    host_output = CapturedOutput()
-    diagnostics: list[str] = []
+class _CapturedOutput(io.BytesIO):
+    def close(self) -> None:
+        pass
 
+
+def _run_chat(tmp_path, capability_file, host_bytes, diagnostics):
+    host_output = _CapturedOutput()
     exit_code = proxy_main.run_proxy(
         agent_cmd=[sys.executable, str(fixture_path("echo_agent.py"))],
         agent_digest=python_digest(),
         spool_endpoint=f"file://{tmp_path / 'spool.jsonl'}",
         capability="old-session-token",
         capability_file=str(capability_file),
-        host_read=io.BytesIO(b'{"jsonrpc":"2.0","id":1,"method":"session/new"}\n'),
+        host_read=io.BytesIO(host_bytes),
         host_write=host_output,
         diagnostics=diagnostics.append,
     )
+    return exit_code, host_output.getvalue()
+
+
+def test_old_chat_is_refused_once_its_session_capability_is_replaced(tmp_path):
+    capability_file = tmp_path / "capability"
+    capability_file.write_text("new-session-token", encoding="utf-8")
+    diagnostics: list[str] = []
+
+    exit_code, output = _run_chat(
+        tmp_path, capability_file, b'{"jsonrpc":"2.0","id":1,"method":"session/new"}\n', diagnostics
+    )
 
     assert exit_code == proxy_main.EXIT_SPOOL_REJECTED
-    assert host_output.getvalue() == b""
-    assert any("research session capability changed or ended" in message for message in diagnostics)
+    answer = json.loads(output.decode("utf-8"))
+    # The chat learns why instead of hanging; the agent never saw the request.
+    assert answer["id"] == 1 and "Start a new chat" in answer["error"]["message"]
+    assert "session/new" not in output.decode("utf-8")
+    assert any("session for this chat has ended" in message for message in diagnostics)
     assert "old-session-token" not in " ".join(diagnostics)
     assert "new-session-token" not in " ".join(diagnostics)
 
 
-def test_old_chat_refuses_removed_study_session_capability(tmp_path):
-    host_output = io.BytesIO()
+def test_old_chat_is_refused_once_its_session_capability_is_removed(tmp_path):
     diagnostics: list[str] = []
 
-    exit_code = proxy_main.run_proxy(
-        agent_cmd=[sys.executable, str(fixture_path("echo_agent.py"))],
-        agent_digest=python_digest(),
-        spool_endpoint=f"file://{tmp_path / 'spool.jsonl'}",
-        capability="old-session-token",
-        capability_file=str(tmp_path / "removed-capability"),
-        host_read=io.BytesIO(b'{"jsonrpc":"2.0","id":1,"method":"session/new"}\n'),
-        host_write=host_output,
-        diagnostics=diagnostics.append,
+    exit_code, output = _run_chat(
+        tmp_path, tmp_path / "removed-capability", b'{"jsonrpc":"2.0","id":7,"method":"session/prompt"}\n', diagnostics
     )
 
     assert exit_code == proxy_main.EXIT_SPOOL_REJECTED
-    assert any("research session capability changed or ended" in message for message in diagnostics)
+    assert json.loads(output.decode("utf-8"))["id"] == 7
 
+
+def test_a_chat_of_the_live_session_is_forwarded_untouched(tmp_path):
+    capability_file = tmp_path / "capability"
+    capability_file.write_text("old-session-token\n", encoding="utf-8")
+    frame = b'{"jsonrpc":"2.0","id":1,"method":"session/new"}\n'
+
+    exit_code, output = _run_chat(tmp_path, capability_file, frame, [])
+
+    assert exit_code == proxy_main.EXIT_OK
+    assert output == frame  # the echo agent answered: the frame reached it byte for byte
 
 def test_environment_capability_is_used_when_the_file_is_missing(tmp_path):
     # The ACP entry persists CODE4ME_RESEARCH_CAPABILITY; the fallback file may
@@ -256,3 +271,46 @@ def test_an_optional_missing_capability_does_not_retry(tmp_path):
 
     assert token is None
     assert error is not None
+
+
+def test_a_session_torn_down_while_the_host_is_idle_stops_the_agent(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    from test_initialize_replay import _MemoryChannel  # type: ignore[import-not-found]
+
+    monkeypatch.setattr(proxy_main, "STALE_SESSION_POLL_SECONDS", 0.05)
+    capability_file = tmp_path / "capability"
+    capability_file.write_text("old-session-token", encoding="utf-8")
+    host_input, host_output = _MemoryChannel(), _MemoryChannel()
+    diagnostics: list[str] = []
+    result: dict = {}
+
+    def run():
+        result["exit"] = proxy_main.run_proxy(
+            agent_cmd=[sys.executable, str(fixture_path("echo_agent.py"))],
+            agent_digest=python_digest(),
+            spool_endpoint=f"file://{tmp_path / 'spool.jsonl'}",
+            capability="old-session-token",
+            capability_file=str(capability_file),
+            host_read=host_input,
+            host_write=host_output,
+            diagnostics=diagnostics.append,
+        )
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    try:
+        time.sleep(0.3)
+        capability_file.unlink()  # the plugin tore the session down; the host sent nothing
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not host_output._closed:
+            time.sleep(0.05)
+        # The agent was stopped on its own: its side (the host's input) closed.
+        assert host_output._closed
+        assert any("the agent is stopped" in message for message in diagnostics)
+    finally:
+        host_input.close()
+        thread.join(timeout=10.0)
+    assert result["exit"] == proxy_main.EXIT_SPOOL_REJECTED
+

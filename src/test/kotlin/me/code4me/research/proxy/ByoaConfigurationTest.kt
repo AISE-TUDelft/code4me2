@@ -85,16 +85,6 @@ class ByoaConfigurationTest {
     }
 
     @Test
-    fun `gateway tool binding is enforced without an invented process variable`() {
-        val bindings = listOf(AgentConfigBindingRef("tools", "gateway", "tool_allowlist", format = "json"))
-
-        assertTrue(missingByoaBindings(bindings, profile).contains("model"))
-        assertTrue("tools" !in missingByoaBindings(bindings, profile))
-        assertEquals(emptyMap<String, String>(), applyByoaConfiguration(bindings, profile).env)
-        assertEquals(emptyList<String>(), applyByoaConfiguration(bindings, profile).args)
-    }
-
-    @Test
     fun `missing bindings report every set field`() {
         val missing =
             missingByoaBindings(
@@ -197,6 +187,21 @@ class ByoaConfigurationTest {
         val profileOnly = applyByoaConfiguration(gatewayBindings(), profile)
         assertNull(profileOnly.credentialEnvKey)
         assertEquals(setOf("GOOSE_MODEL"), profileOnly.env.keys)
+    }
+
+    @Test
+    fun `a gateway tools binding is enforced by the gateway and never by an env variable`() {
+        val gatewayTools = AgentConfigBindingRef("tools", "gateway", "tool_allowlist", format = "json")
+        val bindings = gatewayBindings() + gatewayTools
+
+        val mapping = applyByoaConfiguration(bindings, profile, runtime)
+        assertFalse(mapping.env.containsKey("tool_allowlist"))
+        assertFalse(mapping.env.values.any { it.contains("shell") })
+        assertTrue("tools" !in missingByoaBindings(bindings, profile, runtime))
+
+        // Without a gateway in the manifest nothing would enforce the selection:
+        // the launch must fail closed instead of running an unenforced arm.
+        assertTrue("tools" in missingByoaBindings(listOf(gatewayTools), profile))
     }
 
     @Test
