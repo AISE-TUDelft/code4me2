@@ -195,6 +195,7 @@ def main():
     build = sub.add_parser("build")
     build.add_argument("prepared", type=Path)
     build.add_argument("--server-url", required=True)
+    build.add_argument("--managed-only-test", action="store_true", help="localhost prerelease with only the packaged agent")
     apply = sub.add_parser("apply")
     apply.add_argument("prepared", type=Path)
     apply.add_argument("--server-url", required=True)
@@ -237,6 +238,13 @@ def main():
     local_release = set(platforms) != production_platforms
     if local_release and os.environ.get("CODE4ME_LOCAL_RELEASE") != "1":
         raise ValueError("this preparation is a partial local test release; set CODE4ME_LOCAL_RELEASE=1")
+    if args.command == "build" and args.managed_only_test:
+        origin = urlsplit(args.server_url)
+        if (origin.scheme != "http" or origin.hostname not in {"localhost", "127.0.0.1"}
+                or origin.port is None or origin.username or origin.password
+                or origin.path not in {"", "/"} or origin.query or origin.fragment
+                or "-" not in recipe["plugin_version"] or recipe["agents"]):
+            raise ValueError("managed-only test builds require a localhost prerelease without external agents")
     if args.command == "apply":
         receipts = json.loads(args.receipts.read_text()) if args.receipts else []
         report = apply_plan(recipe, Api(args.server_url, os.environ.get(args.auth_token_env, "")),
@@ -268,13 +276,15 @@ def main():
                "-Pcode4me.serverUrl=" + args.server_url,
                "-PresearchProxyPlatforms=" + ",".join(platforms),
                "-PrequireResearchProxyBundles=true"]
-    if local_release:
+    if local_release or args.managed_only_test:
         command.append("-PparticipantLocalRelease=true")
     subprocess.run(command, cwd=PLUGIN_ROOT, check=True)
     # BuildPlugin's archive name is resolved by Gradle into this output manifest.
     artifact = Path((PLUGIN_ROOT / "build" / "participant-artifact-path.txt").read_text().strip())
     verification = [sys.executable, str(PLUGIN_ROOT / "scripts/verify-participant-artifact.py"), str(artifact)]
     verification.append("--allow-partial-platforms" if local_release else "--require-participant-release")
+    if args.managed_only_test:
+        verification.append("--allow-managed-only")
     subprocess.run(verification, check=True)
     report = {
         "plugin_version": recipe["plugin_version"],

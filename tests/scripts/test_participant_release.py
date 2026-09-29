@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import json
 import sys
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -204,6 +205,51 @@ def test_partial_local_catalog_requires_the_explicit_verification_mode(tmp_path)
         "must match its inventory exactly" in message
         for message in strict_findings(bad, allow_partial_platforms=True)
     )
+
+
+def test_managed_only_build_wires_local_gradle_and_verifier(tmp_path, monkeypatch):
+    inputs = tmp_path / "inputs"
+    recipe = fixtures.make_inputs(inputs).model_dump(mode="json")
+    recipe["plugin_version"] = "1.2.3-test1"
+    recipe["agents"] = [agent for agent in recipe["agents"] if agent["framework"] == "code4me2-agent"]
+    prepared = tmp_path / "prepared"
+    prepare(fixtures.ParticipantRecipe.model_validate(recipe), inputs, prepared)
+    plugin = tmp_path / "plugin"
+    plugin.mkdir()
+    server = tmp_path / "server"
+    (server / "src").mkdir(parents=True)
+    monkeypatch.setattr(cli, "PLUGIN_ROOT", plugin)
+    monkeypatch.setattr(sys, "argv", [
+        "participant-release.py", "--server-source", str(server / "src"), "build",
+        str(prepared), "--server-url", "http://localhost:8008", "--managed-only-test",
+    ])
+    expected = {plugin: recipe["plugin_commit"], server: recipe["server_commit"]}
+    commands = []
+
+    def check_output(command, *, cwd, text):
+        return expected[cwd] + "\n" if command[1] == "rev-parse" else ""
+
+    def run(command, *, cwd=None, check):
+        commands.append(command)
+        if "buildParticipantPlugin" in command:
+            artifact = plugin / "participant.zip"
+            artifact.write_bytes(b"test ZIP")
+            (plugin / "build").mkdir()
+            (plugin / "build/participant-artifact-path.txt").write_text(str(artifact))
+
+    monkeypatch.setattr(subprocess, "check_output", check_output)
+    monkeypatch.setattr(subprocess, "run", run)
+    cli.main()
+    assert "-PparticipantLocalRelease=true" in commands[0]
+    assert "--require-participant-release" in commands[1]
+    assert "--allow-managed-only" in commands[1]
+    monkeypatch.setattr(sys, "argv", [
+        "participant-release.py", "--server-source", str(server / "src"), "build",
+        str(prepared), "--server-url", "http://localhost:8008/path", "--managed-only-test",
+    ])
+    with pytest.raises(ValueError, match="localhost prerelease"):
+        cli.main()
+    assert len(commands) == 2
 
 
 class MemoryApi:

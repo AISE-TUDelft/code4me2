@@ -185,11 +185,13 @@ def write_plugin_zip(
 
 
 def run_verifier(
-    archive: Path, *, require_participant_release: bool = False
+    archive: Path, *, require_participant_release: bool = False, allow_managed_only: bool = False
 ) -> subprocess.CompletedProcess:
     command = [sys.executable, str(VERIFIER), str(archive)]
     if require_participant_release:
         command.append("--require-participant-release")
+    if allow_managed_only:
+        command.append("--allow-managed-only")
     return subprocess.run(
         command,
         capture_output=True,
@@ -217,6 +219,28 @@ def test_valid_self_contained_artifact_passes(tmp_path: Path) -> None:
     strict = run_verifier(archive, require_participant_release=True)
     assert strict.returncode != 0
     assert "participant release inventory" in strict.stdout + strict.stderr
+
+
+def test_managed_only_test_zip_requires_explicit_mode(tmp_path: Path) -> None:
+    manifest, payloads = valid_manifest()
+    for platform_id in ("macos-x64", "windows-x64"):
+        executable = "telemetry-acp-proxy.exe" if platform_id.startswith("windows") else "telemetry-acp-proxy"
+        path = f"platforms/{platform_id}/{executable}"
+        payloads[path] = b"proxy"
+        manifest["platforms"].append(proxy_platform(platform_id, {path: b"proxy"}))
+    agent_payload = agent_zip()
+    managed = agent_recipe(agent_payload)
+    manifest["participant_release"] = {
+        "schema_version": "1",
+        "platforms": list(PLATFORM_MATRIX),
+        "releases": [{"framework": "code4me2-agent", "version": "1.2.3", "distribution_mode": "PACKAGED"}],
+    }
+    archive = write_plugin_zip(tmp_path / "managed.zip", manifest, payloads, recipe=managed, agent_archive=agent_payload)
+    strict = run_verifier(archive, require_participant_release=True)
+    assert strict.returncode != 0
+    assert "three assigned-agent definitions" in strict.stdout + strict.stderr
+    allowed = run_verifier(archive, require_participant_release=True, allow_managed_only=True)
+    assert allowed.returncode == 0, allowed.stdout + allowed.stderr
 
 
 def test_agent_recipe_digest_mismatch_fails(tmp_path: Path) -> None:

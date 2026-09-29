@@ -51,6 +51,10 @@ jobs:
       server_commit: ${{ steps.platforms.outputs.server_commit }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check managed-only build support
+        run: |
+          python3 scripts/participant-release.py build --help | grep -q -- '--managed-only-test'
+          python3 scripts/verify-participant-artifact.py --help | grep -q -- '--allow-managed-only'
       - name: Validate release inputs
         env:
           PARTICIPANT_SERVER_URL: ${{ inputs.serverUrl }}
@@ -65,11 +69,19 @@ jobs:
           if [ -n "$RUNTIME_RUN_ID" ] && ! [[ "$RUNTIME_RUN_ID" =~ ^[0-9]+$ ]]; then
             echo "runtime run ID must be numeric" >&2; exit 1
           fi
-          case "$PARTICIPANT_SERVER_URL" in
-            http://localhost:*|http://127.0.0.1:*) ;;
-            *) echo "the simple managed-only workflow builds localhost test ZIPs only" >&2; exit 1 ;;
-          esac
-          case "$PLUGIN_VERSION" in *-*) ;; *) echo "test ZIPs require a prerelease version" >&2; exit 1 ;; esac
+          python3 - <<'PY'
+          import os, re
+          from urllib.parse import urlsplit
+
+          version = os.environ["PLUGIN_VERSION"]
+          origin = urlsplit(os.environ["PARTICIPANT_SERVER_URL"])
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+", version):
+              raise SystemExit("test ZIPs require a SemVer prerelease version")
+          if (origin.scheme != "http" or origin.hostname not in {"localhost", "127.0.0.1"}
+                  or origin.port is None or origin.username or origin.password
+                  or origin.path not in {"", "/"} or origin.query or origin.fragment):
+              raise SystemExit("the simple managed-only workflow requires a localhost HTTP origin")
+          PY
       - name: Download managed runtime release manifest
         env:
           GH_TOKEN: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
@@ -423,10 +435,11 @@ jobs:
       - name: Publish immutable plugin release
         env:
           GH_TOKEN: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+          PLUGIN_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          tag="plugin-v${{ inputs.version }}"
-          if gh release view "$tag" >/dev/null 2>&1; then
+          tag="plugin-v$PLUGIN_VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release $tag already exists; refusing to replace its assets" >&2
             exit 1
           fi
@@ -437,9 +450,10 @@ jobs:
             exit 1
           fi
           release_options=()
-          case "${{ inputs.version }}" in *-*) release_options+=(--prerelease) ;; esac
+          case "$PLUGIN_VERSION" in *-*) release_options+=(--prerelease) ;; esac
           gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Code4Me participant plugin ${{ inputs.version }}" \
+            --title "Code4Me participant plugin $PLUGIN_VERSION" \
             "${release_options[@]}" \
             "${assets[@]}"

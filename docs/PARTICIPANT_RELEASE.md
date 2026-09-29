@@ -109,12 +109,15 @@ actual Gradle output ZIP and writes build-report.json with its SHA-256. It
 requires clean committed source inputs and never commits them for you. It does
 not register releases, publish an artifact or deploy a server.
 
-The participant GitHub workflow takes the file contents as recipeJson. Keep
-the versioned recipe outside the source commit it pins (a file cannot contain
-the hash of its own commit). It builds the native proxies, prepares the single
-release document, verifies that recipe pins match workflow inputs, and invokes
-the same build command. Existing native runtime release production remains a
-prerequisite.
+The participant GitHub workflow has a simple localhost prerelease test form:
+enter a plugin version (for example `0.0.1-test1`) and either the native runtime
+workflow run ID or its published tag. It derives the server commit from the
+runtime manifest and the plugin commit from the workflow revision. It builds
+all four native proxies and packages only the managed Code4Me agent; it does not
+invent Goose/Codex identities. `publishRelease` optionally publishes a GitHub
+prerelease, while `fullHostSmoke` runs plugin tests and the final ZIP smoke on
+every host. For a distributable three-agent/HTTPS release, prepare the full
+versioned recipe with qualified BYOA bindings and use the CLI above instead.
 
 ## Register and resume
 

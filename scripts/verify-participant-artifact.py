@@ -212,6 +212,7 @@ def verify_proxy_manifest(
     findings: list[str],
     require_participant_release: bool = False,
     allow_partial_platforms: bool = False,
+    allow_managed_only: bool = False,
 ) -> None:
     prefix = member_name[: len(member_name) - len("proxy-manifest.json")]
     try:
@@ -243,6 +244,7 @@ def verify_proxy_manifest(
         verify_release_catalog(
             label, archive, members, document, findings,
             allow_partial_platforms=allow_partial_platforms,
+            allow_managed_only=allow_managed_only,
         )
 
 
@@ -342,6 +344,7 @@ def verify_release_catalog(
     findings: list[str],
     *,
     allow_partial_platforms: bool = False,
+    allow_managed_only: bool = False,
 ) -> None:
     """Verify the simplified release inventory and the single managed agent identity.
 
@@ -377,6 +380,17 @@ def verify_release_catalog(
     ):
         findings.append("participant release must cover all four native platforms exactly once")
     releases = inventory.get("releases", [])
+    if allow_managed_only and isinstance(releases, list) and len(releases) == 1:
+        managed = releases[0]
+        if not isinstance(managed, dict) or managed.get("framework") != "code4me2-agent" or managed.get("distribution_mode") != "PACKAGED":
+            findings.append("managed-only test inventory must contain exactly one packaged Code4Me agent")
+            return
+        verify_agent_recipe(
+            label, archive, members, findings,
+            managed_version=managed.get("version"),
+            allow_partial_platforms=allow_partial_platforms,
+        )
+        return
     if not isinstance(releases, list) or len(releases) != 3 or {
         r.get("framework") for r in releases if isinstance(r, dict)
     } != {"code4me2-agent", "goose", "codex"}:
@@ -411,6 +425,7 @@ def inspect_zip(
     depth: int = 0,
     require_participant_release: bool = False,
     allow_partial_platforms: bool = False,
+    allow_managed_only: bool = False,
 ) -> tuple[int, int]:
     """Scan one archive; returns the (proxy manifest, agent recipe) counts."""
     if depth > 4:
@@ -448,6 +463,7 @@ def inspect_zip(
                             f"{label}!{member.filename}", nested, findings, depth=depth + 1,
                             require_participant_release=require_participant_release,
                             allow_partial_platforms=allow_partial_platforms,
+                            allow_managed_only=allow_managed_only,
                         )
                     except zipfile.BadZipFile:
                         findings.append(f"{label}!{member.filename}: invalid nested archive")
@@ -459,7 +475,7 @@ def inspect_zip(
                 manifests += 1
                 verify_proxy_manifest(
                     label, member.filename, archive, members, findings,
-                    require_participant_release, allow_partial_platforms,
+                    require_participant_release, allow_partial_platforms, allow_managed_only,
                 )
             if member.filename.endswith(AGENT_MANIFEST_SUFFIX):
                 recipes += 1
@@ -484,6 +500,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path)
     parser.add_argument("--require-participant-release", action="store_true")
+    parser.add_argument("--allow-managed-only", action="store_true", help="development-only managed agent test ZIP")
     parser.add_argument(
         "--allow-partial-platforms",
         action="store_true",
@@ -499,6 +516,7 @@ def main() -> None:
             str(args.archive), args.archive, findings,
             require_participant_release=args.require_participant_release,
             allow_partial_platforms=args.allow_partial_platforms,
+            allow_managed_only=args.allow_managed_only,
         )
     except zipfile.BadZipFile as error:
         raise SystemExit(
