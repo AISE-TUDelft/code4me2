@@ -31,7 +31,6 @@ import java.awt.event.FocusEvent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.swing.BorderFactory
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -57,7 +56,6 @@ private fun JComponent.addEnterKeyListener(action: () -> Unit) {
  *
  * This section provides:
  * - Credential-based authentication (email/password)
- * - Google OAuth authentication (future feature)
  * - Dynamic form switching between login and signup modes
  * - Password reset functionality
  * - Input validation and error handling
@@ -93,17 +91,6 @@ class AuthenticationSection : SettingsSection {
 
         /** Password reset mode */
         FORGOT_PASSWORD,
-    }
-
-    /**
-     * Authentication methods available to users.
-     */
-    private enum class AuthMethod {
-        /** Email and password authentication */
-        CREDENTIALS,
-
-        /** Google OAuth authentication (future) */
-        GOOGLE,
     }
 
     /**
@@ -350,17 +337,6 @@ class AuthenticationSection : SettingsSection {
         }
 
     /**
-     * Google OAuth authentication button (future feature).
-     */
-    private val googleAuthButton =
-        JButton("Login with Google").apply {
-            toolTipText = "Authenticate using your Google account"
-            addActionListener { initiateGoogleAuth() }
-            isEnabled = false // TODO: Enable when Google OAuth is implemented
-            putClientProperty("JButton.preferredWidth", MAX_FIELD_WIDTH)
-        }
-
-    /**
      * Advanced button to configure server selection (host/port/context-path).
      */
     private val advancedServerButton =
@@ -382,13 +358,6 @@ class AuthenticationSection : SettingsSection {
 
     private val credentialsTitleLabel =
         JBLabel("Credential-based Authentication").apply {
-            font = font.deriveFont(font.style or java.awt.Font.BOLD)
-            border = JBUI.Borders.empty(0, 0, 5, 0)
-            horizontalAlignment = SwingConstants.CENTER
-        }
-
-    private val googleTitleLabel =
-        JBLabel("Google-based Authentication").apply {
             font = font.deriveFont(font.style or java.awt.Font.BOLD)
             border = JBUI.Borders.empty(0, 0, 5, 0)
             horizontalAlignment = SwingConstants.CENTER
@@ -438,7 +407,6 @@ class AuthenticationSection : SettingsSection {
         authModeToggle.text = if (isSignupMode) "Already have an account? Login" else "Don't have an account? Sign Up"
 
         authButton.text = if (isSignupMode) "Sign Up" else "Login"
-        googleAuthButton.text = if (isSignupMode) "Sign Up with Google" else "Login with Google"
 
         LOG.debug("Auth mode toggled to: ${if (isSignupMode) "SIGNUP" else "LOGIN"}")
     }
@@ -545,20 +513,7 @@ class AuthenticationSection : SettingsSection {
                 border = JBUI.Borders.empty(FORM_PADDING)
             }
 
-        // Credentials section
-        val credentialsPanel = createCredentialsPanel()
-
-        // Google authentication section
-        val googlePanel = createGooglePanel()
-
-        // Combine sections
-        val sectionsPanel =
-            JPanel(BorderLayout()).apply {
-                add(credentialsPanel, BorderLayout.NORTH)
-                add(googlePanel, BorderLayout.SOUTH)
-            }
-
-        mainPanel.add(sectionsPanel, BorderLayout.NORTH)
+        mainPanel.add(createCredentialsPanel(), BorderLayout.NORTH)
         builder.addComponent(mainPanel)
 
         LOG.debug("Authentication section applied to form builder")
@@ -665,34 +620,6 @@ class AuthenticationSection : SettingsSection {
             formPanel.add(advancedServerButton, advancedGbc)
 
             add(JPanel().apply { add(formPanel) }, BorderLayout.CENTER)
-        }
-    }
-
-    /**
-     * Creates the Google OAuth authentication panel.
-     */
-    private fun createGooglePanel(): JPanel {
-        return JPanel(BorderLayout()).apply {
-            border =
-                BorderFactory.createCompoundBorder(
-                    BorderFactory.createMatteBorder(
-                        JBUI.scale(1),
-                        0,
-                        0,
-                        0,
-                        JBUI.CurrentTheme.Popup.separatorColor(), // theme-aware
-                    ),
-                    JBUI.Borders.empty(SECTION_SPACING, 0, 0, 0),
-                )
-
-            add(googleTitleLabel, BorderLayout.NORTH)
-
-            val buttonPanel =
-                JPanel().apply {
-                    add(googleAuthButton)
-                }
-
-            add(buttonPanel, BorderLayout.CENTER)
         }
     }
 
@@ -1044,15 +971,6 @@ class AuthenticationSection : SettingsSection {
     }
 
     /**
-     * Initiates Google OAuth authentication flow.
-     */
-    private fun initiateGoogleAuth() {
-        // TODO: Implement Google OAuth flow
-        showError("Google authentication is not yet implemented")
-        LOG.info("Google authentication requested (not yet implemented)")
-    }
-
-    /**
      * Shows an error message to the user.
      */
     private fun showError(message: String) {
@@ -1078,71 +996,6 @@ class AuthenticationSection : SettingsSection {
         confirmPasswordField.text = ""
         LOG.debug("All authentication fields cleared")
     }
-}
-
-/**
- * Dialog for collecting additional information during Google signup.
- * TODO: Complete implementation when Google OAuth is available.
- */
-private class PasswordCreationDialog(private val email: String) : DialogWrapper(true) {
-    private val nameField = JBTextField()
-    private val passwordField = JBPasswordField()
-    private val confirmPasswordField = JBPasswordField()
-
-    init {
-        title = "Complete Your Registration"
-        init()
-    }
-
-    override fun createCenterPanel(): JComponent {
-        val panel = JPanel(GridBagLayout())
-        val gbc =
-            GridBagConstraints().apply {
-                insets = Insets(5, 5, 5, 5)
-                anchor = GridBagConstraints.WEST
-            }
-
-        gbc.gridx = 0
-        gbc.gridy = 0
-        panel.add(JLabel("Email:"), gbc)
-        gbc.gridx = 1
-        panel.add(JLabel(email), gbc)
-
-        gbc.gridx = 0
-        gbc.gridy = 1
-        panel.add(JLabel("Full Name:"), gbc)
-        gbc.gridx = 1
-        panel.add(nameField, gbc)
-
-        gbc.gridx = 0
-        gbc.gridy = 2
-        panel.add(JLabel("Password:"), gbc)
-        gbc.gridx = 1
-        panel.add(passwordField, gbc)
-
-        gbc.gridx = 0
-        gbc.gridy = 3
-        panel.add(JLabel("Confirm Password:"), gbc)
-        gbc.gridx = 1
-        panel.add(confirmPasswordField, gbc)
-
-        return panel
-    }
-
-    override fun doValidate(): ValidationInfo? {
-        return when {
-            nameField.text.isBlank() -> ValidationInfo("Name is required", nameField)
-            String(passwordField.password).length < 8 ->
-                ValidationInfo("Password must be at least 8 characters", passwordField)
-            String(passwordField.password) != String(confirmPasswordField.password) ->
-                ValidationInfo("Passwords do not match", confirmPasswordField)
-            else -> null
-        }
-    }
-
-    fun getPassword(): String = String(passwordField.password)
-
-    fun getName(): String = nameField.text.trim()
 }
 
 private class ServerSelectionDialog(

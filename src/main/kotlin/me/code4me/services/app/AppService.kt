@@ -653,50 +653,6 @@ class AppService {
         }
     }
 
-    /**
-     * Authenticates a user using OAuth token-based authentication.
-     *
-     * This method handles OAuth authentication flow, typically used for social login providers
-     * like Google. The OAuth token should be obtained from the respective provider's authentication
-     * flow before calling this method.
-     *
-     * @param email The user's email address associated with the OAuth account
-     * @param token The OAuth access token obtained from the provider
-     * @param provider The OAuth provider used for authentication (defaults to Google)
-     * @return [AuthenticateUserPostResponse] containing user information and session details
-     * @throws IOException If there's a network connectivity issue
-     * @throws ClientException If the OAuth token is invalid or expired (4xx errors)
-     * @throws ServerException If the server encounters an internal error (5xx errors)
-     * @throws IllegalArgumentException If email or token parameters are invalid
-     */
-    @Throws(IOException::class, ClientException::class, ServerException::class)
-    fun authenticateUserWithOAuth(
-        email: String,
-        token: String,
-        provider: Provider = Provider.google,
-    ): AuthenticateUserPostResponse {
-        require(email.isNotBlank()) { "Email cannot be blank" }
-        require(token.isNotBlank()) { "OAuth token cannot be blank" }
-
-        val userToAuthenticate =
-            UserToAuthenticate(
-                email = email,
-                password = "",
-                provider = provider,
-                token = token,
-            )
-
-        return try {
-            val response = authApi.authenticateUserApiUserAuthenticatePost(userToAuthenticate)
-            storeAuthenticationResponse(response)
-            LOG.info("OAuth authentication successful for user: $email with provider: $provider")
-            response
-        } catch (e: Exception) {
-            LOG.warn("OAuth authentication failed for user: $email with provider: $provider", e)
-            throw e
-        }
-    }
-
     // ============ Session Methods ============
 
     /**
@@ -962,15 +918,12 @@ class AppService {
     /**
      * Creates a new user account in the Code4Me system.
      *
-     * This method registers a new user with the provided credentials. The user can be created
-     * either with traditional password authentication or with OAuth provider credentials.
+     * This method registers a new user with email and password.
      * After successful creation, the user will need to authenticate separately to establish a session.
      *
      * @param email The user's email address (must be unique in the system)
      * @param name The user's full display name
-     * @param password The user's password (for traditional auth) or empty string for OAuth
-     * @param token Optional OAuth token if registering via OAuth provider
-     * @param provider The authentication provider (defaults to Google)
+     * @param password The user's password
      * @return [CreateUserPostResponse] containing the registration result and any relevant messages
      * @throws IOException If there's a network connectivity issue
      * @throws ClientException If user already exists or validation fails (4xx errors)
@@ -982,8 +935,6 @@ class AppService {
         email: String,
         name: String,
         password: String,
-        token: String = "",
-        provider: Provider = Provider.no_provider,
     ): CreateUserPostResponse {
         require(email.isNotBlank()) { "Email cannot be blank" }
         require(name.isNotBlank()) { "Name cannot be blank" }
@@ -993,10 +944,10 @@ class AppService {
                 email = email,
                 name = name,
                 password = password,
-                token = token,
+                token = "",
                 // Assuming configId is always 1 - this means the default configuration
                 configId = 1,
-                provider = provider,
+                provider = Provider.no_provider,
             )
 
         return try {

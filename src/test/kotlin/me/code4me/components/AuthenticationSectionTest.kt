@@ -25,6 +25,7 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
 
         assertNotNull(panel, "Panel should not be null")
         assertTrue(panel.componentCount > 0, "Panel should contain components")
+        assertTrue(UIUtil.findComponentsOfType(panel, JButton::class.java).none { it.text.contains("Google") })
 
         // Verify that fields were added to the stateValueFields list
         assertTrue(fields.isNotEmpty(), "Fields list should not be empty")
@@ -57,23 +58,6 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
         assertTrue(buttons.isNotEmpty(), "Credentials panel should contain a button")
     }
 
-    fun testCreateGooglePanel() {
-        val section = AuthenticationSection()
-        val googlePanel =
-            section.javaClass.getDeclaredMethod(
-                "createGooglePanel",
-            ).apply { isAccessible = true }.invoke(section) as JPanel
-
-        assertNotNull(googlePanel, "Google panel should not be null")
-        assertTrue(googlePanel.componentCount > 0, "Google panel should contain components")
-
-        // Check for Google auth button
-        val buttons = UIUtil.findComponentsOfType(googlePanel, JButton::class.java)
-        val hasGoogleButton = buttons.any { it.text.contains("Google") }
-
-        assertTrue(hasGoogleButton, "Google panel should contain a Google authentication button")
-    }
-
     fun testUpdateToggleText() {
         val section = AuthenticationSection()
 
@@ -85,10 +69,6 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
         val authButtonField = section.javaClass.getDeclaredField("authButton").apply { isAccessible = true }
         val authButton = authButtonField.get(section) as JButton
 
-        // Get access to the googleAuthButton field
-        val googleAuthButtonField = section.javaClass.getDeclaredField("googleAuthButton").apply { isAccessible = true }
-        val googleAuthButton = googleAuthButtonField.get(section) as JButton
-
         // Get the updateToggleText method
         val updateToggleTextMethod = section.javaClass.getDeclaredMethod("updateToggleText").apply { isAccessible = true }
 
@@ -99,7 +79,6 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
 
         assertEquals("Toggle button should show signup help text", "Don't have an account? Sign Up", authModeToggle.text)
         assertEquals("Auth button should show 'Login' text", "Login", authButton.text)
-        assertEquals("Google button should show 'Login with Google' text", "Login with Google", googleAuthButton.text)
 
         // Test signup mode
         authModeToggle.isSelected = true
@@ -107,7 +86,6 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
 
         assertEquals("Toggle button should show login help text", "Already have an account? Login", authModeToggle.text)
         assertEquals("Auth button should show 'Sign Up' text", "Sign Up", authButton.text)
-        assertEquals("Google button should show 'Sign Up with Google' text", "Sign Up with Google", googleAuthButton.text)
     }
 
     fun testUpdateFormVisibility() {
@@ -268,94 +246,6 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
         assertTrue(confirmPasswordField.text.isEmpty(), "Confirm password field should be empty")
     }
 
-    fun testHandleGoogleLogin() {
-        val section = AuthenticationSection()
-
-        // Mock the showError method to avoid dialog display
-        val originalShowError =
-            section.javaClass.getDeclaredMethod(
-                "showError",
-                String::class.java,
-            ).apply { isAccessible = true }
-
-        var errorMessageCalled = false
-        val mockShowError = { message: String ->
-            errorMessageCalled = true
-        }
-
-        try {
-            // Get the handleGoogleLogin method
-            val handleGoogleLoginMethod =
-                section.javaClass.getDeclaredMethod(
-                    "handleGoogleLogin",
-                    String::class.java,
-                    String::class.java,
-                ).apply { isAccessible = true }
-
-            // Call the LOG.info method directly to simulate what handleGoogleLogin does
-            val loggerField = section.javaClass.getDeclaredField("LOG").apply { isAccessible = true }
-            val logger = loggerField.get(null)
-            val infoMethod = logger.javaClass.getMethod("info", String::class.java)
-            infoMethod.invoke(logger, "Google login requested for email: test@example.com (not yet implemented)")
-
-            // Verify that the method would call showError with the expected message
-            assertTrue(true, "handleGoogleLogin logs the request")
-        } catch (e: Exception) {
-            // In a test environment, we expect this might fail due to UI interactions
-            // but we still want to verify the method exists and can be called
-            assertTrue(true, "handleGoogleLogin method exists")
-        }
-    }
-
-    fun testHandleGoogleSignup() {
-        val section = AuthenticationSection()
-
-        try {
-            // Get the handleGoogleSignup method
-            val handleGoogleSignupMethod =
-                section.javaClass.getDeclaredMethod(
-                    "handleGoogleSignup",
-                    String::class.java,
-                    String::class.java,
-                ).apply { isAccessible = true }
-
-            // Call the LOG.info method directly to simulate what handleGoogleSignup does
-            val loggerField = section.javaClass.getDeclaredField("LOG").apply { isAccessible = true }
-            val logger = loggerField.get(null)
-            val infoMethod = logger.javaClass.getMethod("info", String::class.java)
-            infoMethod.invoke(logger, "Google signup requested for email: test@example.com (not yet implemented)")
-
-            // Verify that the method would call showError with the expected message
-            assertTrue(true, "handleGoogleSignup logs the request")
-        } catch (e: Exception) {
-            // In a test environment, we expect this might fail due to UI interactions
-            // but we still want to verify the method exists and can be called
-            assertTrue(true, "handleGoogleSignup method exists")
-        }
-    }
-
-    fun testInitiateGoogleAuth() {
-        val section = AuthenticationSection()
-
-        try {
-            // Get the initiateGoogleAuth method
-            val initiateGoogleAuthMethod = section.javaClass.getDeclaredMethod("initiateGoogleAuth").apply { isAccessible = true }
-
-            // Call the LOG.info method directly to simulate what initiateGoogleAuth does
-            val loggerField = section.javaClass.getDeclaredField("LOG").apply { isAccessible = true }
-            val logger = loggerField.get(null)
-            val infoMethod = logger.javaClass.getMethod("info", String::class.java)
-            infoMethod.invoke(logger, "Google authentication requested (not yet implemented)")
-
-            // Verify that the method would call showError with the expected message
-            assertTrue(true, "initiateGoogleAuth logs the request")
-        } catch (e: Exception) {
-            // In a test environment, we expect this might fail due to UI interactions
-            // but we still want to verify the method exists and can be called
-            assertTrue(true, "initiateGoogleAuth method exists")
-        }
-    }
-
     fun testShowSuccess() {
         val section = AuthenticationSection()
 
@@ -448,46 +338,6 @@ class AuthenticationSectionTest : BasePlatformTestCase() {
             // In a test environment, we expect this might fail due to UI interactions
             // but we still want to verify the method exists
             assertTrue(true, "handleCredentialsAuth method exists")
-        }
-    }
-
-    fun testPasswordCreationDialog() {
-        try {
-            // Get the PasswordCreationDialog class
-            val dialogClass = Class.forName("me.code4me.components.settings.sections.PasswordCreationDialog")
-
-            // Create a constructor that takes a String parameter
-            val constructor = dialogClass.getDeclaredConstructor(String::class.java)
-            constructor.isAccessible = true
-
-            // Create an instance of the dialog
-            val dialog = constructor.newInstance("test@example.com")
-
-            // Get the doValidate method
-            val doValidateMethod = dialogClass.getDeclaredMethod("doValidate")
-            doValidateMethod.isAccessible = true
-
-            // Get the getPassword method
-            val getPasswordMethod = dialogClass.getDeclaredMethod("getPassword")
-            getPasswordMethod.isAccessible = true
-
-            // Get the getName method
-            val getNameMethod = dialogClass.getDeclaredMethod("getName")
-            getNameMethod.isAccessible = true
-
-            // Verify that the methods exist
-            assertNotNull(doValidateMethod, "doValidate method should exist")
-            assertNotNull(getPasswordMethod, "getPassword method should exist")
-            assertNotNull(getNameMethod, "getName method should exist")
-
-            // We can't actually call these methods because they interact with UI components
-            // Instead, we verify that the methods exist
-            assertTrue(true, "PasswordCreationDialog methods exist")
-        } catch (e: Exception) {
-            // The class might be private, so we might not be able to access it directly
-            // In that case, we'll need to test it through the AuthenticationSection class
-            e.printStackTrace()
-            fail("Could not access PasswordCreationDialog class: ${e.message}")
         }
     }
 }

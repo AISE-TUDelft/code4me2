@@ -223,8 +223,6 @@ IntelliJ Plugin
       ▼ User Login Request
 Authentication Service
       │
-      ▼ OAuth Flow (optional)
-Google OAuth ──► JWT Token ──► Authentication Service
       │                              │
       ▼                              ▼
 Code4Me Backend ◄── POST /api/user/authenticate
@@ -314,8 +312,6 @@ The plugin uses HOCON (Human-Optimized Config Object Notation) for configuration
 - Context path and SSL configuration
 - Optional `acpRuntimeBaseUrl` override, used only by locally-running ACP agent runtimes that can't reach the resolved `host` as written (e.g. an agent running in a container needing `http://host.docker.internal:8008`)
 
-**Authentication Settings** (customizable OAuth configuration):
-- Google OAuth client credentials
 - Session timeout and renewal settings
 - Multi-provider authentication support
 
@@ -525,7 +521,6 @@ The plugin integrates with the Code4Me backend through these endpoints:
 - [Kotlin Docs](https://kotlinlang.org/docs/home.html) – Language and standard library
 - [HOCON Spec](https://github.com/lightbend/config#using-hocon-the-json-superset) – Plugin configuration format
 - [ktlint](https://github.com/pinterest/ktlint) – Kotlin linter
-- [OAuth 2.0](https://oauth.net/2/) – Authentication standard
 - [TU Delft AISE Lab](https://malihehizadi.github.io/aise/) – Research group behind Code4Me
 ## 🙏 Acknowledgments
 
