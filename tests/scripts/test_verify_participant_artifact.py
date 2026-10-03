@@ -396,3 +396,63 @@ def test_non_zip_archive_fails(tmp_path: Path) -> None:
     result = run_verifier(archive)
     assert result.returncode != 0
     assert "not a valid ZIP archive" in result.stdout + result.stderr
+
+
+def agent_free_manifest(platforms: tuple[str, ...] = PLATFORM_MATRIX) -> tuple[dict, dict[str, bytes]]:
+    """Four self-contained proxies and nothing else, like the release workflow's ZIP."""
+    payloads: dict[str, bytes] = {}
+    entries = []
+    for platform_id in platforms:
+        name = "telemetry-acp-proxy.exe" if platform_id.startswith("windows-") else "telemetry-acp-proxy"
+        files = {
+            f"platforms/{platform_id}/{name}": f"{platform_id} proxy".encode(),
+            f"platforms/{platform_id}/_internal/lib.bin": f"{platform_id} library".encode(),
+        }
+        payloads.update(files)
+        entries.append(proxy_platform(platform_id, files))
+    return {"schema_version": "1", "platforms": entries}, payloads
+
+
+def run_agent_free(archive: Path, *extra: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(VERIFIER), str(archive), "--agent-free", *extra],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def test_agent_free_zip_with_four_proxies_and_no_agent_passes(tmp_path: Path) -> None:
+    manifest, payloads = agent_free_manifest()
+    result = run_agent_free(write_plugin_zip(tmp_path / "agent-free.zip", manifest, payloads))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "participant artifact verified" in result.stdout
+
+
+def test_agent_free_zip_rejects_a_bundled_agent(tmp_path: Path) -> None:
+    manifest, payloads = agent_free_manifest()
+    archive_bytes = agent_zip()
+    archive = write_plugin_zip(
+        tmp_path / "bundled.zip", manifest, payloads,
+        recipe=agent_recipe(archive_bytes), agent_archive=archive_bytes,
+    )
+    result = run_agent_free(archive)
+    assert result.returncode != 0
+    assert "must not bundle a managed agent" in result.stdout + result.stderr
+
+
+def test_agent_free_zip_rejects_missing_platform_and_packaged_inventory(tmp_path: Path) -> None:
+    manifest, payloads = agent_free_manifest(PLATFORM_MATRIX[:3])
+    manifest["participant_release"] = {"schema_version": "1", "platforms": list(PLATFORM_MATRIX[:3]), "releases": []}
+    result = run_agent_free(write_plugin_zip(tmp_path / "partial.zip", manifest, payloads))
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "all four native platforms" in output
+    assert "packaged-agent inventory" in output
+
+
+def test_agent_free_cannot_be_combined_with_recipe_options(tmp_path: Path) -> None:
+    manifest, payloads = agent_free_manifest()
+    result = run_agent_free(write_plugin_zip(tmp_path / "combined.zip", manifest, payloads), "--require-participant-release")
+    assert result.returncode != 0
+    assert "cannot be combined" in result.stderr

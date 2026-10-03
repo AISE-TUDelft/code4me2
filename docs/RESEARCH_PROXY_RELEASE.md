@@ -1,9 +1,9 @@
 # Research proxy release packaging
 
 For complete participant releases, use the
-[one-recipe workflow](PARTICIPANT_RELEASE.md). It supplies the required
-participantReleaseDir, stages release-keyed managed agents and retains installed
-Goose/Codex. The staging commands below describe the proxy component alone.
+[participant workflow](PARTICIPANT_RELEASE.md): it builds the agent-free plugin
+with these proxies from an explicit server commit. The staging commands below
+describe the proxy component alone.
 
 The participant plugin ZIP ships a **self-contained** research ACP proxy for
 every supported platform. The packaged resolver refuses a source-only
@@ -19,7 +19,7 @@ staging/verification path as CI.
 | `macos-aarch64` | `macos-14` | Apple silicon |
 | `macos-x64` | `macos-15-intel` | Intel (`macos-13` is retired) |
 | `linux-x64` | `ubuntu-24.04` | |
-| `windows-x64` | `windows-2022` | chosen only when the runtime release declares it |
+| `windows-x64` | `windows-2022` | |
 
 PyInstaller is **host-only**: it cannot cross-compile. Each platform is built on
 a runner of the matching OS/CPU; `buildResearchProxyBundle` fails when
@@ -33,14 +33,14 @@ installs the locked server toolchain
 
 ## How CI obtains the release platform list
 
-The participant workflow derives the list from the managed runtime release
-manifest (`code4me-managed-runtime-release.json`, produced by
-`code4me2-server/packaging/create_release_manifest.py`). Its artifacts are named
-`code4me-agent-<os>-<arch>.zip`; `scripts/research-proxy-platforms.py` maps those
-names (`arm64` → `aarch64`) onto the supported matrix above and emits both the
-`platforms=` CSV and the GitHub Actions `matrix=` JSON. The `prepare-proxy-matrix`
-job provides them to the `build-research-proxy` matrix; the release job downloads
-each `research-proxy-<platform>` artifact into
+The participant plugin bundles no agent, so its release covers every supported
+platform: `scripts/research-proxy-platforms.py` without arguments emits all four
+rows above as the `platforms=` CSV and the GitHub Actions `matrix=` JSON. (Given a
+managed runtime release manifest, `code4me-managed-runtime-release.json`, it limits
+the matrix to the platforms whose `code4me-agent-<os>-<arch>.zip` it declares.) The
+`prepare-proxy-matrix` job also resolves the workflow's `serverRef` to one server
+commit and provides both to the `build-research-proxy` matrix; the build job
+downloads each `research-proxy-<platform>` artifact into
 `telemetry-acp-proxy/dist/<os>-<arch>/` before staging.
 
 ## Local release command
@@ -51,14 +51,14 @@ cd code4me2
 PYTHON=/path/to/python ./gradlew buildResearchProxyBundle \
   -PresearchProxyPlatforms=macos-aarch64   # the host's own platform id
 
-# Assemble and verify the participant ZIP with the release contract:
-./gradlew --no-configuration-cache buildParticipantPlugin \
+# Assemble and verify the agent-free participant ZIP (all four bundles present):
+./gradlew --no-configuration-cache buildPlugin \
   -PpluginVersion=1.2.3 \
   -Pcode4me.serverUrl=https://api.example.org \
-  -PresearchProxyPlatforms=macos-aarch64,macos-x64,linux-x64 \
+  -PresearchProxyPlatforms=macos-aarch64,macos-x64,linux-x64,windows-x64 \
   -PrequireResearchProxyBundles=true
 
-python3 scripts/verify-participant-artifact.py build/distributions/<zip>
+python3 scripts/verify-participant-artifact.py build/distributions/<zip> --agent-free
 ```
 
 Without `-PresearchProxyPlatforms`/`-PrequireResearchProxyBundles` the staging

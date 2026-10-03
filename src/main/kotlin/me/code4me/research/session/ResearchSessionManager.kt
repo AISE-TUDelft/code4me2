@@ -15,7 +15,6 @@ import me.code4me.research.bootstrap.InMemoryManifestCache
 import me.code4me.research.bootstrap.ManifestCache
 import me.code4me.research.bootstrap.ManifestValidationReason
 import me.code4me.research.bootstrap.PluginCompatibility
-import me.code4me.research.bootstrap.normalizeSha256Hex
 import me.code4me.research.bootstrap.parseInstant
 import me.code4me.research.telemetry.CanonicalEvent
 import me.code4me.research.telemetry.FieldClass
@@ -333,8 +332,9 @@ class ResearchSessionManager(
     private val acpHostRegistration: AcpHostRegistration? = null,
     /**
      * Installs the single packaged agent artifact for a PACKAGED distribution.
-     * The production default installs the plugin's shipped recipe/archive through
-     * the shared managed-runtime installer; tests inject a fake.
+     * The production default installs the assignment's pinned archive (verified
+     * cache or exact release download) through the shared managed-runtime
+     * installer; tests inject a fake.
      */
     private val packagedAgentInstaller: PackagedAgentInstaller = PackagedAgentInstaller.PRODUCTION,
     private val agentEnvProvider: () -> Map<String, String> = { emptyMap() },
@@ -2618,12 +2618,12 @@ class ResearchSessionManager(
      * the proxy as the ACP host entry.
      *
      * The proxy is resolved proxy-only; the agent for a PACKAGED distribution is
-     * installed by [packagedAgentInstaller] from the single shipped recipe and
-     * verified against the bootstrap manifest's pinned
-     * `agent_release.artifact_digest` before any byte is written.
+     * the archive [packagedAgentInstaller] prepared for the assignment (verified
+     * cache or exact release download), checked against the bootstrap manifest's
+     * pinned `agent_release.artifact_digest` before any byte is written.
      *
-     * Fail-closed: any typed resolution failure, a bundled agent whose archive
-     * digest does not match the bootstrap pin, or an ACP registration failure
+     * Fail-closed: any typed resolution failure, an agent archive whose digest
+     * does not match the bootstrap pin, or an ACP registration failure
      * yields [RuntimeSetup.Failed] so no launch happens. When no resolver is
      * injected (pure tests / builds without a packaged runtime), setup is skipped
      * so existing behaviour is preserved.
@@ -2778,12 +2778,11 @@ class ResearchSessionManager(
     }
 
     /**
-     * PACKAGED agent contract: the single shipped recipe/archive is installed and
-     * must match the bootstrap manifest's pinned archive digest before any byte is
-     * written. A missing/mismatched artifact is terminal; PATH is never consulted.
-     *
-     * When the bootstrap release declares an adapter digest, the recipe must
-     * declare the same one. A recipe that declares none is not invented.
+     * PACKAGED agent contract: the archive prepared for the assignment must match
+     * the bootstrap manifest's pinned archive digest before any byte is written. A
+     * missing/mismatched artifact is terminal; PATH is never consulted. The
+     * preparation's release (adapter digest included) already equals this
+     * manifest's release ([me.code4me.research.bootstrap.AgentPreparation.matches]).
      */
     private fun packagedAgentPlan(
         runtime: ResolvedProxyRuntime,
@@ -2809,20 +2808,6 @@ class ResearchSessionManager(
                     return AgentPlan.Failed(StudyBlockReason.RUNTIME_UNAVAILABLE, install.detail)
                 is PackagedAgentInstall.Ready -> install
             }
-        val pinnedAdapterDigest = normalizeSha256Hex(release.adapterDigest)
-        val recipeAdapterDigest =
-            try {
-                normalizeSha256Hex(if (ready.artifact != null) ready.artifact.adapterDigest else packagedAgentInstaller.recipeAdapterDigest())
-            } catch (exception: Exception) {
-                null
-            }
-        if (pinnedAdapterDigest != null && recipeAdapterDigest != pinnedAdapterDigest) {
-            return AgentPlan.Failed(
-                StudyBlockReason.RUNTIME_UNAVAILABLE,
-                "the selected agent adapter ${recipeAdapterDigest ?: "is not declared"} does not match the " +
-                    "bootstrap manifest pin ${pinnedAdapterDigest.take(12)}…; refusing to launch",
-            )
-        }
         return AgentPlan.Ready(argv = ready.argv, digest = ready.digest)
     }
 

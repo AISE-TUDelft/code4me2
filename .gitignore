@@ -20,9 +20,9 @@ out/
 .pytest_cache/
 .ruff_cache/
 
-# Native participant runtimes are immutable release artifacts staged by CI.
-# Keep the contract manifest tracked without committing large platform bundles.
-src/main/resources/code4me-runtime/*.zip
+# The plugin bundles no agent: studies download theirs by pinned digest. Local
+# overlays written here (scripts/build-plugin-with-agent.py) must never be committed.
+src/main/resources/code4me-runtime/
 
 dist/
 telemetry-acp-proxy/agents/

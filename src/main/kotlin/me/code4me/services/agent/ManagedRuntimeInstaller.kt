@@ -64,11 +64,17 @@ class ManagedRuntimeInstaller(
         return ensureInstalled(artifact, repair)
     }
 
+    /**
+     * With [requirePublicRelease] (the study path) a verified cache entry is used as is, and a
+     * cache miss is filled only from the artifact's exact canonical GitHub Release URL, never
+     * from an archive bundled in the plugin.
+     */
     fun ensureInstalled(
         artifact: RuntimeArtifact,
         repair: Boolean = false,
         progress: (Long, Long) -> Unit = { _, _ -> },
         isCurrent: () -> Boolean = { true },
+        requirePublicRelease: Boolean = false,
     ): RuntimeInstallResult {
         if (artifact.runtimeId != SUPPORTED_RUNTIME_ID || artifact.managedProtocol != SUPPORTED_MANAGED_PROTOCOL) {
             return RuntimeInstallResult.Failed("This study's agent requires a newer Code4Me plugin.")
@@ -86,7 +92,7 @@ class ManagedRuntimeInstaller(
                 if (!isCurrent()) throw CancellationException("Agent preparation cancelled.")
                 locked = lock.tryLock(100, TimeUnit.MILLISECONDS)
             }
-            val archive = prepareArchive(artifact, progress, isCurrent)
+            val archive = prepareArchive(artifact, progress, isCurrent, requirePublicRelease)
             val actualChecksum = artifact.sha256.lowercase()
             val artifactRoot = installRoot.resolve(artifact.runtimeId)
             val baseDestination = artifactRoot.resolve("${artifact.version}-${actualChecksum.take(12)}")
@@ -153,7 +159,12 @@ class ManagedRuntimeInstaller(
         }
     }
 
-    private fun prepareArchive(artifact: RuntimeArtifact, progress: (Long, Long) -> Unit, isCurrent: () -> Boolean): Path {
+    private fun prepareArchive(
+        artifact: RuntimeArtifact,
+        progress: (Long, Long) -> Unit,
+        isCurrent: () -> Boolean,
+        requirePublicRelease: Boolean,
+    ): Path {
         val archives = installRoot.resolve(artifact.runtimeId).resolve("archives")
         Files.createDirectories(archives)
         val archive = archives.resolve("${artifact.sha256.lowercase()}.zip")
@@ -161,7 +172,8 @@ class ManagedRuntimeInstaller(
             Files.newInputStream(archive).use(::sha256) == artifact.sha256.lowercase()) return archive
         val temporary = Files.createTempFile(archives, ".download-", ".part")
         try {
-            val bundled = runCatching { selectArtifact() }.getOrNull()?.takeIf { it.sha256.equals(artifact.sha256, ignoreCase = true) }
+            val bundled = if (requirePublicRelease) null else
+                runCatching { selectArtifact() }.getOrNull()?.takeIf { it.sha256.equals(artifact.sha256, ignoreCase = true) }
             val input = bundled?.let { resourceLoader("/${it.archive}") }
             if (input != null) input.use { copyArchive(it, temporary, artifact, progress, isCurrent) }
             else downloadArchive(artifact, temporary, progress, isCurrent)
@@ -174,14 +186,21 @@ class ManagedRuntimeInstaller(
         }
     }
 
-    private fun downloadArchive(artifact: RuntimeArtifact, destination: Path, progress: (Long, Long) -> Unit, isCurrent: () -> Boolean) {
-        var url = artifact.downloadUrl?.toHttpUrl() ?: throw FileNotFoundException("The study's agent is not included in this build or cached and has no public download. Contact the research team.")
+    private fun publicReleaseUrl(artifact: RuntimeArtifact): okhttp3.HttpUrl {
+        val url = artifact.downloadUrl?.toHttpUrl()
+            ?: throw FileNotFoundException("The study's agent has no public GitHub Release URL. Contact the research team.")
         require(url.scheme == "https" && url.host == "github.com" && url.username.isEmpty() && url.password.isEmpty() &&
             url.query == null && url.fragment == null && url.pathSegments.size == 6 &&
+            url.pathSegments[0].equals(RELEASE_OWNER, ignoreCase = true) && url.pathSegments[1].equals(RELEASE_REPOSITORY, ignoreCase = true) &&
             url.pathSegments.subList(2, 4) == listOf("releases", "download") && url.pathSegments[4] != "latest" &&
             url.pathSegments.all { it.isNotEmpty() && it != "." && it != ".." && '/' !in it } && url.pathSegments.last() == Path.of(artifact.archive).fileName.toString()) {
-            "The study's agent must come from an exact public GitHub release asset."
+            "The study's agent must come from an exact public GitHub release asset of $RELEASE_OWNER/$RELEASE_REPOSITORY."
         }
+        return url
+    }
+
+    private fun downloadArchive(artifact: RuntimeArtifact, destination: Path, progress: (Long, Long) -> Unit, isCurrent: () -> Boolean) {
+        var url = publicReleaseUrl(artifact)
         repeat(6) {
             if (!isCurrent()) throw CancellationException("Agent preparation cancelled.")
             require(url.scheme == "https" && url.port == 443 && url.username.isEmpty() && url.password.isEmpty() && url.host in DOWNLOAD_HOSTS) { "Untrusted agent download redirect." }
@@ -469,6 +488,10 @@ class ManagedRuntimeInstaller(
 
         private val INSTALL_LOCKS = ConcurrentHashMap<String, ReentrantLock>()
         private val DOWNLOAD_HOSTS = setOf("github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")
+        // Only runtime releases published by this repository are downloaded; the server's
+        // release import enforces the same pin (manifest_import.RUNTIME_RELEASE_REPOSITORY).
+        private const val RELEASE_OWNER = "AISE-TUDelft"
+        private const val RELEASE_REPOSITORY = "code4me2-server"
         private val DOWNLOAD_CLIENT = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
             .connectTimeout(20, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).callTimeout(5, TimeUnit.MINUTES).build()
         private const val MAX_ARCHIVE_BYTES = 512L * 1024 * 1024

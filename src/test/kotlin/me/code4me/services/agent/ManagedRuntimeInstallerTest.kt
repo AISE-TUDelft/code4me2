@@ -27,7 +27,7 @@ class ManagedRuntimeInstallerTest {
     @Test
     fun `two supplied native releases install side by side and speak ACP without a source checkout`() {
         val directories = System.getenv("CODE4ME_NATIVE_RUNTIME_BUNDLES")?.split(java.io.File.pathSeparator).orEmpty()
-        Assumptions.assumeTrue(directories.size == 2, "supply two producer bundles; the second must match the plugin bundle")
+        Assumptions.assumeTrue(directories.size == 2, "supply two producer bundles")
         val artifacts = directories.map { directory ->
             val manifest = Json.parseToJsonElement(Files.readString(Path.of(directory, "code4me-managed-runtime-release.json"))).jsonObject
             val entry = manifest.getValue("artifacts").jsonArray.map { it.jsonObject }.single {
@@ -41,7 +41,7 @@ class ManagedRuntimeInstallerTest {
                 ManagedRuntimeInstaller.platformId(), ManagedRuntimeInstaller.architectureId(),
                 archive, entry.getValue("sha256").jsonPrimitive.content,
                 entry.getValue("executable").jsonPrimitive.content, manifest.getValue("managed_protocol_version").jsonPrimitive.content,
-                downloadUrl = "https://github.com/code4me/runtimes/releases/download/$version/$archive",
+                downloadUrl = "https://github.com/AISE-TUDelft/code4me2-server/releases/download/$version/$archive",
                 size = entry.getValue("size").jsonPrimitive.content.toLong(),
             )
         }
@@ -49,12 +49,12 @@ class ManagedRuntimeInstallerTest {
         var downloads = 0
         val client = OkHttpClient.Builder().addInterceptor { chain ->
             downloads++
-            val bytes = Files.readAllBytes(Path.of(directories[0], artifacts[0].archive))
+            val selected = artifacts.single { chain.request().url.encodedPath.endsWith("/${it.archive}") }
+            val bytes = Files.readAllBytes(Path.of(directories[artifacts.indexOf(selected)], selected.archive))
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
                 .code(200).message("OK").body(bytes.toResponseBody()).build()
         }.build()
         val installer = ManagedRuntimeInstaller(Files.createTempDirectory("native-study-runtimes"), client)
-        assertEquals(artifacts[1].sha256, installer.selectArtifact()?.sha256)
         val packaged = ProductionPackagedAgentInstaller { installer }
         val installed = artifacts.map { artifact ->
             val release = AgentReleaseRef("native-agent", artifact.sha256, artifact.version, artifact.sha256, artifact = artifact)
@@ -83,7 +83,7 @@ class ManagedRuntimeInstallerTest {
             ready.argv.first()
         }
         assertTrue(installed[0] != installed[1])
-        assertEquals(1, downloads, "only the release absent from the plugin should be downloaded")
+        assertEquals(2, downloads, "each study release must come from its public URL")
     }
 
     @Test
@@ -96,7 +96,7 @@ class ManagedRuntimeInstallerTest {
         }.build()
         val artifact = RuntimeArtifact("code4me-agent", "1.0.0", ManagedRuntimeInstaller.platformId(),
             ManagedRuntimeInstaller.architectureId(), "agent.zip", sha256(zip), "agent", "1",
-            downloadUrl = "https://github.com/code4me/runtimes/releases/download/v1/agent.zip", size = zip.size.toLong())
+            downloadUrl = "https://github.com/AISE-TUDelft/code4me2-server/releases/download/v1/agent.zip", size = zip.size.toLong())
         var current = true
         val result = ManagedRuntimeInstaller(root, client) { null }.ensureInstalled(
             artifact, progress = { _, _ -> current = false }, isCurrent = { current },
@@ -121,7 +121,7 @@ class ManagedRuntimeInstallerTest {
         }.build()
         val artifact = RuntimeArtifact("code4me-agent", "1.0.0", ManagedRuntimeInstaller.platformId(),
             ManagedRuntimeInstaller.architectureId(), "agent.zip", sha256(zip), "agent", "1",
-            downloadUrl = "https://github.com/code4me/runtimes/releases/download/v1/agent.zip", size = zip.size.toLong())
+            downloadUrl = "https://github.com/AISE-TUDelft/code4me2-server/releases/download/v1/agent.zip", size = zip.size.toLong())
         val workers = java.util.concurrent.Executors.newFixedThreadPool(2)
         try {
             val first = workers.submit<RuntimeInstallResult> { ManagedRuntimeInstaller(root, client) { null }.ensureInstalled(artifact) }
@@ -182,7 +182,7 @@ class ManagedRuntimeInstallerTest {
         val requested = RuntimeArtifact(
             "code4me-agent", "1.0.0", ManagedRuntimeInstaller.platformId(),
             ManagedRuntimeInstaller.architectureId(), "agent.zip", sha256(zip), "agent", "1",
-            downloadUrl = "https://github.com/code4me/runtimes/releases/download/runtime-v1.0.0/agent.zip",
+            downloadUrl = "https://github.com/AISE-TUDelft/code4me2-server/releases/download/runtime-v1.0.0/agent.zip",
             size = zip.size.toLong(),
         )
         val bundled = archive("agent", "plugin-v2")
@@ -197,6 +197,150 @@ class ManagedRuntimeInstallerTest {
         assertEquals("study-v1", Files.readString(first.executable))
         assertEquals(first.executable, second.executable)
         assertEquals(1, downloads)
+    }
+
+    @Test
+    fun `study downloads matching bundled bytes from release while ordinary setup can use bundle`() {
+        val zip = archive("agent", "same-agent")
+        val recipe = manifest("agent", sha256(zip))
+        val artifact = RuntimeArtifact(
+            "code4me-agent", "1.0.0", ManagedRuntimeInstaller.platformId(),
+            ManagedRuntimeInstaller.architectureId(), "runtime.zip", sha256(zip), "agent", "1",
+            downloadUrl = "https://github.com/AISE-TUDelft/code4me2-server/releases/download/runtime-v1.0.0/runtime.zip",
+            size = zip.size.toLong(),
+        )
+        var downloads = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            downloads++
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("OK").body(zip.toResponseBody()).build()
+        }.build()
+        fun installer(root: Path) = ManagedRuntimeInstaller(root, client) { path ->
+            if (path == ManagedRuntimeInstaller.MANIFEST_RESOURCE) recipe.byteInputStream() else zip.inputStream()
+        }
+
+        val study = installer(Files.createTempDirectory("study-matching-bundle"))
+        assertTrue(study.ensureInstalled(artifact, requirePublicRelease = true) is RuntimeInstallResult.Ready)
+        assertEquals(1, downloads, "study cache miss must download even when identical bytes are bundled")
+        assertTrue(study.ensureInstalled(artifact, requirePublicRelease = true) is RuntimeInstallResult.Ready)
+        assertEquals(1, downloads, "verified cache should work without another download")
+
+        val ordinary = installer(Files.createTempDirectory("ordinary-matching-bundle"))
+        assertTrue(ordinary.ensureInstalled() is RuntimeInstallResult.Ready)
+        assertEquals(1, downloads, "ordinary setup may still use its bundled runtime")
+    }
+
+    @Test
+    fun `study without a public URL never uses the bundle and runs only from a verified cache`() {
+        val zip = archive("agent", "same-agent")
+        val recipe = manifest("agent", sha256(zip))
+        val root = Files.createTempDirectory("study-no-public-url")
+        val artifact = RuntimeArtifact(
+            "code4me-agent", "1.0.0", ManagedRuntimeInstaller.platformId(),
+            ManagedRuntimeInstaller.architectureId(), "runtime.zip", sha256(zip), "agent", "1",
+            size = zip.size.toLong(),
+        )
+        var downloads = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            downloads++
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("OK").body(zip.toResponseBody()).build()
+        }.build()
+        val installer = ManagedRuntimeInstaller(root, client) { path ->
+            if (path == ManagedRuntimeInstaller.MANIFEST_RESOURCE) recipe.byteInputStream() else zip.inputStream()
+        }
+        assertTrue(installer.ensureInstalled(artifact, requirePublicRelease = true) is RuntimeInstallResult.Unavailable,
+            "a cache miss without a public URL must not fall back to the matching bundle")
+
+        // A seeded cache entry (as the e2e harness does) is verified by its digest alone.
+        Files.write(Files.createDirectories(root.resolve("code4me-agent/archives")).resolve("${sha256(zip)}.zip"), zip)
+        val cached = installer.ensureInstalled(artifact, requirePublicRelease = true)
+        assertTrue(cached is RuntimeInstallResult.Ready, "a verified cache entry needs no download URL")
+        assertEquals("same-agent", Files.readString((cached as RuntimeInstallResult.Ready).executable))
+
+        val fresh = ManagedRuntimeInstaller(Files.createTempDirectory("study-latest-url"), client) { null }
+        assertTrue(fresh.ensureInstalled(
+            artifact.copy(downloadUrl = "https://github.com/AISE-TUDelft/code4me2-server/releases/download/latest/runtime.zip"),
+            requirePublicRelease = true,
+        ) is RuntimeInstallResult.Failed)
+        assertEquals(0, downloads)
+    }
+
+    @Test
+    fun `a corrupted cache entry is not trusted when the study has no public URL`() {
+        val zip = archive("agent", "assigned")
+        val root = Files.createTempDirectory("study-corrupted-cache")
+        val artifact = RuntimeArtifact(
+            "code4me-agent", "1.0.0", ManagedRuntimeInstaller.platformId(),
+            ManagedRuntimeInstaller.architectureId(), "runtime.zip", sha256(zip), "agent", "1",
+            size = zip.size.toLong(),
+        )
+        Files.write(Files.createDirectories(root.resolve("code4me-agent/archives")).resolve("${sha256(zip)}.zip"),
+            archive("agent", "tampered"))
+        var downloads = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            downloads++
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("OK").body(zip.toResponseBody()).build()
+        }.build()
+
+        val result = ManagedRuntimeInstaller(root, client) { null }.ensureInstalled(artifact, requirePublicRelease = true)
+
+        assertTrue(result is RuntimeInstallResult.Unavailable)
+        assertEquals(0, downloads)
+        assertTrue(Files.notExists(root.resolve("code4me-agent/1.0.0-${sha256(zip).take(12)}")), "nothing may be installed")
+    }
+
+    @Test
+    fun `only release assets of the canonical repository are downloaded`() {
+        val zip = archive("agent", "canonical")
+        var downloads = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            downloads++
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("OK").body(zip.toResponseBody()).build()
+        }.build()
+        val artifact = RuntimeArtifact(
+            "code4me-agent", "1.0.0", ManagedRuntimeInstaller.platformId(),
+            ManagedRuntimeInstaller.architectureId(), "runtime.zip", sha256(zip), "agent", "1",
+            size = zip.size.toLong(),
+        )
+        fun install(url: String) = ManagedRuntimeInstaller(Files.createTempDirectory("study-repository"), client) { null }
+            .ensureInstalled(artifact.copy(downloadUrl = url), requirePublicRelease = true)
+
+        assertTrue(install("https://github.com/someone/code4me2-server/releases/download/runtime-v1.0.0/runtime.zip")
+            is RuntimeInstallResult.Failed)
+        assertEquals(0, downloads, "another repository's asset must be refused before any request")
+        // GitHub treats owner and repository names case-insensitively.
+        assertTrue(install("https://github.com/aise-tudelft/Code4Me2-Server/releases/download/runtime-v1.0.0/runtime.zip")
+            is RuntimeInstallResult.Ready)
+        assertEquals(1, downloads)
+    }
+
+    @Test
+    fun `study rejects tampered release archive before installation`() {
+        val expected = archive("agent", "assigned")
+        val tampered = archive("agent", "different")
+        val root = Files.createTempDirectory("study-tampered-release")
+        val artifact = RuntimeArtifact(
+            "code4me-agent", "1.0.0", ManagedRuntimeInstaller.platformId(),
+            ManagedRuntimeInstaller.architectureId(), "runtime.zip", sha256(expected), "agent", "1",
+            downloadUrl = "https://github.com/AISE-TUDelft/code4me2-server/releases/download/runtime-v1.0.0/runtime.zip",
+            size = expected.size.toLong(),
+        )
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("OK").body(tampered.toResponseBody()).build()
+        }.build()
+        val result = ManagedRuntimeInstaller(root, client) { null }.ensureInstalled(
+            artifact, requirePublicRelease = true,
+        )
+
+        assertTrue(result is RuntimeInstallResult.Failed)
+        assertTrue((result as RuntimeInstallResult.Failed).message.contains("checksum") || result.message.contains("size"))
+        Files.walk(root).use { paths ->
+            assertEquals(0, paths.filter { Files.isRegularFile(it) }.count(), "no tampered archive or executable may remain")
+        }
     }
 
     @Test

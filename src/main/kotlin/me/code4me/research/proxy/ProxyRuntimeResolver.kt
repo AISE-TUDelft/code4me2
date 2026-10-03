@@ -58,8 +58,8 @@ import java.security.MessageDigest
  * - a non-self-contained platform is refused with `NOT_SELF_CONTAINED` unless an
  *   explicit development interpreter is configured *and* dev mode is enabled.
  *
- * Resolution is proxy-only: the real agent is a separate, single artifact
- * identity installed by [PackagedAgentInstaller] from the shipped recipe. Every
+ * Resolution is proxy-only: the real agent is a separate artifact identity, the
+ * study's pinned archive installed by [PackagedAgentInstaller]. Every
  * failure is a typed [ProxyRuntimeResolution.Failed]; no method returns a
  * fallback executable.
  */

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Derive the participant research-proxy platform matrix from a runtime release.
+"""Derive the participant research-proxy platform matrix.
 
-The participant release's supported platforms are the native agent platforms
-declared by the managed runtime release manifest
-(``code4me-managed-runtime-release.json``, produced by
-``code4me2-server/packaging/create_release_manifest.py``). Its
-``artifacts[].archive`` names follow ``code4me-agent-<os>-<arch>.zip``; this
-script maps them onto the supported research-proxy matrix and its
+The participant plugin bundles no agent, so without arguments the matrix is every
+supported platform. Given a managed runtime release manifest
+(``code4me-managed-runtime-release.json``), whose ``artifacts[].archive`` names
+follow ``code4me-agent-<os>-<arch>.zip``, it is limited to the declared platforms.
+The script maps them onto the supported research-proxy matrix and its
 PyInstaller-capable GitHub runner labels.
 
 Output (stdout and, when requested, ``$GITHUB_OUTPUT``):
@@ -67,7 +66,13 @@ def declared_platforms(manifest: dict) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("release_manifest", type=Path)
+    parser.add_argument(
+        "release_manifest",
+        type=Path,
+        nargs="?",
+        help="Limit the matrix to this runtime release's platforms; omit for every supported "
+        "platform (the participant plugin bundles no agent).",
+    )
     parser.add_argument(
         "--github-output",
         type=Path,
@@ -75,8 +80,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    manifest = json.loads(args.release_manifest.read_text(encoding="utf-8"))
-    declared = declared_platforms(manifest)
+    if args.release_manifest is None:
+        declared = [platform_id for platform_id, _ in SUPPORTED_PLATFORMS]
+    else:
+        manifest = json.loads(args.release_manifest.read_text(encoding="utf-8"))
+        declared = declared_platforms(manifest)
 
     matrix = [
         {

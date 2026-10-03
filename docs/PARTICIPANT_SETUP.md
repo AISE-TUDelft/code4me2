@@ -38,7 +38,7 @@ study is active for your project, Code4Me does not register or offer the direct
 **Prepare Code4Me Agent Session** action) shows a redirect to the research entry
 instead. A session started through any other entry is not observed by the study.
 
-Code4Me installs its matching agent runtime from the plugin. You do not need a Code4Me source checkout, Python, Node.js, Docker, or a model-provider API key. Your project may still require its normal compiler or build tools.
+The first time your study starts, Code4Me downloads the study's agent runtime from the Code4Me GitHub Release and checks its fingerprint (SHA-256) before running it; later starts reuse the verified copy. Your network must allow HTTPS to `github.com` and GitHub's download hosts (`release-assets.githubusercontent.com`, `objects.githubusercontent.com`) at that first start. You do not need a Code4Me source checkout, Python, Node.js, Docker, or a model-provider API key. Your project may still require its normal compiler or build tools.
 
 If your study runs Goose, the study provides the model access: Code4Me points
 Goose at the study's server and hands it a study-issued credential at each

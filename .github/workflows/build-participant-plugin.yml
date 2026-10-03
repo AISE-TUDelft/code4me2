@@ -5,26 +5,29 @@ permissions:
   actions: read
 
 on:
+  # The workflow is not on main yet. A push can run the branch's own workflow
+  # file; manual dispatch remains available once GitHub registers the workflow.
+  push:
+    branches:
+      - feat/plugin
   workflow_dispatch:
     inputs:
       serverUrl:
-        description: Backend origin (localhost is allowed for test ZIPs)
+        description: HTTPS backend for Marketplace candidate; localhost for test ZIP
         required: true
         default: http://localhost:8008
       version:
         description: Plugin version
         required: true
         default: 0.0.1-test1
-      runtimeRepository:
-        description: Runtime release repository (owner/code4me2-server)
+      serverRepository:
+        description: Server repository whose sources build the research proxy (owner/name)
         required: true
         default: AISE-TUDelft/code4me2-server
-      runtimeRunId:
-        description: Successful runtime workflow run ID with the combined artifact
-        required: false
-      runtimeTag:
-        description: Published runtime release tag, if no run ID is given
-        required: false
+      serverRef:
+        description: Server branch, tag or commit for the proxy (HTTPS candidate needs the deployed commit SHA)
+        required: true
+        default: feat/plugin
       publishRelease:
         description: Publish plugin ZIP (HTTPS, or localhost HTTP for a prerelease)
         type: boolean
@@ -37,78 +40,48 @@ on:
         default: false
 
 jobs:
-  # The research proxy is a per-platform PyInstaller bundle; there is no
-  # cross-compile. The release's platform list is the native agent platform set
-  # declared by the managed runtime release manifest
-  # (code4me-managed-runtime-release.json): its `code4me-agent-<os>-<arch>.zip`
-  # artifacts are mapped onto the supported proxy matrix and runner labels by
-  # scripts/research-proxy-platforms.py (see docs/RESEARCH_PROXY_RELEASE.md).
+  # The plugin bundles no agent: each study's agent is downloaded by its pinned
+  # SHA-256 from the runtime's GitHub Release, so no runtime release is an input.
+  # The research proxy is a per-platform PyInstaller bundle built from the
+  # server's shared contract sources at one resolved commit; there is no
+  # cross-compile. scripts/research-proxy-platforms.py maps the supported
+  # platforms onto runner labels (see docs/RESEARCH_PROXY_RELEASE.md).
   prepare-proxy-matrix:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.platforms.outputs.matrix }}
       platforms: ${{ steps.platforms.outputs.platforms }}
-      server_commit: ${{ steps.platforms.outputs.server_commit }}
+      server_commit: ${{ steps.server.outputs.commit }}
+      server_url: ${{ steps.config.outputs.server_url }}
+      version: ${{ steps.config.outputs.version }}
+      server_repository: ${{ steps.config.outputs.server_repository }}
+      local_test: ${{ steps.config.outputs.local_test }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check managed-only build support
-        run: |
-          python3 scripts/participant-release.py build --help | grep -q -- '--managed-only-test'
-          python3 scripts/verify-participant-artifact.py --help | grep -q -- '--allow-managed-only'
-      - name: Validate release inputs
+      - name: Resolve and validate release inputs
+        id: config
         env:
-          PARTICIPANT_SERVER_URL: ${{ inputs.serverUrl }}
-          PLUGIN_VERSION: ${{ inputs.version }}
-          RUNTIME_RUN_ID: ${{ inputs.runtimeRunId }}
-          RUNTIME_TAG: ${{ inputs.runtimeTag }}
-        run: |
-          set -euo pipefail
-          if [ -n "$RUNTIME_RUN_ID" ] && [ -n "$RUNTIME_TAG" ] || [ -z "$RUNTIME_RUN_ID" ] && [ -z "$RUNTIME_TAG" ]; then
-            echo "provide exactly one runtime run ID or release tag" >&2; exit 1
-          fi
-          if [ -n "$RUNTIME_RUN_ID" ] && ! [[ "$RUNTIME_RUN_ID" =~ ^[0-9]+$ ]]; then
-            echo "runtime run ID must be numeric" >&2; exit 1
-          fi
-          python3 - <<'PY'
-          import os, re
-          from urllib.parse import urlsplit
-
-          version = os.environ["PLUGIN_VERSION"]
-          origin = urlsplit(os.environ["PARTICIPANT_SERVER_URL"])
-          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+", version):
-              raise SystemExit("test ZIPs require a SemVer prerelease version")
-          if (origin.scheme != "http" or origin.hostname not in {"localhost", "127.0.0.1"}
-                  or origin.port is None or origin.username or origin.password
-                  or origin.path not in {"", "/"} or origin.query or origin.fragment):
-              raise SystemExit("the simple managed-only workflow requires a localhost HTTP origin")
-          PY
-      - name: Download managed runtime release manifest
-        env:
-          GH_TOKEN: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
-          RUNTIME_RUN_ID: ${{ inputs.runtimeRunId }}
-          RUNTIME_TAG: ${{ inputs.runtimeTag }}
-          RUNTIME_REPOSITORY: ${{ inputs.runtimeRepository }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/runtimes"
-          if [ -n "$RUNTIME_RUN_ID" ]; then
-            gh run download "$RUNTIME_RUN_ID" --repo "$RUNTIME_REPOSITORY" \
-              --name code4me-managed-runtime-release --dir "$RUNNER_TEMP/runtimes"
-          else
-            gh release download "$RUNTIME_TAG" --repo "$RUNTIME_REPOSITORY" \
-              --pattern 'code4me-managed-runtime-release.json' --dir "$RUNNER_TEMP/runtimes"
-          fi
+          DISPATCH_SERVER_URL: ${{ inputs.serverUrl }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+          DISPATCH_SERVER_REPOSITORY: ${{ inputs.serverRepository }}
+          DISPATCH_SERVER_REF: ${{ inputs.serverRef }}
+          BRANCH_SERVER_URL: ${{ vars.CODE4ME_BRANCH_SERVER_URL }}
+          BRANCH_SERVER_REPOSITORY: ${{ vars.CODE4ME_BRANCH_SERVER_REPOSITORY }}
+          BRANCH_SERVER_REF: ${{ vars.CODE4ME_BRANCH_SERVER_REF }}
+        run: python3 scripts/resolve-participant-workflow-inputs.py
+      - name: Check out the selected server sources
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.config.outputs.server_repository }}
+          ref: ${{ steps.config.outputs.server_ref }}
+          path: server-ref
+          token: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+      - name: Pin the server commit for every proxy build
+        id: server
+        run: echo "commit=$(git -C server-ref rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Derive research proxy platform matrix
         id: platforms
-        run: |
-          python3 scripts/research-proxy-platforms.py \
-            "$RUNNER_TEMP/runtimes/code4me-managed-runtime-release.json" \
-            --github-output "$GITHUB_OUTPUT"
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json, os
-          from pathlib import Path
-          manifest = json.loads((Path(os.environ["RUNNER_TEMP"]) / "runtimes/code4me-managed-runtime-release.json").read_text())
-          print("server_commit=" + manifest["server_commit"])
-          PY
+        run: python3 scripts/research-proxy-platforms.py --github-output "$GITHUB_OUTPUT"
 
   # One PyInstaller-capable runner per declared platform. Each job checks out
   # the pinned server contracts (PyInstaller packages the shared `research`
@@ -131,7 +104,7 @@ jobs:
       - name: Check out pinned server contracts
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.runtimeRepository }}
+          repository: ${{ needs.prepare-proxy-matrix.outputs.server_repository }}
           ref: ${{ needs.prepare-proxy-matrix.outputs.server_commit }}
           path: code4me2-server
           token: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
@@ -223,57 +196,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
-      - name: Download pinned native runtime release
-        env:
-          GH_TOKEN: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
-          RUNTIME_RUN_ID: ${{ inputs.runtimeRunId }}
-          RUNTIME_TAG: ${{ inputs.runtimeTag }}
-          RUNTIME_REPOSITORY: ${{ inputs.runtimeRepository }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/runtimes"
-          if [ -n "$RUNTIME_RUN_ID" ]; then
-            gh run download "$RUNTIME_RUN_ID" --repo "$RUNTIME_REPOSITORY" \
-              --name code4me-managed-runtime-release --dir "$RUNNER_TEMP/runtimes"
-          else
-            gh release download "$RUNTIME_TAG" --repo "$RUNTIME_REPOSITORY" \
-              --pattern 'code4me-agent-*.zip' \
-              --pattern 'code4me-managed-runtime-release.json' \
-              --dir "$RUNNER_TEMP/runtimes"
-          fi
-      - name: Check out release preparation contracts
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.runtimeRepository }}
-          ref: ${{ needs.prepare-proxy-matrix.outputs.server_commit }}
-          path: release-server
-          token: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install release preparation dependencies
-        run: python3 -m pip install -r release-server/packaging/requirements-runtime.lock
-      - name: Prepare managed agent release from runtime manifest
-        env:
-          PLUGIN_VERSION: ${{ inputs.version }}
-        run: |
-          python3 - <<'PY'
-          import hashlib, json, os
-          from pathlib import Path
-          runtime_dir = Path(os.environ["RUNNER_TEMP"]) / "runtimes"
-          manifest = runtime_dir / "code4me-managed-runtime-release.json"
-          runtime = json.loads(manifest.read_text())
-          recipe = {
-              "plugin_version": os.environ["PLUGIN_VERSION"],
-              "plugin_commit": os.environ["GITHUB_SHA"],
-              "server_commit": runtime["server_commit"],
-              "runtime": {"manifest": manifest.name, "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest()},
-              "agents": [{"framework": "code4me2-agent", "version": runtime["runtime_version"]}],
-          }
-          (runtime_dir / "recipe.json").write_text(json.dumps(recipe))
-          PY
-          python3 scripts/participant-release.py --server-source release-server/src prepare \
-            "$RUNNER_TEMP/runtimes/recipe.json" --inputs "$RUNNER_TEMP/runtimes" \
-            --output "$RUNNER_TEMP/participant-release"
       - name: Run plugin tests
         if: inputs.fullHostSmoke
         run: ./gradlew --no-daemon test
@@ -308,25 +233,57 @@ jobs:
             mkdir -p "telemetry-acp-proxy/dist/$platform"
             cp -R "$source_dir/." "telemetry-acp-proxy/dist/$platform/"
           done
-      - name: Build participant ZIP
+      - name: Build and verify the agent-free participant ZIP
         env:
-          PARTICIPANT_SERVER_URL: ${{ inputs.serverUrl }}
+          PARTICIPANT_SERVER_URL: ${{ needs.prepare-proxy-matrix.outputs.server_url }}
+          PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
+          PLATFORMS: ${{ needs.prepare-proxy-matrix.outputs.platforms }}
+          LOCAL_TEST: ${{ needs.prepare-proxy-matrix.outputs.local_test }}
+          SERVER_REPOSITORY: ${{ needs.prepare-proxy-matrix.outputs.server_repository }}
+          SERVER_COMMIT: ${{ needs.prepare-proxy-matrix.outputs.server_commit }}
         run: |
-          python3 scripts/participant-release.py --server-source release-server/src build \
-            "$RUNNER_TEMP/participant-release" --server-url "$PARTICIPANT_SERVER_URL" \
-            --managed-only-test
-      - name: Upload release recipe and build evidence
+          set -euo pipefail
+          args=(--no-daemon --no-configuration-cache buildPlugin
+            "-PpluginVersion=$PLUGIN_VERSION"
+            "-Pcode4me.serverUrl=$PARTICIPANT_SERVER_URL"
+            "-PresearchProxyPlatforms=$PLATFORMS"
+            -PrequireResearchProxyBundles=true)
+          # Only a localhost test ZIP may target a plain-HTTP loopback backend.
+          if [ "$LOCAL_TEST" = true ]; then args+=(-PparticipantLocalRelease=true); fi
+          ./gradlew "${args[@]}"
+          shopt -s nullglob
+          zips=(build/distributions/*.zip)
+          if [ "${#zips[@]}" -ne 1 ]; then
+            echo "expected exactly one plugin ZIP, found ${#zips[@]}" >&2
+            exit 1
+          fi
+          python3 scripts/verify-participant-artifact.py "${zips[0]}" --agent-free
+          ZIP_PATH="${zips[0]}" python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          archive = Path(os.environ["ZIP_PATH"])
+          report = {
+              "plugin_version": os.environ["PLUGIN_VERSION"],
+              "plugin_commit": os.environ["GITHUB_SHA"],
+              "server_url": os.environ["PARTICIPANT_SERVER_URL"],
+              "server_repository": os.environ["SERVER_REPOSITORY"],
+              "server_commit": os.environ["SERVER_COMMIT"],
+              "platforms": os.environ["PLATFORMS"].split(","),
+              "zip_name": archive.name,
+              "zip_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+          }
+          Path(os.environ["RUNNER_TEMP"], "build-report.json").write_text(json.dumps(report, indent=2) + "\n")
+          print(json.dumps(report, indent=2))
+          PY
+      - name: Upload build evidence
         uses: actions/upload-artifact@v4
         with:
           name: participant-release-evidence
-          path: |
-            ${{ runner.temp }}/participant-release/recipe.json
-            ${{ runner.temp }}/participant-release/prepared-inputs.json
-            ${{ runner.temp }}/participant-release/build-report.json
+          path: ${{ runner.temp }}/build-report.json
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: code4me-participant-${{ inputs.version }}
+          name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
           path: build/distributions/*.zip
           if-no-files-found: error
 
@@ -351,7 +308,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
-          name: code4me-participant-${{ inputs.version }}
+          name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
           path: host-assets
       - name: Prepare Linux display
         if: runner.os == 'Linux'
@@ -422,24 +379,24 @@ jobs:
           if-no-files-found: warn
 
   # Publish the installable plugin ZIP under an immutable plugin-v<version> tag.
-  # The installable ZIP already bundles the exact pinned agent archives and the
-  # per-platform proxy runtimes staged and verified above. Assets of a published
-  # plugin release are never replaced.
+  # The ZIP carries the verified per-platform proxies and no agent; a study's
+  # assigned agent comes from its pinned runtime Release on a cache miss.
+  # Assets of a published plugin release are never replaced.
   publish:
-    if: ${{ always() && !cancelled() && inputs.publishRelease && needs.build.result == 'success' && (needs.host-smoke.result == 'success' || needs.host-smoke.result == 'skipped') }}
-    needs: [build, host-smoke]
+    if: ${{ always() && !cancelled() && github.event_name == 'workflow_dispatch' && inputs.publishRelease && needs.build.result == 'success' && (needs.host-smoke.result == 'success' || needs.host-smoke.result == 'skipped') }}
+    needs: [prepare-proxy-matrix, build, host-smoke]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: code4me-participant-${{ inputs.version }}
+          name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
           path: plugin-assets
       - name: Publish immutable plugin release
         env:
           GH_TOKEN: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
-          PLUGIN_VERSION: ${{ inputs.version }}
+          PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
         run: |
           set -euo pipefail
           tag="plugin-v$PLUGIN_VERSION"
