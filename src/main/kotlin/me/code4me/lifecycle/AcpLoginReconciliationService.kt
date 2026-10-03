@@ -12,7 +12,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import me.code4me.research.session.ResearchActivationResult
 import me.code4me.research.session.ResearchReconciliationResult
 import me.code4me.research.session.ResearchSessionService
 import me.code4me.services.agent.ParticipantSetupStep
@@ -362,7 +361,7 @@ class AcpLoginReconciliationService(private val project: Project) : Disposable {
             log.info("Project activation is not ready; ACP reconciliation will retry")
             return ReconciliationAttemptResult.RETRY
         }
-        val research = ResearchSessionService.getInstance(project).reconcileFromServer()
+        val research = ResearchSessionService.getInstance(project).reconcileFromServer(isCurrent)
         return when (research) {
             is ResearchReconciliationResult.Unavailable -> {
                 log.info("Research membership is not ready; ACP reconciliation will retry")

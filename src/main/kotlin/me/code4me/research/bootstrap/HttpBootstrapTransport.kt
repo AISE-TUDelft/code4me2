@@ -68,17 +68,22 @@ class HttpBootstrapTransport(
     override fun fetch(
         enrollmentId: String,
         contextId: String,
-    ): BootstrapTransportResult =
+    ): BootstrapTransportResult = request(enrollmentId, contextId, prepareOnly = false)
+
+    override fun prepare(enrollmentId: String, contextId: String): BootstrapTransportResult =
+        request(enrollmentId, contextId, prepareOnly = true)
+
+    private fun request(enrollmentId: String, contextId: String, prepareOnly: Boolean): BootstrapTransportResult =
         try {
             val request =
                 Request
                     .Builder()
                     .url(endpoint)
-                    .post(buildRequestPayload(enrollmentId, contextId).toString().toRequestBody(JSON_MEDIA_TYPE))
+                    .post(buildRequestPayload(enrollmentId, contextId, prepareOnly).toString().toRequestBody(JSON_MEDIA_TYPE))
                     .header("Accept", "application/json")
                     .build()
-            val result = httpClient.newCall(request).execute().use { response -> mapResponse(response) }
-            if (result is BootstrapTransportResult.Success) verify(result, enrollmentId, contextId) else result
+            val result = httpClient.newCall(request).execute().use { response -> mapResponse(response, prepareOnly) }
+            if (!prepareOnly && result is BootstrapTransportResult.Success) verify(result, enrollmentId, contextId) else result
         } catch (exception: IOException) {
             BootstrapTransportResult.Failure(
                 message = "Bootstrap request failed: ${exception.message ?: "network error"}",
@@ -135,6 +140,7 @@ class HttpBootstrapTransport(
     private fun buildRequestPayload(
         enrollmentId: String,
         contextId: String,
+        prepareOnly: Boolean,
     ): JsonElement {
         val reported =
             try {
@@ -157,16 +163,17 @@ class HttpBootstrapTransport(
             // windows while keeping duplicate creation idempotent per context.
             put("context_id", contextId)
             put("environment", environmentObject)
+            if (prepareOnly) put("prepare_only", true)
         }
     }
 
-    private fun mapResponse(response: Response): BootstrapTransportResult {
+    private fun mapResponse(response: Response, prepareOnly: Boolean): BootstrapTransportResult {
         val body = response.body?.string().orEmpty()
         val code = response.code
         return when {
             response.isSuccessful -> {
                 log.info("Bootstrap request to $RESEARCH_SESSIONS_PATH succeeded with HTTP $code.")
-                mapSuccess(body)
+                mapSuccess(body, if (prepareOnly) "preparation" else "manifest")
             }
             code == HTTP_UNAUTHORIZED -> {
                 log.warn("Bootstrap request to $RESEARCH_SESSIONS_PATH was not authenticated (HTTP $code).")
@@ -226,19 +233,19 @@ class HttpBootstrapTransport(
         }
     }
 
-    private fun mapSuccess(body: String): BootstrapTransportResult {
-        val manifest = extractManifest(body)
+    private fun mapSuccess(body: String, field: String): BootstrapTransportResult {
+        val manifest = extractManifest(body, field)
         return if (manifest != null) {
             BootstrapTransportResult.Success(json.encodeToString(JsonElement.serializer(), manifest))
         } else {
-            BootstrapTransportResult.Failure("Bootstrap response did not contain a manifest.", retryable = false)
+            BootstrapTransportResult.Failure("Bootstrap response did not contain $field.", retryable = false)
         }
     }
 
-    private fun extractManifest(body: String): JsonObject? =
+    private fun extractManifest(body: String, field: String): JsonObject? =
         try {
             val root = json.parseToJsonElement(body)
-            (root as? JsonObject)?.get("manifest") as? JsonObject
+            (root as? JsonObject)?.get(field) as? JsonObject
         } catch (_: Exception) {
             null
         }

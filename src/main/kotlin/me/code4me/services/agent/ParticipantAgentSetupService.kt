@@ -18,8 +18,6 @@ import me.code4me.utils.api.activateOrCreateProject
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
 
 enum class ParticipantSetupStep {
     SIGN_IN,
@@ -58,11 +56,11 @@ class ParticipantAgentSetupService internal constructor(private val bridge: Mana
 
     @Synchronized
     fun prepare(project: Project, repair: Boolean = false, reactivate: Boolean = false): ParticipantSetupStatus {
-        studyActive(project, reactivate)?.let { return remember(it) }
         if (!getAuthState().isAuthenticated()) {
             bridge.unregister(project)
             return remember(ParticipantSetupStatus(ParticipantSetupStep.SIGN_IN, "Sign in to Code4Me to prepare the agent."))
         }
+        studyActive(project, reactivate)?.let { return remember(it) }
         val aiAssistantId = PluginId.getId(AI_ASSISTANT_PLUGIN_ID)
         if (
             PluginManagerCore.getPlugin(aiAssistantId) == null ||
@@ -121,7 +119,7 @@ class ParticipantAgentSetupService internal constructor(private val bridge: Mana
         runtimeResult = result
         val status = when (result) {
             is RuntimeInstallResult.Ready -> {
-                val selfCheckFailure = runtimeSelfCheck(result.executable)
+                val selfCheckFailure = ManagedRuntimeInstaller.selfCheck(result.executable)
                 if (selfCheckFailure != null) {
                     return remember(
                         ParticipantSetupStatus(
@@ -379,32 +377,9 @@ class ParticipantAgentSetupService internal constructor(private val bridge: Mana
             .firstOrNull { Files.isExecutable(it) }
     }
 
-    private fun runtimeSelfCheck(executable: Path): String? = try {
-        val process = ProcessBuilder(executable.toString(), "--self-check")
-            .redirectErrorStream(true)
-            .start()
-        if (!process.waitFor(SELF_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            "The bundled Code4Me runtime self-check timed out."
-        } else if (process.exitValue() != 0) {
-            val detail = process.inputStream.readNBytes(MAX_SELF_CHECK_OUTPUT_BYTES)
-                .toString(StandardCharsets.UTF_8)
-                .trim()
-                .take(500)
-            "The bundled Code4Me runtime self-check failed" +
-                if (detail.isBlank()) "." else ": $detail"
-        } else {
-            null
-        }
-    } catch (e: Exception) {
-        log.warn("Managed runtime self-check could not start", e)
-        "The bundled Code4Me runtime could not start (${e.message ?: "unknown error"})."
-    }
 
     companion object {
         private const val AI_ASSISTANT_PLUGIN_ID = "com.intellij.ml.llm"
-        private const val SELF_CHECK_TIMEOUT_SECONDS = 20L
-        private const val MAX_SELF_CHECK_OUTPUT_BYTES = 8 * 1024
 
         /** Opt-in switch for the developer-only agent surfaces. Never set in participant builds. */
         const val DEVELOPER_AGENTS_PROPERTY: String = "code4me.developerAgents"

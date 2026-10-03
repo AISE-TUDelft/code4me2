@@ -165,6 +165,10 @@ jobs:
           bundle="telemetry-acp-proxy/dist/${{ matrix.platform }}"
           test -d "$bundle"
           test -f "$bundle/${{ matrix.executable }}"
+          "$bundle/${{ matrix.executable }}" --help | grep -Fq -- '--compat-idempotent-initialize' || {
+            echo "frozen proxy for ${{ matrix.platform }} does not support --compat-idempotent-initialize" >&2
+            exit 1
+          }
       - name: Upload proxy bundle
         uses: actions/upload-artifact@v4
         with:

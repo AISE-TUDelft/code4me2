@@ -1,9 +1,11 @@
 package me.code4me.research.proxy
 
 import me.code4me.research.bootstrap.normalizeSha256Hex
+import me.code4me.research.bootstrap.AgentReleaseRef
 import me.code4me.research.runtime.ContentHasher
 import me.code4me.services.agent.ManagedRuntimeInstaller
 import me.code4me.services.agent.RuntimeInstallResult
+import me.code4me.services.agent.RuntimeArtifact
 
 /**
  * Outcome of installing the single packaged research agent.
@@ -13,19 +15,17 @@ import me.code4me.services.agent.RuntimeInstallResult
  * [Blocked] is terminal: no fallback (PATH, npm, source) is ever attempted.
  */
 sealed interface PackagedAgentInstall {
-    data class Ready(val argv: List<String>, val digest: String) : PackagedAgentInstall
+    data class Ready(val argv: List<String>, val digest: String, val artifact: RuntimeArtifact? = null) : PackagedAgentInstall
 
-    data class Blocked(val detail: String) : PackagedAgentInstall
+    data class Blocked(val detail: String, val retryable: Boolean = false) : PackagedAgentInstall
 }
 
 /**
  * The one seam that installs the packaged research agent for a bootstrap pin.
  *
- * There is exactly one agent artifact identity: the shipped recipe
- * (`code4me-runtime/manifest.json`) and its ZIP, installed by
- * [ManagedRuntimeInstaller] and verified against the bootstrap manifest's pinned
- * archive digest before any byte is written. A missing or mismatched artifact
- * blocks with an actionable message; it never degrades to a host agent.
+ * The study's immutable archive identity selects a matching bundle, verified
+ * cache, or exact public release download. Installation never executes bytes;
+ * a fresh bootstrap authorizes the subsequent native self-check and launch.
  */
 fun interface PackagedAgentInstaller {
     /**
@@ -34,6 +34,12 @@ fun interface PackagedAgentInstaller {
      * the recipe's declared archive digest before any write.
      */
     fun install(pin: String): PackagedAgentInstall
+
+    fun prepare(release: AgentReleaseRef, progress: (Long, Long) -> Unit, isCurrent: () -> Boolean): PackagedAgentInstall =
+        install(release.normalizedArtifactDigest.orEmpty())
+
+    /** Called only after a fresh, verified bootstrap authorizes execution. */
+    fun validate(ready: PackagedAgentInstall.Ready): String? = null
 
     /**
      * The adapter digest the shipped recipe declares, or `null` when the recipe
@@ -49,9 +55,7 @@ fun interface PackagedAgentInstaller {
 }
 
 /**
- * The production [PackagedAgentInstaller]: the plugin's own bundled recipe and
- * archive, installed through the same [ManagedRuntimeInstaller] the non-research
- * managed path uses.
+ * Uses the same verified installer as the ordinary managed-agent path.
  *
  * @param installerProvider supplies the installer lazily so constructing the
  * seam never touches the IDE's system path; tests inject an installer rooted at
@@ -100,11 +104,30 @@ internal class ProductionPackagedAgentInstaller(
                 PackagedAgentInstall.Ready(
                     argv = listOf(result.executable.toString(), "--managed"),
                     digest = ContentHasher.STREAMING.sha256(result.executable),
+                    artifact = result.artifact,
                 )
             is RuntimeInstallResult.Unavailable -> PackagedAgentInstall.Blocked(result.message)
-            is RuntimeInstallResult.Failed -> PackagedAgentInstall.Blocked(result.message)
+            is RuntimeInstallResult.Failed -> PackagedAgentInstall.Blocked(result.message, result.retryable)
         }
     }
+
+    override fun prepare(release: AgentReleaseRef, progress: (Long, Long) -> Unit, isCurrent: () -> Boolean): PackagedAgentInstall {
+        val pin = release.normalizedArtifactDigest ?: return PackagedAgentInstall.Blocked("The study's agent checksum is invalid.")
+        val artifact = release.artifact?.takeIf { it.managedProtocol.isNotBlank() && it.executable.isNotBlank() }
+            ?: installer.selectArtifact()?.takeIf { it.sha256.equals(pin, ignoreCase = true) }
+            ?: return PackagedAgentInstall.Blocked("This study needs an agent release with download and protocol metadata. Contact the research team.")
+        if (artifact.sha256.lowercase() != pin) return PackagedAgentInstall.Blocked("The agent archive does not match the study's checksum.")
+        return when (val result = installer.ensureInstalled(artifact, progress = progress, isCurrent = isCurrent)) {
+            is RuntimeInstallResult.Ready -> PackagedAgentInstall.Ready(
+                listOf(result.executable.toString(), "--managed"), ContentHasher.STREAMING.sha256(result.executable), result.artifact,
+            )
+            is RuntimeInstallResult.Unavailable -> PackagedAgentInstall.Blocked(result.message)
+            is RuntimeInstallResult.Failed -> PackagedAgentInstall.Blocked(result.message, result.retryable)
+        }
+    }
+
+    override fun validate(ready: PackagedAgentInstall.Ready): String? =
+        ManagedRuntimeInstaller.selfCheck(java.nio.file.Path.of(ready.argv.first()), ready.artifact?.version)
 
     override fun recipeAdapterDigest(): String? =
         try {

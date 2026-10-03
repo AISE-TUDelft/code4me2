@@ -42,8 +42,7 @@ import java.nio.file.Path
  *
  * The study gate reads only an already-created [ResearchSessionService], so the
  * tests mock the project's service lookup instead of starting the research
- * stack. The active-study cases return before any auth/server access; the
- * non-study cases mock the auth state lookup. No test ever touches the
+ * stack. Study preparation requires an authenticated account. No test touches the
  * developer's real `~/.jetbrains/acp.json`.
  */
 class ParticipantAgentSetupServiceTest {
@@ -55,6 +54,15 @@ class ParticipantAgentSetupServiceTest {
     fun tearDown() {
         service.dispose()
         unmockkAll()
+    }
+
+    @Test
+    fun `a signed out account cannot prepare an existing study context`() {
+        val project = studyProject()
+        stubAuth()
+
+        assertEquals(ParticipantSetupStep.SIGN_IN, service.prepare(project).step)
+        verify(bridge, never()).register(project)
     }
 
     @Test
@@ -130,7 +138,7 @@ class ParticipantAgentSetupServiceTest {
         val project = mock<Project>()
         whenever(project.getServiceIfCreated(ResearchSessionService::class.java)).thenReturn(null)
         whenever(project.name).thenReturn("Example Project")
-        stubSignedOut()
+        stubAuth()
 
         val status = service.prepare(project)
 
@@ -145,12 +153,12 @@ class ParticipantAgentSetupServiceTest {
         whenever(research.hasStudyContext()).thenReturn(false)
         whenever(project.getServiceIfCreated(ResearchSessionService::class.java)).thenReturn(research)
         whenever(project.name).thenReturn("Example Project")
-        stubSignedOut()
+        stubAuth()
 
         val status = service.prepare(project)
 
         assertNotEquals(ParticipantSetupStep.STUDY_ACTIVE, status.step)
-        verify(research).hasStudyContext()
+        verify(research, never()).hasStudyContext()
     }
 
     @Test
@@ -159,7 +167,7 @@ class ParticipantAgentSetupServiceTest {
         whenever(project.getServiceIfCreated(ResearchSessionService::class.java))
             .thenThrow(IllegalStateException("research service unavailable"))
         whenever(project.name).thenReturn("Example Project")
-        stubSignedOut()
+        stubAuth()
 
         val status = service.prepare(project)
 
@@ -206,7 +214,7 @@ class ParticipantAgentSetupServiceTest {
             every { getAppService() } returns app
 
             mockkConstructor(ManagedRuntimeInstaller::class)
-            every { anyConstructed<ManagedRuntimeInstaller>().ensureInstalled(any()) } returns
+            every { anyConstructed<ManagedRuntimeInstaller>().ensureInstalled(any<Boolean>()) } returns
                 RuntimeInstallResult.Unavailable("No managed runtime for this platform in tests.")
 
             // NB: constructed AFTER mockkConstructor, so its installer is the mocked one
@@ -246,6 +254,7 @@ class ParticipantAgentSetupServiceTest {
     }
 
     private fun studyProject(basePath: String? = workspace.toString()): Project {
+        stubAuth(signedIn = true)
         val project = mock<Project>()
         whenever(project.basePath).thenReturn(basePath)
         val research = mock<ResearchSessionService>()
@@ -254,10 +263,9 @@ class ParticipantAgentSetupServiceTest {
         return project
     }
 
-    /** Signs out so `prepare` stops at the first ordinary participant step. */
-    private fun stubSignedOut() {
+    private fun stubAuth(signedIn: Boolean = false) {
         val auth = mockk<AuthSettings>()
-        every { auth.isAuthenticated() } returns false
+        every { auth.isAuthenticated() } returns signedIn
         mockkStatic("me.code4me.services.state.AuthStateKt")
         every { getAuthState() } returns auth
     }

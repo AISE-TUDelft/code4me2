@@ -107,6 +107,18 @@ object ParticipantStatusPresentation {
 
     private fun resolve(state: ParticipantStudyStateV1): Resolved =
         when (state.blockReason) {
+            StudyBlockReason.PREPARING_AGENT -> Resolved(
+                "Preparing agent", ParticipantStatusSeverity.INFO, StudyBlockReason.PREPARING_AGENT.value,
+                "Code4Me is preparing your study's agent. You can keep working.",
+            )
+            StudyBlockReason.PREPARATION_CANCELLED -> Resolved(
+                "Agent preparation cancelled", ParticipantStatusSeverity.WARNING, StudyBlockReason.PREPARATION_CANCELLED.value,
+                "Choose Prepare agent to retry.",
+            )
+            StudyBlockReason.PREPARATION_FAILED -> Resolved(
+                "Agent preparation failed", ParticipantStatusSeverity.ERROR, StudyBlockReason.PREPARATION_FAILED.value,
+                "Choose Prepare agent to retry, or contact the research team.",
+            )
             StudyBlockReason.REVOKED ->
                 Resolved(
                     BLOCKED_HEADLINE,
@@ -196,6 +208,10 @@ object ParticipantStatusPresentation {
                     "The research session is being renewed; collection continues automatically.",
                     tooltipLabel = "reconnecting",
                 )
+            StudyBlockReason.CONSENT_REQUIRED -> Resolved(
+                "Study consent required", ParticipantStatusSeverity.WARNING, StudyBlockReason.CONSENT_REQUIRED.value,
+                "Accept the study consent on the Code4Me website, then choose Prepare agent.",
+            )
             StudyBlockReason.AUTHENTICATION_REQUIRED ->
                 Resolved(
                     BLOCKED_HEADLINE,
