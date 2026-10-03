@@ -391,7 +391,7 @@ require(!(participantBuildRequested && localRuntimeResourceDir != null)) {
 }
 if (participantBuildRequested) {
     require(participantReleaseDir?.resolve("recipe.json")?.isFile == true) {
-        "Participant builds require -PparticipantReleaseDir=<prepared recipe>; run scripts/participant-release.py prepare."
+        "buildParticipantPlugin (local recipe ZIP) requires -PparticipantReleaseDir=<prepared recipe>; run scripts/participant-release.py prepare."
     }
     require(project.version.toString().matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?"))) {
         "Participant plugin version must be meaningful SemVer (for example 1.2.0)."
@@ -454,7 +454,7 @@ tasks.named<ProcessResources>("processResources") {
 
 tasks.register("buildParticipantPlugin") {
     group = "distribution"
-    description = "Builds a study ZIP with an explicit HTTPS backend (-Pcode4me.serverUrl=...)."
+    description = "Builds a local recipe ZIP with a bundled agent recipe (-Pcode4me.serverUrl=...); participant ZIPs use buildPlugin."
     dependsOn("verifyParticipantRuntimeResources", "buildPlugin")
     val zipFile = tasks.named<org.gradle.api.tasks.bundling.Zip>("buildPlugin").flatMap { it.archiveFile }
     val artifactPath = layout.buildDirectory.file("participant-artifact-path.txt")
@@ -530,11 +530,12 @@ tasks.register("verifyParticipantRuntimeResources") {
     }
 }
 
-// The single participant recipe (`code4me-runtime/manifest.json`) is produced by
-// the `scripts/participant-release.py` CLI and read directly by the plugin; there
-// is no second catalog/manifest copy to keep in sync. This task fails the build
-// when the bundled archives do not match the recipe's zip sha256/size, or when a
-// removed execution-inventory field reappears.
+// A local agent recipe (`code4me-runtime/manifest.json`, written by
+// `scripts/build-plugin-with-agent.py`; the repository ships none) serves only the
+// ordinary non-study setup; studies install their pinned archive from the verified
+// cache or its GitHub Release. This task fails the build when the bundled archives
+// do not match the recipe's zip sha256/size, or when a removed execution-inventory
+// field reappears.
 tasks.register("verifyResearchRuntimeConsistency") {
     group = "verification"
     description = "Verifies the bundled runtime recipe (zip sha256 pin) matches its archives."
@@ -603,11 +604,9 @@ tasks.register("verifyResearchRuntimeConsistency") {
 // anything missing, mismatched, escaping, or not self-contained. No PATH/npm/
 // source fallback is ever consulted.
 //
-// The real agent is a separate, single artifact identity: the shipped recipe
-// `code4me-runtime/manifest.json` and its ZIP (staged by
-// `scripts/participant-release.py`, verified by `verifyResearchRuntimeConsistency`),
-// installed by `ManagedRuntimeInstaller` after `PackagedAgentInstaller` matches it
-// against the bootstrap pin.
+// The participant plugin ships no agent: `PackagedAgentInstaller` hands the study's
+// bootstrap-pinned archive to `ManagedRuntimeInstaller`, which uses its verified
+// cache entry or downloads it from the canonical GitHub Release.
 // ---------------------------------------------------------------------------
 val researchProxySourceRoot = layout.projectDirectory.dir("telemetry-acp-proxy")
 val researchProxyDistRoot = layout.projectDirectory.dir(
@@ -646,8 +645,8 @@ val stageResearchProxy =
         description =
             "Stages the digest-pinned research ACP proxy runtime into plugin resources. " +
             "Declare release platforms with -PresearchProxyPlatforms=<os>-<arch>,... and " +
-            "require prebuilt bundles with -PrequireResearchProxyBundles=true. The packaged " +
-            "agent is the single code4me-runtime recipe, staged separately from the release."
+            "require prebuilt bundles with -PrequireResearchProxyBundles=true. The plugin " +
+            "ships no agent; studies install their pinned archive at runtime."
         inputs.dir(researchProxySourceRoot).withPathSensitivity(PathSensitivity.RELATIVE)
         if (researchProxyDistRoot.asFile.isDirectory) {
             inputs.dir(researchProxyDistRoot).withPathSensitivity(PathSensitivity.RELATIVE)

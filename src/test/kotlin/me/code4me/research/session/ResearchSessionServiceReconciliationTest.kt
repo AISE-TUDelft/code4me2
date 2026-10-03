@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -82,7 +83,7 @@ class ResearchSessionServiceReconciliationTest {
 
         assertNull(result.activation)
         assertEquals("enrollment-1", settings.enrollmentId())
-        verify(manager, never()).activate("enrollment-1")
+        verify(manager, never()).activate(eq("enrollment-1"), any(), any())
     }
 
     @Test
@@ -108,7 +109,7 @@ class ResearchSessionServiceReconciliationTest {
             assertTrue(!result.shouldRetry)
         }
 
-        verify(manager, never()).activate("enrollment-1")
+        verify(manager, never()).activate(eq("enrollment-1"), any(), any())
     }
 
     @Test
@@ -121,13 +122,15 @@ class ResearchSessionServiceReconciliationTest {
         assertFalse(retries(StudyBlockReason.AI_ASSISTANT_MISSING), "needs the participant: no retry storm")
         assertFalse(retries(StudyBlockReason.AI_ASSISTANT_OUTDATED), "needs the participant: no retry storm")
         assertFalse(retries(StudyBlockReason.REVOKED))
+        assertFalse(retries(StudyBlockReason.PREPARATION_CANCELLED))
+        assertFalse(retries(StudyBlockReason.PREPARATION_FAILED))
         assertTrue(ResearchReconciliationResult.StudyOwned(ResearchActivationResult.Retryable("down")).shouldRetry)
     }
 
     @Test
     fun `temporary runtime block retries and a later activation succeeds`() {
         val manager = mock<ResearchSessionManager>()
-        whenever(manager.activate("enrollment-1")).thenReturn(
+        whenever(manager.activate(eq("enrollment-1"), any(), any())).thenReturn(
             ResearchActivationResult.Blocked(StudyBlockReason.RUNTIME_UNAVAILABLE, "proxy registration failed"),
             activated("recovered-session"),
         )
@@ -140,7 +143,7 @@ class ResearchSessionServiceReconciliationTest {
         assertEquals(StudyBlockReason.RUNTIME_UNAVAILABLE, (first.activation as ResearchActivationResult.Blocked).reason)
         assertEquals("recovered-session", (second.activation as ResearchActivationResult.Activated).sessionId)
         assertTrue(!second.shouldRetry)
-        verify(manager, times(2)).activate("enrollment-1")
+        verify(manager, times(2)).activate(eq("enrollment-1"), any(), any())
     }
 
     @Test
@@ -179,8 +182,8 @@ class ResearchSessionServiceReconciliationTest {
         val settings = ResearchEnrollmentSettings()
         val first = mock<ResearchSessionManager>()
         val second = mock<ResearchSessionManager>()
-        whenever(first.activate("enrollment-1")).thenReturn(activated("first-session"))
-        whenever(second.activate("enrollment-1")).thenReturn(activated("second-session"))
+        whenever(first.activate(eq("enrollment-1"), any(), any())).thenReturn(activated("first-session"))
+        whenever(second.activate(eq("enrollment-1"), any(), any())).thenReturn(activated("second-session"))
         val managers = ArrayDeque(listOf(first, second))
         val service =
             ResearchSessionService(
@@ -199,8 +202,8 @@ class ResearchSessionServiceReconciliationTest {
         // A sign-out quarantines the spool; it never uploads first.
         verify(first).stop(0L, drain = false, drainTimeoutMs = ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS)
         verify(first).quarantineSpool()
-        verify(first, times(1)).activate("enrollment-1")
-        verify(second, times(1)).activate("enrollment-1")
+        verify(first, times(1)).activate(eq("enrollment-1"), any(), any())
+        verify(second, times(1)).activate(eq("enrollment-1"), any(), any())
     }
 
     @Test

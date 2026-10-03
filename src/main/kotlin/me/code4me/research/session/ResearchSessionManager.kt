@@ -15,12 +15,13 @@ import me.code4me.research.bootstrap.InMemoryManifestCache
 import me.code4me.research.bootstrap.ManifestCache
 import me.code4me.research.bootstrap.ManifestValidationReason
 import me.code4me.research.bootstrap.PluginCompatibility
-import me.code4me.research.bootstrap.normalizeSha256Hex
 import me.code4me.research.bootstrap.parseInstant
 import me.code4me.research.telemetry.CanonicalEvent
 import me.code4me.research.telemetry.FieldClass
 import me.code4me.research.telemetry.canonicalJson
 import me.code4me.research.telemetry.parseCanonicalJson
+import me.code4me.research.bootstrap.AgentPreparation
+import me.code4me.research.bootstrap.BootstrapTransportResult
 import me.code4me.research.telemetry.sha256Hex
 import me.code4me.research.ide.CanonicalEventSink
 import me.code4me.research.ide.IdeActivityCollector
@@ -331,8 +332,9 @@ class ResearchSessionManager(
     private val acpHostRegistration: AcpHostRegistration? = null,
     /**
      * Installs the single packaged agent artifact for a PACKAGED distribution.
-     * The production default installs the plugin's shipped recipe/archive through
-     * the shared managed-runtime installer; tests inject a fake.
+     * The production default installs the assignment's pinned archive (verified
+     * cache or exact release download) through the shared managed-runtime
+     * installer; tests inject a fake.
      */
     private val packagedAgentInstaller: PackagedAgentInstaller = PackagedAgentInstaller.PRODUCTION,
     private val agentEnvProvider: () -> Map<String, String> = { emptyMap() },
@@ -611,11 +613,25 @@ class ResearchSessionManager(
      * with no collector and no proxy. A transient transport failure produces
      * [Retryable]. Nothing here ever throws.
      */
-    fun activate(enrollmentId: String): ResearchActivationResult {
+    private val activationInProgress = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var preparationCancelled = false
+    @Volatile private var preparationIdentity: String? = null
+
+    fun cancelPreparation() {
+        preparationCancelled = true
+        markBlocked(StudyBlockReason.PREPARATION_CANCELLED, "Agent preparation cancelled. Choose Prepare agent to retry.")
+    }
+    fun retryPreparation() { preparationCancelled = false }
+
+    fun activate(
+        enrollmentId: String,
+        isCurrent: () -> Boolean = { true },
+        progress: (Long, Long) -> Unit = { _, _ -> },
+    ): ResearchActivationResult {
         if (enrollmentId.isBlank()) {
             return ResearchActivationResult.Blocked(StudyBlockReason.UNKNOWN, "enrollmentId must not be blank")
         }
-        if (stopped) {
+        if (stopped || !isCurrent()) {
             return ResearchActivationResult.Blocked(StudyBlockReason.REVOKED, "research session manager is stopped")
         }
         // Membership first (plan 05.5 step 1): a terminal enrollment never
@@ -636,8 +652,56 @@ class ResearchSessionManager(
             }
             is HostPreflightResult.Ok, null -> Unit
         }
-        deactivateRuntime()
+        if (!activationInProgress.compareAndSet(false, true)) return ResearchActivationResult.Retryable("Agent preparation is already running.")
         return try {
+            deactivateRuntime()
+            var preparation: AgentPreparation? = null
+            var preparedAgent: PackagedAgentInstall.Ready? = null
+            val current = { !stopped && !preparationCancelled && isCurrent() }
+            when (val response = transport.prepare(enrollmentId, contextId)) {
+                is BootstrapTransportResult.Success -> {
+                    preparation = AgentPreparation.parse(response.manifestJson)
+                    require(preparation.enrollmentId == enrollmentId) { "The preparation belongs to another enrollment." }
+                    val identity = "${preparation.assignmentId}:${preparation.profileDigest}:" +
+                        preparation.release.normalizedArtifactDigest
+                    if (preparationIdentity != null && preparationIdentity != identity) preparationCancelled = false
+                    preparationIdentity = identity
+                    preparation.release.compatibilityIssue(compatibility.pluginVersion)?.let { detail ->
+                        markBlocked(StudyBlockReason.INCOMPATIBLE_ENVIRONMENT, detail)
+                        return ResearchActivationResult.Blocked(StudyBlockReason.INCOMPATIBLE_ENVIRONMENT, detail)
+                    }
+                    if (!current()) return ResearchActivationResult.Blocked(StudyBlockReason.PREPARATION_CANCELLED, "Agent preparation cancelled. Choose Prepare agent to retry.")
+                    if (!preparation.release.isByoa) {
+                        markBlocked(StudyBlockReason.PREPARING_AGENT, "Preparing your study's agent.")
+                        when (val install = packagedAgentInstaller.prepare(preparation.release, progress, current)) {
+                            is PackagedAgentInstall.Blocked -> {
+                                val reason = when {
+                                    !current() -> StudyBlockReason.PREPARATION_CANCELLED
+                                    install.retryable -> StudyBlockReason.RUNTIME_UNAVAILABLE
+                                    else -> StudyBlockReason.PREPARATION_FAILED
+                                }
+                                markBlocked(reason, install.detail)
+                                return ResearchActivationResult.Blocked(reason, install.detail)
+                            }
+                            is PackagedAgentInstall.Ready -> preparedAgent = install
+                        }
+                    }
+                    bootstrap.invalidate(enrollmentId)
+                }
+                is BootstrapTransportResult.Failure -> {
+                    val reason = response.rejection?.let { blockReasonFor(it) } ?: StudyBlockReason.TRANSPORT_FAILED
+                    markBlocked(reason, response.message)
+                    return if (response.retryable) ResearchActivationResult.Retryable(response.message)
+                    else ResearchActivationResult.Blocked(reason, response.message, response.rejection)
+                }
+                is BootstrapTransportResult.Revoked -> {
+                    val reason = blockReasonFor(response.rejection)
+                    markBlocked(reason, response.reason)
+                    return ResearchActivationResult.Blocked(reason, response.reason, response.rejection)
+                }
+                null -> Unit // In-process/legacy transports retain their existing bootstrap contract.
+            }
+            if (!current()) return ResearchActivationResult.Blocked(StudyBlockReason.PREPARATION_CANCELLED, "Agent preparation cancelled.")
             val result = bootstrap.acquire(enrollmentId)
             when (result.status) {
                 BootstrapStatus.OK -> {
@@ -646,12 +710,23 @@ class ResearchSessionManager(
                         markBlocked(StudyBlockReason.MANIFEST_INVALID, "validated manifest was not returned")
                         ResearchActivationResult.Blocked(StudyBlockReason.MANIFEST_INVALID, "validated manifest was not returned")
                     } else {
+                        if (preparation != null && !preparation.matches(validManifest)) {
+                            bootstrap.invalidate(enrollmentId)
+                            return ResearchActivationResult.Retryable("Your study assignment changed while the agent was preparing. Preparing it again.")
+                        }
+                        if (!current()) return ResearchActivationResult.Blocked(StudyBlockReason.PREPARATION_CANCELLED, "Agent preparation cancelled.")
+                        preparedAgent?.let { ready ->
+                            packagedAgentInstaller.validate(ready)?.let { detail ->
+                                markBlocked(StudyBlockReason.PREPARATION_FAILED, detail)
+                                return ResearchActivationResult.Blocked(StudyBlockReason.PREPARATION_FAILED, detail)
+                            }
+                        }
                         // Serialize the resource-producing half of activation
                         // with stop(). If logout won while bootstrap was in
                         // flight, this old manager must never register a late
                         // proxy or restart collectors.
                         synchronized(lock) {
-                            if (stopped) {
+                            if (!current()) {
                                 ResearchActivationResult.Blocked(
                                     StudyBlockReason.REVOKED,
                                     "research session manager is stopped",
@@ -661,6 +736,7 @@ class ResearchSessionManager(
                                     enrollmentId,
                                     validManifest,
                                     discoveryActive = discovery is EnrollmentDiscovery.Active,
+                                    preparedAgent = preparedAgent,
                                 )
                             }
                         }
@@ -683,6 +759,8 @@ class ResearchSessionManager(
         } catch (exception: Exception) {
             markFailed(StudyBlockReason.TRANSPORT_FAILED, exception.message)
             ResearchActivationResult.Failed(exception.message)
+        } finally {
+            activationInProgress.set(false)
         }
     }
 
@@ -1127,6 +1205,7 @@ class ResearchSessionManager(
         enrollmentId: String,
         validManifest: BootstrapManifest,
         discoveryActive: Boolean,
+        preparedAgent: PackagedAgentInstall.Ready? = null,
     ): ResearchActivationResult {
         val now = clock()
         val policy = policyFor(validManifest)
@@ -1203,7 +1282,7 @@ class ResearchSessionManager(
 
         // The ACP entry must point the proxy at the live IPC endpoint and hand
         // it that server's capability (never the server session capability).
-        val runtimeSetup = prepareProxyRuntime(startedIpc, validManifest, resolvedPolicy, agentRun.runId)
+        val runtimeSetup = prepareProxyRuntime(startedIpc, validManifest, resolvedPolicy, agentRun.runId, preparedAgent)
         if (runtimeSetup is RuntimeSetup.Failed) {
             markBlocked(runtimeSetup.reason, runtimeSetup.detail)
             return ResearchActivationResult.Blocked(runtimeSetup.reason, runtimeSetup.detail)
@@ -2539,12 +2618,12 @@ class ResearchSessionManager(
      * the proxy as the ACP host entry.
      *
      * The proxy is resolved proxy-only; the agent for a PACKAGED distribution is
-     * installed by [packagedAgentInstaller] from the single shipped recipe and
-     * verified against the bootstrap manifest's pinned
-     * `agent_release.artifact_digest` before any byte is written.
+     * the archive [packagedAgentInstaller] prepared for the assignment (verified
+     * cache or exact release download), checked against the bootstrap manifest's
+     * pinned `agent_release.artifact_digest` before any byte is written.
      *
-     * Fail-closed: any typed resolution failure, a bundled agent whose archive
-     * digest does not match the bootstrap pin, or an ACP registration failure
+     * Fail-closed: any typed resolution failure, an agent archive whose digest
+     * does not match the bootstrap pin, or an ACP registration failure
      * yields [RuntimeSetup.Failed] so no launch happens. When no resolver is
      * injected (pure tests / builds without a packaged runtime), setup is skipped
      * so existing behaviour is preserved.
@@ -2564,6 +2643,7 @@ class ResearchSessionManager(
         validManifest: BootstrapManifest,
         policy: PrivacyPolicy,
         agentRunId: String?,
+        preparedAgent: PackagedAgentInstall.Ready? = null,
     ): RuntimeSetup {
         val resolver = proxyRuntimeResolver ?: return RuntimeSetup.Skipped
         val resolution =
@@ -2584,7 +2664,7 @@ class ResearchSessionManager(
                 // executable resolved from release metadata / settings.
                 val agentPlan =
                     when (validManifest.agentRelease.distributionMode) {
-                        AgentDistributionMode.PACKAGED -> packagedAgentPlan(runtime, validManifest)
+                        AgentDistributionMode.PACKAGED -> packagedAgentPlan(runtime, validManifest, preparedAgent)
                         AgentDistributionMode.BYOA_EXTERNAL -> byoaAgentPlan(validManifest)
                     }
                 val ready =
@@ -2698,16 +2778,16 @@ class ResearchSessionManager(
     }
 
     /**
-     * PACKAGED agent contract: the single shipped recipe/archive is installed and
-     * must match the bootstrap manifest's pinned archive digest before any byte is
-     * written. A missing/mismatched artifact is terminal; PATH is never consulted.
-     *
-     * When the bootstrap release declares an adapter digest, the recipe must
-     * declare the same one. A recipe that declares none is not invented.
+     * PACKAGED agent contract: the archive prepared for the assignment must match
+     * the bootstrap manifest's pinned archive digest before any byte is written. A
+     * missing/mismatched artifact is terminal; PATH is never consulted. The
+     * preparation's release (adapter digest included) already equals this
+     * manifest's release ([me.code4me.research.bootstrap.AgentPreparation.matches]).
      */
     private fun packagedAgentPlan(
         runtime: ResolvedProxyRuntime,
         validManifest: BootstrapManifest,
+        preparedAgent: PackagedAgentInstall.Ready?,
     ): AgentPlan {
         val release = validManifest.agentRelease
         // A development (source) proxy runtime carries no packaged agent; keeping
@@ -2715,7 +2795,7 @@ class ResearchSessionManager(
         if (runtime.development) return AgentPlan.Ready(argv = emptyList(), digest = null)
         val install =
             try {
-                packagedAgentInstaller.install(release.normalizedArtifactDigest.orEmpty())
+                preparedAgent ?: packagedAgentInstaller.install(release.normalizedArtifactDigest.orEmpty())
             } catch (exception: Exception) {
                 return AgentPlan.Failed(
                     StudyBlockReason.RUNTIME_UNAVAILABLE,
@@ -2728,20 +2808,6 @@ class ResearchSessionManager(
                     return AgentPlan.Failed(StudyBlockReason.RUNTIME_UNAVAILABLE, install.detail)
                 is PackagedAgentInstall.Ready -> install
             }
-        val pinnedAdapterDigest = normalizeSha256Hex(release.adapterDigest)
-        val recipeAdapterDigest =
-            try {
-                normalizeSha256Hex(packagedAgentInstaller.recipeAdapterDigest())
-            } catch (exception: Exception) {
-                null
-            }
-        if (pinnedAdapterDigest != null && recipeAdapterDigest != pinnedAdapterDigest) {
-            return AgentPlan.Failed(
-                StudyBlockReason.RUNTIME_UNAVAILABLE,
-                "the bundled agent adapter ${recipeAdapterDigest ?: "is not declared"} does not match the " +
-                    "bootstrap manifest pin ${pinnedAdapterDigest.take(12)}…; refusing to launch",
-            )
-        }
         return AgentPlan.Ready(argv = ready.argv, digest = ready.digest)
     }
 
@@ -3177,7 +3243,12 @@ class ResearchSessionManager(
         }
         // No manifest was validated: the transport block is classified by the
         // server's typed rejection, never collapsed to a generic WITHDRAWN.
-        return when (result.rejection) {
+        return blockReasonFor(result.rejection)
+    }
+
+    private fun blockReasonFor(rejection: BootstrapRejection?): StudyBlockReason =
+        when (rejection) {
+            BootstrapRejection.CONSENT_REQUIRED -> StudyBlockReason.CONSENT_REQUIRED
             BootstrapRejection.COMPATIBILITY_MISSING,
             BootstrapRejection.INCOMPATIBLE_ENVIRONMENT,
             -> StudyBlockReason.INCOMPATIBLE_ENVIRONMENT
@@ -3207,7 +3278,6 @@ class ResearchSessionManager(
             null,
             -> StudyBlockReason.REVOKED
         }
-    }
 
     companion object {
         const val DEFAULT_RESUME_GRACE_MS: Long = 120_000L

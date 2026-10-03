@@ -1,9 +1,10 @@
 package me.code4me.research.proxy
 
 import me.code4me.services.agent.ManagedRuntimeInstaller
+import me.code4me.services.agent.RuntimeArtifact
+import me.code4me.research.bootstrap.AgentReleaseRef
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayOutputStream
@@ -12,11 +13,14 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 /**
- * The production packaged-agent seam: the single shipped recipe
- * (`code4me-runtime/manifest.json`) and its archive, matched against the
- * bootstrap pin before any byte is written.
+ * The production research-agent seam: the assigned release metadata and archive
+ * digest select a public release download or verified cache.
  *
  * The [ManagedRuntimeInstaller] is injected with a temporary install root and an
  * in-memory recipe/archive, so nothing here touches an IDE system path, the real
@@ -32,13 +36,13 @@ class PackagedAgentInstallerTest {
     private val agentArchivePath = "code4me-runtime/code4me-agent-$hostPlatform-$hostArchitecture.zip"
 
     @Test
-    fun `a matching pin installs the agent and returns its managed argv and digest`() {
+    fun `a matching assigned release downloads the agent and returns its managed argv and digest`() {
         val installRoot = Files.createTempDirectory("packaged-agent-match")
         val zip = agentArchive()
         val artifact = artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture)
         val seam = seam(installRoot, artifact, zip)
 
-        val result = seam.install(sha256(zip))
+        val result = seam.prepare(release(zip), { _, _ -> }, { true })
 
         assertTrue(result is PackagedAgentInstall.Ready, (result as? PackagedAgentInstall.Blocked)?.detail)
         val ready = result as PackagedAgentInstall.Ready
@@ -63,17 +67,17 @@ class PackagedAgentInstallerTest {
     }
 
     @Test
-    fun `a pin that differs from the recipe digest blocks before writing anything`() {
+    fun `a pin that differs from the assigned artifact digest blocks before writing anything`() {
         val installRoot = Files.createTempDirectory("packaged-agent-mismatch")
         val zip = agentArchive()
         val artifact = artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture)
         val seam = seam(installRoot, artifact, zip)
 
-        val result = seam.install("a".repeat(64))
+        val result = seam.prepare(release(zip).copy(artifactDigest = "a".repeat(64)), { _, _ -> }, { true })
 
         assertTrue(result is PackagedAgentInstall.Blocked)
         assertTrue(
-            (result as PackagedAgentInstall.Blocked).detail.contains("does not match the pinned release archive"),
+            (result as PackagedAgentInstall.Blocked).detail.contains("does not match the study's checksum"),
             "the block detail must explain the pin mismatch: ${result.detail}",
         )
         assertFalse(
@@ -89,11 +93,11 @@ class PackagedAgentInstallerTest {
         val artifact = artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture)
         val seam = seam(installRoot, artifact, zip)
 
-        val result = seam.install("nope")
+        val result = seam.prepare(release(zip).copy(artifactDigest = "nope"), { _, _ -> }, { true })
 
         assertTrue(result is PackagedAgentInstall.Blocked)
         assertTrue(
-            (result as PackagedAgentInstall.Blocked).detail.contains("not a 64-hex sha256"),
+            (result as PackagedAgentInstall.Blocked).detail.contains("checksum is invalid"),
             "the block detail must name the malformed pin: ${result.detail}",
         )
         assertFalse(Files.exists(installRoot.resolve("code4me-agent")), "a malformed pin must write nothing")
@@ -106,13 +110,13 @@ class PackagedAgentInstallerTest {
         val artifact = artifact(zip = zip, platform = otherPlatform, architecture = otherArchitecture)
         val seam = seam(installRoot, artifact, zip)
 
-        val result = seam.install(sha256(zip))
+        val result = seam.prepare(release(zip, otherPlatform, otherArchitecture), { _, _ -> }, { true })
 
         assertTrue(result is PackagedAgentInstall.Blocked)
         val detail = (result as PackagedAgentInstall.Blocked).detail
         assertTrue(
             detail.contains(
-                "${ManagedRuntimeInstaller.platformId()}-${ManagedRuntimeInstaller.architectureId()}",
+                "${ManagedRuntimeInstaller.platformId()}/${ManagedRuntimeInstaller.architectureId()}",
             ),
             "the block detail must name the host platform: $detail",
         )
@@ -120,41 +124,31 @@ class PackagedAgentInstallerTest {
     }
 
     @Test
-    fun `the recipe adapter digest is surfaced and never invented`() {
-        val installRoot = Files.createTempDirectory("packaged-agent-adapter")
+    fun `pin only legacy path cannot install a bundled study agent`() {
+        val installRoot = Files.createTempDirectory("packaged-agent-legacy")
         val zip = agentArchive()
-        val adapter = "cd".repeat(32)
-        val seamWithAdapter =
-            seam(installRoot, artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture, adapter = adapter), zip)
+        val seam = seam(installRoot, artifact(zip, hostPlatform, hostArchitecture), zip)
 
-        assertEquals(adapter, seamWithAdapter.recipeAdapterDigest())
+        val result = seam.install(sha256(zip))
 
-        val withoutAdapter =
-            seam(
-                Files.createTempDirectory("packaged-agent-no-adapter"),
-                artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture),
-                zip,
-            )
-
-        assertNull(withoutAdapter.recipeAdapterDigest(), "an adapter-less recipe must not invent an identity")
+        assertTrue(result is PackagedAgentInstall.Blocked)
+        assertTrue((result as PackagedAgentInstall.Blocked).detail.contains("public release metadata"))
+        assertFalse(Files.exists(installRoot.resolve("code4me-agent")))
     }
 
     @Test
-    fun `a recipe that declares the adapter only at the top level still pins the agent`() {
-        // The server's participant recipe (and scripts/build-plugin-with-agent.py)
-        // carry the adapter once at the top level, not per artifact.
+    fun `a matching bundled archive is never used for a study cache miss`() {
+        val installRoot = Files.createTempDirectory("packaged-agent-bundle-ignored")
         val zip = agentArchive()
-        val adapter = "ab".repeat(32)
-        val artifactJson = artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture)
-        val seam =
-            seam(
-                Files.createTempDirectory("packaged-agent-top-level-adapter"),
-                artifactJson,
-                zip,
-                manifest = recipe(artifactJson, adapter = adapter),
-            )
+        val artifact = artifact(zip = zip, platform = hostPlatform, architecture = hostArchitecture)
+        val release = release(zip)
+        val seam = seam(installRoot, artifact, zip)
 
-        assertEquals(adapter, seam.recipeAdapterDigest())
+        val result = seam.prepare(release.copy(artifact = release.artifact!!.copy(downloadUrl = null)), { _, _ -> }, { true })
+
+        assertTrue(result is PackagedAgentInstall.Blocked)
+        assertTrue((result as PackagedAgentInstall.Blocked).detail.contains("no public GitHub Release URL"), result.detail)
+        assertFalse(Files.exists(installRoot.resolve("code4me-agent/9.9.9-${sha256(zip).take(12)}")))
     }
 
     // ------------------------------------------------------------------
@@ -170,6 +164,10 @@ class PackagedAgentInstallerTest {
         val installer =
             ManagedRuntimeInstaller(
                 installRoot = installRoot,
+                downloadClient = OkHttpClient.Builder().addInterceptor { chain ->
+                    Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                        .code(200).message("OK").body(zip.toResponseBody()).build()
+                }.build(),
                 resourceLoader = { path ->
                     when (path) {
                         ManagedRuntimeInstaller.MANIFEST_RESOURCE -> manifest.byteInputStream()
@@ -181,22 +179,28 @@ class PackagedAgentInstallerTest {
         return ProductionPackagedAgentInstaller { installer }
     }
 
+    private fun release(zip: ByteArray, platform: String = hostPlatform, architecture: String = hostArchitecture): AgentReleaseRef {
+        val artifact = RuntimeArtifact(
+            "code4me-agent", "9.9.9", platform, architecture, agentArchivePath,
+            sha256(zip), "code4me2-agent", "1",
+            downloadUrl = "https://github.com/AISE-TUDelft/code4me2-server/releases/download/runtime-v9.9.9/${Path.of(agentArchivePath).fileName}",
+            size = zip.size.toLong(),
+        )
+        return AgentReleaseRef("code4me-agent", "runtime-v9.9.9", "9.9.9", sha256(zip), artifact = artifact)
+    }
+
     /** One recipe artifact declaring [zip]'s exact bytes. */
     private fun artifact(
         zip: ByteArray,
         platform: String,
         architecture: String,
-        adapter: String? = null,
-    ): String {
-        val adapterField = adapter?.let { ""","adapter":{"digest":"$it"}""" }.orEmpty()
-        return """{"runtime_id":"code4me-agent","version":"9.9.9","platform":"$platform",""" +
+    ): String =
+        """{"runtime_id":"code4me-agent","version":"9.9.9","platform":"$platform",""" +
             """"architecture":"$architecture","archive":"$agentArchivePath","sha256":"${sha256(zip)}",""" +
-            """"executable":"code4me2-agent","managed_protocol":"1","size":${zip.size}$adapterField}"""
-    }
+            """"executable":"code4me2-agent","managed_protocol":"1","size":${zip.size}}"""
 
-    private fun recipe(artifactJson: String, adapter: String? = null): String =
+    private fun recipe(artifactJson: String): String =
         """{"manifest_version":1,"runtime_version":"9.9.9","managed_protocol_version":"1",""" +
-            (adapter?.let { """"adapter":{"digest":"$it"},""" } ?: "") +
             """"artifacts":[$artifactJson]}"""
 
     /** A real in-memory onedir-shaped ZIP: executable plus its dependency tree. */

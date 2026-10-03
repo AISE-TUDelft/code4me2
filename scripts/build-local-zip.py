@@ -163,9 +163,8 @@ def generated_manifest(
     architecture: str,
     executable: str,
 ) -> dict[str, object]:
-    source_manifest = json.loads(
-        (plugin_root / "src/main/resources/code4me-runtime/manifest.json").read_text(encoding="utf-8")
-    )
+    # The plugin repository ships no agent recipe, so the overlay recipe starts here.
+    source_manifest: dict[str, object] = {"manifest_version": 1, "managed_protocol_version": "1"}
     checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
     source_manifest["runtime_version"] = version
     source_manifest["server_commit"] = git_revision(server_root)

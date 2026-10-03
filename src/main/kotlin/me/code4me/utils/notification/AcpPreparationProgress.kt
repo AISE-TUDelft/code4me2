@@ -2,6 +2,7 @@ package me.code4me.utils.notification
 
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.notification.NotificationAction
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
@@ -11,6 +12,7 @@ import javax.swing.Timer
 
 internal fun interface AcpPreparationNotice {
     fun expire()
+    fun update(message: String, onCancel: () -> Unit) {}
 }
 
 interface AcpPreparationLease {
@@ -45,6 +47,7 @@ class AcpPreparationProgress(project: Project) : AcpPreparationIndicator, Dispos
     override fun acquire(delayMs: Int): AcpPreparationLease = controller.acquire(delayMs)
 
     fun cancelAll() = controller.cancelAll()
+    fun update(message: String, onCancel: () -> Unit) = controller.update(message, onCancel)
 
     override fun dispose() = controller.dispose()
 }
@@ -63,6 +66,21 @@ internal class AcpPreparationProgressController(
     private var notice: AcpPreparationNotice? = null
     private val pendingExpiry = mutableListOf<AcpPreparationNotice>()
     private var disposed = false
+    private var progressMessage: String? = null
+    private var cancelAction: (() -> Unit)? = null
+
+    fun update(message: String, onCancel: () -> Unit) {
+        synchronized(lock) {
+            if (disposed || activeLeases.isEmpty()) return
+            progressMessage = message
+            cancelAction = onCancel
+        }
+        runOnUi {
+            synchronized(lock) {
+                if (!disposed && activeLeases.isNotEmpty()) notice?.update(message, onCancel)
+            }
+        }
+    }
 
     override fun acquire(delayMs: Int): AcpPreparationLease {
         val acquisition = synchronized(lock) {
@@ -93,6 +111,8 @@ internal class AcpPreparationProgressController(
             if (disposed) return
             if (dispose) disposed = true
             activeLeases.clear()
+            progressMessage = null
+            cancelAction = null
             displayGeneration++
             outcomeEpoch++
             notice?.let(pendingExpiry::add)
@@ -110,6 +130,8 @@ internal class AcpPreparationProgressController(
                 outcomeEpoch++
             }
             if (activeLeases.isEmpty()) {
+                progressMessage = null
+                cancelAction = null
                 displayGeneration++
                 notice?.let(pendingExpiry::add)
                 notice = null
@@ -131,6 +153,7 @@ internal class AcpPreparationProgressController(
                 displayGeneration != expectedGeneration || notice != null
             ) return
             notice = showNotice(project)
+            progressMessage?.let { message -> cancelAction?.let { notice?.update(message, it) } }
         }
     }
 
@@ -160,5 +183,13 @@ private fun showDefaultNotice(project: Project): AcpPreparationNotice {
                 NotificationType.INFORMATION,
             )
     notification.notify(project)
-    return AcpPreparationNotice { notification.expire() }
+    return object : AcpPreparationNotice {
+        private var cancelAction: (() -> Unit)? = null
+        override fun expire() = notification.expire()
+        override fun update(message: String, onCancel: () -> Unit) {
+            if (cancelAction == null) notification.addAction(NotificationAction.createSimpleExpiring("Cancel") { cancelAction?.invoke() })
+            cancelAction = onCancel
+            notification.setContent(message)
+        }
+    }
 }

@@ -1,213 +1,184 @@
-# One ZIP, one preparation workflow
+# Participant plugin and study agents
 
-All participants install the same ZIP. Code4Me's native agent and the research
-proxy are bundled for macOS arm64/x64, Linux x64 and Windows x64. Goose and Codex
-remain participant-installed ACP agents. Their command, adapter and configuration
-contracts are declared in the recipe; the workflow never installs them.
+All participants install the same plugin ZIP, from JetBrains Marketplace once
+published there. The plugin bundles **no agent**. A study assignment pins its agent
+release. When a participant prepares the study, the plugin uses the verified cache
+entry for that archive's SHA-256, or downloads the exact archive from the public
+GitHub Release of `AISE-TUDelft/code4me2-server`. It checks the archive's size,
+SHA-256 and contents, and only then installs and runs it.
 
-The plugin ships exactly **one** managed agent artifact identity: the runtime
-recipe `code4me-runtime/manifest.json` plus the platform archive it declares. The
-research path installs that recipe through the same `ManagedRuntimeInstaller` the
-managed (non-research) participant path uses, and matches it against the
-bootstrap manifest's pinned `agent_release.artifact_digest` before any byte is
-written. There is no release-keyed per-platform agent payload in the proxy
-manifest, and no second agent copy to keep in sync.
+A plugin update therefore never changes which agent a study runs. A new agent
+version needs no new plugin, only a runtime release, its registration on the
+server, and a study that selects it. Goose and Codex remain participant-installed
+ACP agents.
 
-The server still stores three immutable agent releases. The workflow derives
-their IDs and registers them together; there is no release-group table or parent
-pin. Studies keep their own frozen profile/release assignments. The initial
-recipe supports one version of each framework, shared by any number of studies.
-Additional version-comparison recipes are not implemented by this command.
+The plugin ZIP carries the research proxy for macOS arm64/x64, Linux x64 and
+Windows x64, built from the server's shared contract sources.
 
-## Inputs
+## 1. Publish a runtime release (server repository)
 
-Use the server's Python environment (Pydantic v2) and a matching server checkout.
-Start from [participant-release.example.json](participant-release.example.json).
-It is an intentionally invalid template: replace every REPLACE value with
-actual pinned inputs. Do not fill hashes with placeholders.
+Run **Actions → Build managed runtime** in `code4me2-server`:
 
-- Pin the full plugin/server commits and independent plugin/agent versions.
-- Supply the existing native release manifest and all four archives together.
-  The recipe pins the manifest's file SHA-256; its server commit and archive
-  hashes are verified. Preparation copies each archive and pins its executable,
-  SHA-256 and size.
-- Choose qualified Goose/Codex ACP commands, adapters and configuration bindings
-  for the intended versions. A version label or a discovered executable alone
-  does not demonstrate agent compatibility.
-- A Goose release must also bind the five research inference gateway runtime
-  fields the plugin fills at launch: `inference_gateway_host` (the server origin
-  the plugin bootstrapped from), `inference_gateway_base_path` (the manifest's
-  relative gateway path), `inference_gateway_credential` (`env` transport only;
-  the plugin delivers the value through an owner-only file the proxy reads,
-  never through argv), `provider_kind` (with a `value_map` that translates
-  `openai_compatible` into the agent's vocabulary, for Goose `openai`) and
-  `state_dir` (a plugin-owned directory that isolates the agent's own
-  configuration). The example recipe binds them to `OPENAI_HOST`,
-  `OPENAI_BASE_PATH`, `OPENAI_API_KEY`, `GOOSE_PROVIDER` and `GOOSE_PATH_ROOT`.
-  Without all five the server refuses to bootstrap the arm
-  (`INFERENCE_GATEWAY_UNBOUND`) and the plugin refuses to launch
-  (`RUNTIME_UNAVAILABLE`).
-- Optional profiles use existing profile request fields: name, framework_version,
-  connection_id, model, approval_policy, max_steps, tools_json, is_active,
-  temperature and max_context_tokens. Provider connection IDs are non-secret;
-  provider credentials and participant paths must never enter a recipe. Goose
-  arms spend from the study's server-held provider key through the research
-  inference gateway with a study-issued, revocable credential; Codex arms sign
-  in with ChatGPT. A participant's own provider keys are never used in a study.
+- `version`: an unused runtime version.
+- `publishRelease`:
+  - `true` publishes the immutable `runtime-v<version>` GitHub Release: the four
+    agent archives plus `code4me-managed-runtime-release.json`, whose artifacts
+    carry their exact `download_url`.
+  - `false` is a dry run. It leaves only the combined Actions artifact
+    `code4me-managed-runtime-release`. That artifact has no download URLs, so
+    participants cannot use it.
+- `sign` (default `false`): code-sign the archives; the macOS archive is also
+  notarized.
+  - Participants don't need it. The plugin downloads, verifies and launches the
+    agent itself, so Gatekeeper and SmartScreen never assess it.
+  - It mainly helps Windows hosts with Smart App Control or strict antivirus.
+  - It needs the signing secrets (see `code4me2-server/packaging/README.md`) and
+    produces archives with a new SHA-256.
+- `minPluginVersion`: optional. The server refuses plugins older than this for
+  studies that use the release.
 
-## Prepare and build
+A repository admin should enable **Settings → General → Releases → Enable release
+immutability** on the server repository. Published assets and tags then cannot
+change. The workflow already refuses to replace an existing release.
 
-From the plugin repository, with the native release files in a separate input
-directory:
+## 2. Register the release (website)
 
-    ../code4me2-server/.venv/bin/python scripts/participant-release.py validate \
-      /path/to/recipe.json --inputs /path/to/native-release
+Open **Admin → Agents → Import a runtime manifest and its archives**. Then either:
 
-    ../code4me2-server/.venv/bin/python scripts/participant-release.py prepare \
-      /path/to/recipe.json --inputs /path/to/native-release \
-      --output /path/to/prepared-release
+- tick **Import from release URLs** and enter the Release URL of
+  `code4me-managed-runtime-release.json` and the four archive URLs; or
+- upload that JSON with the four ZIPs it declares. Use the original Release files,
+  never re-zipped copies or the outer Actions download ZIP.
 
-Both commands are offline. Preparation uses a new output directory and does not
-stamp source versions or change the committed runtime recipe or archive. It emits
-a single recipe document plus the transport archives it pins:
+The server checks every archive's size and SHA-256 against the manifest and keeps
+each artifact's `download_url`. It accepts download URLs only for exact release
+assets of `AISE-TUDelft/code4me2-server`; `latest` URLs are rejected.
 
-- recipe.json: the one prepared release document (runtime version, plugin/server
-  commits, its own adapter identity, the three agent declarations, optional
-  profile templates and the per-platform archive sha256/size/executable);
-- resources/code4me-runtime/: the independently checksummed native archives, one
-  per declared platform;
-- prepared-inputs.json: the sha256 of every emitted file.
+Select the release in an agent profile and that profile in a study. The study's
+frozen assignment pins the archive SHA-256, and later profile edits do not change
+a running study.
 
-There is no `catalog.json`, no `research-agents/` payload tree and no
-release-keyed per-platform agent block: the recipe document **is** the release
-inventory. The plugin derives its simplified release inventory (schema version,
-plugin version, platforms and the three framework identities) directly from
-recipe.json when it stages the proxy manifest, so the shipped recipe and the
-archive it declares are the single managed agent identity. There is no separate
-`inventory` key and no server-derived `release_id` to match. recipe.json and
-prepared-inputs.json pin these outputs for later phases. Changed or missing
-inputs are rejected before building or writing to a server. To apply a CI build
-locally, prepare again from the uploaded recipe and the same native inputs, and
-compare its recipe digest with CI evidence.
+## 3. Build the participant plugin (plugin repository)
 
-Build the research proxy on each matching native host using the pinned clean
-plugin/server checkouts:
+Run **Actions → Build participant plugin**:
 
-    ./gradlew --no-daemon --no-configuration-cache buildResearchProxyBundle
+| Input | Meaning |
+|---|---|
+| `serverUrl` | Backend origin baked into the plugin. Use `https://…` for a Marketplace candidate, or `http://localhost:<port>` with a prerelease version for a test ZIP. |
+| `version` | Plugin SemVer version. |
+| `serverRepository`, `serverRef` | Server sources the research proxy is built from. A Marketplace candidate must use the deployed server's full commit SHA. The workflow resolves the ref to one commit for all four proxy builds. |
+| `publishRelease` | Also publish the ZIP as a `plugin-v<version>` GitHub release. It never uploads to Marketplace. |
+| `fullHostSmoke` | Run the plugin tests, then install and start the final ZIP in IntelliJ on all four hosts. Keep it `false` for now: the `host-smoke` job cannot pass, because it runs `ui.PluginZipHostSmokeTest`, which no longer exists in `ui-tests`, and passes `-PparticipantHostZip`, which the build never reads. This predates the agent-free change. |
 
-Collect the four resulting telemetry-acp-proxy/dist/<platform>/ directories on
-the assembly host. The builder records source revisions and a hash of its
-server/proxy contract sources; preparation-based staging rejects missing,
-dirty or mismatched provenance.
-The Gradle property researchProxyDistDir can point to an external bundle directory.
+The build needs no runtime release. It:
 
-    ../code4me2-server/.venv/bin/python scripts/participant-release.py build \
-      /path/to/prepared-release --server-url https://study.example.org
+1. builds four self-contained proxies;
+2. runs `./gradlew buildPlugin` with `-Pcode4me.serverUrl`;
+3. runs `scripts/verify-participant-artifact.py --agent-free`. This checks that the
+   ZIP contains all four proxies, no `code4me-runtime/` agent, and no credentials
+   or developer paths.
 
-The build checks source pins, uses the prepared resource overlay, verifies the
-actual Gradle output ZIP and writes build-report.json with its SHA-256. It
-requires clean committed source inputs and never commits them for you. It does
-not register releases, publish an artifact or deploy a server.
+The `participant-release-evidence` artifact's `build-report.json` records the
+plugin and server commits and the ZIP SHA-256. Uploading to Marketplace is a
+separate manual step with the verified ZIP.
 
-The participant GitHub workflow has a simple localhost prerelease test form:
-enter a plugin version (for example `0.0.1-test1`) and either the native runtime
-workflow run ID or its published tag. It derives the server commit from the
-runtime manifest and the plugin commit from the workflow revision. It builds
-all four native proxies and packages only the managed Code4Me agent; it does not
-invent Goose/Codex identities. `publishRelease` optionally publishes a GitHub
-prerelease, while `fullHostSmoke` runs plugin tests and the final ZIP smoke on
-every host. For a distributable three-agent/HTTPS release, prepare the full
-versioned recipe with qualified BYOA bindings and use the CLI above instead.
+Until the workflow is on `main`:
 
-## Register and resume
-
-Deploy compatible server contracts before distributing a new participant ZIP.
-Set CODE4ME_RELEASE_AUTH_TOKEN outside shell history to an administrator's
-auth_token cookie value. Only the explicit apply phase contacts a server:
-
-    ../code4me2-server/.venv/bin/python scripts/participant-release.py apply \
-      /path/to/prepared-release --server-url https://study.example.org
-
-The command preflights all identities/content, registers missing leaves and
-reuses exact existing records. Conflicts stop without overwriting or deleting
-anything. apply-report.json records completed and pending operations. After a
-timeout, rerunning reconciles the server state; no cross-request transaction is
-claimed.
-
-Registration does not qualify a release. Run actual conformance cases against
-the selected artifacts/installations using the existing conformance runner.
-For new managed leaves, pass the release_id to ConformanceRunner.run along with
-the archive artifact_digest, the adapter_digest and the host. Supply resulting
-real receipts as a JSON array:
-
-    ../code4me2-server/.venv/bin/python scripts/participant-release.py apply \
-      /path/to/prepared-release --server-url https://study.example.org \
-      --receipts /path/to/real-conformance-receipts.json
-
-The same command uploads these receipts, verifies qualification across every
-managed platform, and creates/reuses compatible profile templates. Missing
-qualification leaves pending entries and exits 2. Profiles with conflicting or
-ambiguous existing names require a new name; existing profiles are not edited.
-Use the returned profile IDs in the existing study UI.
+- A push to `feat/plugin` builds a test ZIP with version
+  `0.0.1-branch.g<plugin SHA prefix>`.
+- Optional repository variables:
+  - `CODE4ME_BRANCH_SERVER_URL` (default `http://localhost:18080`)
+  - `CODE4ME_BRANCH_SERVER_REPOSITORY` (default `AISE-TUDelft/code4me2-server`)
+  - `CODE4ME_BRANCH_SERVER_REF` (default `feat/plugin`; must be a full commit SHA
+    when the server URL is HTTPS)
+- If the server repository needs a token, set `CODE4ME_RELEASE_TOKEN` with
+  contents read access.
+- GitHub shows the **Run workflow** button only for workflows on the default
+  branch. After a branch push has registered the workflow, the API can dispatch it.
 
 ## Identity and compatibility
 
-DistributionArtifact.sha256 remains the archive hash. Bootstrap projects
-archive_sha256 and adapter_digest separately; the bootstrap manifest pins
-`agent_release.artifact_digest` (the ZIP's SHA-256) and, when the release
-declares one, `agent_release.adapter_digest`.
+`DistributionArtifact.sha256` is the archive hash. The bootstrap pins
+`agent_release.artifact_digest` and carries the selected platform artifact's
+`download_url`, size, executable and managed protocol.
 
-The client's managed identity is therefore exactly one archive pin plus one
-optional recipe adapter pin. A PACKAGED distribution resolves the shipped
-`code4me-runtime/manifest.json`, refuses when its declared archive sha256 does not
-equal the bootstrap pin (before writing anything), and only then installs the
-archive. There is no execution manifest and no extracted-file inventory on the
-client side: the recipe's declared executable, argv and archive bytes are the
-launch contract. The bootstrap release ID is recorded for attribution, not
-matched against a client-side release table.
+The plugin refuses:
 
-Historical archive-only leaves and snapshots are preserved in server storage. Do
-not relabel old digests or retarget frozen assignments. Deploy server changes
-first and require the corresponding participant ZIP for those studies.
+- an archive whose SHA-256 differs from the pin;
+- a URL outside the canonical repository, or a `latest` URL;
+- a redirect away from GitHub's release hosts;
+- any size, digest or content mismatch.
 
-## Local test releases (development only)
+Installation never executes the archive. A fresh bootstrap authorizes the native
+self-check and the launch.
 
-A production participant release always covers the four native platforms above.
-For local end-to-end testing on the current macOS arm64 host, an operator may
-prepare a real single-platform release from the one native runtime archive and
-research-proxy bundle that exist locally. This mode is explicit and never
-implied:
+A verified cache entry is used without a download. A cache miss needs HTTPS
+access to `github.com`, `release-assets.githubusercontent.com` and
+`objects.githubusercontent.com` on the participant's machine. A cache miss
+without a URL blocks the study, and it never falls back to a bundled or unrelated agent. So a
+study pinned to an older release without `download_url` runs only where its
+archive is already cached. For participants, assign a release imported from a
+published runtime Release.
 
-- `prepare`/`validate` accept `--platforms macos-aarch64` only when
-  `CODE4ME_LOCAL_RELEASE=1` is set; the recipe, the staged proxy manifest and the
-  shipped `code4me-runtime/manifest.json` then declare exactly that subset.
-- `build` passes `-PparticipantLocalRelease=true` (which permits a loopback HTTP
-  `--server-url` such as `http://localhost:8008` and relaxes only the
-  four-platform runtime-recipe coverage check) and verifies the ZIP with
-  `--allow-partial-platforms`, which requires the artifact platforms to match
-  the recipe's own inventory instead of the production matrix.
-- Without the environment variable and the subset flag, every phase keeps the
-  strict four-platform contract, and the strict verifier still rejects any
-  partial or non-self-contained artifact.
+## Local development and e2e
 
-The resulting ZIP is a local test artifact. It carries the release, profile and
-study records for one platform and must not be distributed to participants.
+A local build can target a loopback backend with
+`-Pcode4me.serverUrl=http://localhost:8008 -PparticipantLocalRelease=true`.
+
+Studies never use a bundled archive. To run a locally built agent in a study:
+
+1. Register its manifest and archive in the local backend.
+2. Copy the same archive to
+   `<IDE system path>/code4me/runtimes/code4me-agent/archives/<sha256>.zip`. On
+   macOS the system path is usually `~/Library/Caches/JetBrains/IntelliJIdea2026.2`.
+   The plugin verifies the archive's size and digest before use.
+
+The e2e UI layer does exactly this (`code4me_e2e.runtime.seed_agent_cache`).
+
+The recipe CLI (`scripts/participant-release.py validate|prepare|build`) and
+`scripts/build-plugin-with-agent.py` still build ZIPs with a bundled agent recipe.
+Only the ordinary non-study setup reads a bundled recipe, and the server refuses
+that setup to users without an active study. Participant builds do not use these
+tools. The CLI's `apply` command posts to registration routes the current server no
+longer has, so use the website import instead.
+
+For three-agent recipes:
+
+- Goose and Codex releases declare qualified ACP commands, adapters and
+  configuration bindings. A version label or a discovered executable alone does
+  not show that an agent is compatible.
+- A Goose release must bind the five research inference gateway fields the plugin
+  fills at launch:
+  - `inference_gateway_host`
+  - `inference_gateway_base_path`
+  - `inference_gateway_credential` (`env` transport only; delivered through an
+    owner-only file, never argv)
+  - `provider_kind` (with a `value_map`, `openai_compatible` → `openai`)
+  - `state_dir`
+- The example recipe binds these to `OPENAI_HOST`, `OPENAI_BASE_PATH`,
+  `OPENAI_API_KEY`, `GOOSE_PROVIDER` and `GOOSE_PATH_ROOT`. Without all five, the
+  server refuses to bootstrap the arm (`INFERENCE_GATEWAY_UNBOUND`) and the plugin
+  refuses to launch (`RUNTIME_UNAVAILABLE`).
+- Provider credentials and participant paths never enter a recipe.
+
+Local single-platform recipe releases need `CODE4ME_LOCAL_RELEASE=1` with
+`--platforms macos-aarch64`, and are verified with `--allow-partial-platforms`.
+They are local test artifacts and must not be distributed.
 
 ## Verification and limits
 
-Unit/contract tests use small synthetic native-shaped archives to exercise
-unequal archive/executable hashes, safe extraction, resumable apply and the
-fail-closed pinned-digest check. They do not prove real agent compatibility.
-The strict final-artifact verifier requires the plugin's recipe-derived release
-inventory, the single shipped `code4me-runtime/manifest.json` + archive it
-declares, and all four managed platforms:
+Unit and contract tests use small synthetic archives. They cover:
 
-    python3 scripts/verify-participant-artifact.py /path/to/plugin.zip \
-      --require-participant-release
+- download and cache verification;
+- the canonical-repository pin;
+- safe extraction;
+- the agent-free ZIP verifier.
 
-Before participants run, obtain the actual native artifacts, compatible
-Goose/Codex installations/configuration, real conformance receipts, and the
-same-ZIP mixed-agent study evidence. Existing BYOA installed-binary attestation,
-telemetry/privacy, product fencing and lifecycle findings from the architecture
-ruling remain separate readiness work; this distribution change does not
-declare them resolved.
+They do not prove real agent compatibility. Before participants run, you still
+need:
+
+- a published runtime Release;
+- its registration and qualification on the deployed backend;
+- a plugin ZIP built from the deployed server commit;
+- an installed-IDE study test on each target platform, including a clean
+  Windows 11 machine with Defender (and Smart App Control if participants use it).

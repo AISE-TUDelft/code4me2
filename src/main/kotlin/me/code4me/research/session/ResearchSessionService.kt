@@ -26,6 +26,8 @@ import me.code4me.research.spool.DurableSpool
 import me.code4me.research.spool.SpoolUploadResult
 import me.code4me.research.session.ParticipantStudyStateV1
 import me.code4me.services.app.getAppService
+import me.code4me.services.state.getAuthState
+import me.code4me.utils.notification.getAcpPreparationProgress
 import me.code4me.services.config.getConfig
 import me.code4me.services.config.models.ServerConfig
 import okhttp3.Call
@@ -80,6 +82,7 @@ class ResearchSessionService internal constructor(
     constructor(project: Project) : this(project, null, null, null)
 
     @Volatile private var manager: ResearchSessionManager? = null
+    @Volatile private var managerOrigin: String? = null
     @Volatile private var eventExecutor: java.util.concurrent.ExecutorService? = null
     @Volatile private var disposed = false
 
@@ -95,9 +98,34 @@ class ResearchSessionService internal constructor(
     fun state(): ParticipantStudyStateV1 = manager().state()
 
     /** Request manifest validation and session start for [enrollmentId]. */
-    fun activate(enrollmentId: String): ResearchActivationResult =
-        managerOrNull()?.activate(enrollmentId)
-            ?: ResearchActivationResult.Blocked(StudyBlockReason.REVOKED, "research session service has been disposed")
+    fun activate(enrollmentId: String, isCurrent: () -> Boolean = { true }): ResearchActivationResult {
+        val currentManager = managerOrNull()
+            ?: return ResearchActivationResult.Blocked(StudyBlockReason.REVOKED, "research session service has been disposed")
+        if (managerFactoryOverride != null) return currentManager.activate(enrollmentId, isCurrent)
+        val auth = getAuthState()
+        val generation = auth.tokenGeneration()
+        val origin = getAppService().getAcpRuntimeBaseUrl()
+        val progress = getAcpPreparationProgress(project)
+        val lease = progress.acquire()
+        var lastPercent = -1
+        progress.update("Preparing your study's agent. You can keep working.", currentManager::cancelPreparation)
+        return try {
+            currentManager.activate(
+                enrollmentId,
+                isCurrent = { !disposed && !project.isDisposed && isCurrent() && auth.isAuthenticated() &&
+                    auth.tokenGeneration() == generation && getAppService().getAcpRuntimeBaseUrl() == origin },
+                progress = { downloaded, total ->
+                    val percent = if (total > 0) (downloaded * 100 / total).toInt() else 0
+                    if (percent != lastPercent) {
+                        lastPercent = percent
+                        progress.update("Downloading your study's agent: $percent%. You can keep working.", currentManager::cancelPreparation)
+                    }
+                },
+            )
+        } finally {
+            lease.finish()
+        }
+    }
 
 
     /**
@@ -160,10 +188,11 @@ class ResearchSessionService internal constructor(
      * inactive without error; an unreachable server keeps the hint and returns
      * a retryable typed result so ordinary ACP setup remains fenced.
      */
-    fun reconcileFromServer(): ResearchReconciliationResult {
+    fun reconcileFromServer(isCurrent: () -> Boolean = { true }): ResearchReconciliationResult {
+        if (managerOrigin != null && managerOrigin != resolveConfiguredBaseUrl()) resetManager(quarantine = true)
         val settings = enrollmentSettings()
         val discovery = discoverEnrollment()
-        if (disposed) return ResearchReconciliationResult.Unavailable("research session service has been disposed")
+        if (disposed || !isCurrent()) return ResearchReconciliationResult.Unavailable("research session service is no longer current")
         return when (discovery) {
             is EnrollmentDiscovery.Active -> {
                 settings?.setEnrollmentId(discovery.enrollmentId)
@@ -179,7 +208,7 @@ class ResearchSessionService internal constructor(
                     // another agent run on every auth-bridge retry.
                     ResearchReconciliationResult.StudyOwned(activation = null)
                 } else {
-                    ResearchReconciliationResult.StudyOwned(activate(discovery.enrollmentId))
+                    ResearchReconciliationResult.StudyOwned(activate(discovery.enrollmentId, isCurrent))
                 }
             }
             is EnrollmentDiscovery.Terminal -> {
@@ -199,8 +228,10 @@ class ResearchSessionService internal constructor(
     }
 
     /** Compatibility wrapper retained for callers that only need the activation result. */
-    fun reactivateFromServer(): ResearchActivationResult? =
-        (reconcileFromServer() as? ResearchReconciliationResult.StudyOwned)?.activation
+    fun reactivateFromServer(): ResearchActivationResult? {
+        manager?.retryPreparation()
+        return (reconcileFromServer() as? ResearchReconciliationResult.StudyOwned)?.activation
+    }
 
     /** Stop any running participant session (idempotent). */
     fun stop(): ResearchStopResult = manager().stop()
@@ -242,6 +273,8 @@ class ResearchSessionService internal constructor(
 
     private fun buildManager(): ResearchSessionManager {
         managerFactoryOverride?.let { return it() }
+        val origin = resolveConfiguredBaseUrl()
+        managerOrigin = origin
         val contextId = ResearchSessionManager.opaqueContextId(projectKeyForSession())
         // IDE events are processed off the UI thread (see the manager's
         // eventExecutor): one daemon thread keeps their order.
@@ -254,7 +287,7 @@ class ResearchSessionService internal constructor(
         return ResearchSessionManager(
             eventExecutor = executor,
             projectKey = projectKeyForSession(),
-            transport = participantTransport(resolveConfiguredBaseUrl(), { environment() }),
+            transport = participantTransport(origin, { environment() }),
             compatibility = pluginCompatibility(),
             spoolProvider = { enrollmentId -> DurableSpool(spoolDirectory(enrollmentId)) },
             source = project.getService(IntellijIdeActivitySource::class.java),
@@ -323,6 +356,7 @@ class ResearchSessionService internal constructor(
         discard: Boolean = false,
     ): Boolean {
         val (previous, executor) = synchronized(this) {
+            managerOrigin = null
             if (terminal) disposed = true
             val current = manager.also { manager = null }
             current to eventExecutor.also { eventExecutor = null }
@@ -391,7 +425,7 @@ class ResearchSessionService internal constructor(
      */
     private fun resolveConfiguredBaseUrl(): String? =
         try {
-            resolveBaseUrl(getConfig().getServerConfig())
+            getAppService().getAcpRuntimeBaseUrl().trim().trimEnd('/').takeIf { it.isNotBlank() }
         } catch (_: Exception) {
             null
         }

@@ -292,6 +292,10 @@ def main():
         "server_commit": recipe["server_commit"],
         "platforms": platforms,
         "recipe_digest": recipe["recipe_digest"],
+        "agent_archives": [
+            {"archive": item["archive"], "sha256": item["sha256"]}
+            for item in recipe["artifacts"]
+        ],
         "zip_name": artifact.name,
         "zip_sha256": file_sha256(artifact),
     }

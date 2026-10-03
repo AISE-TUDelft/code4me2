@@ -8,6 +8,30 @@ import java.util.ArrayDeque
 
 class AcpPreparationProgressTest {
     @Test
+    fun `delayed preparation shows the latest progress and a working cancel action`() {
+        val ui = ArrayDeque<() -> Unit>()
+        val delayed = ArrayDeque<() -> Unit>()
+        var message = ""
+        var cancel: (() -> Unit)? = null
+        var cancelled = false
+        val progress = AcpPreparationProgressController(
+            mock<Project>(), { ui.addLast(it) }, { _, task -> delayed.addLast(task) },
+            { object : AcpPreparationNotice {
+                override fun expire() {}
+                override fun update(text: String, onCancel: () -> Unit) { message = text; cancel = onCancel }
+            } },
+        )
+        val lease = progress.acquire()
+        progress.update("Downloading agent: 50%") { cancelled = true }
+        while (ui.isNotEmpty()) ui.removeFirst().invoke()
+        delayed.removeFirst().invoke()
+        assertEquals("Downloading agent: 50%", message)
+        cancel!!.invoke()
+        assertEquals(true, cancelled)
+        lease.finish()
+    }
+
+    @Test
     fun `fast preparation never shows a waiting balloon`() {
         val ui = ArrayDeque<() -> Unit>()
         val delayed = ArrayDeque<() -> Unit>()

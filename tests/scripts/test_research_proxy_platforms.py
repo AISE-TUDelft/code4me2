@@ -82,3 +82,20 @@ def test_unrecognized_release_fails(tmp_path: Path) -> None:
     result = run_script(tmp_path, release_manifest(["agent.zip"]))
     assert result.returncode != 0
     assert "no platform could be derived" in result.stdout + result.stderr
+
+
+def test_without_a_release_every_supported_platform_is_built(tmp_path: Path) -> None:
+    output_path = tmp_path / "github-output.txt"
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--github-output", str(output_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "platforms=macos-aarch64,macos-x64,linux-x64,windows-x64" in result.stdout
+    matrix_line = next(
+        line for line in output_path.read_text(encoding="utf-8").splitlines() if line.startswith("matrix=")
+    )
+    assert len(json.loads(matrix_line.removeprefix("matrix="))) == 4
+    assert "warning" not in result.stderr

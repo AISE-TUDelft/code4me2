@@ -243,6 +243,9 @@ def test_managed_only_build_wires_local_gradle_and_verifier(tmp_path, monkeypatc
     assert "-PparticipantLocalRelease=true" in commands[0]
     assert "--require-participant-release" in commands[1]
     assert "--allow-managed-only" in commands[1]
+    report = json.loads((prepared / "build-report.json").read_text())
+    assert len(report["agent_archives"]) == 4
+    assert report["zip_sha256"] != report["agent_archives"][0]["sha256"]
     monkeypatch.setattr(sys, "argv", [
         "participant-release.py", "--server-source", str(server / "src"), "build",
         str(prepared), "--server-url", "http://localhost:8008/path", "--managed-only-test",
@@ -318,8 +321,11 @@ def test_preflight_detects_later_conflict_before_registering_first_record(tmp_pa
     assert api.posts == []
 
 
-def test_release_mode_and_framework_must_be_complete(tmp_path):
+def test_recipe_must_include_exactly_one_managed_agent(tmp_path):
     recipe = fixtures.make_inputs(tmp_path / "inputs").model_dump()
-    recipe["agents"].pop()
-    with pytest.raises(ValueError, match="exactly once"):
+    managed = recipe["agents"].pop(0)
+    with pytest.raises(ValueError, match="one managed agent"):
+        fixtures.ParticipantRecipe.model_validate(recipe)
+    recipe["agents"].extend([managed, managed])
+    with pytest.raises(ValueError, match="one managed agent"):
         fixtures.ParticipantRecipe.model_validate(recipe)

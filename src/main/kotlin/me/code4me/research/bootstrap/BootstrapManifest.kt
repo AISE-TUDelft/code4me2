@@ -9,6 +9,8 @@ import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.util.Base64
+import me.code4me.services.agent.RuntimeArtifact
+import com.intellij.util.text.VersionComparatorUtil
 
 /** Raised when a bootstrap manifest document cannot be parsed into the typed model. */
 class ManifestParseException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
@@ -165,11 +167,8 @@ data class AgentReleaseRef(
      */
     val releaseId: String,
     /**
-     * Informational release version. The server's `agent_release` projection pins
-     * the immutable `release_id` and the `artifact_digest`; the version label is
-     * not part of the launch contract and is not emitted by the current backend,
-     * so it defaults to empty rather than making an otherwise valid manifest
-     * unparseable.
+     * Release version used to verify the installed native runtime. Older
+     * manifests may omit it; their matching bundled artifact supplies it.
      */
     val version: String = "",
     val artifactDigest: String = "",
@@ -201,6 +200,10 @@ data class AgentReleaseRef(
      * plugin then refuses to launch a profile whose fields would not govern.
      */
     val configBindings: List<AgentConfigBindingRef> = emptyList(),
+    val artifact: RuntimeArtifact? = null,
+    val minPluginVersion: String? = null,
+    val minProtocolVersion: String? = null,
+    val maxProtocolVersion: String? = null,
 ) {
     /**
      * The bare lowercase hex artifact digest. The server carries the digest as
@@ -213,6 +216,93 @@ data class AgentReleaseRef(
     /** True when this release pins a participant-installed (BYOA) agent. */
     val isByoa: Boolean
         get() = distributionMode.isByoa
+
+    fun compatibilityIssue(pluginVersion: String): String? = when {
+        minPluginVersion != null && VersionComparatorUtil.compare(pluginVersion, minPluginVersion) < 0 ->
+            "Update Code4Me to $minPluginVersion or later to use this study's agent."
+        minProtocolVersion != null && VersionComparatorUtil.compare("1", minProtocolVersion) < 0 ||
+            maxProtocolVersion != null && VersionComparatorUtil.compare("1", maxProtocolVersion) > 0 ->
+            "This study's agent uses an ACP protocol this Code4Me plugin does not support."
+        artifact?.managedProtocol?.let { it.isNotBlank() && it != "1" } == true ->
+            "This study's agent requires a different managed protocol. Update Code4Me."
+        else -> null
+    }
+
+    companion object {
+        fun fromWire(agentRelease: Map<*, *>): AgentReleaseRef =
+            AgentReleaseRef(
+                // `agent_id`/`release_id` are always present on the wire, but
+                // a BYOA distribution with no registered release projects an
+                // empty `release_id`; per-mode requirements are enforced in
+                // `validate`, not at parse time.
+                agentId = (agentRelease["agent_id"] as? String).orEmpty(),
+                releaseId = (agentRelease["release_id"] as? String).orEmpty(),
+                version = (agentRelease["version"] as? String).orEmpty(),
+                // PACKAGED requires a digest (enforced in `validate`); a
+                // BYOA distribution legitimately carries none, so parsing is
+                // tolerant and the per-mode check is explicit.
+                artifactDigest = (agentRelease["artifact_digest"] as? String).orEmpty(),
+                adapterDigest = agentRelease["adapter_digest"] as? String,
+                adapterId = agentRelease["adapter_id"] as? String,
+                adapterVersion = agentRelease["adapter_version"] as? String,
+                distributionMode = AgentDistributionMode.fromWire(agentRelease["distribution_mode"] as? String),
+                // The backend emits the canonical `agent_*` names; the
+                // unprefixed aliases are accepted for older snapshots.
+                agentCommand = (agentRelease["agent_command"] ?: agentRelease["command"]) as? String,
+                agentCommandArgs =
+                    (
+                        (agentRelease["agent_command_args"] ?: agentRelease["command_args"] ?: agentRelease["agent_args"])
+                            as? List<*>
+                    )?.mapNotNull { it as? String }
+                        .orEmpty(),
+                agentPackage = (agentRelease["agent_package"] ?: agentRelease["package"]) as? String,
+                artifact = (agentRelease["artifact"] as? Map<*, *>)?.let { item ->
+                    RuntimeArtifact(
+                        runtimeId = (agentRelease["agent_id"] as? String).orEmpty(),
+                        version = (agentRelease["version"] as? String).orEmpty(),
+                        platform = (item["os"] as? String).orEmpty(),
+                        architecture = (item["arch"] as? String).orEmpty(),
+                        archive = (item["path"] as? String).orEmpty(),
+                        sha256 = normalizeSha256Hex(item["sha256"] as? String).orEmpty(),
+                        executable = (item["executable"] as? String).orEmpty(),
+                        managedProtocol = (item["managed_protocol"] as? String).orEmpty(),
+                        adapterDigest = agentRelease["adapter_digest"] as? String,
+                        downloadUrl = item["download_url"] as? String,
+                        size = (item["size"] as? Number)?.toLong() ?: 0L,
+                    )
+                },
+                minPluginVersion = agentRelease["min_plugin_version"] as? String,
+                minProtocolVersion = agentRelease["min_protocol_version"] as? String,
+                maxProtocolVersion = agentRelease["max_protocol_version"] as? String,
+                configBindings =
+                    (agentRelease["config_bindings"] as? List<*>)
+                        .orEmpty()
+                        .mapNotNull { raw ->
+                            val binding = raw as? Map<*, *> ?: return@mapNotNull null
+                            val field = (binding["field"] as? String)?.trim().orEmpty()
+                            val transport = (binding["transport"] as? String)?.trim().orEmpty()
+                            val key = (binding["key"] as? String)?.trim().orEmpty()
+                            if (field.isBlank() || transport.isBlank() || key.isBlank()) {
+                                return@mapNotNull null
+                            }
+                            AgentConfigBindingRef(
+                                field = field.lowercase(),
+                                transport = transport.lowercase(),
+                                key = key,
+                                format = (binding["format"] as? String)?.trim()?.lowercase() ?: "string",
+                                valueMap =
+                                    (binding["value_map"] as? Map<*, *>)
+                                        ?.mapNotNull { (rawKey, rawValue) ->
+                                            val mapKey = rawKey as? String ?: return@mapNotNull null
+                                            val mapValue = rawValue as? String ?: return@mapNotNull null
+                                            mapKey to mapValue
+                                        }
+                                        ?.toMap()
+                                        .orEmpty(),
+                            )
+                        },
+            )
+    }
 }
 
 /** Telemetry field-class allowance projected into a manifest. */
@@ -591,6 +681,9 @@ data class BootstrapManifest(
             )
         }
 
+        agentRelease.compatibilityIssue(expectedPluginCompatibility.pluginVersion)?.let { detail ->
+            return ManifestValidation.reject(ManifestValidationReason.INCOMPATIBLE_PLUGIN, detail, "agent_release")
+        }
         val gateway = inferenceGateway
         if (gateway != null) {
             val gatewayFailure = validateInferenceGateway(gateway, now)
@@ -846,60 +939,7 @@ data class BootstrapManifest(
                         profileDigest = requiredString(assignment, "profile_digest"),
                     ),
                 agentRelease =
-                    AgentReleaseRef(
-                        // `agent_id`/`release_id` are always present on the wire, but
-                        // a BYOA distribution with no registered release projects an
-                        // empty `release_id`; per-mode requirements are enforced in
-                        // `validate`, not at parse time.
-                        agentId = (agentRelease["agent_id"] as? String).orEmpty(),
-                        releaseId = (agentRelease["release_id"] as? String).orEmpty(),
-                        version = (agentRelease["version"] as? String).orEmpty(),
-                        // PACKAGED requires a digest (enforced in `validate`); a
-                        // BYOA distribution legitimately carries none, so parsing is
-                        // tolerant and the per-mode check is explicit.
-                        artifactDigest = (agentRelease["artifact_digest"] as? String).orEmpty(),
-                        adapterDigest = agentRelease["adapter_digest"] as? String,
-                        adapterId = agentRelease["adapter_id"] as? String,
-                        adapterVersion = agentRelease["adapter_version"] as? String,
-                        distributionMode = AgentDistributionMode.fromWire(agentRelease["distribution_mode"] as? String),
-                        // The backend emits the canonical `agent_*` names; the
-                        // unprefixed aliases are accepted for older snapshots.
-                        agentCommand = (agentRelease["agent_command"] ?: agentRelease["command"]) as? String,
-                        agentCommandArgs =
-                            (
-                                (agentRelease["agent_command_args"] ?: agentRelease["command_args"] ?: agentRelease["agent_args"])
-                                    as? List<*>
-                            )?.mapNotNull { it as? String }
-                                .orEmpty(),
-                        agentPackage = (agentRelease["agent_package"] ?: agentRelease["package"]) as? String,
-                        configBindings =
-                            (agentRelease["config_bindings"] as? List<*>)
-                                .orEmpty()
-                                .mapNotNull { raw ->
-                                    val binding = raw as? Map<*, *> ?: return@mapNotNull null
-                                    val field = (binding["field"] as? String)?.trim().orEmpty()
-                                    val transport = (binding["transport"] as? String)?.trim().orEmpty()
-                                    val key = (binding["key"] as? String)?.trim().orEmpty()
-                                    if (field.isBlank() || transport.isBlank() || key.isBlank()) {
-                                        return@mapNotNull null
-                                    }
-                                    AgentConfigBindingRef(
-                                        field = field.lowercase(),
-                                        transport = transport.lowercase(),
-                                        key = key,
-                                        format = (binding["format"] as? String)?.trim()?.lowercase() ?: "string",
-                                        valueMap =
-                                            (binding["value_map"] as? Map<*, *>)
-                                                ?.mapNotNull { (rawKey, rawValue) ->
-                                                    val mapKey = rawKey as? String ?: return@mapNotNull null
-                                                    val mapValue = rawValue as? String ?: return@mapNotNull null
-                                                    mapKey to mapValue
-                                                }
-                                                ?.toMap()
-                                                .orEmpty(),
-                                    )
-                                },
-                    ),
+                    AgentReleaseRef.fromWire(agentRelease),
                 agentProfile =
                     (map["agent_profile"] as? Map<*, *>)?.let { profile ->
                         ManifestAgentProfile(

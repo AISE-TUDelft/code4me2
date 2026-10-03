@@ -1,6 +1,7 @@
 package me.code4me.research.bootstrap
 
 import java.time.Instant
+import me.code4me.research.telemetry.parseCanonicalJson
 
 /**
  * Participant-side bootstrap transport (Issue 05 / Issue 10).
@@ -15,6 +16,36 @@ fun interface BootstrapTransport {
      * per project/window identifier; identical values reuse the same session.
      */
     fun fetch(enrollmentId: String, contextId: String): BootstrapTransportResult
+
+    /** Download metadata only; no research session or execution capability. */
+    fun prepare(enrollmentId: String, contextId: String): BootstrapTransportResult? = null
+}
+
+data class AgentPreparation(
+    val enrollmentId: String,
+    val studyId: String,
+    val assignmentId: String,
+    val profileDigest: String,
+    val release: AgentReleaseRef,
+) {
+    fun matches(manifest: BootstrapManifest): Boolean =
+        enrollmentId == manifest.enrollmentId && studyId == manifest.studyId &&
+            assignmentId == manifest.assignment.assignmentId && profileDigest == manifest.assignment.profileDigest &&
+            release == manifest.agentRelease
+
+    companion object {
+        fun parse(json: String): AgentPreparation {
+            val root = parseCanonicalJson(json) as? Map<*, *> ?: error("Invalid agent preparation response.")
+            val assignment = root["assignment"] as? Map<*, *> ?: error("Missing preparation assignment.")
+            return AgentPreparation(
+                (root["enrollment_id"] as? String).orEmpty(), (root["study_id"] as? String).orEmpty(),
+                (assignment["assignment_id"] as? String).orEmpty(), (assignment["profile_digest"] as? String).orEmpty(),
+                AgentReleaseRef.fromWire(root["agent_release"] as? Map<*, *> ?: error("Missing preparation release.")),
+            ).also {
+                require(it.enrollmentId.isNotBlank() && it.studyId.isNotBlank() && it.assignmentId.isNotBlank() && it.profileDigest.isNotBlank())
+            }
+        }
+    }
 }
 
 /** Typed transport outcome for one manifest request. */
@@ -62,6 +93,7 @@ enum class BootstrapRejection {
     ENROLLMENT_NOT_ACTIVE,
 
     /** Consent must be accepted before collection may start. */
+    CONSENT_REQUIRED,
 
     /** The enrollment/session was revoked. */
     REVOKED,
@@ -157,6 +189,8 @@ val BootstrapRejection.participantMessage: String
             BootstrapRejection.ENROLLMENT_NOT_ACTIVE ->
                 "Your research enrollment is not active. Open the study link to enroll again, or " +
                     "check your enrollment status. (reason: ENROLLMENT_NOT_ACTIVE)"
+            BootstrapRejection.CONSENT_REQUIRED ->
+                "Accept the study consent on the Code4Me website, then choose Prepare agent. (reason: CONSENT_REQUIRED)"
             BootstrapRejection.REVOKED ->
                 "Your research enrollment was revoked. Contact the researcher if you believe this " +
                     "is a mistake. (reason: REVOKED)"

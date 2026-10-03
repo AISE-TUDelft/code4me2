@@ -134,6 +134,10 @@ enum class StudyBlockReason(val value: String) {
     REVOKED("REVOKED"),
     SESSION_ENDED("SESSION_ENDED"),
     RUNTIME_UNAVAILABLE("RUNTIME_UNAVAILABLE"),
+    PREPARATION_CANCELLED("PREPARATION_CANCELLED"),
+    PREPARING_AGENT("PREPARING_AGENT"),
+    PREPARATION_FAILED("PREPARATION_FAILED"),
+    CONSENT_REQUIRED("CONSENT_REQUIRED"),
     /**
      * The study does not declare a usable session policy, so the server refuses
      * to open or maintain the authoritative session (ISSUE-05). The block is

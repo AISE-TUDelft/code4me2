@@ -19,6 +19,11 @@ The verifier performs independent passes over the built plugin ZIP:
    platform matrix. The recipe is the only agent identity: the proxy manifest
    carries a simplified inventory derived from it, with no release-keyed
    ``agents`` payload and no server-derived ``release_id``.
+
+``--agent-free`` verifies the participant ZIP the release workflow builds: the
+plugin bundles no agent (each study's agent is downloaded by its pinned digest),
+so pass 3 instead requires the absence of any ``code4me-runtime/`` entry and of
+a packaged-agent inventory, while the proxy must cover all four platforms.
 """
 
 from __future__ import annotations
@@ -213,6 +218,7 @@ def verify_proxy_manifest(
     require_participant_release: bool = False,
     allow_partial_platforms: bool = False,
     allow_managed_only: bool = False,
+    agent_free: bool = False,
 ) -> None:
     prefix = member_name[: len(member_name) - len("proxy-manifest.json")]
     try:
@@ -240,6 +246,13 @@ def verify_proxy_manifest(
         verify_platform(
             f"{member_name}#platforms[{index}]", platform, prefix, archive, members, findings
         )
+    if agent_free:
+        actual = [f"{p.get('os')}-{p.get('arch')}" for p in platforms if isinstance(p, dict)]
+        if len(actual) != 4 or set(actual) != PROXY_PRODUCTION_PLATFORMS:
+            findings.append(f"{label}!{member_name}: the proxy must cover all four native platforms exactly once")
+        if "participant_release" in document:
+            findings.append(f"{label}!{member_name}: an agent-free ZIP must not declare a packaged-agent inventory")
+        return
     if require_participant_release or allow_partial_platforms or "participant_release" in document:
         verify_release_catalog(
             label, archive, members, document, findings,
@@ -348,7 +361,7 @@ def verify_release_catalog(
 ) -> None:
     """Verify the simplified release inventory and the single managed agent identity.
 
-    The plugin derives ``participant_release`` from the shipped recipe: the
+    For recipe builds, the plugin derives ``participant_release`` from the bundled recipe: the
     declared platforms plus the three framework identities. The recipe
     (``code4me-runtime/manifest.json``) is the actual agent identity, so the
     managed entry's ``version`` must equal the recipe's ``runtime_version``; there
@@ -426,6 +439,7 @@ def inspect_zip(
     require_participant_release: bool = False,
     allow_partial_platforms: bool = False,
     allow_managed_only: bool = False,
+    agent_free: bool = False,
 ) -> tuple[int, int]:
     """Scan one archive; returns the (proxy manifest, agent recipe) counts."""
     if depth > 4:
@@ -439,6 +453,8 @@ def inspect_zip(
             lowered = member.filename.lower()
             if any(marker in lowered for marker in FORBIDDEN_NAMES):
                 findings.append(f"{label}!{member.filename}: forbidden path")
+            if agent_free and "code4me-runtime/" in member.filename:
+                findings.append(f"{label}!{member.filename}: an agent-free ZIP must not bundle a managed agent")
             if member.is_dir():
                 continue
             if lowered.endswith((".jar", ".zip")) and not member.filename.endswith(AGENT_MANIFEST_SUFFIX):
@@ -464,6 +480,7 @@ def inspect_zip(
                             require_participant_release=require_participant_release,
                             allow_partial_platforms=allow_partial_platforms,
                             allow_managed_only=allow_managed_only,
+                            agent_free=agent_free,
                         )
                     except zipfile.BadZipFile:
                         findings.append(f"{label}!{member.filename}: invalid nested archive")
@@ -476,6 +493,7 @@ def inspect_zip(
                 verify_proxy_manifest(
                     label, member.filename, archive, members, findings,
                     require_participant_release, allow_partial_platforms, allow_managed_only,
+                    agent_free,
                 )
             if member.filename.endswith(AGENT_MANIFEST_SUFFIX):
                 recipes += 1
@@ -509,7 +527,14 @@ def main() -> None:
             "subset the inventory declares instead of the production four-platform matrix"
         ),
     )
+    parser.add_argument(
+        "--agent-free",
+        action="store_true",
+        help="participant ZIP that bundles no agent: four self-contained proxies and no code4me-runtime",
+    )
     args = parser.parse_args()
+    if args.agent_free and (args.require_participant_release or args.allow_partial_platforms or args.allow_managed_only):
+        parser.error("--agent-free cannot be combined with the packaged-agent recipe options")
     findings: list[str] = []
     try:
         manifests, recipes = inspect_zip(
@@ -517,6 +542,7 @@ def main() -> None:
             require_participant_release=args.require_participant_release,
             allow_partial_platforms=args.allow_partial_platforms,
             allow_managed_only=args.allow_managed_only,
+            agent_free=args.agent_free,
         )
     except zipfile.BadZipFile as error:
         raise SystemExit(
@@ -529,7 +555,7 @@ def main() -> None:
         )
     if findings:
         raise SystemExit("participant artifact verification failed:\n" + "\n".join(findings))
-    if recipes == 0:
+    if recipes == 0 and not args.agent_free:
         raise SystemExit(
             "participant artifact verification failed:\n"
             f"the packaged agent recipe {AGENT_MANIFEST_SUFFIX} was not found in the plugin archive; "

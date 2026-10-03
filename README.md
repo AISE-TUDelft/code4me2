@@ -28,7 +28,7 @@ Code4Me V2 is an AI-powered code completion platform developed for the **AISE la
 - **Session Management**: Persistent chat history with project-specific conversations
 
 #### Agent Mode
-- **Participant-ready ACP agent**: The study ZIP contains the native runtime for each supported platform and registers `Code4Me Agent` in JetBrains AI Assistant automatically.
+- **Participant-ready ACP agent**: The plugin ships no agent. Each study's assigned native agent is installed automatically: the plugin takes it from its verified cache or downloads the exact GitHub Release archive, checks the SHA-256 the study pins, and registers the study's ACP entry in JetBrains AI Assistant.
 - **Hosted inference**: The managed runtime authenticates through the signed-in plugin and sends model calls to the Code4Me backend. Participants do not install Python, Node, Docker, a source checkout, or provider keys.
 - **Server-controlled study arms**: Model, tools, approval behavior, sampling temperature, context/step budgets, and command policy come from the participant's sticky A/B assignment.
 - **Task & telemetry tracking**: Runs and events are scoped to the signed-in user, open project, and ACP session, with participant content stored only according to server-side consent.
@@ -409,7 +409,7 @@ cd code4me2
 
 Code4Me drives coding agents through the [Agent Client Protocol (ACP)](https://agentclientprotocol.com).
 
-The participant path is the packaged `code4me2-agent`. After sign-in, the plugin verifies the hosted server and assigned study arm, installs the matching embedded native bundle, registers `Code4Me Agent` in `~/.jetbrains/acp.json`, and starts a private loopback authentication bridge. No bearer token or provider credential is written into the project. See [Participant setup](docs/PARTICIPANT_SETUP.md).
+The participant path is the packaged `code4me2-agent`. After sign-in, the plugin verifies the hosted server and assigned study arm, installs the arm's pinned native agent (verified cache, or the exact GitHub Release download checked against its SHA-256), registers the study's ACP entry in `~/.jetbrains/acp.json`, and starts a private loopback authentication bridge. No bearer token or provider credential is written into the project. See [Participant setup](docs/PARTICIPANT_SETUP.md).
 
 Goose and Codex remain explicit developer features. Enable them with the existing `code4me.developerAgents` development property and follow [the Codex development setup](dev/codex-acp-proxy/SETUP.md) where applicable. They are intentionally not installed, repaired, or reported as missing by normal participant setup. The remaining managed-distribution work is listed in [the managed-agent roadmap](docs/MANAGED_AGENT_ROADMAP.md).
 
@@ -426,11 +426,13 @@ runtime sources, reuses a cached packaging environment, runs both test suites, b
 runtime for the host platform, embeds it with a matching version and checksum, builds the plugin,
 and verifies the nested runtime artifact. The final versioned path is printed when it succeeds.
 Use `./buildzip --skip-tests` only for rapid local iteration; never distribute a skipped-test build.
-Local ZIPs contain only the host platform runtime and are not participant release artifacts.
+Local ZIPs contain only the host platform runtime and are not participant release artifacts. That
+embedded runtime serves only the ordinary non-study setup; a study installs its pinned agent from
+the IDE cache or its Release (see [Participant plugin and study agents](docs/PARTICIPANT_RELEASE.md)).
 
-Do not distribute the output of the ordinary `buildPlugin` task. Source checkouts contain development runtime placeholders, and a normal development ZIP is neither complete nor certified for participants.
+Do not distribute a locally built ZIP; it is neither complete nor certified for participants.
 
-Use the **Build participant plugin** workflow with an immutable, signed four-platform runtime release. It pins the server and plugin commits, stages the native archives, runs the plugin tests, invokes `buildParticipantPlugin`, and recursively scans the resulting ZIP. The participant version must match the runtime release version. Only the versioned artifact produced by that workflow is a participant deliverable.
+Use the **Build participant plugin** workflow. It needs no runtime release: it builds the research proxy for all four platforms from the deployed server commit, runs `buildPlugin` with the study backend's origin, and verifies the ZIP with `scripts/verify-participant-artifact.py --agent-free` (four self-contained proxies, no bundled agent, no secrets or developer paths). Agent versions are released and assigned to studies separately; see [Participant plugin and study agents](docs/PARTICIPANT_RELEASE.md). Only the versioned artifact produced by that workflow is a participant deliverable.
 
 ### Code Quality Standards
 The project maintains high code quality through:

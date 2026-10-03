@@ -9,6 +9,10 @@ manifest and the ZIP next to it) into an installable plugin ZIP:
      that manifest -- no hand-typed digests, no editor
   3. runs ``./gradlew verifyResearchRuntimeConsistency buildPlugin``
 
+Only the ordinary (non-study) managed setup reads this bundled recipe. A study
+never uses it: it installs its pinned archive from the IDE's verified cache or its
+GitHub Release (see docs/PARTICIPANT_RELEASE.md, "Local development and e2e").
+
 The producer manifest and the plugin recipe differ in exactly two places: the
 recipe stores the archive path relative to the resources root and needs a
 per-artifact ``managed_protocol``. Everything else (runtime_version, sha256,
@@ -119,9 +123,8 @@ def sync_runtime(
     }
     if source.get("tests"):
         artifact["tests"] = source["tests"]
-    # The plugin refuses a study launch unless the bundled recipe declares the
-    # adapter the bootstrap pins; the producer manifest carries it top-level
-    # (or per artifact), so it travels into the recipe on both levels.
+    # The producer manifest carries the adapter top-level (or per artifact), so it
+    # travels into the recipe on both levels.
     adapter = source.get("adapter") or (release or {}).get("adapter")
     if adapter:
         artifact["adapter"] = adapter
@@ -136,7 +139,7 @@ def sync_runtime(
         "artifacts": [artifact],
     }
     serialized = json.dumps(recipe, indent=2) + "\n"
-    if RECIPE_PATH.read_text(encoding="utf-8") != serialized:
+    if not RECIPE_PATH.is_file() or RECIPE_PATH.read_text(encoding="utf-8") != serialized:
         RECIPE_PATH.write_text(serialized, encoding="utf-8")
     print(f"recipe updated: code4me-runtime/manifest.json ({digest[:16]}… {len(payload)} bytes)")
     return destination, digest
