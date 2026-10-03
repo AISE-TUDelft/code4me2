@@ -138,6 +138,10 @@ jobs:
           bundle="telemetry-acp-proxy/dist/${{ matrix.platform }}"
           test -d "$bundle"
           test -f "$bundle/${{ matrix.executable }}"
+          # The bundle copy does not keep POSIX modes (staging below re-applies them too).
+          if [ "${{ matrix.executable }}" = "telemetry-acp-proxy" ]; then
+            chmod +x "$bundle/${{ matrix.executable }}"
+          fi
           "$bundle/${{ matrix.executable }}" --help | grep -Fq -- '--compat-idempotent-initialize' || {
             echo "frozen proxy for ${{ matrix.platform }} does not support --compat-idempotent-initialize" >&2
             exit 1
