@@ -262,3 +262,26 @@ def test_delivery_log_reports_loss_and_metrics():
     assert any(
         "enqueued=10" in line and "delivered=7" in line for line in lines
     )
+
+
+def test_a_send_the_spool_did_not_store_counts_as_a_loss():
+    """Regression: a refused or unreachable spool answered with a failed result,
+    which the queue counted as delivered (status ``dropped=0, healthy``)."""
+    from telemetry_acp_proxy import main as proxy_main
+    from telemetry_acp_proxy.spool_client import SpoolSendResult
+
+    class RefusingSpool:
+        def send(self, events):
+            return SpoolSendResult(sent=0, dropped=len(events), error="context_mismatch")
+
+    diagnostics: list[str] = []
+    queue = DeliveryQueue(
+        lambda batch: proxy_main._deliver_queued(list(batch.events), RefusingSpool(), diagnostics.append),
+        diagnostics=diagnostics.append,
+    )
+    queue.enqueue(DeliveryBatch(events=("event-1", "event-2")))
+    snapshot = queue.close()
+
+    assert snapshot["delivered"] == 0
+    assert snapshot["dropped_error"] == 1
+    assert any("not stored" in message for message in diagnostics)

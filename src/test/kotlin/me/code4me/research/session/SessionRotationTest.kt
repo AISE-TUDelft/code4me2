@@ -1066,10 +1066,10 @@ class SessionRotationTest {
     }
 
     @Test
-    fun `erase and sign-out stop without draining while a plain project close drains once`() {
-        // A privacy erase must never upload the records it is about to delete,
-        // and a sign-out quarantines the spool instead of shipping it; only a
-        // plain project close / IDE shutdown ships the tail first.
+    fun `an erase stops without draining while a sign-out and a plain project close drain once`() {
+        // A privacy erase must never upload the records it is about to delete.
+        // A sign-out ships the tail under its own capability before it
+        // quarantines the rest, like a plain project close / IDE shutdown.
         val erase =
             harness(
                 ScriptedTransport(manifest("capability-e", "2026-01-01T01:00:00Z", "session-e")),
@@ -1098,7 +1098,7 @@ class SessionRotationTest {
 
         logoutService.onLogout()
 
-        assertEquals(listOf("start", "close"), logout.delivery.lifecycle, "a sign-out quarantines without uploading")
+        assertEquals(listOf("start", "drain", "close"), logout.delivery.lifecycle, "a sign-out ships the tail once first")
 
         val close =
             harness(

@@ -20,6 +20,7 @@ import me.code4me.research.actions.ResearchEnrollmentSettings
 import me.code4me.research.ide.IntellijIdeActivitySource
 import me.code4me.research.lifecycle.HostPreflight
 import me.code4me.research.lifecycle.HostPreflightResult
+import me.code4me.research.lifecycle.ResearchLogoutHook
 import me.code4me.research.proxy.AcpHostRegistration
 import me.code4me.research.proxy.PackagedProxyRuntimeResolver
 import me.code4me.research.spool.DurableSpool
@@ -72,6 +73,15 @@ sealed interface ResearchReconciliationResult {
     /** Membership could not be decided, so ordinary setup must remain fenced. */
     data class Unavailable(val message: String) : ResearchReconciliationResult
 }
+
+/**
+ * Whether a sign-out may upload the queued records first. Not after a server
+ * switch: the upload goes to the old server, and the shared HTTP client attaches
+ * whatever sign-in is current. Not while a privacy erase runs: it would upload
+ * what is being erased. A context without an origin has no uploader to drain.
+ */
+internal fun signOutMayUpload(managerOrigin: String?, configuredOrigin: String?, eraseInFlight: Boolean): Boolean =
+    !eraseInFlight && (managerOrigin == null || managerOrigin == configuredOrigin)
 
 class ResearchSessionService internal constructor(
     private val project: Project,
@@ -236,9 +246,15 @@ class ResearchSessionService internal constructor(
     /** Stop any running participant session (idempotent). */
     fun stop(): ResearchStopResult = manager().stop()
 
-    /** Logout/account-switch cleanup; a later login receives a fresh manager. */
+    /**
+     * Logout/account-switch cleanup; a later login receives a fresh manager. When
+     * [signOutMayUpload] allows it, one bounded upload attempt first ships what is
+     * still queued: an upload carries this context's own enrollment capability, so
+     * nothing is filed under the next account. What is left is quarantined.
+     */
     fun onLogout() {
-        resetManager(quarantine = true)
+        val drain = signOutMayUpload(managerOrigin, resolveConfiguredBaseUrl(), ResearchLogoutHook.isEraseInFlight())
+        resetManager(quarantine = true, drainFirst = drain)
     }
 
     /**
@@ -354,6 +370,7 @@ class ResearchSessionService internal constructor(
         quarantine: Boolean,
         terminal: Boolean = false,
         discard: Boolean = false,
+        drainFirst: Boolean = false,
     ): Boolean {
         val (previous, executor) = synchronized(this) {
             managerOrigin = null
@@ -368,10 +385,10 @@ class ResearchSessionService internal constructor(
         // A plain project close keeps the spool endpoint up briefly for the
         // assistant's agent processes to flush; a logout does not.
         val ipcGraceMs = if (terminal && !quarantine) ResearchSessionManager.IPC_CLOSE_GRACE_MS else 0L
-        // Only a plain project close / IDE shutdown ships the tail first. A
-        // privacy erase must never upload the records it is about to delete, and
-        // a sign-out/account switch quarantines the spool instead of uploading it.
-        val drain = !quarantine && !discard
+        // A plain project close / IDE shutdown and a sign-out ship the tail first.
+        // A privacy erase must never upload the records it is about to delete, and
+        // a server switch or an ended or missing enrollment only quarantines the spool.
+        val drain = (drainFirst || !quarantine) && !discard
         // Project disposal usually runs on the UI thread: keep the one bounded
         // delivery attempt short there so a close never feels like a hang.
         val drainTimeoutMs = if (isDispatchThread()) EDT_DRAIN_TIMEOUT_MS else ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS

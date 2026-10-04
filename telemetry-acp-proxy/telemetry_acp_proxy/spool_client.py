@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import random
 import secrets
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Mapping, Optional, Sequence
@@ -229,6 +230,9 @@ class LocalSpoolClient:
         self._sleep = sleep
         self._diagnostics = diagnostics
         self._capability_value: Optional[str] = None
+        # The delivery worker and the main thread (a chat's end reported on a
+        # termination signal) can send at once: the token is consumed only once.
+        self._capability_lock = threading.Lock()
 
     def _default_transport(self, endpoint: str, capability: str, payload: dict) -> dict:
         if self._scheme == "file":
@@ -238,9 +242,10 @@ class LocalSpoolClient:
         raise ValueError(f"unsupported spool endpoint scheme: {self._scheme!r}")
 
     def _capability_token(self) -> str:
-        if self._capability_value is None:
-            self._capability_value = self._capability.consume()
-        return self._capability_value
+        with self._capability_lock:
+            if self._capability_value is None:
+                self._capability_value = self._capability.consume()
+            return self._capability_value
 
     def _emit(self, message: str) -> None:
         if self._diagnostics is not None:
@@ -253,8 +258,18 @@ class LocalSpoolClient:
         jitter = min(1.0, max(0.0, jitter))
         return max(0.0, full * (1.0 + self._jitter_ratio * jitter))
 
-    def send(self, events: Sequence[CanonicalEventV1]) -> SpoolSendResult:
-        """Send canonical events with bounded retry and acknowledged accounting."""
+    def send(
+        self, events: Sequence[CanonicalEventV1], *, max_attempts: Optional[int] = None
+    ) -> SpoolSendResult:
+        """Send canonical events with bounded retry and acknowledged accounting.
+
+        ``max_attempts`` overrides the client's bound for this call only: ``1``
+        makes a single attempt and never sleeps, for a report that must land
+        before the process is killed.
+        """
+        if max_attempts is not None and max_attempts < 1:
+            raise ValueError("max_attempts must be >= 1")
+        limit = self.max_attempts if max_attempts is None else max_attempts
         batch = list(events)
         if not batch:
             return SpoolSendResult(sent=0, dropped=0, attempts=0)
@@ -268,17 +283,17 @@ class LocalSpoolClient:
         }
         capability = self._capability_token()
         last_error: Optional[str] = None
-        for attempt in range(1, self.max_attempts + 1):
+        for attempt in range(1, limit + 1):
             try:
                 response = self.transport(self.endpoint, capability, payload)
                 acknowledged = set(_acknowledged_ids(response))
             except Exception as error:  # noqa: BLE001 - report any transport failure
                 last_error = str(error)
                 self._emit(
-                    f"proxy: spool send failed (attempt {attempt}/{self.max_attempts}): "
+                    f"proxy: spool send failed (attempt {attempt}/{limit}): "
                     f"{last_error}"
                 )
-                if attempt < self.max_attempts:
+                if attempt < limit:
                     self._sleep(self._backoff_seconds(attempt))
                 continue
 
@@ -302,7 +317,7 @@ class LocalSpoolClient:
         return SpoolSendResult(
             sent=0,
             dropped=len(batch),
-            attempts=self.max_attempts,
+            attempts=limit,
             delivered_ids=[],
             dropped_ids=ids,
             error=last_error,

@@ -159,6 +159,9 @@ class IntellijIdeActivitySource(private val project: Project) : IdeActivitySourc
     private fun publishDocumentChange(event: DocumentEvent) {
         val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
         if (file.isDirectory) return
+        // Editors outside the project reach this listener too, among them the AI
+        // chat's prompt input: typing a prompt is not editing the project's code.
+        if (!belongsToProject(file)) return
         // Only the bounded new length is read; the changed fragment is never touched.
         publish(
             IntellijIdeActivityMapper.documentSignal(

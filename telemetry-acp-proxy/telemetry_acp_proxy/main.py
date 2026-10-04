@@ -23,7 +23,8 @@ as ``--managed``. All proxy flags must therefore appear *before* ``--agent-cmd``
 policy: when present it must match both the document's ``policy_digest`` and the
 digest recomputed from the loaded fields, otherwise the proxy exits with a usage
 error before any frame is forwarded. ``--adapter`` selects an allowlisted
-adapter; an unknown id is a usage error (fail closed, never a silent import).
+adapter; an unknown id falls back to generic normalization (an adapter only
+enriches) and is reported on stderr; nothing is ever imported by name.
 
 ``--capability`` is mutually exclusive with ``--capability-file``. The token is
 resolved from (in order) ``--capability``, then ``--capability-file`` (read
@@ -44,6 +45,16 @@ never a payload, event id, path, or capability. The path resolves from
 ``--status-file``, then ``CODE4ME_RESEARCH_STATUS_FILE`` in the entry
 environment. Writing is best effort: a failure is logged and never changes the
 exit code, and with no path configured nothing is written.
+
+When the proxy stops it reports how its chat's process ended: one
+``interaction.completed`` with lifecycle ``completed`` whose ``end_reason`` says
+whether the host closed the proxy's stdin, the agent exited, the research
+session went stale, or a SIGTERM/SIGINT stopped the proxy (handled by ``main``).
+When the host closes stdin or signals the proxy, that report goes to the spool
+first, directly and in one attempt, because the host kills the proxy moments
+later (IntelliJ closes stdin, then SIGTERM, then SIGKILL within ~70 ms); only
+then is the agent stopped and the queued telemetry flushed. A SIGTERM or SIGINT
+that arrives while the report is in flight is held until it is sent.
 
 ``--compat-idempotent-initialize`` opts into one host compatibility behavior for
 which the default is deliberately off: a repeated ``initialize`` request on the
@@ -78,10 +89,12 @@ import pathlib
 from dataclasses import dataclass
 import re
 import os
+import signal
 import sys
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
@@ -92,6 +105,12 @@ ensure_research_on_path()
 
 from research.canonical import canonical_hash  # noqa: E402
 from research.telemetry.builder import SequenceAllocator  # noqa: E402
+from research.telemetry.chat_lifecycle import (  # noqa: E402
+    END_REASON_AGENT_EXITED,
+    END_REASON_HOST_CLOSED,
+    END_REASON_SESSION_STALE,
+    END_REASON_SIGNAL_TERMINATED,
+)
 from research.telemetry.privacy import PrivacyPolicy  # noqa: E402
 
 from .adapters import get_adapter  # noqa: E402
@@ -101,7 +120,7 @@ from .delivery import (  # noqa: E402
     DeliveryBatch,
     DeliveryQueue,
 )
-from .forwarder import AcpForwarder, InterceptCallback  # noqa: E402
+from .forwarder import AcpForwarder, ForwardResult, InterceptCallback  # noqa: E402
 from .initialize_replay import InitializeReplay  # noqa: E402
 from .session_mode_guard import SessionModeGuard  # noqa: E402
 from .stale_session_guard import StaleSessionGuard  # noqa: E402
@@ -114,8 +133,12 @@ from .lifecycle import (  # noqa: E402
     verify_artifact,
 )
 from .normalize import SESSION_ID_KEY, ProxyNormalizer  # noqa: E402
-from .observe import ObservedAcpMessageV1, Observer  # noqa: E402
-from .privacy_gate import PrivacyGate, agent_crashed_event  # noqa: E402
+from .observe import AcpDirection, ObservedAcpMessageV1, Observer  # noqa: E402
+from .privacy_gate import (  # noqa: E402
+    PrivacyGate,
+    agent_crashed_event,
+    interaction_ended_event,
+)
 from .spool_client import (  # noqa: E402
     EMITTER_ID_PREFIX,
     LocalSpoolClient,
@@ -168,6 +191,7 @@ __all__ = [
     "AGENT_RUN_ID_ENV_VAR",
     "CAPABILITY_ENV_VAR",
     "STATUS_FILE_ENV_VAR",
+    "ProxyTerminated",
     "build_parser",
     "computed_policy_digest",
     "main",
@@ -725,6 +749,41 @@ def _deliver(
     return result
 
 
+class SpoolDeliveryLost(RuntimeError):
+    """A queued delivery the spool did not store in full."""
+
+
+def _deliver_queued(events: Sequence, spool: Optional[LocalSpoolClient], diagnostics) -> None:
+    """The delivery queue's step. A send that stored only part of the events (the
+    spool unreachable, events refused) raises, so the queue counts the loss as
+    ``dropped_error`` instead of a delivery."""
+    result = _deliver(events, spool, diagnostics)
+    if result is not None and not result.ok:
+        raise SpoolDeliveryLost(
+            f"{result.dropped} event(s) not stored: {result.error or 'refused by the spool'}"
+        )
+
+
+def _deliver_now(events: Sequence, spool: LocalSpoolClient, diagnostics) -> bool:
+    """Send [events] straight to the spool in one attempt; True once acknowledged.
+
+    Neither the delivery queue nor retry backoff stands in the way: this is for
+    a report that must land before the host kills the proxy. On any failure the
+    caller queues the same events instead (the spool answers a resent event id
+    as a ``duplicate``, so it is never stored twice).
+    """
+    if not events:
+        return False
+    try:
+        result = spool.send(events, max_attempts=1)
+    except Exception as error:  # noqa: BLE001 - any failure falls back to the queue
+        diagnostics(f"proxy: direct spool delivery failed ({error}); queueing instead")
+        return False
+    if not result.ok:
+        diagnostics("proxy: direct spool delivery failed; queueing instead")
+    return result.ok
+
+
 def _stamp_agent_run_id(event, agent_run_id: Optional[str]):
     """Return [event] carrying [agent_run_id] when it has none.
 
@@ -771,6 +830,109 @@ def _log_delivery(snapshot: Mapping[str, Any], diagnostics) -> None:
         f"dropped={snapshot.get('dropped')} "
         f"pending={snapshot.get('pending')}"
     )
+
+
+class ProxyTerminated(Exception):
+    """SIGTERM/SIGINT reached the proxy (raised by the handlers ``main`` installs)."""
+
+
+class _MainThreadFlag:
+    """A flag only the main thread and its signal handlers touch. Unlike
+    ``threading.Event`` it takes no lock: a handler may set it while the main
+    thread is setting it, which would deadlock on an Event's lock."""
+
+    __slots__ = ("_value",)
+
+    def __init__(self) -> None:
+        self._value = False
+
+    def set(self) -> None:
+        self._value = True
+
+    def clear(self) -> None:
+        self._value = False
+
+    def is_set(self) -> bool:
+        return self._value
+
+
+#: Set once the proxy's bounded shutdown has begun. From then on a SIGTERM or
+#: SIGINT is ignored, so it cannot cut short the chat's end report or the final
+#: flush. ``main`` clears it when it installs its handlers.
+_SHUTDOWN_STARTED = _MainThreadFlag()
+
+#: Set while the end report the host's stdin close triggered is in flight. A
+#: SIGTERM or SIGINT arriving meanwhile is held in ``_HELD_SIGNAL`` and raised
+#: once the report is sent: IntelliJ signals tens of milliseconds after closing
+#: stdin, often before its spool has acknowledged the report.
+_SIGNALS_HELD = _MainThreadFlag()
+_HELD_SIGNAL: list[int] = []
+
+
+@contextmanager
+def _holding_termination_signals():
+    """Hold SIGTERM/SIGINT for the block, then raise one that arrived meanwhile."""
+    _HELD_SIGNAL.clear()
+    _SIGNALS_HELD.set()
+    try:
+        yield
+    finally:
+        _SIGNALS_HELD.clear()
+    if _HELD_SIGNAL and not _SHUTDOWN_STARTED.is_set():
+        _SHUTDOWN_STARTED.set()
+        raise ProxyTerminated(_HELD_SIGNAL.pop())
+
+
+def _install_termination_handlers() -> dict[int, Any]:
+    """Raise :class:`ProxyTerminated` in the main thread on SIGTERM/SIGINT.
+
+    Only the first signal raises; a later one, or one arriving once the
+    shutdown has begun, is ignored. Returns the handlers it replaced. Handlers
+    can only be set from the main thread, so elsewhere (``run_proxy`` driven
+    by tests) nothing is installed.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+    _SHUTDOWN_STARTED.clear()
+    _SIGNALS_HELD.clear()
+
+    def _terminate(signum, _frame) -> None:
+        if _SHUTDOWN_STARTED.is_set():
+            return
+        if _SIGNALS_HELD.is_set():
+            _HELD_SIGNAL[:] = [signum]
+            return
+        _SHUTDOWN_STARTED.set()
+        raise ProxyTerminated(signum)
+
+    previous: dict[int, Any] = {}
+    for name in ("SIGTERM", "SIGINT"):
+        signum = getattr(signal, name, None)
+        if signum is None:
+            continue
+        previous[signum] = signal.getsignal(signum)
+        signal.signal(signum, _terminate)
+    return previous
+
+
+def _restore_signal_handlers(previous: Mapping[int, Any]) -> None:
+    """Put back the handlers :func:`_install_termination_handlers` replaced."""
+    for signum, handler in previous.items():
+        if handler is not None:
+            signal.signal(signum, handler)
+
+
+def _end_reason(
+    *, terminated: bool, stale: bool, forwarded: Optional[ForwardResult]
+) -> str:
+    """Why the chat's process ended (one of ``chat_lifecycle.PROXY_END_REASONS``)."""
+    if terminated:
+        return END_REASON_SIGNAL_TERMINATED
+    if stale:
+        return END_REASON_SESSION_STALE
+    if forwarded is not None and forwarded.closed_first is AcpDirection.AGENT_TO_HOST:
+        return END_REASON_AGENT_EXITED
+    return END_REASON_HOST_CLOSED
 
 
 def run_proxy(
@@ -828,7 +990,15 @@ def run_proxy(
     By default they are refused with a JSON-RPC error (see
     :mod:`session_mode_guard`): the study fixes the approval mode.
     """
-    host_read = host_read if host_read is not None else sys.stdin.buffer
+    # The host's stdin is read unbuffered (one read call, the same bytes): a pump
+    # blocked in BufferedReader.read1 holds the reader's lock, and a proxy stopped
+    # by a signal exits while that pump still waits, so interpreter shutdown
+    # could not close stdin and would abort.
+    host_read = (
+        host_read
+        if host_read is not None
+        else getattr(sys.stdin.buffer, "raw", sys.stdin.buffer)
+    )
     host_write = host_write if host_write is not None else sys.stdout.buffer
     diag = diagnostics or (lambda message: print(message, file=sys.stderr))
     emitter_id = emitter_id or generate_emitter_id()
@@ -856,8 +1026,11 @@ def run_proxy(
     try:
         adapter = get_adapter(adapter_name)
     except KeyError as error:
-        diag(f"proxy: {error}")
-        return EXIT_USAGE
+        # The id is advisory and an adapter only enriches generic events, so
+        # an id this proxy does not know (a release typed its own) keeps the
+        # chat running on generic normalization rather than refusing it.
+        diag(f"proxy: {error}; using generic normalization")
+        adapter = None
 
     # The agent child's environment: the allowlisted inheritance plus the
     # release-declared overrides plus, for a gateway-bound agent, the one
@@ -1004,7 +1177,7 @@ def run_proxy(
 
     if spool is not None:
         delivery = DeliveryQueue(
-            lambda batch: _deliver(list(batch.events), spool, diag),
+            lambda batch: _deliver_queued(list(batch.events), spool, diag),
             diagnostics=diag,
         )
 
@@ -1063,18 +1236,76 @@ def run_proxy(
                     return
 
         threading.Thread(target=_watch_session, name="proxy-stale-session-watch", daemon=True).start()
-    forwarder.run(
-        host_read,
-        host_write,
-        process.stdout,
-        process.stdin,
-        terminate_agent=process.terminate,
-    )
+    forwarded: Optional[ForwardResult] = None
+    terminated = False
+    # The chat's end report once built; emptied once it has reached the spool.
+    end_events: Optional[list] = None
+
+    def chat_end_events() -> list:
+        """How the chat ended, as of now: its privacy-gated end event."""
+        ended = interaction_ended_event(
+            _end_reason(
+                terminated=terminated,
+                stale=stale_guard is not None and stale_guard.stale,
+                forwarded=forwarded,
+            ),
+            occurred_at=datetime.now(timezone.utc),
+            session_id=normalizer.current_session_id,
+            emitter_id=emitter_id,
+            allocator=allocator,
+        )
+        return deliverable([gate.filter(ended)])
+
+    def report_host_closed() -> None:
+        """The host closed the chat's stdin: report the end straight away. IntelliJ
+        kills the proxy tens of milliseconds later, long before the agent exits;
+        its SIGTERM waits until the report is sent."""
+        nonlocal end_events
+        if spool is None or end_events is not None:
+            return
+        with _holding_termination_signals():
+            end_events = chat_end_events()
+            if _deliver_now(end_events, spool, diag):
+                end_events = []
+
+    try:
+        forwarded = forwarder.run(
+            host_read,
+            host_write,
+            process.stdout,
+            process.stdin,
+            terminate_agent=process.terminate,
+            on_host_closed=report_host_closed,
+        )
+    except ProxyTerminated:
+        # The host follows SIGTERM with SIGKILL within milliseconds, while the
+        # agent can take seconds to stop: report the chat's end first, straight
+        # to the spool rather than behind queued batches. Then stop the agent
+        # (the signal never reaches it: its own process group) and shut down
+        # like any other run so the rest of the telemetry is flushed.
+        terminated = True
+        # Unless the host closed the chat first and its end is already reported.
+        if spool is not None and end_events is None:
+            end_events = chat_end_events()
+            if _deliver_now(end_events, spool, diag):
+                end_events = []
+        diag("proxy: received a termination signal; stopping the agent")
+        process.terminate()
+    _SHUTDOWN_STARTED.set()
     watch_stop.set()
 
-    # Shutdown: flush queued telemetry within a bounded window, then report
-    # exactly what was delivered and what was lost.
+    # Shutdown: report how the chat ended unless that already reached the spool
+    # (a failed direct report is queued as is), flush queued telemetry within a
+    # bounded window, then report exactly what was delivered and what was lost.
     if delivery is not None:
+        if end_events is None:
+            end_events = chat_end_events()
+        if end_events:
+            delivery.enqueue(
+                DeliveryBatch(
+                    events=tuple(end_events), session_id=normalizer.current_session_id
+                )
+            )
         final = delivery.close(timeout=DEFAULT_CLOSE_TIMEOUT_SECONDS)
         _log_delivery(final, diag)
         write_status(final)
@@ -1086,9 +1317,14 @@ def run_proxy(
     )
 
     malformed = observer.malformed_count > 0
-    # Stopping the agent because its session ended is not a crash; an agent that
-    # failed on its own is still reported as one.
-    crashed = return_code is not None and return_code != 0 and not stopped_for_stale.is_set()
+    # Stopping the agent because its session ended, or because the proxy was
+    # told to stop, is not a crash; an agent that failed on its own still is.
+    crashed = (
+        return_code is not None
+        and return_code != 0
+        and not stopped_for_stale.is_set()
+        and not terminated
+    )
     if crashed:
         event = agent_crashed_event(
             occurred_at=datetime.now(timezone.utc),
@@ -1107,7 +1343,25 @@ def run_proxy(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Parse ``argv`` and run the proxy."""
+    """Parse ``argv`` and run the proxy.
+
+    For the run, SIGTERM and SIGINT raise :class:`ProxyTerminated`: during
+    forwarding ``run_proxy`` reports how the chat ended, then stops the agent
+    and flushes telemetry. The previous handlers are restored afterwards.
+    """
+    previous = _install_termination_handlers()
+    try:
+        return _run_cli(argv)
+    except ProxyTerminated:
+        # A signal outside forwarding (in practice before it began, while the
+        # proxy was starting): there is no chat end to report.
+        return EXIT_OK
+    finally:
+        _restore_signal_handlers(previous)
+
+
+def _run_cli(argv: Optional[Sequence[str]]) -> int:
+    """Parse ``argv`` and run the proxy (``main`` without the signal handling)."""
     args = build_parser().parse_args(argv)
     try:
         policy = _load_policy(args.telemetry_policy)

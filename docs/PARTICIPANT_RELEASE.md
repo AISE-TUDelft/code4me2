@@ -68,7 +68,7 @@ Run **Actions → Build participant plugin**:
 | `version` | Plugin SemVer version. |
 | `serverRepository`, `serverRef` | Server sources the research proxy is built from. A Marketplace candidate must use the deployed server's full commit SHA. The workflow resolves the ref to one commit for all four proxy builds. |
 | `publishRelease` | Also publish the ZIP as a `plugin-v<version>` GitHub release. It never uploads to Marketplace. |
-| `fullHostSmoke` | Run the plugin tests, then install and start the final ZIP in IntelliJ on all four hosts. Keep it `false` for now: the `host-smoke` job cannot pass, because it runs `ui.PluginZipHostSmokeTest`, which no longer exists in `ui-tests`, and passes `-PparticipantHostZip`, which the build never reads. This predates the agent-free change. |
+| `fullHostSmoke` | Run the plugin tests, then the agent installer tests on all four hosts. It does not start the final ZIP in IntelliJ: `ui-tests` has no ZIP smoke test yet. |
 
 The build needs no runtime release. It:
 
@@ -139,8 +139,7 @@ The recipe CLI (`scripts/participant-release.py validate|prepare|build`) and
 `scripts/build-plugin-with-agent.py` still build ZIPs with a bundled agent recipe.
 Only the ordinary non-study setup reads a bundled recipe, and the server refuses
 that setup to users without an active study. Participant builds do not use these
-tools. The CLI's `apply` command posts to registration routes the current server no
-longer has, so use the website import instead.
+tools, and releases are registered through the website import.
 
 For three-agent recipes:
 

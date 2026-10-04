@@ -6,6 +6,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
 import me.code4me.lifecycle.getAcpLoginReconciliationService
 import me.code4me.research.session.ResearchSessionService
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Starts the shared project reconciler; the second startup hook is intentionally idempotent. */
 class ResearchActivationStartupActivity : ProjectActivity {
@@ -24,7 +25,8 @@ class ResearchActivationStartupActivity : ProjectActivity {
  * Logout/account-switch hook (Issue 03 F13; folded from ResearchLogoutHook.kt).
  *
  * On sign-out every open project's research context is stopped (managers,
- * collectors, uploaders) and its spool is quarantined, so no queued record can be
+ * collectors, uploaders) after one bounded upload under its own enrollment
+ * capability, and what is left is quarantined, so no queued record can be
  * uploaded under the next account. It only touches contexts that were already
  * created, never constructs one, and swallows every failure so ordinary login,
  * logout and chat are unaffected. A privacy erase uses [eraseAllContexts], which
@@ -32,6 +34,22 @@ class ResearchActivationStartupActivity : ProjectActivity {
  */
 object ResearchLogoutHook {
     private val log = thisLogger()
+    private val erasesInFlight = AtomicInteger()
+
+    /**
+     * Runs a privacy [erase] marked as in flight: a sign-out meanwhile must not
+     * upload the records it erases (see [ResearchSessionService.onLogout]).
+     */
+    fun <T> whileErasing(erase: () -> T): T {
+        erasesInFlight.incrementAndGet()
+        try {
+            return erase()
+        } finally {
+            erasesInFlight.decrementAndGet()
+        }
+    }
+
+    fun isEraseInFlight(): Boolean = erasesInFlight.get() > 0
 
     fun stopAllContexts() {
         try {

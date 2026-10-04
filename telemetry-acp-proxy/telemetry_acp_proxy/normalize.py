@@ -32,7 +32,7 @@ from research.telemetry.normalization.generic_acp import (
     enrich_with_adapter,
 )
 
-from .observe import ObservedAcpMessageV1
+from .observe import AcpDirection, ObservedAcpMessageV1
 
 __all__ = [
     "GENERIC_ACP_NORMALIZER_VERSION",
@@ -68,6 +68,17 @@ def _session_id_from(payload: Any) -> Optional[str]:
     return None
 
 
+#: Marks a response whose request this stream never observed.
+_UNTRACKED = object()
+
+
+def _other_side(direction: str) -> str:
+    """The opposite direction: a request and its response travel opposite ways."""
+    if direction == AcpDirection.HOST_TO_AGENT.value:
+        return AcpDirection.AGENT_TO_HOST.value
+    return AcpDirection.HOST_TO_AGENT.value
+
+
 def _flatten_names(prefix: str, value: Any, out: dict[str, Any]) -> None:
     if not isinstance(value, Mapping):
         return
@@ -94,10 +105,19 @@ class ProxyNormalizer:
         self.emitter_id = emitter_id
         self._generic = GenericAcpNormalizer()
         self._builder = EventBuilder(allocator or SequenceAllocator())
-        # Last ACP session id observed on this stream. Learned once from any
-        # session-scoped frame, then stamped on every subsequent event so the
-        # whole session's telemetry is attributable without agent cooperation.
+        # The chat this stream serves now: the last ACP session id observed on
+        # a session-scoped frame. Only a notification that names no chat falls
+        # back to it, so telemetry stays attributable without agent cooperation.
         self._acp_session_id: Optional[str] = None
+        # In-flight requests, (direction, JSON-RPC id) -> the chat each named
+        # (``None`` for ``initialize`` or ``session/new``), so a response is
+        # attributed to its request's chat rather than whichever spoke last.
+        self._request_sessions: dict[tuple[str, str], Optional[str]] = {}
+
+    @property
+    def current_session_id(self) -> Optional[str]:
+        """The ACP session id of the chat this stream serves now, if any."""
+        return self._acp_session_id
 
     def normalize_observed(
         self, observed: ObservedAcpMessageV1
@@ -106,9 +126,7 @@ class ProxyNormalizer:
         if not observed.ok or observed.payload is None:
             return []
 
-        discovered = _session_id_from(observed.payload)
-        if discovered is not None:
-            self._acp_session_id = discovered
+        session_id = self._session_of(observed)
 
         result = self._generic.normalize(
             observed.payload,
@@ -128,19 +146,49 @@ class ProxyNormalizer:
                 occurred_at=observed.receive_wall_time,
                 monotonic_ns=observed.receive_monotonic_ns,
             )
-            events.append(self._stamp_session_id(event))
+            events.append(self._stamp_session_id(event, session_id))
         return events
 
-    def _stamp_session_id(self, event: CanonicalEventV1) -> CanonicalEventV1:
-        """Attach the session id to an event that does not already carry one.
+    def _session_of(self, observed: ObservedAcpMessageV1) -> Optional[str]:
+        """The chat an observed frame belongs to, learning ids on the way.
 
-        Additive only: an existing payload value always wins, so a normalizer
-        that mapped the id itself is never overwritten.
+        A frame naming a chat belongs to it. A response belongs to the chat its
+        request named, or to none when the request named none: the answer to a
+        ``session/new`` (or a failed one) is never given the previous chat's
+        id. A request naming no chat belongs to none; only a notification
+        naming no chat falls back to the current one.
         """
-        if self._acp_session_id is None or SESSION_ID_KEY in event.payload:
+        direction = observed.direction.value
+        answered: Any = _UNTRACKED
+        if observed.is_response:
+            answered = self._request_sessions.pop(
+                (_other_side(direction), str(observed.jsonrpc_id)), _UNTRACKED
+            )
+        discovered = _session_id_from(observed.payload)
+        if discovered is not None:
+            self._acp_session_id = discovered
+        if observed.is_request:
+            self._request_sessions[(direction, str(observed.jsonrpc_id))] = discovered
+            return discovered
+        if discovered is not None:
+            return discovered
+        if answered is not _UNTRACKED:
+            return answered
+        return self._acp_session_id
+
+    @staticmethod
+    def _stamp_session_id(
+        event: CanonicalEventV1, session_id: Optional[str]
+    ) -> CanonicalEventV1:
+        """Attach the frame's chat id to an event that does not carry one.
+
+        Additive only: an existing payload value always wins, so the id the
+        normalizer mapped itself (a new chat's, a prompt's) is never overwritten.
+        """
+        if session_id is None or SESSION_ID_KEY in event.payload:
             return event
         return event.model_copy(
-            update={"payload": {**event.payload, SESSION_ID_KEY: self._acp_session_id}}
+            update={"payload": {**event.payload, SESSION_ID_KEY: session_id}}
         )
 
 

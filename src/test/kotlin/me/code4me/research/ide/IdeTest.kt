@@ -1,5 +1,10 @@
 package me.code4me.research.ide
 
+import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileTypes.PlainTextFileType
+import com.intellij.testFramework.LightVirtualFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.nio.file.Files
 import java.util.UUID
@@ -682,5 +687,31 @@ class IntellijIdeActivitySourceTest : BasePlatformTestCase() {
             listOf(IntellijIdeActivitySource.PROJECT_OPENED, IntellijIdeActivitySource.PROJECT_CLOSED),
             received.map { it.kind },
         )
+    }
+
+    fun testOnlyEditsToProjectFilesAreReported() {
+        val source = IntellijIdeActivitySource(project)
+        val received = mutableListOf<IdeActivitySignal>()
+        source.onActivity { received.add(it) }
+        try {
+            // An editor outside the project, like the AI chat's prompt input.
+            val prompt = LightVirtualFile("prompt.chatinput", PlainTextFileType.INSTANCE, "")
+            val document = FileDocumentManager.getInstance().getDocument(prompt)!!
+            val editor = EditorFactory.getInstance().createEditor(document, project)
+            try {
+                WriteCommandAction.runWriteCommandAction(project) { document.insertString(0, "a prompt") }
+            } finally {
+                EditorFactory.getInstance().releaseEditor(editor)
+            }
+            myFixture.configureByText("Edited.txt", "")
+            myFixture.type("x")
+        } finally {
+            source.dispose()
+        }
+
+        val extensions =
+            received.filter { it.kind == IdeActivityKind.CHANGED.wire }.map { it.metadata[IdePayloadKey.FILE_EXTENSION.key] }
+        assertTrue(extensions.contains("txt"))
+        assertFalse(extensions.contains("chatinput"))
     }
 }

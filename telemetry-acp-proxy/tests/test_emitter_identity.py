@@ -93,15 +93,16 @@ def test_two_simulated_processes_never_collide_on_session_emitter_sequence(tmp_p
     assert len(emitters) == 2, "two processes must use two distinct emitter ids"
     assert all(EMITTER_ID_PATTERN.match(emitter_id) for emitter_id in emitters)
 
-    # Within one process the per-emitter sequence stays strictly monotonic.
+    # Within one process the per-emitter numbering is contiguous and never
+    # reused. Delivery order may differ: the chat's end report goes straight to
+    # the spool, ahead of queued events.
     for emitter_id in emitters:
         sequences = [
             event["emitter_sequence"]
             for event in events
             if event["emitter_id"] == emitter_id
         ]
-        assert sequences == sorted(sequences)
-        assert len(set(sequences)) == len(sequences)
+        assert sorted(sequences) == list(range(1, len(sequences) + 1))
 
 
 def test_run_proxy_mints_one_emitter_id_per_process(monkeypatch, tmp_path):
@@ -175,7 +176,9 @@ def test_lifecycle_and_normalized_events_never_reuse_a_sequence(monkeypatch, tmp
     events = sink["events"]
     assert any(event.event_type.startswith("system.") for event in events)
     sequences = [event.emitter_sequence for event in events]
-    assert sequences == sorted(sequences)
+    # Delivery order may differ (the chat's end report goes straight to the
+    # spool), but the numbering is contiguous and never reused.
+    assert sorted(sequences) == list(range(1, len(sequences) + 1))
     assert len(set(sequences)) == len(sequences), (
         "a lifecycle event must not reuse a sequence already spent by the process"
     )

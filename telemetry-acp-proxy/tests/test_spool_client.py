@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+
+import pytest
 
 from telemetry_acp_proxy.framing import encode_message
 from telemetry_acp_proxy.normalize import ProxyNormalizer
@@ -154,6 +158,81 @@ def test_500_is_retried_without_a_false_delivery():
     assert result.dropped == 1
     assert result.sent == 0
     assert slept == [0.01, 0.02], "capped exponential backoff"
+
+
+def test_a_single_attempt_send_fails_fast_without_sleeping():
+    attempts: list[int] = []
+    slept: list[float] = []
+
+    def transport(endpoint: str, capability: str, payload: dict) -> dict:
+        attempts.append(1)
+        raise OSError("spool endpoint returned status 500")
+
+    client = LocalSpoolClient(
+        "http://127.0.0.1:1/spool",
+        "cap-1",
+        transport=transport,
+        max_attempts=3,
+        jitter=lambda: 0.0,
+        sleep=slept.append,
+    )
+
+    result = client.send([_one_event()], max_attempts=1)
+
+    assert result.attempts == 1
+    assert result.dropped == 1
+    assert result.error
+    assert len(attempts) == 1
+    assert slept == []
+    # The override is per call: the client's own bound still applies otherwise.
+    assert client.send([_one_event()]).attempts == 3
+    assert len(slept) == 2
+    with pytest.raises(ValueError):
+        client.send([_one_event()], max_attempts=0)
+
+
+def test_concurrent_first_sends_consume_the_capability_once():
+    class SlowCapability(OneTimeCapability):
+        """Consuming takes a moment, so two first sends overlap inside it."""
+
+        def __init__(self, value: str) -> None:
+            super().__init__(value)
+            self.consumes = 0
+
+        def consume(self) -> str:
+            self.consumes += 1
+            time.sleep(0.05)
+            return super().consume()
+
+    capability = SlowCapability("cap-shared")
+    seen: list[str] = []
+
+    def transport(endpoint: str, capability_value: str, payload: dict) -> dict:
+        seen.append(capability_value)
+        return _accepted(payload)
+
+    client = LocalSpoolClient("http://127.0.0.1:1/spool", capability, transport=transport)
+    # The delivery worker and the main thread (a chat's end on a signal).
+    events = [_one_event(), _one_event()]
+    start = threading.Barrier(len(events))
+    outcomes: list = []
+
+    def send(event) -> None:
+        start.wait(timeout=5.0)
+        try:
+            outcomes.append(client.send([event]).ok)
+        except Exception as error:  # noqa: BLE001 - a double consume raises here
+            outcomes.append(error)
+
+    threads = [threading.Thread(target=send, args=(event,)) for event in events]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10.0)
+
+    assert outcomes == [True, True]
+    assert capability.consumes == 1
+    assert seen == ["cap-shared", "cap-shared"]
 
 
 def test_malformed_acknowledgement_is_retryable_and_never_a_delivery():

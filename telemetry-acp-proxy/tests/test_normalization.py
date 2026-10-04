@@ -66,7 +66,7 @@ def test_generic_provenance_and_fidelity():
     event = events[0]
     assert event.event_type == CanonicalEventType.INTERACTION_STARTED.value
     assert event.source == "acp"
-    assert event.provenance.normalizer_version == "generic-acp-v1"
+    assert event.provenance.normalizer_version == "generic-acp-v2"
     assert event.provenance.fidelity.value in {"exact", "normalized", "inferred"}
     assert event.emitter_id == "acp-proxy"
 
@@ -642,10 +642,12 @@ def test_turn_id_clears_after_the_prompt_completes():
         ]
     )
 
-    assert events[1].correlations.turn_id == "3"
+    # The prompt maps to its turn start plus the participant's prompt content.
+    assert [event.correlations.turn_id for event in events[:2]] == ["3", "3"]
     assert events[2].correlations.turn_id == "3"
+    assert events[3].correlations.turn_id == "3"
     # Once the prompt completes the turn is closed; no id is invented.
-    assert events[3].correlations.turn_id is None
+    assert events[4].correlations.turn_id is None
 
 
 def test_concurrent_sessions_do_not_share_a_turn():
@@ -658,7 +660,8 @@ def test_concurrent_sessions_do_not_share_a_turn():
         ]
     )
 
-    assert [event.correlations.turn_id for event in events] == ["3", "9", "3", "9"]
+    # Each prompt maps to its turn start plus the participant's prompt content.
+    assert [event.correlations.turn_id for event in events] == ["3", "3", "9", "9", "3", "9"]
 
 
 def test_turn_state_is_isolated_per_normalizer_stream():

@@ -58,8 +58,6 @@ class AuthenticationLightTest : HeavyPlatformTestCase() {
             email = validEmail,
             name = userName,
             password = validPassword,
-            token = "",
-            provider = me.code4me.api.generated.model.Provider.no_provider
         )).thenReturn(CreateUserPostResponse(userId = java.util.UUID.randomUUID(), message = "created"))
 
         // Inject mock cookie to simulate auth_token
@@ -186,8 +184,6 @@ class AuthenticationLightTest : HeavyPlatformTestCase() {
             email = "existing@example.com",
             name = "Existing User",
             password = validPassword,
-            token = "",
-            provider = me.code4me.api.generated.model.Provider.no_provider
         )).thenThrow(ClientException("User already exists", 409, ClientError<Any>("User already exists", null, 409)))
 
         val token = section.javaClass.getDeclaredMethod(
@@ -216,8 +212,6 @@ class AuthenticationLightTest : HeavyPlatformTestCase() {
             email = "server.error@example.com",
             name = "Server Error",
             password = validPassword,
-            token = "",
-            provider = me.code4me.api.generated.model.Provider.no_provider
         )).thenThrow(ServerException("Internal server error", 500, ServerError<Any>("Internal server error", null, 500)))
 
         val token = section.javaClass.getDeclaredMethod(
@@ -246,8 +240,6 @@ class AuthenticationLightTest : HeavyPlatformTestCase() {
             email = "network.error@example.com",
             name = "Network Error",
             password = validPassword,
-            token = "",
-            provider = me.code4me.api.generated.model.Provider.no_provider
         )).thenThrow(IOException("Network connection error"))
 
         val token = section.javaClass.getDeclaredMethod(

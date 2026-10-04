@@ -6,7 +6,8 @@ The gate never writes raw payloads to logs: parse failures, agent crashes, and
 proxy errors are built here as metadata-only events and filtered like any other.
 
 The lifecycle builders stay proxy-owned because they describe the proxy's own
-failures, which no source normalizer can observe. They are built on the shared
+failures, and how its chat's process ended, which no source normalizer can
+observe. They are built on the shared
 :class:`research.telemetry.builder.EventBuilder` /
 :class:`research.telemetry.models.CanonicalEventV1` contract and remain
 metadata-only: a kind, an optional source digest, and counts. Raw frame bytes,
@@ -19,6 +20,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from research.telemetry.builder import EventBuilder, SequenceAllocator
+from research.telemetry.chat_lifecycle import END_REASON_KEY, PROXY_END_REASONS
 from research.telemetry.enums import (
     CanonicalEventType,
     CanonicalFidelity,
@@ -33,6 +35,7 @@ from research.telemetry.models import (
 )
 from research.telemetry.privacy import PrivacyPolicy, filter_event
 
+from .normalize import SESSION_ID_KEY
 from .observe import ObservedAcpMessageV1
 
 if TYPE_CHECKING:
@@ -46,6 +49,7 @@ __all__ = [
     "PrivacyGate",
     "agent_crashed_event",
     "default_policy",
+    "interaction_ended_event",
     "parse_failed_event",
     "proxy_error_event",
 ]
@@ -183,6 +187,47 @@ def proxy_error_event(
         metrics=EventMetrics(),
         coverage=_failure_coverage("proxy lifecycle failure"),
         evidence_digest=evidence_digest,
+        monotonic_ns=monotonic_ns,
+        event_id=event_id,
+        emitter_sequence=emitter_sequence,
+    )
+
+
+def interaction_ended_event(
+    end_reason: str,
+    *,
+    occurred_at: datetime,
+    session_id: Optional[str] = None,
+    emitter_id: str = "acp-proxy",
+    monotonic_ns: Optional[int] = None,
+    event_id: Optional[UUID] = None,
+    emitter_sequence: Optional[int] = None,
+    allocator: Optional[SequenceAllocator] = None,
+) -> CanonicalEventV1:
+    """Build the metadata-only ``interaction.completed`` that ends a chat's process.
+
+    ``end_reason`` is one of ``chat_lifecycle.PROXY_END_REASONS``; the optional
+    ``session_id`` names the chat the process served. Lifecycle ``completed``
+    marks a chat end: a user interrupt (``session/cancel``) has no lifecycle
+    state, so this event never counts as a cancel. ``allocator`` shares the
+    process's per-emitter sequence counter, like the other lifecycle builders.
+    """
+    if end_reason not in PROXY_END_REASONS:
+        raise ValueError(f"unknown chat end reason: {end_reason!r}")
+    payload = {END_REASON_KEY: end_reason}
+    if session_id is not None:
+        payload[SESSION_ID_KEY] = session_id
+    return EventBuilder(allocator).build(
+        emitter_id=emitter_id,
+        event_type=CanonicalEventType.INTERACTION_COMPLETED,
+        source=EventSource.ACP,
+        occurred_at=occurred_at,
+        normalizer_version=PROXY_LIFECYCLE_NORMALIZER_VERSION,
+        payload=payload,
+        fidelity=CanonicalFidelity.EXACT,
+        lifecycle_state="completed",
+        metrics=EventMetrics(),
+        coverage=Coverage(state=CoverageState.AVAILABLE, capability="proxy"),
         monotonic_ns=monotonic_ns,
         event_id=event_id,
         emitter_sequence=emitter_sequence,
