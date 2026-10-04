@@ -1147,11 +1147,11 @@ class ResearchSessionManager(
      * [close] is the explicit participant completion. Idempotent, and never
      * blocks longer than [drainTimeoutMs] plus the IPC grace.
      *
-     * @param drain `true` on a plain project close / IDE shutdown, where the
-     * last events of the day should reach the server before the uploader
-     * closes. It must be `false` on a privacy erase (records the participant
-     * asked to delete are never uploaded first) and on a sign-out/account
-     * switch (the spool is quarantined instead).
+     * @param drain `true` on a plain project close / IDE shutdown and on a
+     * sign-out, where the last events should reach the server before the
+     * uploader closes (a sign-out then quarantines what is left). It must be
+     * `false` on a privacy erase: records the participant asked to delete are
+     * never uploaded first.
      * @param drainTimeoutMs upper bound of that one attempt; the service passes
      * a shorter budget when it is stopping on the UI thread.
      */

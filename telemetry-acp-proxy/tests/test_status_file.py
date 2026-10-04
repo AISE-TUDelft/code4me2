@@ -316,3 +316,27 @@ def test_concurrent_status_writers_never_race_on_a_shared_path(monkeypatch, tmp_
     # ``status.json.tmp`` collapses this set to one entry.
     assert len(staged) == writers
     assert len(set(staged)) == writers
+
+
+def test_events_the_spool_refuses_count_as_lost_in_the_status_document(monkeypatch, tmp_path):
+    """Regression: a spool that answers but stores nothing (unreachable endpoint,
+    events refused as another session's) left ``dropped=0, healthy=true``."""
+    status_path = tmp_path / "status.json"
+
+    class RefusingSpool:
+        def __init__(self, endpoint, capability, **kwargs):
+            pass
+
+        def send(self, events):
+            return SpoolSendResult(sent=0, dropped=len(events))
+
+    monkeypatch.setattr(proxy_main, "LocalSpoolClient", RefusingSpool)
+    diagnostics: list[str] = []
+
+    exit_code = _run_via_main(monkeypatch, [*_agent_argv("--status-file", str(status_path))], diagnostics=diagnostics)
+
+    assert exit_code == proxy_main.EXIT_OK
+    document = json.loads(status_path.read_text(encoding="utf-8"))
+    assert document["dropped_error"] >= 1 and document["dropped"] >= 1
+    assert document["healthy"] is False
+    assert any("refused by the spool" in message for message in diagnostics)

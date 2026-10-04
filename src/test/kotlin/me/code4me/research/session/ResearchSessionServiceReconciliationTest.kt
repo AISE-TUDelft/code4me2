@@ -3,6 +3,7 @@ package me.code4me.research.session
 import com.intellij.openapi.project.Project
 import me.code4me.research.actions.ResearchEnrollmentSettings
 import me.code4me.research.bootstrap.EnrollmentDiscovery
+import me.code4me.research.lifecycle.ResearchLogoutHook
 import me.code4me.research.spool.SpoolStats
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -199,11 +200,33 @@ class ResearchSessionServiceReconciliationTest {
 
         assertEquals("first-session", (firstResult.activation as ResearchActivationResult.Activated).sessionId)
         assertEquals("second-session", (secondResult.activation as ResearchActivationResult.Activated).sessionId)
-        // A sign-out quarantines the spool; it never uploads first.
-        verify(first).stop(0L, drain = false, drainTimeoutMs = ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS)
+        // A sign-out ships what it can under its own capability, then quarantines the rest.
+        verify(first).stop(0L, drain = true, drainTimeoutMs = ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS)
         verify(first).quarantineSpool()
         verify(first, times(1)).activate(eq("enrollment-1"), any(), any())
         verify(second, times(1)).activate(eq("enrollment-1"), any(), any())
+    }
+
+    @Test
+    fun `a sign-out uploads first only on the same server and outside a privacy erase`() {
+        assertTrue(signOutMayUpload("https://a.example", "https://a.example", eraseInFlight = false))
+        assertTrue(signOutMayUpload(null, "https://a.example", eraseInFlight = false), "no origin, no uploader")
+        assertFalse(signOutMayUpload("https://a.example", "https://b.example", eraseInFlight = false), "server switched")
+        assertFalse(signOutMayUpload("https://a.example", null, eraseInFlight = false), "no server configured now")
+        assertFalse(signOutMayUpload("https://a.example", "https://a.example", eraseInFlight = true), "erase running")
+    }
+
+    @Test
+    fun `a sign-out while a privacy erase runs quarantines without uploading`() {
+        val manager = mock<ResearchSessionManager>()
+        val service = service(EnrollmentDiscovery.None, manager, ResearchEnrollmentSettings())
+        service.manager()
+
+        ResearchLogoutHook.whileErasing { service.onLogout() }
+
+        verify(manager).stop(0L, drain = false, drainTimeoutMs = ResearchSessionManager.STOP_DRAIN_TIMEOUT_MS)
+        verify(manager).quarantineSpool()
+        assertFalse(ResearchLogoutHook.isEraseInFlight(), "the erase mark ends with the erase")
     }
 
     @Test

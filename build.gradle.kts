@@ -400,6 +400,13 @@ if (participantBuildRequested) {
 tasks.named<ProcessResources>("processResources") {
     inputs.property("code4me.serverUrl", configuredParticipantServerUrl ?: "")
     inputs.property("code4me.localRuntimeDir", localRuntimeResourceDir ?: "")
+    // The repository ships no agent. An archive left in the ignored runtime folder
+    // without the recipe scripts/build-plugin-with-agent.py writes beside it is never
+    // read, so it stays out of the plugin.
+    val bundledRecipe = layout.projectDirectory.file("src/main/resources/code4me-runtime/manifest.json")
+    if (!providers.fileContents(bundledRecipe).asBytes.isPresent) {
+        exclude("code4me-runtime/**")
+    }
     (participantReleaseDir?.resolve("resources")?.absolutePath ?: localRuntimeResourceDir)?.let { generatedResourcePath ->
         val generatedResourceRoot = file(generatedResourcePath)
         inputs.dir(generatedResourceRoot)
@@ -426,8 +433,8 @@ tasks.named<ProcessResources>("processResources") {
             runCatching { URI(url) }.getOrElse {
                 throw GradleException("Participant backend is not a valid HTTPS origin: $url", it)
             }
-        // A local test release may target loopback over plain HTTP, matching the
-        // CLI's apply rule. Production participant builds stay HTTPS-only.
+        // A local test release may target loopback over plain HTTP. Production
+        // participant builds stay HTTPS-only.
         val loopbackHttp =
             participantLocalRelease &&
                 origin.scheme == "http" &&

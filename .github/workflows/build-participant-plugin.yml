@@ -34,7 +34,7 @@ on:
         required: true
         default: false
       fullHostSmoke:
-        description: Run the final plugin ZIP smoke test on every supported host
+        description: Run the plugin tests, then the agent installer tests on every supported host
         type: boolean
         required: true
         default: false
@@ -291,6 +291,8 @@ jobs:
           path: build/distributions/*.zip
           if-no-files-found: error
 
+  # The agent installer tests on each native host. Starting the final ZIP in
+  # IntelliJ needs a ZIP smoke test that ui-tests does not have yet.
   host-smoke:
     if: inputs.fullHostSmoke
     needs: [prepare-proxy-matrix, build]
@@ -310,15 +312,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
-        with:
-          name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
-          path: host-assets
-      - name: Prepare Linux display
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
       - name: Verify native managed installer
         shell: bash
         run: |
@@ -326,60 +319,11 @@ jobs:
             --tests me.code4me.services.agent.ManagedRuntimeInstallerTest \
             --tests me.code4me.research.proxy.PackagedAgentInstallerTest \
             --console=plain
-      - name: Install final ZIP and start IntelliJ IDEA
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import os, subprocess, time, urllib.request
-          from pathlib import Path
-
-          archives = list(Path("host-assets").glob("*.zip"))
-          if len(archives) != 1:
-              raise SystemExit(f"expected exactly one participant ZIP, found {archives}")
-          gradle = (["cmd.exe", "/d", "/c", "gradlew.bat"] if os.environ["RUNNER_OS"] == "Windows" else ["./gradlew"])
-          command = [*gradle, "--no-daemon", "--no-configuration-cache",
-                     ":runIdeForUiTests", "-PparticipantHostZip=" + str(archives[0].resolve()),
-                     "--console=plain"]
-          if os.environ["RUNNER_OS"] == "Linux":
-              command = ["xvfb-run", "-a", *command]
-          env = dict(os.environ, CODE4ME_PLUGIN_ZIP_SMOKE="1")
-          log_path = Path("host-ide.log")
-          with log_path.open("w") as log:
-              ide = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
-              try:
-                  for _ in range(300):
-                      if ide.poll() is not None:
-                          log.flush()
-                          print(log_path.read_text(errors="replace"))
-                          raise RuntimeError(f"IntelliJ exited before robot-server started (exit code {ide.returncode})")
-                      try:
-                          with urllib.request.urlopen("http://localhost:8082/hello", timeout=2) as response:
-                              if response.status == 200:
-                                  break
-                      except OSError:
-                          pass
-                      time.sleep(2)
-                  else:
-                      log.flush()
-                      print(log_path.read_text(errors="replace"))
-                      raise RuntimeError("IntelliJ robot-server did not start within 10 minutes")
-                  subprocess.run([*gradle, "--no-daemon", "--no-configuration-cache",
-                                  ":ui-tests:test", "--tests", "ui.PluginZipHostSmokeTest",
-                                  "--rerun", "--console=plain"], env=env, check=True)
-              finally:
-                  ide.terminate()
-                  try:
-                      ide.wait(timeout=15)
-                  except subprocess.TimeoutExpired:
-                      ide.kill()
-          PY
       - uses: actions/upload-artifact@v4
         if: ${{ failure() || cancelled() }}
         with:
           name: code4me-host-smoke-${{ matrix.platform }}
-          path: |
-            host-ide.log
-            ui-tests/build/test-results/test/*.xml
+          path: build/test-results/test/*.xml
           if-no-files-found: warn
 
   # Publish the installable plugin ZIP under an immutable plugin-v<version> tag.

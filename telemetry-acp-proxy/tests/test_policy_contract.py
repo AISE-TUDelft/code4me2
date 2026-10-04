@@ -17,6 +17,7 @@ from research.telemetry.builder import EventBuilder
 from research.telemetry.enums import CanonicalEventType, EventSource
 from research.telemetry.privacy import PrivacyPolicy, filter_event
 from telemetry_acp_proxy import main as proxy_main
+from telemetry_acp_proxy.framing import encode_message
 
 # Reference digest of the default policy fields, computed by the same canonical
 # JSON rules the plugin's PrivacyPolicy.computedDigest() uses. Pinning it here
@@ -87,20 +88,32 @@ def test_a_mismatched_policy_digest_fails_closed_before_forwarding(tmp_path):
     assert not spool.exists(), "nothing may be spooled before the check"
 
 
-def test_unknown_adapter_fails_closed():
+def test_unknown_adapter_falls_back_to_generic_normalization():
+    """An adapter id only enriches: a release that names one this proxy does not
+    know keeps its chats running and observed (the plugin's documented contract),
+    instead of refusing every chat of that study arm."""
     agent = fixture_path("echo_agent.py")
     diagnostics: list[str] = []
+    frame = encode_message({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+
+    class KeptOpen(io.BytesIO):
+        def close(self):  # the proxy closes the host stream when the chat ends
+            pass
+
+    host_out = KeptOpen()
 
     exit_code = proxy_main.run_proxy(
         agent_cmd=[sys.executable, str(agent)],
         agent_digest=python_digest(),
         adapter_name="not-a-real-adapter",
-        host_read=io.BytesIO(b""),
-        host_write=io.BytesIO(),
+        host_read=io.BytesIO(frame),
+        host_write=host_out,
         diagnostics=diagnostics.append,
     )
 
-    assert exit_code == proxy_main.EXIT_USAGE
+    assert exit_code == proxy_main.EXIT_OK
+    assert host_out.getvalue() == frame, "the chat's frames still flow"
+    assert any("using generic normalization" in message for message in diagnostics)
 
 
 def test_privacy_blocked_events_are_dropped_before_the_spool():

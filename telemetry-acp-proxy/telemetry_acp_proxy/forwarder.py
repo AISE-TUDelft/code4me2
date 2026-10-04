@@ -19,9 +19,14 @@ interceptor configured the pump is exactly the original byte-preserving forward.
 Closing semantics:
 
 * when the child closes its stdout, the host side is closed (EOF);
-* when the host closes its stdin, the child's stdin is closed, and if the child
-  does not exit on its own the caller's ``terminate_agent`` callback is invoked
-  so the child (and its process tree) is torn down.
+* when the host closes its stdin, the caller's ``on_host_closed`` callback runs
+  first (the host may kill the proxy moments later, before the agent has
+  exited), then the child's stdin is closed, and if the child does not exit on
+  its own the caller's ``terminate_agent`` callback is invoked so the child
+  (and its process tree) is torn down.
+
+Which side's stream ended first is recorded (``ForwardResult.closed_first``), so
+the caller can tell a host that closed the chat from an agent that exited.
 """
 
 from __future__ import annotations
@@ -77,7 +82,12 @@ def read_available(stream: BinaryIO, size: int) -> bytes:
 
 
 class ForwardResult:
-    """Outcome of one forwarding run."""
+    """Outcome of one forwarding run.
+
+    ``closed_first`` is the direction whose pump stopped first: ``HOST_TO_AGENT``
+    when the host's side ended (it closed the proxy's stdin), ``AGENT_TO_HOST``
+    when the agent's did (it exited or closed its stdout).
+    """
 
     def __init__(
         self,
@@ -86,11 +96,13 @@ class ForwardResult:
         agent_to_host_frames: int,
         host_closed_stdin: bool,
         agent_exited: bool,
+        closed_first: Optional[AcpDirection] = None,
     ) -> None:
         self.host_to_agent_frames = host_to_agent_frames
         self.agent_to_host_frames = agent_to_host_frames
         self.host_closed_stdin = host_closed_stdin
         self.agent_exited = agent_exited
+        self.closed_first = closed_first
 
 
 class AcpForwarder:
@@ -133,6 +145,7 @@ class AcpForwarder:
         agent_write: BinaryIO,
         *,
         terminate_agent: Optional[Callable[[], None]] = None,
+        on_host_closed: Optional[Callable[[], None]] = None,
         grace_seconds: float = SELF_EXIT_GRACE_SECONDS,
     ) -> ForwardResult:
         """Forward until either side closes; then apply closing semantics."""
@@ -153,6 +166,10 @@ class AcpForwarder:
         # host pump thread, while the agent pump delivers real agent frames:
         # the observer's per-direction frame reader is not thread-safe.
         agent_observation_lock = threading.Lock()
+        # The pump that stops first records its direction before it closes the
+        # other side's stream, so that side's reaction can never be first.
+        closed_first: list[AcpDirection] = []
+        closed_first_lock = threading.Lock()
 
         def _count(direction: AcpDirection, frames: list[Frame]) -> None:
             with counters_lock:
@@ -247,6 +264,9 @@ class AcpForwarder:
             except (BrokenPipeError, OSError, ValueError) as error:
                 self._emit(f"proxy: {direction.value} stream closed: {error}")
             finally:
+                with closed_first_lock:
+                    if not closed_first:
+                        closed_first.append(direction)
                 if direction is AcpDirection.AGENT_TO_HOST:
                     # A frame the agent never finished will not finish now.
                     with agent_boundary:
@@ -275,6 +295,9 @@ class AcpForwarder:
         host_thread.start()
 
         host_thread.join()
+        if on_host_closed is not None and closed_first and closed_first[0] is AcpDirection.HOST_TO_AGENT:
+            # The host ended the chat: tell the caller before waiting for the agent.
+            on_host_closed()
         # Host stdin closed: give the child a chance to exit on its own, then
         # terminate its process tree so the host side sees EOF.
         agent_exited = agent_eof.wait(timeout=grace_seconds)
@@ -297,4 +320,5 @@ class AcpForwarder:
             agent_to_host_frames=counters["agent_to_host"],
             host_closed_stdin=host_eof.is_set(),
             agent_exited=agent_exited,
+            closed_first=closed_first[0] if closed_first else None,
         )

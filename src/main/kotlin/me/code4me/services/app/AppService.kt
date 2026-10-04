@@ -365,6 +365,7 @@ class AppService {
                         timeout = timeout,
                         acpRuntimeBaseUrl = null,
                     ),
+                    restoringSavedSelection = true,
                 )
             }
         } catch (e: Exception) {
@@ -373,8 +374,18 @@ class AppService {
         LOG.info("AppService initialized with API base URL: $apiBaseUrl")
     }
 
+    /**
+     * Point the plugin at [newServer]. A different server signs the user out, as the
+     * stored login belongs to the old one; [restoringSavedSelection] is the startup
+     * restore of the server picked earlier, whose login is the stored one. The
+     * one-argument JVM overload stays for reflective callers (the UI tests).
+     */
     @Synchronized
-    fun setServerConfig(newServer: ServerConfig) {
+    @JvmOverloads
+    fun setServerConfig(
+        newServer: ServerConfig,
+        restoringSavedSelection: Boolean = false,
+    ) {
         val previousBaseUrl = apiBaseUrl
         // Runtime overrides are environment-specific. A server selected in the UI must not
         // inherit a localhost/container override from plugin.conf or a previous server.
@@ -389,7 +400,7 @@ class AppService {
         }
         serverConfig = effectiveServer
         apiBaseUrl = buildApiBaseUrl(effectiveServer.host, effectiveServer.port, effectiveServer.contextPath)
-        if (previousBaseUrl != apiBaseUrl) {
+        if (previousBaseUrl != apiBaseUrl && !restoringSavedSelection) {
             getAuthState().clearUserData()
             ProjectManager.getInstance().openProjects.forEach { project ->
                 getProjectTokenService(project).clearProjectToken()
@@ -1023,13 +1034,16 @@ class AppService {
     @Throws(IOException::class, DataErasureException::class, AuthenticationChangedException::class)
     fun eraseCollectedData(expectedAuthGeneration: Long = getAuthState().tokenGeneration()): ErasedDataCounts? {
         try {
+            // A sign-out while the erase runs then quarantines without uploading first.
             val erased =
-                eraseCollectedDataAndClearLocalData(
-                    getAuthState(),
-                    expectedAuthGeneration,
-                    { authToken -> sendDataErase(apiBaseUrl, authToken) },
-                    localCleanupAfterErase(expectedAuthGeneration),
-                ) { LOG.warn("Local cleanup after the data erase failed", it) }
+                ResearchLogoutHook.whileErasing {
+                    eraseCollectedDataAndClearLocalData(
+                        getAuthState(),
+                        expectedAuthGeneration,
+                        { authToken -> sendDataErase(apiBaseUrl, authToken) },
+                        localCleanupAfterErase(expectedAuthGeneration),
+                    ) { LOG.warn("Local cleanup after the data erase failed", it) }
+                }
             if (getAuthState().tokenGeneration() != expectedAuthGeneration) {
                 LOG.info("Authentication changed during the data erase; local cleanup may be incomplete")
             }
