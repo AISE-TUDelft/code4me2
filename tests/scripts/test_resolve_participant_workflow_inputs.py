@@ -1,4 +1,4 @@
-"""Branch and manual event contract for the participant release workflow."""
+"""Branch, manual and release-tag contracts for the participant release workflow."""
 
 from __future__ import annotations
 
@@ -80,10 +80,50 @@ def test_manual_https_candidate_accepts_stable_semver(tmp_path: Path) -> None:
     assert values["server_ref"] == SERVER_SHA
 
 
+def test_release_tag_sets_version_and_ignores_branch_and_dispatch_inputs(tmp_path: Path) -> None:
+    result, values = invoke(
+        tmp_path, GITHUB_REF="refs/tags/v1.2.3",
+        RELEASE_SERVER_URL="https://study.example.org",
+        BRANCH_SERVER_URL="http://localhost:18080", DISPATCH_VERSION="9.9.9-test1",
+    )
+    assert result.returncode == 0, result.stderr
+    assert values == {
+        "server_url": "https://study.example.org",
+        "version": "1.2.3",
+        "server_repository": "AISE-TUDelft/code4me2-server",
+        "server_ref": "",
+        "local_test": "false",
+    }
+
+
+@pytest.mark.parametrize(
+    ("overrides", "error"),
+    [
+        ({"GITHUB_REF": "refs/tags/v1.2.3-beta"}, "release tag must be vX.Y.Z"),
+        ({"GITHUB_REF": "refs/tags/v01.2.3"}, "release tag must be vX.Y.Z"),
+        ({"RELEASE_SERVER_URL": ""}, "public HTTPS origin"),
+        ({"RELEASE_SERVER_URL": "http://localhost:18080"}, "prerelease version"),
+    ],
+)
+def test_invalid_release_configuration_fails_before_build(
+    tmp_path: Path, overrides: dict[str, str], error: str
+) -> None:
+    inputs = {
+        "GITHUB_REF": "refs/tags/v1.2.3",
+        "RELEASE_SERVER_URL": "https://study.example.org",
+    }
+    inputs.update(overrides)
+    result, values = invoke(tmp_path, **inputs)
+    assert result.returncode != 0
+    assert error in result.stderr
+    assert values == {}
+
+
 def test_manual_localhost_dispatch_keeps_explicit_inputs(tmp_path: Path) -> None:
     result, values = invoke(
         tmp_path,
         GITHUB_EVENT_NAME="workflow_dispatch",
+        GITHUB_REF="refs/tags/v1.2.3",
         DISPATCH_SERVER_URL="http://127.0.0.1:18080",
         DISPATCH_VERSION="0.0.5-study-test1",
         DISPATCH_SERVER_REPOSITORY="AISE-TUDelft/code4me2-server",

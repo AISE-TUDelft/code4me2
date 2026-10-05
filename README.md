@@ -434,6 +434,40 @@ Do not distribute a locally built ZIP; it is neither complete nor certified for 
 
 Use the **Build participant plugin** workflow. It needs no runtime release: it builds the research proxy for all four platforms from the deployed server commit, runs `buildPlugin` with the study backend's origin, and verifies the ZIP with `scripts/verify-participant-artifact.py --agent-free` (four self-contained proxies, no bundled agent, no secrets or developer paths). Agent versions are released and assigned to studies separately; see [Participant plugin and study agents](docs/PARTICIPANT_RELEASE.md). Only the versioned artifact produced by that workflow is a participant deliverable.
 
+### Publishing to JetBrains Marketplace
+
+Pushing a stable `vX.Y.Z` tag runs `.github/workflows/build-participant-plugin.yml`.
+The tag supplies `pluginVersion` (for example, `v0.0.2` builds version `0.0.2`);
+`gradle.properties` remains the default for local development. The workflow builds
+the native research proxies, runs plugin tests, builds and verifies the plugin ZIP,
+publishes that exact ZIP to Marketplace, and attaches it to a GitHub Release for the tag.
+The server repository's default branch supplies the proxy sources; the workflow
+resolves one commit internally for all four builds.
+Manual participant releases continue to use `plugin-v<version>` and do not publish to Marketplace.
+
+Before pushing a release tag, configure these repository Actions settings:
+
+- Secret `JETBRAINS_MARKETPLACE_TOKEN`: your Marketplace personal access token.
+- Variable `CODE4ME_RELEASE_SERVER_URL`: the public HTTPS backend origin.
+- Optional variable `CODE4ME_RELEASE_SERVER_REPOSITORY`: defaults to `AISE-TUDelft/code4me2-server`.
+- Secret `CODE4ME_RELEASE_TOKEN` if the selected server repository is private: a GitHub token with read access to it.
+
+The Marketplace entry with plugin ID `me.code4me` must already exist: JetBrains requires
+the first upload to be manual. Updates still require Marketplace approval.
+The Marketplace description comes from the marked plugin-description section in
+`README.md`. Change notes come from the matching version in `CHANGELOG.md`, falling
+back to `[Unreleased]`. Update these files before tagging; publishing does not rewrite them.
+
+After committing and pushing the release changes, choose an unused version and run:
+
+```bash
+git tag -a v0.0.2 -m "Release 0.0.2"
+git push origin v0.0.2
+```
+
+The pushed tag must point at a commit containing this workflow. Only stable `vX.Y.Z`
+tags publish to Marketplace; prerelease tags and tags with leading zeros are rejected.
+
 ### Code Quality Standards
 The project maintains high code quality through:
 - **Kotlin Code Style**: Enforced through ktlint

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve participant plugin build inputs for manual dispatch or a feature-branch push.
+"""Resolve participant plugin build inputs for manual dispatch, branch pushes or release tags.
 
 The plugin bundles no agent, so a build needs no runtime release: only the backend
 origin, the plugin version and the server sources the research proxy is built from.
@@ -25,7 +25,18 @@ def valid_ref(ref: str) -> bool:
 
 def resolve(env: dict[str, str]) -> dict[str, str]:
     event = env.get("GITHUB_EVENT_NAME", "")
-    if event == "push":
+    release_tag = event == "push" and env.get("GITHUB_REF", "").startswith("refs/tags/")
+    if release_tag:
+        tag = env["GITHUB_REF"].removeprefix("refs/tags/")
+        if not re.fullmatch(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", tag):
+            raise ValueError("Marketplace release tag must be vX.Y.Z without leading zeros")
+        values = {
+            "server_url": env.get("RELEASE_SERVER_URL", ""),
+            "version": tag[1:],
+            "server_repository": env.get("RELEASE_SERVER_REPOSITORY") or DEFAULT_SERVER_REPOSITORY,
+            "server_ref": "",
+        }
+    elif event == "push":
         if env.get("GITHUB_REF") != "refs/heads/feat/plugin":
             raise ValueError("branch build is restricted to feat/plugin")
         sha = env.get("GITHUB_SHA", "")
@@ -52,7 +63,7 @@ def resolve(env: dict[str, str]) -> dict[str, str]:
         raise ValueError("workflow inputs must not contain line breaks")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", values["server_repository"]):
         raise ValueError("server repository must be owner/name")
-    if not valid_ref(values["server_ref"]):
+    if not release_tag and not valid_ref(values["server_ref"]):
         raise ValueError("server ref must be a branch, tag or commit SHA")
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", values["version"]):
         raise ValueError("plugin version must be SemVer")
@@ -77,8 +88,8 @@ def resolve(env: dict[str, str]) -> dict[str, str]:
             raise ValueError("localhost test ZIPs require a SemVer prerelease version")
         values["local_test"] = "true"
     elif public_candidate:
-        # The proxy must match the server participants talk to: pin its exact commit.
-        if not re.fullmatch(r"[0-9a-f]{40}", values["server_ref"]):
+        # Manual/branch candidates pin the deployed server; tags use its default branch.
+        if not release_tag and not re.fullmatch(r"[0-9a-f]{40}", values["server_ref"]):
             raise ValueError("HTTPS Marketplace candidates require the deployed server's full commit SHA as server ref")
         values["local_test"] = "false"
     else:

@@ -10,6 +10,8 @@ on:
   push:
     branches:
       - feat/plugin
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
   workflow_dispatch:
     inputs:
       serverUrl:
@@ -68,6 +70,8 @@ jobs:
           BRANCH_SERVER_URL: ${{ vars.CODE4ME_BRANCH_SERVER_URL }}
           BRANCH_SERVER_REPOSITORY: ${{ vars.CODE4ME_BRANCH_SERVER_REPOSITORY }}
           BRANCH_SERVER_REF: ${{ vars.CODE4ME_BRANCH_SERVER_REF }}
+          RELEASE_SERVER_URL: ${{ vars.CODE4ME_RELEASE_SERVER_URL }}
+          RELEASE_SERVER_REPOSITORY: ${{ vars.CODE4ME_RELEASE_SERVER_REPOSITORY }}
         run: python3 scripts/resolve-participant-workflow-inputs.py
       - name: Check out the selected server sources
         uses: actions/checkout@v4
@@ -204,8 +208,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: Run plugin tests
-        if: inputs.fullHostSmoke
-        run: ./gradlew --no-daemon test
+        if: inputs.fullHostSmoke || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+        run: ./gradlew --no-daemon --no-configuration-cache :test "-PpluginVersion=${{ needs.prepare-proxy-matrix.outputs.version }}"
       - name: Download research proxy bundles
         uses: actions/download-artifact@v4
         with:
@@ -254,6 +258,9 @@ jobs:
             -PrequireResearchProxyBundles=true)
           # Only a localhost test ZIP may target a plain-HTTP loopback backend.
           if [ "$LOCAL_TEST" = true ]; then args+=(-PparticipantLocalRelease=true); fi
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
+            args+=(verifyPluginStructure verifyPlugin)
+          fi
           ./gradlew "${args[@]}"
           shopt -s nullglob
           zips=(build/distributions/*.zip)
@@ -326,39 +333,59 @@ jobs:
           path: build/test-results/test/*.xml
           if-no-files-found: warn
 
-  # Publish the installable plugin ZIP under an immutable plugin-v<version> tag.
+  # Release tags publish the verified ZIP to Marketplace and GitHub under v<version>.
+  # Manual participant releases retain the plugin-v<version> tag.
   # The ZIP carries the verified per-platform proxies and no agent; a study's
   # assigned agent comes from its pinned runtime Release on a cache miss.
   # Assets of a published plugin release are never replaced.
   publish:
-    if: ${{ always() && !cancelled() && github.event_name == 'workflow_dispatch' && inputs.publishRelease && needs.build.result == 'success' && (needs.host-smoke.result == 'success' || needs.host-smoke.result == 'skipped') }}
+    if: ${{ always() && !cancelled() && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.publishRelease)) && needs.build.result == 'success' && (needs.host-smoke.result == 'success' || needs.host-smoke.result == 'skipped') }}
     needs: [prepare-proxy-matrix, build, host-smoke]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
       - uses: actions/download-artifact@v4
         with:
           name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
-          path: plugin-assets
+          path: build/distributions
+      - name: Publish verified ZIP to JetBrains Marketplace
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
+        # Publish the downloaded, verified archive without rebuilding or changing its notes.
+        run: ./gradlew --no-daemon --no-configuration-cache publishPlugin -x :buildPlugin -x :signPlugin "-PpluginVersion=$PLUGIN_VERSION"
       - name: Publish immutable plugin release
         env:
-          GH_TOKEN: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           tag="plugin-v$PLUGIN_VERSION"
+          release_options=()
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$RELEASE_TAG"
+            release_options+=(--verify-tag --generate-notes)
+          fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release $tag already exists; refusing to replace its assets" >&2
             exit 1
           fi
           shopt -s nullglob
-          assets=(plugin-assets/*.zip)
+          assets=(build/distributions/*.zip)
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "the participant ZIP artifact is missing" >&2
             exit 1
           fi
-          release_options=()
           case "$PLUGIN_VERSION" in *-*) release_options+=(--prerelease) ;; esac
           gh release create "$tag" \
             --repo "$GITHUB_REPOSITORY" \
