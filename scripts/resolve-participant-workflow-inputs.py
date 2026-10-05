@@ -84,7 +84,7 @@ def resolve(env: dict[str, str]) -> dict[str, str]:
         and origin.hostname not in {"localhost", "127.0.0.1", "::1"}
     )
     if localhost_test:
-        if "-" not in values["version"].split("+", 1)[0]:
+        if not release_tag and "-" not in values["version"].split("+", 1)[0]:
             raise ValueError("localhost test ZIPs require a SemVer prerelease version")
         values["local_test"] = "true"
     elif public_candidate:

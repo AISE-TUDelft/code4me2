@@ -369,7 +369,7 @@ tasks {
     }
 }
 
-// Participant releases must explicitly select the hosted backend. The source plugin.conf remains
+// Participant releases must explicitly select the backend. The source plugin.conf remains
 // developer-owned (and may point at localhost); only the copied build resource is rewritten.
 val participantServerUrl = providers.gradleProperty("code4me.serverUrl")
 val configuredParticipantServerUrl = participantServerUrl.orNull?.trim()?.trimEnd('/')
@@ -429,8 +429,7 @@ tasks.named<ProcessResources>("processResources") {
             runCatching { URI(url) }.getOrElse {
                 throw GradleException("Participant backend is not a valid HTTPS origin: $url", it)
             }
-        // A local test release may target loopback over plain HTTP. Production
-        // participant builds stay HTTPS-only.
+        // Explicit local backend builds may target loopback over plain HTTP.
         val loopbackHttp =
             participantLocalRelease &&
                 origin.scheme == "http" &&

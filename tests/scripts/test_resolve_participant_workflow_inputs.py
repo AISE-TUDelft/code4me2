@@ -102,7 +102,8 @@ def test_release_tag_sets_version_and_ignores_branch_and_dispatch_inputs(tmp_pat
         ({"GITHUB_REF": "refs/tags/v1.2.3-beta"}, "release tag must be vX.Y.Z"),
         ({"GITHUB_REF": "refs/tags/v01.2.3"}, "release tag must be vX.Y.Z"),
         ({"RELEASE_SERVER_URL": ""}, "public HTTPS origin"),
-        ({"RELEASE_SERVER_URL": "http://localhost:18080"}, "prerelease version"),
+        ({"RELEASE_SERVER_URL": "localhost:8008"}, "localhost HTTP or public HTTPS origin"),
+        ({"RELEASE_SERVER_URL": "http://example.org:8008"}, "localhost HTTP or public HTTPS origin"),
     ],
 )
 def test_invalid_release_configuration_fails_before_build(
@@ -117,6 +118,18 @@ def test_invalid_release_configuration_fails_before_build(
     assert result.returncode != 0
     assert error in result.stderr
     assert values == {}
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1"])
+def test_release_tag_accepts_a_local_backend(tmp_path: Path, host: str) -> None:
+    result, values = invoke(
+        tmp_path, GITHUB_REF="refs/tags/v0.0.1",
+        RELEASE_SERVER_URL=f"http://{host}:8008",
+    )
+    assert result.returncode == 0, result.stderr
+    assert values["server_url"] == f"http://{host}:8008"
+    assert values["version"] == "0.0.1"
+    assert values["local_test"] == "true"
 
 
 def test_manual_localhost_dispatch_keeps_explicit_inputs(tmp_path: Path) -> None:

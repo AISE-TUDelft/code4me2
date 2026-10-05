@@ -256,7 +256,7 @@ jobs:
             "-Pcode4me.serverUrl=$PARTICIPANT_SERVER_URL"
             "-PresearchProxyPlatforms=$PLATFORMS"
             -PrequireResearchProxyBundles=true)
-          # Only a localhost test ZIP may target a plain-HTTP loopback backend.
+          # Local backend builds explicitly enable plain-HTTP loopback access.
           if [ "$LOCAL_TEST" = true ]; then args+=(-PparticipantLocalRelease=true); fi
           if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
             args+=(verifyPluginStructure verifyPlugin)

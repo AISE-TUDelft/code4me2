@@ -448,7 +448,8 @@ Manual participant releases continue to use `plugin-v<version>` and do not publi
 Before pushing a release tag, configure these repository Actions settings:
 
 - Secret `JETBRAINS_MARKETPLACE_TOKEN`: your Marketplace personal access token.
-- Variable `CODE4ME_RELEASE_SERVER_URL`: the public HTTPS backend origin.
+- Variable `CODE4ME_RELEASE_SERVER_URL`: the backend origin, either public HTTPS
+  or `http://localhost:8008` for a backend running on each user's machine.
 - Optional variable `CODE4ME_RELEASE_SERVER_REPOSITORY`: defaults to `AISE-TUDelft/code4me2-server`.
 - Secret `CODE4ME_RELEASE_TOKEN` if the selected server repository is private: a GitHub token with read access to it.
 
