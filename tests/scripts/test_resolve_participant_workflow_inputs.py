@@ -34,7 +34,7 @@ def invoke(tmp_path: Path, **overrides: str) -> tuple[subprocess.CompletedProces
 def test_branch_push_builds_a_localhost_test_zip_and_ignores_dispatch_inputs(tmp_path: Path) -> None:
     result, values = invoke(
         tmp_path,
-        DISPATCH_SERVER_REF="main",
+        DISPATCH_SERVER_TAG="ignored-release",
         DISPATCH_VERSION="9.9.9-test1",
     )
     assert result.returncode == 0, result.stderr
@@ -67,23 +67,27 @@ def test_branch_push_with_https_and_server_commit_is_a_candidate(tmp_path: Path)
     assert values["version"] == "0.0.1-branch.gaaaaaaaaaaaa"
 
 
-def test_manual_https_candidate_accepts_stable_semver(tmp_path: Path) -> None:
+@pytest.mark.parametrize("server_tag", ["runtime-v0.0.3", "runtime-v2.1.0"])
+def test_manual_https_candidate_accepts_a_selected_tag(tmp_path: Path, server_tag: str) -> None:
     result, values = invoke(
         tmp_path, GITHUB_EVENT_NAME="workflow_dispatch",
         DISPATCH_SERVER_URL="https://study.example.org",
         DISPATCH_VERSION="1.2.3",
         DISPATCH_SERVER_REPOSITORY="AISE-TUDelft/code4me2-server",
-        DISPATCH_SERVER_REF=SERVER_SHA,
+        DISPATCH_SERVER_TAG=server_tag,
     )
     assert result.returncode == 0, result.stderr
     assert values["local_test"] == "false"
-    assert values["server_ref"] == SERVER_SHA
+    assert values["server_ref"] == f"refs/tags/{server_tag}"
 
 
-def test_release_tag_sets_version_and_ignores_branch_and_dispatch_inputs(tmp_path: Path) -> None:
+@pytest.mark.parametrize("server_tag", ["runtime-v0.0.4", "runtime-v2.1.0"])
+def test_release_tag_sets_version_and_uses_the_selected_server_tag(tmp_path: Path, server_tag: str) -> None:
     result, values = invoke(
         tmp_path, GITHUB_REF="refs/tags/v1.2.3",
         RELEASE_SERVER_URL="https://study.example.org",
+        RELEASE_SERVER_TAG=server_tag,
+        DISPATCH_SERVER_TAG="ignored-release", BRANCH_SERVER_REF="ignored-branch",
         BRANCH_SERVER_URL="http://localhost:18080", DISPATCH_VERSION="9.9.9-test1",
     )
     assert result.returncode == 0, result.stderr
@@ -91,7 +95,7 @@ def test_release_tag_sets_version_and_ignores_branch_and_dispatch_inputs(tmp_pat
         "server_url": "https://study.example.org",
         "version": "1.2.3",
         "server_repository": "AISE-TUDelft/code4me2-server",
-        "server_ref": "",
+        "server_ref": f"refs/tags/{server_tag}",
         "local_test": "false",
     }
 
@@ -101,6 +105,10 @@ def test_release_tag_sets_version_and_ignores_branch_and_dispatch_inputs(tmp_pat
     [
         ({"GITHUB_REF": "refs/tags/v1.2.3-beta"}, "release tag must be vX.Y.Z"),
         ({"GITHUB_REF": "refs/tags/v01.2.3"}, "release tag must be vX.Y.Z"),
+        ({"RELEASE_SERVER_TAG": ""}, "server release tag must be"),
+        ({"RELEASE_SERVER_TAG": "refs/tags/runtime-v0.0.4"}, "server release tag must be"),
+        ({"RELEASE_SERVER_TAG": "../main"}, "server release tag must be"),
+        ({"RELEASE_SERVER_TAG": "runtime-v0.0.4\nforged=true"}, "must not contain line breaks"),
         ({"RELEASE_SERVER_URL": ""}, "public HTTPS origin"),
         ({"RELEASE_SERVER_URL": "localhost:8008"}, "localhost HTTP or public HTTPS origin"),
         ({"RELEASE_SERVER_URL": "http://example.org:8008"}, "localhost HTTP or public HTTPS origin"),
@@ -112,6 +120,7 @@ def test_invalid_release_configuration_fails_before_build(
     inputs = {
         "GITHUB_REF": "refs/tags/v1.2.3",
         "RELEASE_SERVER_URL": "https://study.example.org",
+        "RELEASE_SERVER_TAG": "runtime-v0.0.4",
     }
     inputs.update(overrides)
     result, values = invoke(tmp_path, **inputs)
@@ -125,6 +134,7 @@ def test_release_tag_accepts_a_local_backend(tmp_path: Path, host: str) -> None:
     result, values = invoke(
         tmp_path, GITHUB_REF="refs/tags/v0.0.1",
         RELEASE_SERVER_URL=f"http://{host}:8008",
+        RELEASE_SERVER_TAG="runtime-v0.0.4",
     )
     assert result.returncode == 0, result.stderr
     assert values["server_url"] == f"http://{host}:8008"
@@ -140,12 +150,12 @@ def test_manual_localhost_dispatch_keeps_explicit_inputs(tmp_path: Path) -> None
         DISPATCH_SERVER_URL="http://127.0.0.1:18080",
         DISPATCH_VERSION="0.0.5-study-test1",
         DISPATCH_SERVER_REPOSITORY="AISE-TUDelft/code4me2-server",
-        DISPATCH_SERVER_REF="feat/plugin",
+        DISPATCH_SERVER_TAG="runtime-v0.0.4",
         BRANCH_SERVER_REF="ignored",
     )
     assert result.returncode == 0, result.stderr
     assert values["version"] == "0.0.5-study-test1"
-    assert values["server_ref"] == "feat/plugin"
+    assert values["server_ref"] == "refs/tags/runtime-v0.0.4"
     assert values["local_test"] == "true"
 
 
@@ -183,7 +193,8 @@ def test_invalid_branch_configuration_fails_before_build(
 @pytest.mark.parametrize(
     ("overrides", "error"),
     [
-        ({"DISPATCH_SERVER_REF": ""}, "server ref must be"),
+        ({"DISPATCH_SERVER_TAG": ""}, "server release tag must be"),
+        ({"DISPATCH_SERVER_TAG": "refs/heads/main"}, "server release tag must be"),
         ({"DISPATCH_VERSION": "0.0.5"}, "prerelease version"),
         ({"DISPATCH_VERSION": "five"}, "SemVer"),
         ({"DISPATCH_SERVER_REPOSITORY": ""}, "owner/name"),
@@ -197,7 +208,7 @@ def test_invalid_manual_inputs_fail_before_build(
         "DISPATCH_SERVER_URL": "http://localhost:8008",
         "DISPATCH_VERSION": "0.0.5-study-test1",
         "DISPATCH_SERVER_REPOSITORY": "AISE-TUDelft/code4me2-server",
-        "DISPATCH_SERVER_REF": "feat/plugin",
+        "DISPATCH_SERVER_TAG": "runtime-v0.0.4",
     }
     inputs.update(overrides)
     result, values = invoke(tmp_path, **inputs)

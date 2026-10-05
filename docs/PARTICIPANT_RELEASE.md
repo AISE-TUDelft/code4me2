@@ -66,11 +66,10 @@ Run **Actions → Build participant plugin**:
 |---|---|
 | `serverUrl` | Backend origin baked into the plugin. Use `https://…` for a Marketplace candidate, or `http://localhost:<port>` with a prerelease version for a test ZIP. |
 | `version` | Plugin SemVer version. |
-| `serverRepository`, `serverRef` | Server sources the research proxy is built from. A Marketplace candidate must use the deployed server's full commit SHA. The workflow resolves the ref to one commit for all four proxy builds. |
-| `publishRelease` | Also publish the ZIP as a `plugin-v<version>` GitHub release. It never uploads to Marketplace. |
+| `serverRepository`, `serverTag` | Server repository and published release tag supplying the shared proxy sources. There is no default tag. The workflow checks that the release is published, validates the source files, and resolves one commit for all four proxy builds. |
 | `fullHostSmoke` | Run the plugin tests, then the agent installer tests on all four hosts. It does not start the final ZIP in IntelliJ: `ui-tests` has no ZIP smoke test yet. |
 
-The build needs no runtime release. It:
+The server tag selects proxy source code independently of the study's agent. The build:
 
 1. builds four self-contained proxies;
 2. runs `./gradlew buildPlugin` with `-Pcode4me.serverUrl`;
@@ -79,8 +78,11 @@ The build needs no runtime release. It:
    or developer paths.
 
 The `participant-release-evidence` artifact's `build-report.json` records the
-plugin and server commits and the ZIP SHA-256. Uploading to Marketplace is a
-separate manual step with the verified ZIP.
+plugin and server commits and the ZIP SHA-256. Manual runs build artifacts only.
+To publish to Marketplace and create a GitHub Release with the ZIP attached, push
+a stable `vX.Y.Z` tag. See the publishing settings in `README.md`.
+Tag-triggered releases read the server source tag from `CODE4ME_RELEASE_SERVER_TAG`;
+manual builds use the `serverTag` input. Neither requires you to supply a commit SHA.
 
 Until the workflow is on `main`:
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Resolve participant plugin build inputs for manual dispatch, branch pushes or release tags.
 
-The plugin bundles no agent, so a build needs no runtime release: only the backend
-origin, the plugin version and the server sources the research proxy is built from.
+The plugin bundles no agent. Manual builds and plugin releases select a published
+server source tag for the research proxy, independently of each study's agent.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def resolve(env: dict[str, str]) -> dict[str, str]:
             "server_url": env.get("RELEASE_SERVER_URL", ""),
             "version": tag[1:],
             "server_repository": env.get("RELEASE_SERVER_REPOSITORY") or DEFAULT_SERVER_REPOSITORY,
-            "server_ref": "",
+            "server_ref": env.get("RELEASE_SERVER_TAG", ""),
         }
     elif event == "push":
         if env.get("GITHUB_REF") != "refs/heads/feat/plugin":
@@ -53,7 +53,7 @@ def resolve(env: dict[str, str]) -> dict[str, str]:
             "server_url": env.get("DISPATCH_SERVER_URL", ""),
             "version": env.get("DISPATCH_VERSION", ""),
             "server_repository": env.get("DISPATCH_SERVER_REPOSITORY", ""),
-            "server_ref": env.get("DISPATCH_SERVER_REF", ""),
+            "server_ref": env.get("DISPATCH_SERVER_TAG", ""),
         }
     else:
         raise ValueError(f"unsupported workflow event: {event}")
@@ -63,7 +63,11 @@ def resolve(env: dict[str, str]) -> dict[str, str]:
         raise ValueError("workflow inputs must not contain line breaks")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", values["server_repository"]):
         raise ValueError("server repository must be owner/name")
-    if not release_tag and not valid_ref(values["server_ref"]):
+    if release_tag or event == "workflow_dispatch":
+        if not valid_ref(values["server_ref"]) or values["server_ref"].startswith("refs/"):
+            raise ValueError("server release tag must be a tag name, for example runtime-v0.0.4")
+        values["server_ref"] = f"refs/tags/{values['server_ref']}"
+    elif not valid_ref(values["server_ref"]):
         raise ValueError("server ref must be a branch, tag or commit SHA")
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", values["version"]):
         raise ValueError("plugin version must be SemVer")
@@ -88,8 +92,9 @@ def resolve(env: dict[str, str]) -> dict[str, str]:
             raise ValueError("localhost test ZIPs require a SemVer prerelease version")
         values["local_test"] = "true"
     elif public_candidate:
-        # Manual/branch candidates pin the deployed server; tags use its default branch.
-        if not release_tag and not re.fullmatch(r"[0-9a-f]{40}", values["server_ref"]):
+        # Branch builds retain their existing deployed-server check; release tags
+        # are resolved to one source commit by the workflow.
+        if event == "push" and not release_tag and not re.fullmatch(r"[0-9a-f]{40}", values["server_ref"]):
             raise ValueError("HTTPS Marketplace candidates require the deployed server's full commit SHA as server ref")
         values["local_test"] = "false"
     else:

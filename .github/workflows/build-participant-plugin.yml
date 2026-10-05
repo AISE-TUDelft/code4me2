@@ -26,15 +26,9 @@ on:
         description: Server repository whose sources build the research proxy (owner/name)
         required: true
         default: AISE-TUDelft/code4me2-server
-      serverRef:
-        description: Server branch, tag or commit for the proxy (HTTPS candidate needs the deployed commit SHA)
+      serverTag:
+        description: Published server release tag supplying the proxy sources (for example runtime-v0.0.4)
         required: true
-        default: feat/plugin
-      publishRelease:
-        description: Publish plugin ZIP (HTTPS, or localhost HTTP for a prerelease)
-        type: boolean
-        required: true
-        default: false
       fullHostSmoke:
         description: Run the plugin tests, then the agent installer tests on every supported host
         type: boolean
@@ -43,7 +37,8 @@ on:
 
 jobs:
   # The plugin bundles no agent: each study's agent is downloaded by its pinned
-  # SHA-256 from the runtime's GitHub Release, so no runtime release is an input.
+  # SHA-256 from the runtime's GitHub Release. The selected server release tag
+  # supplies only the shared sources used to build the proxy.
   # The research proxy is a per-platform PyInstaller bundle built from the
   # server's shared contract sources at one resolved commit; there is no
   # cross-compile. scripts/research-proxy-platforms.py maps the supported
@@ -57,6 +52,7 @@ jobs:
       server_url: ${{ steps.config.outputs.server_url }}
       version: ${{ steps.config.outputs.version }}
       server_repository: ${{ steps.config.outputs.server_repository }}
+      server_ref: ${{ steps.config.outputs.server_ref }}
       local_test: ${{ steps.config.outputs.local_test }}
     steps:
       - uses: actions/checkout@v4
@@ -66,13 +62,26 @@ jobs:
           DISPATCH_SERVER_URL: ${{ inputs.serverUrl }}
           DISPATCH_VERSION: ${{ inputs.version }}
           DISPATCH_SERVER_REPOSITORY: ${{ inputs.serverRepository }}
-          DISPATCH_SERVER_REF: ${{ inputs.serverRef }}
+          DISPATCH_SERVER_TAG: ${{ inputs.serverTag }}
           BRANCH_SERVER_URL: ${{ vars.CODE4ME_BRANCH_SERVER_URL }}
           BRANCH_SERVER_REPOSITORY: ${{ vars.CODE4ME_BRANCH_SERVER_REPOSITORY }}
           BRANCH_SERVER_REF: ${{ vars.CODE4ME_BRANCH_SERVER_REF }}
           RELEASE_SERVER_URL: ${{ vars.CODE4ME_RELEASE_SERVER_URL }}
           RELEASE_SERVER_REPOSITORY: ${{ vars.CODE4ME_RELEASE_SERVER_REPOSITORY }}
+          RELEASE_SERVER_TAG: ${{ vars.CODE4ME_RELEASE_SERVER_TAG }}
         run: python3 scripts/resolve-participant-workflow-inputs.py
+      - name: Confirm the selected server release is published
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+          SERVER_REPOSITORY: ${{ steps.config.outputs.server_repository }}
+          SERVER_REF: ${{ steps.config.outputs.server_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$(gh release view "${SERVER_REF#refs/tags/}" --repo "$SERVER_REPOSITORY" --json isDraft --jq '.isDraft')" != false ]; then
+            echo "::error::Select a published server release; drafts cannot supply release sources."
+            exit 1
+          fi
       - name: Check out the selected server sources
         uses: actions/checkout@v4
         with:
@@ -80,9 +89,18 @@ jobs:
           ref: ${{ steps.config.outputs.server_ref }}
           path: server-ref
           token: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
-      - name: Pin the server commit for every proxy build
+      - name: Validate and pin the server sources for every proxy build
         id: server
-        run: echo "commit=$(git -C server-ref rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          commit=$(git -C server-ref rev-parse HEAD)
+          for path in packaging/requirements-runtime.lock packaging/requirements-build.lock pyproject.toml src/research/canonical.py src/research/telemetry/models.py; do
+            if [ ! -f "server-ref/$path" ]; then
+              echo "::error::Server commit $commit is missing $path. Select server sources containing the proxy build lockfiles and shared research contracts."
+              exit 1
+            fi
+          done
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
       - name: Derive research proxy platform matrix
         id: platforms
         run: python3 scripts/research-proxy-platforms.py --github-output "$GITHUB_OUTPUT"
@@ -248,6 +266,7 @@ jobs:
           PLATFORMS: ${{ needs.prepare-proxy-matrix.outputs.platforms }}
           LOCAL_TEST: ${{ needs.prepare-proxy-matrix.outputs.local_test }}
           SERVER_REPOSITORY: ${{ needs.prepare-proxy-matrix.outputs.server_repository }}
+          SERVER_REF: ${{ needs.prepare-proxy-matrix.outputs.server_ref }}
           SERVER_COMMIT: ${{ needs.prepare-proxy-matrix.outputs.server_commit }}
         run: |
           set -euo pipefail
@@ -278,6 +297,7 @@ jobs:
               "plugin_commit": os.environ["GITHUB_SHA"],
               "server_url": os.environ["PARTICIPANT_SERVER_URL"],
               "server_repository": os.environ["SERVER_REPOSITORY"],
+              "server_ref": os.environ["SERVER_REF"],
               "server_commit": os.environ["SERVER_COMMIT"],
               "platforms": os.environ["PLATFORMS"].split(","),
               "zip_name": archive.name,
@@ -334,13 +354,12 @@ jobs:
           if-no-files-found: warn
 
   # Release tags publish the verified ZIP to Marketplace and GitHub under v<version>.
-  # Manual participant releases retain the plugin-v<version> tag.
   # The ZIP carries the verified per-platform proxies and no agent; a study's
   # assigned agent comes from its pinned runtime Release on a cache miss.
   # Assets of a published plugin release are never replaced.
   publish:
-    if: ${{ always() && !cancelled() && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.publishRelease)) && needs.build.result == 'success' && (needs.host-smoke.result == 'success' || needs.host-smoke.result == 'skipped') }}
-    needs: [prepare-proxy-matrix, build, host-smoke]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [prepare-proxy-matrix, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -357,7 +376,6 @@ jobs:
           name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
           path: build/distributions
       - name: Publish verified ZIP to JetBrains Marketplace
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
           JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
           PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
@@ -370,14 +388,8 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          tag="plugin-v$PLUGIN_VERSION"
-          release_options=()
-          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
-            tag="$RELEASE_TAG"
-            release_options+=(--verify-tag --generate-notes)
-          fi
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release $tag already exists; refusing to replace its assets" >&2
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $RELEASE_TAG already exists; refusing to replace its assets" >&2
             exit 1
           fi
           shopt -s nullglob
@@ -386,10 +398,9 @@ jobs:
             echo "the participant ZIP artifact is missing" >&2
             exit 1
           fi
-          case "$PLUGIN_VERSION" in *-*) release_options+=(--prerelease) ;; esac
-          gh release create "$tag" \
+          gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Code4Me participant plugin $PLUGIN_VERSION" \
-            "${release_options[@]}" \
+            --verify-tag --generate-notes \
             "${assets[@]}"
