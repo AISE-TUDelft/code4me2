@@ -30,7 +30,7 @@ on:
         description: Pushed server tag compatible with this plugin's proxy
         required: true
       fullHostSmoke:
-        description: Run the plugin tests, then the agent installer tests on every supported host
+        description: Run additional installer unit tests with fixture archives on all four hosts
         type: boolean
         required: true
         default: false
@@ -97,6 +97,12 @@ jobs:
           python -m pip install --disable-pip-version-check \
             -r server-ref/packaging/requirements-runtime.lock \
             -r server-ref/packaging/requirements-test.lock
+      - name: Verify workflow inputs, publishing checks and ZIP verification
+        run: |
+          python -m pytest -q tests/scripts/test_resolve_participant_workflow_inputs.py \
+            tests/scripts/test_participant_publishing.py \
+            tests/scripts/test_research_proxy_platforms.py \
+            tests/scripts/test_verify_participant_artifact.py
       - name: Verify proxy compatibility with the selected server sources
         run: |
           set -euo pipefail
@@ -154,7 +160,7 @@ jobs:
         env:
           PYTHON: python
         run: |
-          ./gradlew --no-daemon --no-configuration-cache buildResearchProxyBundle \
+          ./gradlew --no-daemon --no-configuration-cache :buildResearchProxyBundle \
             "-PresearchProxyPlatforms=${{ matrix.platform }}"
       - name: Verify bundle layout
         working-directory: code4me2
@@ -204,7 +210,7 @@ jobs:
         run: |
           set -o pipefail
           set +e
-          ./gradlew --no-daemon --no-configuration-cache stageResearchProxy \
+          ./gradlew --no-daemon --no-configuration-cache :stageResearchProxy \
             "-PresearchProxyPlatforms=${{ needs.prepare-proxy-matrix.outputs.platforms }}" \
             "-PrequireResearchProxyBundles=true" 2>&1 | tee "$RUNNER_TEMP/strict-staging.log"
           status=${PIPESTATUS[0]}
@@ -236,7 +242,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Run plugin tests
-        if: inputs.fullHostSmoke || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
         run: ./gradlew --no-daemon --no-configuration-cache :test "-PpluginVersion=${{ needs.prepare-proxy-matrix.outputs.version }}"
       - name: Download research proxy bundles
         uses: actions/download-artifact@v4
@@ -280,7 +285,7 @@ jobs:
           SERVER_COMMIT: ${{ needs.prepare-proxy-matrix.outputs.server_commit }}
         run: |
           set -euo pipefail
-          args=(--no-daemon --no-configuration-cache buildPlugin
+          args=(--no-daemon --no-configuration-cache :buildPlugin
             "-PpluginVersion=$PLUGIN_VERSION"
             "-Pcode4me.serverUrl=$PARTICIPANT_SERVER_URL"
             "-PresearchProxyPlatforms=$PLATFORMS"
@@ -288,7 +293,7 @@ jobs:
           # Local backend builds explicitly enable plain-HTTP loopback access.
           if [ "$LOCAL_TEST" = true ]; then args+=(-PparticipantLocalRelease=true); fi
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch || ( "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ) ]]; then
-            args+=(verifyPluginStructure verifyPlugin)
+            args+=(:verifyPluginStructure :verifyPlugin)
           fi
           ./gradlew "${args[@]}"
           shopt -s nullglob
@@ -316,6 +321,15 @@ jobs:
           Path(os.environ["RUNNER_TEMP"], "build-report.json").write_text(json.dumps(report, indent=2) + "\n")
           print(json.dumps(report, indent=2))
           PY
+      - name: Upload test and verification diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: participant-build-diagnostics
+          path: |
+            build/reports/
+            build/test-results/
+          if-no-files-found: warn
       - name: Upload build evidence
         uses: actions/upload-artifact@v4
         with:
@@ -328,10 +342,11 @@ jobs:
           path: build/distributions/*.zip
           if-no-files-found: error
 
-  # The agent installer tests on each native host. Starting the final ZIP in
-  # IntelliJ needs a ZIP smoke test that ui-tests does not have yet.
+  # Installer fixture tests on each host, not a final-ZIP or native-agent smoke.
+  # Native-agent tests require independently selected runtime bundles.
   host-smoke:
-    if: inputs.fullHostSmoke
+    name: Installer unit tests on four hosts
+    if: inputs.fullHostSmoke || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.CODE4ME_RELEASE_FULL_HOST_SMOKE == 'true')
     needs: [prepare-proxy-matrix, build]
     strategy:
       fail-fast: false
@@ -349,7 +364,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify native managed installer
+      - name: Run installer fixture tests
         shell: bash
         run: |
           bash ./gradlew --no-daemon --no-configuration-cache :test \
@@ -357,7 +372,7 @@ jobs:
             --tests me.code4me.research.proxy.PackagedAgentInstallerTest \
             --console=plain
       - uses: actions/upload-artifact@v4
-        if: ${{ failure() || cancelled() }}
+        if: ${{ always() }}
         with:
           name: code4me-host-smoke-${{ matrix.platform }}
           path: build/test-results/test/*.xml
@@ -368,12 +383,31 @@ jobs:
   # assigned agent comes from its pinned runtime Release on a cache miss.
   # Assets of a published plugin release are never replaced.
   publish:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [prepare-proxy-matrix, build]
+    if: >-
+      !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') &&
+      needs.build.result == 'success' &&
+      (needs.host-smoke.result == 'success' || needs.host-smoke.result == 'skipped')
+    needs: [prepare-proxy-matrix, build, host-smoke]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - name: Check publishing prerequisites before uploading
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "$JETBRAINS_MARKETPLACE_TOKEN" ]; then
+            echo "::error::JETBRAINS_MARKETPLACE_TOKEN is required for publishing."
+            exit 1
+          fi
+          tags=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[].tag_name')
+          if grep -Fxq "$RELEASE_TAG" <<< "$tags"; then
+            echo "release $RELEASE_TAG already exists; refusing to upload again" >&2
+            exit 1
+          fi
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -385,12 +419,45 @@ jobs:
         with:
           name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
           path: build/distributions
+      - uses: actions/download-artifact@v4
+        with:
+          name: participant-release-evidence
+          path: ${{ runner.temp }}/participant-release-evidence
+      - name: Check the downloaded ZIP against build evidence
+        env:
+          PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "participant-release-evidence/build-report.json").read_text())
+          archive = Path("build/distributions") / report["zip_name"]
+          if list(Path("build/distributions").glob("*.zip")) != [archive]:
+              raise SystemExit("expected exactly the verified plugin ZIP")
+          if (report["plugin_commit"] != os.environ["GITHUB_SHA"] or
+              report["plugin_version"] != os.environ["PLUGIN_VERSION"] or
+              hashlib.sha256(archive.read_bytes()).hexdigest() != report["zip_sha256"]):
+              raise SystemExit("downloaded ZIP does not match this build's evidence")
+          PY
       - name: Publish verified ZIP to JetBrains Marketplace
         env:
           JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
           PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
         # Publish the downloaded, verified archive without rebuilding or changing its notes.
-        run: ./gradlew --no-daemon --no-configuration-cache publishPlugin -x :buildPlugin -x :signPlugin "-PpluginVersion=$PLUGIN_VERSION"
+        run: ./gradlew --no-daemon --no-configuration-cache :publishPlugin -x :buildPlugin -x :signPlugin "-PpluginVersion=$PLUGIN_VERSION"
+
+  # A failed GitHub release job can be retried without another Marketplace upload.
+  publish-github-release:
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
+    needs: [prepare-proxy-matrix, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
+          path: build/distributions
       - name: Publish immutable plugin release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -398,14 +465,10 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release $RELEASE_TAG already exists; refusing to replace its assets" >&2
-            exit 1
-          fi
           shopt -s nullglob
           assets=(build/distributions/*.zip)
-          if [ "${#assets[@]}" -eq 0 ]; then
-            echo "the participant ZIP artifact is missing" >&2
+          if [ "${#assets[@]}" -ne 1 ]; then
+            echo "expected exactly one verified participant ZIP" >&2
             exit 1
           fi
           gh release create "$RELEASE_TAG" \

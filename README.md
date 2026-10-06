@@ -459,13 +459,25 @@ Before pushing a release tag, configure these repository Actions settings:
   select the tag you want. A tag can still be too old for the
   proxy; the compatibility tests reject it. This does not select a study's agent version.
 - Optional variable `CODE4ME_RELEASE_SERVER_REPOSITORY`: defaults to `AISE-TUDelft/code4me2-server`.
-- Secret `CODE4ME_RELEASE_TOKEN` if the selected server repository is private: a GitHub token with read access to it.
+- Optional variable `CODE4ME_RELEASE_FULL_HOST_SMOKE`: set to `true` to run additional
+  installer fixture tests on all four hosts before publishing. Unset or `false` skips
+  these extra jobs; ordinary plugin tests and the four native proxy tests always run.
+- Optional secret `CODE4ME_RELEASE_TOKEN`: only needed to read a private server
+  repository from this plugin repository's workflow. The current public server
+  repository does not need it. This token is never packaged or used by participants.
+
+Any selected host tests must pass before Marketplace upload. Marketplace and
+GitHub publication are separate jobs: if only GitHub publication fails, rerun
+failed jobs to avoid uploading to Marketplace again. Inspect a partially created
+GitHub Release before retrying; the workflow does not replace existing releases.
 
 The Marketplace entry with plugin ID `me.code4me` must already exist: JetBrains requires
 the first upload to be manual. Updates still require Marketplace approval.
-The Marketplace description comes from the marked plugin-description section in
-`README.md`. Change notes come from the matching version in `CHANGELOG.md`, falling
+The plugin descriptor's description comes from the marked plugin-description
+section in `README.md`; Marketplace uses it unless the listing overrides it.
+Change notes come from the matching version in `CHANGELOG.md`, falling
 back to `[Unreleased]`. Update these files before tagging; publishing does not rewrite them.
+Screenshots are managed separately on Marketplace.
 
 After committing and pushing the release changes, choose an unused version and run:
 

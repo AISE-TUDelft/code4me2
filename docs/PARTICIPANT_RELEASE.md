@@ -64,17 +64,20 @@ Run **Actions → Build participant plugin**:
 
 | Input | Meaning |
 |---|---|
-| `serverUrl` | Backend origin baked into the plugin. Use `https://…` for a Marketplace candidate, or `http://localhost:<port>` with a prerelease version for a test ZIP. |
+| `serverUrl` | Backend origin baked into the plugin. Public HTTPS or `http://localhost:<port>` for a backend on each user's machine. Manual localhost builds require a prerelease version; stable tag releases also allow localhost. |
 | `version` | Plugin SemVer version. |
 | `serverRepository`, `serverTag` | Server repository and pushed tag supplying the shared proxy sources. No server GitHub Release is required. There is no default tag. The workflow validates the sources and resolves one commit for all four proxy builds. |
-| `fullHostSmoke` | Run the plugin tests, then the agent installer tests on all four hosts. It does not start the final ZIP in IntelliJ: `ui-tests` has no ZIP smoke test yet. |
+| `fullHostSmoke` | Optional additional installer unit tests with fixture archives on all four hosts; default `false`. Ordinary plugin tests always run. This does not launch a real downloaded agent or the final ZIP in IntelliJ. |
 
 The server tag selects proxy source code independently of the study's agent. The build:
 
 1. starts the proxy and runs its full test suite against the selected server sources;
 2. builds four self-contained proxies and tests their frozen ACP forwarding outside the source tree;
-3. runs `./gradlew buildPlugin` with `-Pcode4me.serverUrl` and IntelliJ plugin verification;
-4. runs `scripts/verify-participant-artifact.py --agent-free`. This checks that the
+3. checks that strict staging rejects missing proxy bundles, then runs root plugin unit tests;
+4. runs `./gradlew :buildPlugin :verifyPluginStructure :verifyPlugin` for manual
+   builds and release tags, with `-Pcode4me.serverUrl`. Root task paths exclude
+   the `integration-tests` project, which is not a distributable plugin;
+5. runs `scripts/verify-participant-artifact.py --agent-free`. This checks that the
    ZIP contains all four proxies, no `code4me-runtime/` agent, and no credentials
    or developer paths.
 
@@ -84,6 +87,29 @@ To publish to Marketplace and create a GitHub Release with the ZIP attached, pus
 a stable `vX.Y.Z` tag. See the publishing settings in `README.md`.
 Tag-triggered releases read the server source tag from `CODE4ME_RELEASE_SERVER_TAG`;
 manual builds use the `serverTag` input. Neither requires you to supply a commit SHA.
+For tag releases, optional repository variable `CODE4ME_RELEASE_FULL_HOST_SMOKE=true`
+enables the extra four-host installer fixture tests. Publishing waits for these
+when selected. Unset or `false` skips only those extra jobs.
+
+Before Marketplace upload, the workflow checks the token, refuses an existing
+plugin GitHub Release, and verifies the downloaded ZIP against the recorded
+plugin commit, version and SHA-256. GitHub Release creation runs in a separate job
+after Marketplace succeeds. If only that job fails, rerun failed jobs rather than
+all jobs; inspect any partially created release first. Test and verifier reports
+are uploaded even when the build fails.
+
+The real-native test in `ManagedRuntimeInstallerTest` requires
+`CODE4ME_NATIVE_RUNTIME_BUNDLES` to point to **two producer bundle directories**
+(each with its manifest and native archives), separated by the host's path
+separator. This is a test environment variable, not a configured workflow input.
+The workflow supplies no such bundles, so that test skips even with
+`fullHostSmoke=true`. Its fixture tests still run. The bundled-agent manifest test
+also skips because this plugin intentionally contains no agent.
+
+Native agent build, self-check and ACP tests belong to the separate server runtime
+workflow. An installed-IDE study test must validate the plugin with the actual
+assigned runtime. A proxy source tag alone cannot choose that runtime: it may have
+no runtime Release assets, and each study can assign a different agent version.
 
 Until the workflow is on `main`:
 
@@ -94,8 +120,10 @@ Until the workflow is on `main`:
   - `CODE4ME_BRANCH_SERVER_REPOSITORY` (default `AISE-TUDelft/code4me2-server`)
   - `CODE4ME_BRANCH_SERVER_REF` (default `feat/plugin`; must be a full commit SHA
     when the server URL is HTTPS)
-- If the server repository needs a token, set `CODE4ME_RELEASE_TOKEN` with
-  contents read access.
+- A private server repository needs `CODE4ME_RELEASE_TOKEN` with contents read
+  access because the plugin workflow's automatic GitHub token is scoped to the
+  plugin repository. Public source checkout needs no extra secret. This has
+  nothing to do with the Marketplace token or participants' public agent downloads.
 - GitHub shows the **Run workflow** button only for workflows on the default
   branch. After a branch push has registered the workflow, the API can dispatch it.
 
@@ -181,6 +209,6 @@ need:
 
 - a published runtime Release;
 - its registration and qualification on the deployed backend;
-- a plugin ZIP built from the deployed server commit;
+- a plugin ZIP built from server sources compatible with the deployed backend;
 - an installed-IDE study test on each target platform, including a clean
   Windows 11 machine with Defender (and Smart App Control if participants use it).
