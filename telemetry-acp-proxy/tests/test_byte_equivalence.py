@@ -15,6 +15,12 @@ from conftest import (  # type: ignore[import-not-found]
 
 from telemetry_acp_proxy.framing import encode_message
 
+PROXY_COMMAND = (
+    [os.environ["TELEMETRY_PROXY_EXECUTABLE"]]
+    if os.environ.get("TELEMETRY_PROXY_EXECUTABLE")
+    else [sys.executable, "-m", "telemetry_acp_proxy.main"]
+)
+
 
 def _transcript_bytes() -> bytes:
     entries = json.loads(fixture_path("acp_transcript.json").read_text())
@@ -25,6 +31,9 @@ def _run(argv, payload: bytes, *, cwd=None, extra_env=None):
     env = dict(os.environ)
     if extra_env:
         env.update(extra_env)
+    if os.environ.get("TELEMETRY_PROXY_EXECUTABLE") and argv[0] == PROXY_COMMAND[0]:
+        env.pop("PYTHONPATH", None)
+        env.pop("TELEMETRY_PROXY_SERVER_SRC", None)
     process = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE,
@@ -44,10 +53,7 @@ def test_direct_and_proxied_stdout_are_byte_identical():
 
     direct_rc, direct_out, _ = _run([sys.executable, str(agent)], payload)
 
-    proxy_argv = [
-        sys.executable,
-        "-m",
-        "telemetry_acp_proxy.main",
+    proxy_argv = PROXY_COMMAND + [
         "--agent-digest",
         digest,
         "--agent-cmd",
@@ -62,7 +68,7 @@ def test_direct_and_proxied_stdout_are_byte_identical():
     )
 
     assert direct_rc == 0
-    assert proxy_rc == 0
+    assert proxy_rc == 0, proxy_err
     assert proxy_out == direct_out
     # Diagnostics, if any, go to stderr only.
     assert isinstance(proxy_err, bytes)
@@ -73,23 +79,21 @@ def test_proxy_stdout_contains_only_protocol_frames():
     digest = python_digest()
     payload = _transcript_bytes()
 
-    proxy_argv = [
-        sys.executable,
-        "-m",
-        "telemetry_acp_proxy.main",
+    proxy_argv = PROXY_COMMAND + [
         "--agent-digest",
         digest,
         "--agent-cmd",
         sys.executable,
         str(agent),
     ]
-    _, proxy_out, _ = _run(
+    proxy_rc, proxy_out, proxy_err = _run(
         proxy_argv,
         payload,
         cwd=str(COMPONENT_DIR),
         extra_env={"PYTHONPATH": str(COMPONENT_DIR)},
     )
 
+    assert proxy_rc == 0, proxy_err
     lines = [line for line in proxy_out.split(b"\n") if line.strip()]
     assert lines
     for line in lines:

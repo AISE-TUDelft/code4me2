@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Resolve participant plugin build inputs for manual dispatch, branch pushes or release tags.
 
-The plugin bundles no agent. Manual builds and plugin releases select a published
+The plugin bundles no agent. Manual builds and plugin releases select a pushed
 server source tag for the research proxy, independently of each study's agent.
 """
 
@@ -65,7 +65,7 @@ def resolve(env: dict[str, str]) -> dict[str, str]:
         raise ValueError("server repository must be owner/name")
     if release_tag or event == "workflow_dispatch":
         if not valid_ref(values["server_ref"]) or values["server_ref"].startswith("refs/"):
-            raise ValueError("server release tag must be a tag name, for example runtime-v0.0.4")
+            raise ValueError("server release tag must be a tag name, for example server-src-v0.0.1")
         values["server_ref"] = f"refs/tags/{values['server_ref']}"
     elif not valid_ref(values["server_ref"]):
         raise ValueError("server ref must be a branch, tag or commit SHA")

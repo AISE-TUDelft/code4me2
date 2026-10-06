@@ -66,14 +66,15 @@ Run **Actions → Build participant plugin**:
 |---|---|
 | `serverUrl` | Backend origin baked into the plugin. Use `https://…` for a Marketplace candidate, or `http://localhost:<port>` with a prerelease version for a test ZIP. |
 | `version` | Plugin SemVer version. |
-| `serverRepository`, `serverTag` | Server repository and published release tag supplying the shared proxy sources. There is no default tag. The workflow checks that the release is published, validates the source files, and resolves one commit for all four proxy builds. |
+| `serverRepository`, `serverTag` | Server repository and pushed tag supplying the shared proxy sources. No server GitHub Release is required. There is no default tag. The workflow validates the sources and resolves one commit for all four proxy builds. |
 | `fullHostSmoke` | Run the plugin tests, then the agent installer tests on all four hosts. It does not start the final ZIP in IntelliJ: `ui-tests` has no ZIP smoke test yet. |
 
 The server tag selects proxy source code independently of the study's agent. The build:
 
-1. builds four self-contained proxies;
-2. runs `./gradlew buildPlugin` with `-Pcode4me.serverUrl`;
-3. runs `scripts/verify-participant-artifact.py --agent-free`. This checks that the
+1. starts the proxy and runs its full test suite against the selected server sources;
+2. builds four self-contained proxies and tests their frozen ACP forwarding outside the source tree;
+3. runs `./gradlew buildPlugin` with `-Pcode4me.serverUrl` and IntelliJ plugin verification;
+4. runs `scripts/verify-participant-artifact.py --agent-free`. This checks that the
    ZIP contains all four proxies, no `code4me-runtime/` agent, and no credentials
    or developer paths.
 

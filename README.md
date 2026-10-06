@@ -432,7 +432,7 @@ the IDE cache or its Release (see [Participant plugin and study agents](docs/PAR
 
 Do not distribute a locally built ZIP; it is neither complete nor certified for participants.
 
-Use the **Build participant plugin** workflow. It needs no runtime release: it builds the research proxy for all four platforms from the deployed server commit, runs `buildPlugin` with the study backend's origin, and verifies the ZIP with `scripts/verify-participant-artifact.py --agent-free` (four self-contained proxies, no bundled agent, no secrets or developer paths). Agent versions are released and assigned to studies separately; see [Participant plugin and study agents](docs/PARTICIPANT_RELEASE.md). Only the versioned artifact produced by that workflow is a participant deliverable.
+Use the **Build participant plugin** workflow. It needs no runtime release: it builds the research proxy for all four platforms from the selected server source tag, runs `buildPlugin` with the study backend's origin, and verifies the ZIP with `scripts/verify-participant-artifact.py --agent-free` (four self-contained proxies, no bundled agent, no secrets or developer paths). Agent versions are released and assigned to studies separately; see [Participant plugin and study agents](docs/PARTICIPANT_RELEASE.md). Only the versioned artifact produced by that workflow is a participant deliverable.
 
 ### Publishing to JetBrains Marketplace
 
@@ -441,9 +441,11 @@ The tag supplies `pluginVersion` (for example, `v0.0.2` builds version `0.0.2`);
 `gradle.properties` remains the default for local development. The workflow builds
 the native research proxies, runs plugin tests, builds and verifies the plugin ZIP,
 publishes that exact ZIP to Marketplace, and attaches it to a GitHub Release for the tag.
-Select a published server release tag for the proxy sources; the workflow
-resolves that tag to one commit internally for all four builds and checks the
-required source files before starting the builds.
+Select a pushed server tag for the proxy sources; no server GitHub Release is required. The workflow
+resolves that tag to one commit internally for all four builds. Before those
+builds start, it checks the source files, starts the proxy from source, and runs
+the full proxy test suite against the selected server contracts. Each platform
+also tests ACP forwarding through its frozen executable outside the source tree.
 Manual runs build downloadable artifacts only. Publishing to Marketplace and
 creating a GitHub Release require a stable `vX.Y.Z` tag push.
 
@@ -452,9 +454,10 @@ Before pushing a release tag, configure these repository Actions settings:
 - Secret `JETBRAINS_MARKETPLACE_TOKEN`: your Marketplace personal access token.
 - Variable `CODE4ME_RELEASE_SERVER_URL`: the backend origin, either public HTTPS
   or `http://localhost:8008` for a backend running on each user's machine.
-- Variable `CODE4ME_RELEASE_SERVER_TAG`: the published server release tag whose
-  sources build the proxy (for example `runtime-v0.0.4`). There is no default tag;
-  select the release you want. This does not select a study's agent version.
+- Variable `CODE4ME_RELEASE_SERVER_TAG`: the pushed server tag whose
+  sources are compatible with the current proxy. There is no default tag;
+  select the tag you want. A tag can still be too old for the
+  proxy; the compatibility tests reject it. This does not select a study's agent version.
 - Optional variable `CODE4ME_RELEASE_SERVER_REPOSITORY`: defaults to `AISE-TUDelft/code4me2-server`.
 - Secret `CODE4ME_RELEASE_TOKEN` if the selected server repository is private: a GitHub token with read access to it.
 
@@ -474,7 +477,7 @@ git push origin v0.0.2
 Set the server source tag before pushing the plugin tag:
 
 ```bash
-gh variable set CODE4ME_RELEASE_SERVER_TAG --repo AISE-TUDelft/code4me2 --body runtime-v0.0.4
+gh variable set CODE4ME_RELEASE_SERVER_TAG --repo AISE-TUDelft/code4me2 --body YOUR_SERVER_TAG
 ```
 
 For a manual build without publishing, select the server tag through `serverTag`:
@@ -482,12 +485,13 @@ For a manual build without publishing, select the server tag through `serverTag`
 ```bash
 gh workflow run build-participant-plugin.yml --repo AISE-TUDelft/code4me2 --ref test_draft \
   -f serverUrl=http://localhost:8008 -f version=0.0.3-test1 \
-  -f serverRepository=AISE-TUDelft/code4me2-server -f serverTag=runtime-v0.0.4 \
+  -f serverRepository=AISE-TUDelft/code4me2-server -f serverTag=YOUR_SERVER_TAG \
   -f fullHostSmoke=true
 ```
 
 The pushed tag must point at a commit containing this workflow. Only stable `vX.Y.Z`
 tags publish to Marketplace; prerelease tags and tags with leading zeros are rejected.
+Manual builds also run IntelliJ plugin verification before uploading the ZIP.
 
 ### Code Quality Standards
 The project maintains high code quality through:
