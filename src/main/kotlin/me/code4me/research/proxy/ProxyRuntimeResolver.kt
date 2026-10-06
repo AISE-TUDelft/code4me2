@@ -1,9 +1,8 @@
 package me.code4me.research.proxy
 
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.PathManager
+import com.intellij.openapi.application.PluginPathManager
 import com.intellij.openapi.extensions.PluginDescriptor
-import com.intellij.openapi.extensions.PluginId
 import me.code4me.research.telemetry.parseCanonicalJsonObject
 import me.code4me.research.telemetry.sha256Hex
 import me.code4me.research.proxy.ProxyRuntimeErrorCode.ARTIFACT_MISSING
@@ -177,11 +176,10 @@ object HostPlatform {
 object ResearchRuntimeLocation {
     const val RUNTIME_DIRECTORY: String = "research-runtime"
     const val MANIFEST_FILE: String = "proxy-manifest.json"
-    const val PLUGIN_ID: String = "me.code4me"
 
     /** The plugin's exploded runtime directory, or `null` when it is not exploded. */
-    fun locate(plugin: PluginDescriptor? = pluginDescriptor()): Path? {
-        val base = plugin?.pluginPath ?: return null
+    fun locate(plugin: PluginDescriptor? = null): Path? {
+        val base = plugin?.pluginPath ?: pluginDirectory() ?: return null
         val candidates =
             listOf(
                 base.resolve(RUNTIME_DIRECTORY),
@@ -191,9 +189,9 @@ object ResearchRuntimeLocation {
         return candidates.firstOrNull { Files.isDirectory(it) }
     }
 
-    private fun pluginDescriptor(): PluginDescriptor? =
+    private fun pluginDirectory(): Path? =
         try {
-            PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))
+            PluginPathManager.getPluginResource(ResearchRuntimeLocation::class.java, "")?.toPath()
         } catch (_: Exception) {
             null
         } catch (_: LinkageError) {

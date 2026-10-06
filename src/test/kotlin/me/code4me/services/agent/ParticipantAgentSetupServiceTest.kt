@@ -1,12 +1,11 @@
 package me.code4me.services.agent
 
-import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.openapi.extensions.PluginId
+import com.intellij.ide.plugins.PluginDetailsService
 import com.intellij.openapi.project.Project
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkConstructor
+import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import me.code4me.research.session.ResearchSessionService
@@ -198,9 +197,11 @@ class ParticipantAgentSetupServiceTest {
             mockkStatic("me.code4me.services.state.AuthStateKt")
             every { getAuthState() } returns auth
 
-            mockkStatic(PluginManagerCore::class)
-            every { PluginManagerCore.getPlugin(any<PluginId>()) } returns mockk<IdeaPluginDescriptor>()
-            every { PluginManagerCore.isDisabled(any<PluginId>()) } returns false
+            val plugins = mockk<PluginDetailsService>()
+            mockkObject(PluginDetailsService.Companion)
+            every { PluginDetailsService.getInstance() } returns plugins
+            every { plugins.findDetails(any()) } returns mockk()
+            every { plugins.isDisabled(any()) } returns false
 
             val tokens = mock<ProjectTokenService>()
             whenever(tokens.isActivated()).thenReturn(true)

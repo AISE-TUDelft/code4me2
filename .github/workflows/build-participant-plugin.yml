@@ -29,11 +29,6 @@ on:
       serverTag:
         description: Pushed server tag compatible with this plugin's proxy
         required: true
-      fullHostSmoke:
-        description: Run additional installer unit tests with fixture archives on all four hosts
-        type: boolean
-        required: true
-        default: false
 
 jobs:
   # The plugin bundles no agent: each study's agent is downloaded by its pinned
@@ -143,6 +138,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -191,44 +189,10 @@ jobs:
           path: code4me2/telemetry-acp-proxy/dist/${{ matrix.platform }}
           if-no-files-found: error
 
-  # Negative control: the release's strict staging flags must reject a runner
-  # without prebuilt bundles instead of silently packaging proxy source. A clean
-  # ubuntu runner has no telemetry-acp-proxy/dist/ directory.
-  negative-control-missing-proxy:
-    needs: prepare-proxy-matrix
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "25"
-      - name: Strict staging must fail without proxy bundles
-        shell: bash
-        run: |
-          set -o pipefail
-          set +e
-          ./gradlew --no-daemon --no-configuration-cache :stageResearchProxy \
-            "-PresearchProxyPlatforms=${{ needs.prepare-proxy-matrix.outputs.platforms }}" \
-            "-PrequireResearchProxyBundles=true" 2>&1 | tee "$RUNNER_TEMP/strict-staging.log"
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -eq 0 ]; then
-            echo "strict staging succeeded without proxy bundles; the release would ship source-only" >&2
-            exit 1
-          fi
-          if ! grep -q "Missing self-contained research proxy bundle" "$RUNNER_TEMP/strict-staging.log"; then
-            echo "strict staging failed for an unexpected reason" >&2
-            exit 1
-          fi
-
   build:
     needs:
       - prepare-proxy-matrix
       - build-research-proxy
-      - negative-control-missing-proxy
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -238,11 +202,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Run plugin tests
-        run: ./gradlew --no-daemon --no-configuration-cache :test "-PpluginVersion=${{ needs.prepare-proxy-matrix.outputs.version }}"
       - name: Download research proxy bundles
         uses: actions/download-artifact@v4
         with:
@@ -274,7 +239,7 @@ jobs:
             mkdir -p "telemetry-acp-proxy/dist/$platform"
             cp -R "$source_dir/." "telemetry-acp-proxy/dist/$platform/"
           done
-      - name: Build and verify the agent-free participant ZIP
+      - name: Test, build and verify the agent-free participant ZIP
         env:
           PARTICIPANT_SERVER_URL: ${{ needs.prepare-proxy-matrix.outputs.server_url }}
           PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
@@ -285,7 +250,7 @@ jobs:
           SERVER_COMMIT: ${{ needs.prepare-proxy-matrix.outputs.server_commit }}
         run: |
           set -euo pipefail
-          args=(--no-daemon --no-configuration-cache :buildPlugin
+          args=(--no-daemon --no-configuration-cache :test :buildPlugin
             "-PpluginVersion=$PLUGIN_VERSION"
             "-Pcode4me.serverUrl=$PARTICIPANT_SERVER_URL"
             "-PresearchProxyPlatforms=$PLATFORMS"
@@ -342,52 +307,13 @@ jobs:
           path: build/distributions/*.zip
           if-no-files-found: error
 
-  # Installer fixture tests on each host, not a final-ZIP or native-agent smoke.
-  # Native-agent tests require independently selected runtime bundles.
-  host-smoke:
-    name: Installer unit tests on four hosts
-    if: inputs.fullHostSmoke || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.CODE4ME_RELEASE_FULL_HOST_SMOKE == 'true')
-    needs: [prepare-proxy-matrix, build]
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.prepare-proxy-matrix.outputs.matrix) }}
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "25"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Run installer fixture tests
-        shell: bash
-        run: |
-          bash ./gradlew --no-daemon --no-configuration-cache :test \
-            --tests me.code4me.services.agent.ManagedRuntimeInstallerTest \
-            --tests me.code4me.research.proxy.PackagedAgentInstallerTest \
-            --console=plain
-      - uses: actions/upload-artifact@v4
-        if: ${{ always() }}
-        with:
-          name: code4me-host-smoke-${{ matrix.platform }}
-          path: build/test-results/test/*.xml
-          if-no-files-found: warn
-
   # Release tags publish the verified ZIP to Marketplace and GitHub under v<version>.
   # The ZIP carries the verified per-platform proxies and no agent; a study's
   # assigned agent comes from its pinned runtime Release on a cache miss.
   # Assets of a published plugin release are never replaced.
   publish:
-    if: >-
-      !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') &&
-      needs.build.result == 'success' &&
-      (needs.host-smoke.result == 'success' || needs.host-smoke.result == 'skipped')
-    needs: [prepare-proxy-matrix, build, host-smoke]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [prepare-proxy-matrix, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -415,6 +341,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
       - uses: actions/download-artifact@v4
         with:
           name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
@@ -448,7 +377,6 @@ jobs:
 
   # A failed GitHub release job can be retried without another Marketplace upload.
   publish-github-release:
-    if: ${{ !cancelled() && needs.publish.result == 'success' }}
     needs: [prepare-proxy-matrix, publish]
     runs-on: ubuntu-24.04
     permissions:

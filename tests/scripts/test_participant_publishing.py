@@ -75,10 +75,15 @@ def test_distribution_tasks_cannot_select_the_integration_test_subproject():
     assert not re.search(rf"(?<!:)\b(?:{tasks})\b", WORKFLOW)
 
 
-def test_optional_host_check_does_not_skip_publication_jobs():
+def test_plugin_tests_and_successful_build_gate_publishing_without_host_switches():
+    build = WORKFLOW.split("  build:\n", 1)[1].split("  publish:\n", 1)[0]
+    tests = build.split("      - name: Test, build and verify the agent-free participant ZIP\n", 1)[1].split("      - name:", 1)[0]
     publish = WORKFLOW.split("  publish:\n", 1)[1].split("  publish-github-release:\n", 1)[0]
     github_release = WORKFLOW.split("  publish-github-release:\n", 1)[1]
-    assert "!cancelled()" in publish.split("    steps:", 1)[0]
-    assert "needs.build.result == 'success'" in publish
-    assert "needs.host-smoke.result == 'success' || needs.host-smoke.result == 'skipped'" in publish
-    assert "!cancelled() && needs.publish.result == 'success'" in github_release.split("    steps:", 1)[0]
+    assert "        if:" not in tests
+    assert " :test :buildPlugin" in tests
+    assert "    needs: [prepare-proxy-matrix, build]" in publish
+    assert "    needs: [prepare-proxy-matrix, publish]" in github_release
+    assert "fullHostSmoke" not in WORKFLOW
+    assert "CODE4ME_RELEASE_FULL_HOST_SMOKE" not in WORKFLOW
+    assert "host-smoke" not in WORKFLOW

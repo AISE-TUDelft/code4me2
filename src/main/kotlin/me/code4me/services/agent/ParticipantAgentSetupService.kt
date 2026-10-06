@@ -7,7 +7,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginDetailsService
 import me.code4me.research.session.ResearchActivationResult
 import me.code4me.research.session.ResearchSessionService
 import me.code4me.services.project.getProjectTokenService
@@ -63,8 +63,8 @@ class ParticipantAgentSetupService internal constructor(private val bridge: Mana
         studyActive(project, reactivate)?.let { return remember(it) }
         val aiAssistantId = PluginId.getId(AI_ASSISTANT_PLUGIN_ID)
         if (
-            PluginManagerCore.getPlugin(aiAssistantId) == null ||
-            PluginManagerCore.isDisabled(aiAssistantId)
+            PluginDetailsService.getInstance().findDetails(aiAssistantId) == null ||
+            PluginDetailsService.getInstance().isDisabled(aiAssistantId)
         ) {
             bridge.unregister(project)
             return remember(

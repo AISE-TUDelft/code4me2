@@ -67,16 +67,17 @@ Run **Actions → Build participant plugin**:
 | `serverUrl` | Backend origin baked into the plugin. Public HTTPS or `http://localhost:<port>` for a backend on each user's machine. Manual localhost builds require a prerelease version; stable tag releases also allow localhost. |
 | `version` | Plugin SemVer version. |
 | `serverRepository`, `serverTag` | Server repository and pushed tag supplying the shared proxy sources. No server GitHub Release is required. There is no default tag. The workflow validates the sources and resolves one commit for all four proxy builds. |
-| `fullHostSmoke` | Optional additional installer unit tests with fixture archives on all four hosts; default `false`. Ordinary plugin tests always run. This does not launch a real downloaded agent or the final ZIP in IntelliJ. |
 
 The server tag selects proxy source code independently of the study's agent. The build:
 
 1. starts the proxy and runs its full test suite against the selected server sources;
 2. builds four self-contained proxies and tests their frozen ACP forwarding outside the source tree;
-3. checks that strict staging rejects missing proxy bundles, then runs root plugin unit tests;
-4. runs `./gradlew :buildPlugin :verifyPluginStructure :verifyPlugin` for manual
-   builds and release tags, with `-Pcode4me.serverUrl`. Root task paths exclude
-   the `integration-tests` project, which is not a distributable plugin;
+3. stages the four proxies and runs root plugin tests and the ZIP build in one
+   Gradle invocation, with strict staging rejecting missing bundles;
+4. also runs `:verifyPluginStructure :verifyPlugin` for manual builds and release
+   tags, against the build's IntelliJ 2026.2.2. Root
+   task paths exclude the `integration-tests` project, which is not a
+   distributable plugin;
 5. runs `scripts/verify-participant-artifact.py --agent-free`. This checks that the
    ZIP contains all four proxies, no `code4me-runtime/` agent, and no credentials
    or developer paths.
@@ -87,9 +88,15 @@ To publish to Marketplace and create a GitHub Release with the ZIP attached, pus
 a stable `vX.Y.Z` tag. See the publishing settings in `README.md`.
 Tag-triggered releases read the server source tag from `CODE4ME_RELEASE_SERVER_TAG`;
 manual builds use the `serverTag` input. Neither requires you to supply a commit SHA.
-For tag releases, optional repository variable `CODE4ME_RELEASE_FULL_HOST_SMOKE=true`
-enables the extra four-host installer fixture tests. Publishing waits for these
-when selected. Unset or `false` skips only those extra jobs.
+Ordinary plugin tests and all four native proxy checks always run and must pass
+before publishing. Installer fixture tests run within the ordinary plugin suite.
+
+Gradle jobs restore dependencies, IDE artifacts and wrapper distributions with
+`gradle/actions/setup-gradle`. Builds save updated caches, including on tags;
+publishing only reads them. The first run still downloads missing artifacts.
+GitHub scopes caches to the same branch/tag and the default branch: to share a
+cache across different release tags, run a manual build on the default branch
+after merging this workflow there. No new secret or repository variable is needed.
 
 Before Marketplace upload, the workflow checks the token, refuses an existing
 plugin GitHub Release, and verifies the downloaded ZIP against the recorded
@@ -102,8 +109,8 @@ The real-native test in `ManagedRuntimeInstallerTest` requires
 `CODE4ME_NATIVE_RUNTIME_BUNDLES` to point to **two producer bundle directories**
 (each with its manifest and native archives), separated by the host's path
 separator. This is a test environment variable, not a configured workflow input.
-The workflow supplies no such bundles, so that test skips even with
-`fullHostSmoke=true`. Its fixture tests still run. The bundled-agent manifest test
+The workflow supplies no such bundles, so that test skips. Its fixture tests
+still run. The bundled-agent manifest test
 also skips because this plugin intentionally contains no agent.
 
 Native agent build, self-check and ACP tests belong to the separate server runtime
@@ -152,6 +159,50 @@ archive is already cached. For participants, assign a release imported from a
 published runtime Release.
 
 ## Local development and e2e
+
+Run the source tests first, then build and check the plugin ZIP. On macOS ARM,
+from `code4me2/` with compatible server sources in `../code4me2-server/`:
+
+```bash
+export TELEMETRY_PROXY_SERVER_SRC="$PWD/../code4me2-server/src"
+export PYTHONPATH="$TELEMETRY_PROXY_SERVER_SRC:$PWD/telemetry-acp-proxy"
+../code4me2-server/.venv/bin/python -m pytest -q tests/scripts telemetry-acp-proxy/tests
+
+PYTHON="$PWD/../code4me2-server/.venv/bin/python" ./gradlew --offline --no-daemon --no-configuration-cache \
+  :buildResearchProxyBundle :test :buildPlugin :verifyPluginStructure \
+  -PpluginVersion=0.0.1 -Pcode4me.serverUrl=http://localhost:8008 \
+  -PparticipantLocalRelease=true -PresearchProxyPlatforms=macos-aarch64 \
+  -PrequireResearchProxyBundles=true
+```
+
+This rebuilds the native proxy, tests the plugin, and checks its structure without
+publishing. `--offline` prevents Gradle from downloading missing dependencies;
+if required files are absent from its cache, the build fails rather than starting
+another large download. The server sources and Python dependencies are local;
+this does not reproduce CI's selected-tag checkout or clean Python installation.
+
+For IDE API compatibility, verify separately against the same IDE used to build
+the plugin, instead of downloading the recommended stable and EAP IDEs:
+
+```bash
+./gradlew --offline --no-daemon --no-configuration-cache :verifyPlugin \
+  -PpluginVersion=0.0.1 -Pcode4me.serverUrl=http://localhost:8008 \
+  -PparticipantLocalRelease=true -PresearchProxyPlatforms=macos-aarch64 \
+  -PrequireResearchProxyBundles=true
+```
+
+Verification always uses the build's IDE; the compatibility and internal-API
+failure checks still apply. Missing dependencies also fail verification.
+Gradle Plugin 2.18.1 passes
+`--offline` to Plugin Verifier as `-offline`, preventing its plugin dependency
+downloads. Missing cached dependencies must be resolved before treating the
+verification as complete.
+CI also verifies only the build's IntelliJ 2026.2.2. Other stable/EAP IDE versions
+are not checked. Verifier reports are in `build/reports/pluginVerifier/`.
+
+The local build includes only this host's proxy. The complete
+`--agent-free` release check needs all four native proxy bundles, supplied by the
+workflow's platform jobs.
 
 A local build can target a loopback backend with
 `-Pcode4me.serverUrl=http://localhost:8008 -PparticipantLocalRelease=true`.

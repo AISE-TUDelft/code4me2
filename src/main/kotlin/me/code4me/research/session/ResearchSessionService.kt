@@ -1,6 +1,6 @@
 package me.code4me.research.session
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginDetailsService
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
@@ -552,12 +552,12 @@ class ResearchSessionService internal constructor(
                 ideBuild = safeEnvironmentValue { ApplicationInfo.getInstance().getBuild().asString() },
                 pluginVersion =
                     safeEnvironmentValue {
-                        PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.version
+                        PluginDetailsService.getInstance().findDetails(PluginId.getId(PLUGIN_ID))?.version
                     },
                 hostKind = HOST_KIND,
                 aiAssistantVersion =
                     safeEnvironmentValue {
-                        PluginManagerCore.getPlugin(PluginId.getId(HostPreflight.AI_ASSISTANT_PLUGIN_ID))?.version
+                        PluginDetailsService.getInstance().findDetails(PluginId.getId(HostPreflight.AI_ASSISTANT_PLUGIN_ID))?.version
                     },
             )
 
@@ -572,7 +572,7 @@ class ResearchSessionService internal constructor(
             val id = PluginId.getId(HostPreflight.AI_ASSISTANT_PLUGIN_ID)
             val descriptor =
                 try {
-                    PluginManagerCore.getPlugin(id)
+                    PluginDetailsService.getInstance().findDetails(id)
                 } catch (_: Exception) {
                     null
                 } catch (_: LinkageError) {
@@ -580,7 +580,7 @@ class ResearchSessionService internal constructor(
                 }
             val disabled =
                 try {
-                    PluginManagerCore.isDisabled(id)
+                    PluginDetailsService.getInstance().isDisabled(id)
                 } catch (_: Exception) {
                     true
                 } catch (_: LinkageError) {
@@ -595,7 +595,7 @@ class ResearchSessionService internal constructor(
 
         /** Local plugin/environment compatibility tuple evaluated against a manifest. */
         fun pluginCompatibility(): PluginCompatibility {
-            val version = PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.version ?: "0.0.0"
+            val version = PluginDetailsService.getInstance().findDetails(PluginId.getId(PLUGIN_ID))?.version ?: "0.0.0"
             return PluginCompatibility(
                 pluginVersion = version,
                 expectedAudience = PARTICIPANT_AUDIENCE,

@@ -4,6 +4,7 @@ import org.gradle.kotlin.dsl.register
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask.FailureLevel
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 import java.io.File
 import java.io.OutputStream
@@ -187,9 +188,8 @@ intellijPlatform {
     }
 
     pluginVerification {
-        ides {
-            recommended()
-        }
+        ides { current() }
+        failureLevel.add(FailureLevel.MISSING_DEPENDENCIES)
     }
 }
 

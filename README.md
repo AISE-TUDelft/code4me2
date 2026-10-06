@@ -459,14 +459,11 @@ Before pushing a release tag, configure these repository Actions settings:
   select the tag you want. A tag can still be too old for the
   proxy; the compatibility tests reject it. This does not select a study's agent version.
 - Optional variable `CODE4ME_RELEASE_SERVER_REPOSITORY`: defaults to `AISE-TUDelft/code4me2-server`.
-- Optional variable `CODE4ME_RELEASE_FULL_HOST_SMOKE`: set to `true` to run additional
-  installer fixture tests on all four hosts before publishing. Unset or `false` skips
-  these extra jobs; ordinary plugin tests and the four native proxy tests always run.
 - Optional secret `CODE4ME_RELEASE_TOKEN`: only needed to read a private server
   repository from this plugin repository's workflow. The current public server
   repository does not need it. This token is never packaged or used by participants.
 
-Any selected host tests must pass before Marketplace upload. Marketplace and
+Ordinary plugin tests and all four native proxy tests must pass before Marketplace upload. Marketplace and
 GitHub publication are separate jobs: if only GitHub publication fails, rerun
 failed jobs to avoid uploading to Marketplace again. Inspect a partially created
 GitHub Release before retrying; the workflow does not replace existing releases.
@@ -497,13 +494,16 @@ For a manual build without publishing, select the server tag through `serverTag`
 ```bash
 gh workflow run build-participant-plugin.yml --repo AISE-TUDelft/code4me2 --ref test_draft \
   -f serverUrl=http://localhost:8008 -f version=0.0.3-test1 \
-  -f serverRepository=AISE-TUDelft/code4me2-server -f serverTag=YOUR_SERVER_TAG \
-  -f fullHostSmoke=true
+  -f serverRepository=AISE-TUDelft/code4me2-server -f serverTag=YOUR_SERVER_TAG
 ```
 
 The pushed tag must point at a commit containing this workflow. Only stable `vX.Y.Z`
 tags publish to Marketplace; prerelease tags and tags with leading zeros are rejected.
 Manual builds also run IntelliJ plugin verification before uploading the ZIP.
+Verification uses the build's IntelliJ 2026.2.2 rather than downloading other
+stable/EAP IDEs. Gradle jobs cache dependencies and IDE artifacts; the first run
+still downloads missing files. See `docs/PARTICIPANT_RELEASE.md` for cache scope
+and offline local checks.
 
 ### Code Quality Standards
 The project maintains high code quality through:
