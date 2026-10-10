@@ -186,7 +186,7 @@ Do not accept arbitrary native configuration blobs. Use a discriminated schema k
 |---|---|---|---|
 | Provider/model routing | Backend controlled | Backend controlled | Backend controlled for certified Responses-compatible providers |
 | Per-tool selection | Runtime enforced | Filter advertised inference tools | Unsupported |
-| Command allowlist | Runtime enforced | No equivalent guarantee from filtering | Unsupported as a Code4Me control |
+| Blocked commands (denylist) | Runtime enforced | No equivalent guarantee from filtering | Unsupported as a Code4Me control |
 | Approval behavior | Custom policies | Native Goose modes | Native Codex policies |
 | Context management | Custom implementation | Supported native controls | Only supported native controls |
 | Model-call/attempt limits | Backend admission gate | Backend admission gate | Backend admission gate |
