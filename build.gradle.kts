@@ -641,6 +641,29 @@ val requireResearchProxyBundles: Boolean =
     providers.gradleProperty("requireResearchProxyBundles").orNull?.trim()?.equals("true", ignoreCase = true) == true
 val researchProxyStrictMode: Boolean = researchProxyPlatformsOption != null || requireResearchProxyBundles
 
+// A plain `./gradlew buildPlugin` used to silently stage a development source
+// proxy when no prebuilt PyInstaller bundle existed for the host, producing a
+// plugin whose research entry cannot start (the dev proxy runs without an
+// agent by design). Fail fast instead; pass
+// `-PallowSourceProxyBundle=true` for an explicitly dev-only build.
+val allowSourceProxyBundle: Boolean =
+    providers.gradleProperty("allowSourceProxyBundle").orNull?.trim()?.equals("true", ignoreCase = true) == true
+gradle.taskGraph.whenReady {
+    if (!allowSourceProxyBundle && allTasks.any { it.name == "buildPlugin" }) {
+        val hostBundleDir = File(researchProxyDistRoot.asFile, "$hostResearchOs-$hostResearchArch")
+        val hostExecutable =
+            if (hostResearchOs == "windows") "telemetry-acp-proxy.exe" else "telemetry-acp-proxy"
+        if (!File(hostBundleDir, hostExecutable).isFile) {
+            throw GradleException(
+                "buildPlugin would stage a development source proxy for $hostResearchOs-$hostResearchArch " +
+                    "(no prebuilt bundle in ${researchProxyDistRoot.asFile}). A source proxy cannot run a study " +
+                    "agent. Build one first with ./gradlew buildResearchProxyBundle, or pass " +
+                    "-PallowSourceProxyBundle=true for a dev-only build.",
+            )
+        }
+    }
+}
+
 val stageResearchProxy =
     tasks.register("stageResearchProxy") {
         group = "build"
