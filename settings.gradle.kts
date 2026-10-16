@@ -5,6 +5,12 @@ pluginManagement {
     }
 }
 
+plugins {
+    // Auto-provision JDKs for jvmToolchain requests (e.g. Java 25 for 2026.2+)
+    // when no matching local installation exists. CI benefits as well.
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
 dependencyResolutionManagement {
     versionCatalogs {
         create("clientLibs") { // Use a different name
@@ -19,3 +25,4 @@ rootProject.name = "client"
 
 include(":generated")
 include(":integration-tests")
+include(":ui-tests")

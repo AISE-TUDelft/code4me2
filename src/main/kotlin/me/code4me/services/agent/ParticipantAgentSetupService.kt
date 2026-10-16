@@ -1,0 +1,408 @@
+package me.code4me.services.agent
+
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.PathManager
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.project.Project
+import com.intellij.ide.plugins.PluginDetailsService
+import me.code4me.research.session.ResearchActivationResult
+import me.code4me.research.session.ResearchSessionService
+import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.app.AcpPreparationService
+import me.code4me.services.app.ProjectAcpPreparation
+import me.code4me.services.state.getAuthState
+import me.code4me.utils.api.activateOrCreateProject
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.Path
+
+enum class ParticipantSetupStep {
+    SIGN_IN,
+    CHECK_SERVER,
+    PREPARE_AGENT,
+    READY,
+
+    /**
+     * A research study owns this project: the authoritative participant entry is
+     * the context-scoped research proxy registered by the research activation
+     * path. The direct "Code4Me Agent" entry must not be registered or offered.
+     */
+    STUDY_ACTIVE,
+}
+
+data class ParticipantSetupStatus(
+    val step: ParticipantSetupStep,
+    val message: String,
+    val canRepair: Boolean = false,
+    val useLegacyAcpPreparation: Boolean = false,
+)
+
+fun getParticipantAgentSetupService(): ParticipantAgentSetupService = service()
+
+/** Application-scoped participant setup. Third-party developer runtimes remain opt-in. */
+@Service
+class ParticipantAgentSetupService internal constructor(private val bridge: ManagedAuthBridge) : Disposable {
+    constructor() : this(ManagedAuthBridge(Path.of(PathManager.getSystemPath(), "code4me", "bridges")))
+
+    private val log = thisLogger()
+    private val bridgeDirectory = Path.of(PathManager.getSystemPath(), "code4me", "bridges")
+    private val installer = ManagedRuntimeInstaller()
+    @Volatile private var runtimeResult: RuntimeInstallResult? = null
+    @Volatile private var lastStatus: ParticipantSetupStatus? = null
+    private val projects = java.util.concurrent.ConcurrentHashMap.newKeySet<Project>()
+
+    @Synchronized
+    fun prepare(project: Project, repair: Boolean = false, reactivate: Boolean = false): ParticipantSetupStatus {
+        if (!getAuthState().isAuthenticated()) {
+            bridge.unregister(project)
+            return remember(ParticipantSetupStatus(ParticipantSetupStep.SIGN_IN, "Sign in to Code4Me to prepare the agent."))
+        }
+        studyActive(project, reactivate)?.let { return remember(it) }
+        val aiAssistantId = PluginId.getId(AI_ASSISTANT_PLUGIN_ID)
+        if (
+            PluginDetailsService.getInstance().findDetails(aiAssistantId) == null ||
+            PluginDetailsService.getInstance().isDisabled(aiAssistantId)
+        ) {
+            bridge.unregister(project)
+            return remember(
+                ParticipantSetupStatus(
+                    ParticipantSetupStep.PREPARE_AGENT,
+                    "JetBrains AI Assistant is not installed. Install it from Settings > Plugins, restart the IDE, then choose Prepare agent.",
+                ),
+            )
+        }
+        val projectToken = getProjectTokenService(project)
+        if (!projectToken.isActivated() || !projectToken.hasProjectToken()) {
+            try {
+                activateOrCreateProject(project, log)
+            } catch (e: Exception) {
+                log.warn("Managed project activation is not ready", e)
+                bridge.unregister(project)
+                return remember(
+                    ParticipantSetupStatus(
+                        ParticipantSetupStep.CHECK_SERVER,
+                        "Code4Me is signed in, but this project could not be activated yet. " +
+                            "Wait a moment and choose Prepare agent again.",
+                    ),
+                )
+            }
+        }
+        if (!projectToken.isActivated() || !projectToken.hasProjectToken()) {
+            bridge.unregister(project)
+            return remember(
+                ParticipantSetupStatus(
+                    ParticipantSetupStep.CHECK_SERVER,
+                    "Code4Me could not activate this project. Choose Prepare agent to retry.",
+                ),
+            )
+        }
+        val serverCheck = try {
+            me.code4me.services.app.getAppService().checkManagedCapabilities()
+        } catch (e: Exception) {
+            log.warn("Managed server check failed", e)
+            return remember(ParticipantSetupStatus(
+                ParticipantSetupStep.CHECK_SERVER,
+                "Study server is unavailable: ${e.message}. Check network and server selection, then retry.",
+            ))
+        }
+        if (serverCheck.isFailure) {
+            return remember(ParticipantSetupStatus(
+                ParticipantSetupStep.CHECK_SERVER,
+                serverCheck.exceptionOrNull()?.message
+                    ?: "Study server is unavailable. Check network and server selection.",
+            ))
+        }
+        val result = installer.ensureInstalled(repair)
+        runtimeResult = result
+        val status = when (result) {
+            is RuntimeInstallResult.Ready -> {
+                val selfCheckFailure = ManagedRuntimeInstaller.selfCheck(result.executable)
+                if (selfCheckFailure != null) {
+                    return remember(
+                        ParticipantSetupStatus(
+                            ParticipantSetupStep.PREPARE_AGENT,
+                            "$selfCheckFailure Use Repair agent; if it still fails, reinstall the plugin.",
+                            canRepair = true,
+                        ),
+                    )
+                }
+                val registration = runCatching {
+                    AcpManager.registerManagedAgent(result.executable.toString(), bridgeDirectory.toString()).getOrThrow()
+                    // Do not issue grants until both the runtime and the ACP registry are ready.
+                    bridge.register(project)
+                    projects += project
+                }
+                if (registration.isFailure) ParticipantSetupStatus(
+                    ParticipantSetupStep.PREPARE_AGENT,
+                    "Code4Me could not register the managed agent or start its authentication bridge: " +
+                        (registration.exceptionOrNull()?.message ?: "unknown error") +
+                        ". Check ~/.jetbrains/acp.json, then use Repair agent. Unrelated entries were left unchanged.",
+                    canRepair = true,
+                ) else {
+                    ParticipantSetupStatus(
+                        ParticipantSetupStep.READY,
+                        "Code4Me Agent is ready (runtime ${result.artifact.version}, protocol ${result.artifact.managedProtocol}). " +
+                            "Select it in JetBrains AI Chat. If it does not appear, install AI Assistant from Settings > Plugins and restart.",
+                    )
+                }
+            }
+            is RuntimeInstallResult.Unavailable -> {
+                val executable = localDevelopmentRuntime()
+                if (executable == null) {
+                    ParticipantSetupStatus(
+                        ParticipantSetupStep.PREPARE_AGENT,
+                        "${result.message} This build does not support your OS/architecture.",
+                        useLegacyAcpPreparation = true,
+                    )
+                } else {
+                    val registration = runCatching {
+                        AcpManager.registerManagedAgent(executable.toString(), bridgeDirectory.toString()).getOrThrow()
+                        bridge.register(project)
+                        projects += project
+                    }
+                    if (registration.isFailure) ParticipantSetupStatus(
+                        ParticipantSetupStep.PREPARE_AGENT,
+                        "Code4Me could not register the local development agent: " +
+                            (registration.exceptionOrNull()?.message ?: "unknown error"),
+                        canRepair = true,
+                    ) else ParticipantSetupStatus(
+                        ParticipantSetupStep.READY,
+                        "Code4Me Agent is ready using the local development runtime.",
+                    )
+                }
+            }
+            is RuntimeInstallResult.Failed -> ParticipantSetupStatus(
+                ParticipantSetupStep.PREPARE_AGENT,
+                "${result.message} The bundled runtime is corrupted or incomplete.",
+                canRepair = true,
+            )
+        }
+        return remember(status)
+    }
+
+    fun prepareWithLegacyFallback(
+        project: Project,
+        preparation: ProjectAcpPreparation = AcpPreparationService(),
+        repair: Boolean = false,
+        reactivate: Boolean = false,
+    ): ParticipantSetupStatus {
+        studyActive(project, reactivate)?.let { return remember(it) }
+        val status = prepare(project, repair)
+        if (!status.useLegacyAcpPreparation) return status
+        return try {
+            preparation.prepare(project)
+            remember(
+                ParticipantSetupStatus(
+                    ParticipantSetupStep.READY,
+                    "Code4Me Agent is ready using the development ACP handoff.",
+                ),
+            )
+        } catch (e: Exception) {
+            log.warn("Development ACP handoff preparation failed", e)
+            remember(
+                ParticipantSetupStatus(
+                    ParticipantSetupStep.PREPARE_AGENT,
+                    e.message ?: "Code4Me could not prepare the development ACP agent session.",
+                ),
+            )
+        }
+    }
+
+    fun currentStatus(): ParticipantSetupStatus {
+        if (!getAuthState().isAuthenticated()) return ParticipantSetupStatus(
+            ParticipantSetupStep.SIGN_IN, "Sign in to Code4Me to prepare the agent.",
+        )
+        lastStatus?.let { return it }
+        return when (val result = runtimeResult) {
+            is RuntimeInstallResult.Ready -> ParticipantSetupStatus(ParticipantSetupStep.READY, "Code4Me Agent is ready.")
+            is RuntimeInstallResult.Failed -> ParticipantSetupStatus(ParticipantSetupStep.PREPARE_AGENT, result.message, true)
+            is RuntimeInstallResult.Unavailable -> ParticipantSetupStatus(ParticipantSetupStep.PREPARE_AGENT, result.message)
+            null -> ParticipantSetupStatus(ParticipantSetupStep.CHECK_SERVER, "Code4Me is signed in. Prepare the agent to continue.")
+        }
+    }
+
+    /**
+     * The typed redirect returned while a research study owns [project], or
+     * `null` when this project has no study context.
+     *
+     * It consults only the already-created [ResearchSessionService], so opening a
+     * non-participant project never constructs the research service, and it never
+     * throws: a missing or failing research service means "no study context" and
+     * ordinary managed setup proceeds.
+     */
+    private fun studyActive(project: Project, reactivate: Boolean = false): ParticipantSetupStatus? {
+        if (!hasStudyContext(project)) return null
+        if (reactivate) {
+            // "Prepare agent" while the study session is blocked or failed (a
+            // study switch, an expired manifest) re-runs the research activation;
+            // the automatic reconciler already does this for its own attempts.
+            val research = runCatching { project.getServiceIfCreated(ResearchSessionService::class.java) }.getOrNull()
+            val state = runCatching { research?.state() }.getOrNull()
+            if (research != null && state != null && !state.isCollecting) {
+                when (val result = runCatching { research.reactivateFromServer() }.getOrNull()) {
+                    is ResearchActivationResult.Blocked ->
+                        return ParticipantSetupStatus(
+                            ParticipantSetupStep.CHECK_SERVER,
+                            "The research study could not be reactivated (reason: ${result.reason.value})" +
+                                (result.detail?.let { ": $it" } ?: "") + ". Sign in again or contact study support.",
+                        )
+                    is ResearchActivationResult.Retryable, is ResearchActivationResult.Failed ->
+                        return ParticipantSetupStatus(
+                            ParticipantSetupStep.CHECK_SERVER,
+                            "The research server could not be reached to reactivate the study. Check the network and choose Prepare agent again.",
+                        )
+                    else -> Unit
+                }
+                if (!hasStudyContext(project)) return null
+            }
+        }
+        val workspace = project.basePath?.takeIf { it.isNotBlank() }?.let { path ->
+            runCatching { Path.of(path).toRealPath() }.getOrNull()
+        }
+        if (workspace == null) {
+            return ParticipantSetupStatus(
+                ParticipantSetupStep.CHECK_SERVER,
+                "The research authentication bridge is waiting for this project's workspace. ACP setup will retry.",
+            )
+        }
+        // A study is authoritative: do not register the direct managed ACP
+        // entry, but keep the authenticated bridge claim for this project. The
+        // research proxy uses the same loopback bridge to obtain its scoped
+        // grant, including after the project has been reopened.
+        val registration = runCatching {
+            // Track even a failed write: register adds the workspace before
+            // publishing discovery, so logout must still remove that claim.
+            projects += project
+            bridge.register(project)
+        }
+        registration.exceptionOrNull()?.let { error ->
+            log.warn("Could not register the research authentication bridge", error)
+            return ParticipantSetupStatus(
+                ParticipantSetupStep.CHECK_SERVER,
+                "Code4Me could not register the research authentication bridge. ACP setup will retry.",
+            )
+        }
+        return ParticipantSetupStatus(ParticipantSetupStep.STUDY_ACTIVE, STUDY_ACTIVE_MESSAGE)
+    }
+
+    /**
+     * Reads the project's study context without ever constructing the research
+     * service: only a service the platform (or research activation) already
+     * created is consulted. Any failure means "no study context", so ordinary
+     * managed setup is never blocked by a research error.
+     */
+    private fun hasStudyContext(project: Project): Boolean =
+        try {
+            project.getServiceIfCreated(ResearchSessionService::class.java)?.hasStudyContext() == true
+        } catch (_: Exception) {
+            false
+        } catch (_: LinkageError) {
+            false
+        }
+
+    fun unregister(project: Project) {
+        projects -= project
+        bridge.unregister(project)
+        if (projects.isEmpty()) {
+            // A Ready result belongs to an open, authorized project. Do not
+            // retain it after the final project closes and mislead the next
+            // project opened in the same IDE process.
+            lastStatus = null
+        }
+    }
+
+    fun onServerChanged() {
+        projects.toList().forEach { bridge.unregister(it) }
+        projects.clear()
+        runtimeResult = null
+        lastStatus = null
+    }
+
+    fun onLogout() {
+        projects.toList().forEach { bridge.unregister(it) }
+        projects.clear()
+        runtimeResult = null
+        lastStatus = null
+    }
+
+    /** TODO: managed Goose/Codex distribution, onboarding, policy enforcement and certification. */
+    fun prepareDeveloperAgents(project: Project) {
+        prepareDeveloperAgents(
+            project,
+            startDeveloperAgents = {
+                LocalProxyServer.start(project)
+                kotlinx.coroutines.runBlocking { AgentStartupManager.ensureActiveTask(project) }
+            },
+        )
+    }
+
+    /**
+     * Developer-only agent startup behind the `code4me.developerAgents` gate.
+     *
+     * [startDeveloperAgents] is injected so the gate can be asserted without
+     * starting the local proxy or provisioning a task.
+     */
+    internal fun prepareDeveloperAgents(
+        project: Project,
+        startDeveloperAgents: (Project) -> Unit,
+        runAsync: ((() -> Unit) -> Unit) = { task ->
+            com.intellij.openapi.application.ApplicationManager.getApplication()
+                .executeOnPooledThread(task)
+        },
+    ) {
+        if (!developerAgentsEnabled()) return
+        runAsync {
+            runCatching { startDeveloperAgents(project) }
+                .onFailure { log.warn("Developer agent setup failed", it) }
+        }
+    }
+
+    override fun dispose() {
+        bridge.close()
+        projects.clear()
+    }
+
+    private fun remember(status: ParticipantSetupStatus): ParticipantSetupStatus {
+        lastStatus = status
+        return status
+    }
+
+    private fun localDevelopmentRuntime(): Path? {
+        if (!java.lang.Boolean.getBoolean("idea.plugin.in.sandbox.mode")) return null
+        return System.getenv("PATH").orEmpty().split(File.pathSeparator)
+            .map { Path.of(it, "code4me2-agent") }
+            .firstOrNull { Files.isExecutable(it) }
+    }
+
+
+    companion object {
+        private const val AI_ASSISTANT_PLUGIN_ID = "com.intellij.ml.llm"
+
+        /** Opt-in switch for the developer-only agent surfaces. Never set in participant builds. */
+        const val DEVELOPER_AGENTS_PROPERTY: String = "code4me.developerAgents"
+
+        /**
+         * Participant-safe redirect shown while a study owns the project. It
+         * names the authoritative research entry and never reveals enrollment,
+         * study, or session identifiers.
+         */
+        const val STUDY_ACTIVE_MESSAGE: String =
+            "A research study is active for this project. Use the Code4Me Research Proxy entry " +
+                "(registered by the research activation path); the direct Code4Me Agent entry " +
+                "is not used during the study."
+    }
+}
+
+/** Whether the `code4me.developerAgents` developer gate is enabled. */
+internal fun developerAgentsEnabled(): Boolean =
+    java.lang.Boolean.getBoolean(ParticipantAgentSetupService.DEVELOPER_AGENTS_PROPERTY)
+
+/**
+ * Whether a participant setup surface may run developer-only agent startup after
+ * [status]. A study-active project must never reach the developer paths.
+ */
+internal fun mayPrepareDeveloperAgents(status: ParticipantSetupStatus): Boolean =
+    status.step != ParticipantSetupStep.STUDY_ACTIVE

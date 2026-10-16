@@ -1,0 +1,91 @@
+package me.code4me.research.lifecycle
+
+import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.startup.ProjectActivity
+import me.code4me.lifecycle.getAcpLoginReconciliationService
+import me.code4me.research.session.ResearchSessionService
+import java.util.concurrent.atomic.AtomicInteger
+
+/** Starts the shared project reconciler; the second startup hook is intentionally idempotent. */
+class ResearchActivationStartupActivity : ProjectActivity {
+    private val log = thisLogger()
+
+    override suspend fun execute(project: Project) {
+        try {
+            getAcpLoginReconciliationService(project).start()
+        } catch (error: Exception) {
+            log.warn("ACP login reconciliation could not start — non-blocking", error)
+        }
+    }
+}
+
+/**
+ * Logout/account-switch hook (Issue 03 F13; folded from ResearchLogoutHook.kt).
+ *
+ * On sign-out every open project's research context is stopped (managers,
+ * collectors, uploaders) after one bounded upload under its own enrollment
+ * capability, and what is left is quarantined, so no queued record can be
+ * uploaded under the next account. It only touches contexts that were already
+ * created, never constructs one, and swallows every failure so ordinary login,
+ * logout and chat are unaffected. A privacy erase uses [eraseAllContexts], which
+ * deletes the spool instead of quarantining it.
+ */
+object ResearchLogoutHook {
+    private val log = thisLogger()
+    private val erasesInFlight = AtomicInteger()
+
+    /**
+     * Runs a privacy [erase] marked as in flight: a sign-out meanwhile must not
+     * upload the records it erases (see [ResearchSessionService.onLogout]).
+     */
+    fun <T> whileErasing(erase: () -> T): T {
+        erasesInFlight.incrementAndGet()
+        try {
+            return erase()
+        } finally {
+            erasesInFlight.decrementAndGet()
+        }
+    }
+
+    fun isEraseInFlight(): Boolean = erasesInFlight.get() > 0
+
+    fun stopAllContexts() {
+        try {
+            for (project in ProjectManager.getInstance().openProjects) {
+                val service = project.getServiceIfCreated(ResearchSessionService::class.java) ?: continue
+                runCatching { service.onLogout() }.onFailure {
+                    log.warn("Stopping a research context on sign-out failed", it)
+                }
+            }
+        } catch (error: Exception) {
+            log.warn("Research sign-out cleanup failed", error)
+        }
+    }
+
+    /**
+     * Privacy-erase hook: stop every open project's research context and delete
+     * its pending spool, so records collected before the erase are never
+     * uploaded. The user stays signed in. A context that cannot be stopped or
+     * deleted safely keeps its spool on disk (quarantined when it could be
+     * moved aside, as on sign-out) and is logged. Stops as soon
+     * as [stillCurrent] is false (the erased account signed out), so a newer
+     * sign-in's contexts are never touched.
+     */
+    fun eraseAllContexts(stillCurrent: () -> Boolean) {
+        try {
+            for (project in ProjectManager.getInstance().openProjects) {
+                if (!stillCurrent()) return
+                val service = project.getServiceIfCreated(ResearchSessionService::class.java) ?: continue
+                runCatching { service.onErase() }
+                    .onSuccess { deleted ->
+                        if (!deleted) log.warn("A research spool could not be deleted after the data erase and remains on disk")
+                    }
+                    .onFailure { log.warn("Stopping a research context after the data erase failed", it) }
+            }
+        } catch (error: Exception) {
+            log.warn("Research cleanup after the data erase failed", error)
+        }
+    }
+}

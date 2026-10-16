@@ -16,11 +16,18 @@
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt shift 9"/>
             <add-to-group group-id="EditorActions" anchor="last"/>
         </action>
+        <action id="me.code4me.actions.PrepareAcpAgentSessionAction"
+                class="me.code4me.actions.PrepareAcpAgentSessionAction"
+                text="Prepare Code4Me Agent Session"
+                description="Prepare a one-time authenticated ACP launch grant for this project">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
     </actions>
 
 
     <extensions defaultExtensionNs="com.intellij">
         <notificationGroup id="Code4Me V2" displayType="BALLOON" isLogByDefault="true" />
+        <notificationGroup id="Code4Me ACP preparation" displayType="STICKY_BALLOON" isLogByDefault="true" />
 
         <!--        These are the extension-point definitions for both types of providing a completion          -->
         <inline.completion.provider id="Code4Me V2"
@@ -57,5 +64,19 @@
 
         <!-- Service registration for ChatWindowStateService -->
         <projectService serviceImplementation="me.code4me.chatWindow.components.persistence.ChatWindowStateService"/>
+
+        <!-- Research participant services (Issue 10). Inactive until a study is activated. -->
+        <projectService serviceImplementation="me.code4me.research.ide.IntellijIdeActivitySource"/>
+        <projectService serviceImplementation="me.code4me.research.session.ResearchSessionService"/>
+        <projectService serviceImplementation="me.code4me.research.session.ResearchRuntimeSettings"/>
+        <projectService serviceImplementation="me.code4me.research.actions.ResearchEnrollmentSettings"/>
+
+        <!-- Lazily re-activate a previously joined study; fully guarded, never blocks startup. -->
+        <postStartupActivity implementation="me.code4me.research.lifecycle.ResearchActivationStartupActivity" />
+
+        <!-- Participant status surface (Issue 10): public status bar + editor banner. -->
+        <statusBarWidgetFactory id="me.code4me.research.status"
+                                implementation="me.code4me.research.status.ResearchStatusBarWidgetFactory"/>
+        <editorNotificationProvider implementation="me.code4me.research.status.ResearchEditorNotificationProvider"/>
     </extensions>
 </idea-plugin>

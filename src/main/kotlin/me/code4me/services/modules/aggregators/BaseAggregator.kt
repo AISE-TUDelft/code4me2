@@ -231,9 +231,12 @@ abstract class BaseAggregator : PluginModule {
         elements: List<InlineCompletionElement>,
     ) {
         val submodules = getSubmodules()
-        ApplicationManager.getApplication().runReadAction {
-            submodules.forEach { module ->
-                GlobalScope.launch {
+        // The read action must be *inside* the coroutine, not around the launches. Wrapping the
+        // launches meant the read action was released as soon as the last coroutine was dispatched,
+        // so each submodule actually ran afterInsertion with no read access at all.
+        submodules.forEach { module ->
+            GlobalScope.launch {
+                ApplicationManager.getApplication().runReadAction {
                     try {
                         module.afterInsertion(environment, elements)
                     } catch (e: Exception) {

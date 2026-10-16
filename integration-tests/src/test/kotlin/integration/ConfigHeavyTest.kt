@@ -276,19 +276,6 @@ class ConfigServiceTest : BasePlatformTestCase() {
     }
 
     @Test
-    fun `test google oauth configuration parsing`() {
-        // Given
-        val configService = ConfigService(SAMPLE_CONFIG)
-
-        // When
-        val googleOAuthConfig = configService.getGoogleOAuthConfig()
-
-        // Then
-        assertNotNull(googleOAuthConfig)
-        assertEquals("test-client-id", googleOAuthConfig!!.clientId)
-    }
-
-    @Test
     fun `test models configuration parsing`() {
         // Given
         val configService = ConfigService(SAMPLE_CONFIG)
@@ -366,7 +353,6 @@ class ConfigServiceTest : BasePlatformTestCase() {
         assertTrue(configService.getAvailableModules().isEmpty())
         assertTrue(configService.getModuleCategories().isEmpty())
         assertNull(configService.getServerConfig())
-        assertNull(configService.getGoogleOAuthConfig())
         assertNull(configService.getModelsConfiguration())
         assertNull(configService.getLanguagesConfig())
     }
@@ -380,7 +366,6 @@ class ConfigServiceTest : BasePlatformTestCase() {
         assertTrue(configService.getAvailableModules().isEmpty())
         assertTrue(configService.getModuleCategories().isEmpty())
         assertNull(configService.getServerConfig())
-        assertNull(configService.getGoogleOAuthConfig())
         assertNull(configService.getModelsConfiguration())
         assertNull(configService.getLanguagesConfig())
     }

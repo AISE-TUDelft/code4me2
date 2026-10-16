@@ -58,6 +58,14 @@ data class ModelsConfiguration(
         return availableModels.find { it.name == name }?.id
     }
 
+    fun getDefaultCompletionModelId(): Int? {
+        return availableModels.firstOrNull { !it.isChatModel && it.isDefault }?.id
+    }
+
+    fun getDefaultChatModelId(): Int? {
+        return availableModels.firstOrNull { it.isChatModel && it.isDefault }?.id
+    }
+
     fun modelNameById(modelId: Int): String {
         return availableModels.find { it.id == modelId }?.name ?: "Unknown Model"
     }

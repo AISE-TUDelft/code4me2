@@ -1,5 +1,7 @@
 package me.code4me.services.project
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
@@ -246,8 +248,12 @@ class ProjectChatService(
     }
 
     /**
-     * Completely clears all chats and forces persistence to disk.
-     * This method ensures that the XML file is properly cleared.
+     * Completely clears all chats and writes the cleared state to disk.
+     *
+     * The chats leave memory at once; the project save that clears the XML file runs in a later
+     * EDT event. Sign-out reaches this from places where a synchronous [Project.save] must not
+     * run: a status-bar repaint that first constructs AppService (write-unsafe, so the save's
+     * modal progress logs "Write-unsafe context!") and code holding the AuthSettings lock.
      */
     fun clearAllChatsAndMemory() {
         LOG.info("Starting clearAllChatsAndMemory for project: ${project.name}")
@@ -258,14 +264,20 @@ class ProjectChatService(
         // Create a new empty state to ensure clean persistence
         internalState = ProjectChatState()
 
-        // Force the component to save the state immediately
-        try {
-            // This triggers the persistence mechanism to write the cleared state to disk
-            project.save()
-            LOG.info("Project state saved after clearing chats")
-        } catch (e: Exception) {
-            LOG.warn("Failed to save project state after clearing chats", e)
-        }
+        // Write the cleared state to disk from a write-safe context. Pass the modality explicitly:
+        // the default one can inherit "any" from the caller, which is write-unsafe too.
+        ApplicationManager.getApplication().invokeLater(
+            {
+                try {
+                    project.save()
+                    LOG.info("Project state saved after clearing chats")
+                } catch (e: Exception) {
+                    LOG.warn("Failed to save project state after clearing chats", e)
+                }
+            },
+            ModalityState.nonModal(),
+            project.disposed,
+        )
 
         LOG.info("Completed clearAllChatsAndMemory for project: ${project.name}")
     }

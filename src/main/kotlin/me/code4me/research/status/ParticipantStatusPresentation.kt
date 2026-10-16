@@ -1,0 +1,360 @@
+package me.code4me.research.status
+
+import me.code4me.research.session.ParticipantStudyStateV1
+import me.code4me.research.session.SpoolDeliveryState
+import me.code4me.research.session.StudyBlockReason
+import me.code4me.research.session.StudyComponentState
+
+/**
+ * Participant status surface presentation (Issue 10), pure JVM.
+ *
+ * It maps a [ParticipantStudyStateV1] to a short, non-identifying status view:
+ * a status-bar headline, a tooltip, a severity, the typed reason code, and a
+ * recovery action. It deliberately never includes the enrollment/study/revision
+ * ids, the manifest digest, paths, or any credential, so a status surface can
+ * never reveal study internals.
+ *
+ * The five participant states are [StudyComponentState] values (`AVAILABLE`,
+ * `UNAVAILABLE`, `PAUSED`, `BLOCKED`, `FAILED`). A `null` measurement is never
+ * interpreted as "no activity".
+ *
+ * The AI budget presentations ([ParticipantStatusPresentation.BUDGET_EXHAUSTED_CODE],
+ * [ParticipantStatusPresentation.BUDGET_WARNING_CODE]) are **non-terminal**: the
+ * server enforces the budget on every relay call, so they only inform the
+ * participant (a percentage, never an amount) while research collection
+ * continues. Any typed block or delivery problem outranks them.
+ *
+ * [ParticipantStatusSeverity] is the icon/colour class; [ParticipantStatusView]
+ * is the safe, non-identifying view returned to the status bar and editor banner.
+ */
+enum class ParticipantStatusSeverity { OK, INFO, WARNING, ERROR }
+
+/** A safe, non-identifying participant status view. */
+data class ParticipantStatusView(
+    val headline: String,
+    val tooltip: String,
+    val severity: ParticipantStatusSeverity,
+    val reasonCode: String? = null,
+    val actionHint: String? = null,
+) {
+    /** True only when collection is fully active. */
+    val isCollecting: Boolean
+        get() = severity == ParticipantStatusSeverity.OK
+}
+
+object ParticipantStatusPresentation {
+    const val ACTIVE_HEADLINE = "Research: active"
+    const val READY_HEADLINE = "Research: ready"
+    const val PAUSED_HEADLINE = "Research: paused"
+    const val BLOCKED_HEADLINE = "Research: blocked"
+    const val FAILED_HEADLINE = "Research: failed"
+    const val RECOVERING_HEADLINE = "Research: recovering"
+    const val INACTIVE_HEADLINE = "Research: not active"
+    const val UNAVAILABLE_HEADLINE = "Research: unavailable"
+    const val RECONNECTING_HEADLINE = "Research: reconnecting…"
+    const val PAUSED_BY_TEAM_HEADLINE = "Research: paused by the study team"
+    const val BUDGET_EXHAUSTED_HEADLINE = "Research: AI budget used up"
+
+    /** The AI Assistant build the study requires, as shown to participants. */
+    const val AI_ASSISTANT_REQUIREMENT = "JetBrains AI Assistant 262.8665.344 or newer"
+
+    /** Non-terminal reason codes for the advisory AI budget. */
+    const val BUDGET_EXHAUSTED_CODE = "BUDGET_EXHAUSTED"
+    const val BUDGET_WARNING_CODE = "BUDGET_WARNING"
+
+    private const val NO_ACTION = "No action is required."
+
+    /** Status-bar headline while collection is active and the AI budget is nearly used up. */
+    fun budgetWarningHeadline(percentUsed: Int): String = "Research: active · AI budget $percentUsed% used"
+
+    /** The view used when the research service itself cannot be read. */
+    fun unavailable(): ParticipantStatusView =
+        ParticipantStatusView(
+            headline = UNAVAILABLE_HEADLINE,
+            tooltip = "Code4Me research status is unavailable. $NO_ACTION",
+            severity = ParticipantStatusSeverity.INFO,
+        )
+
+    /**
+     * Whether this view warrants an intrusive editor banner. Only states that
+     * need the participant's attention (paused/blocked/failed/recovering) do;
+     * an inactive or active study never nags in the editor.
+     */
+    fun shouldNotify(view: ParticipantStatusView): Boolean =
+        view.severity == ParticipantStatusSeverity.WARNING || view.severity == ParticipantStatusSeverity.ERROR
+
+    /** Build the participant status view for [state]. */
+    fun of(state: ParticipantStudyStateV1): ParticipantStatusView {
+        val resolved = resolve(state)
+        val tooltip = tooltipOf(resolved)
+        return ParticipantStatusView(
+            headline = resolved.headline,
+            tooltip = tooltip,
+            severity = resolved.severity,
+            reasonCode = resolved.reasonCode,
+            actionHint = resolved.actionHint,
+        )
+    }
+
+    private data class Resolved(
+        val headline: String,
+        val severity: ParticipantStatusSeverity,
+        val reasonCode: String?,
+        val actionHint: String?,
+        /** Tooltip wording when the headline is not a plain state label. */
+        val tooltipLabel: String? = null,
+    )
+
+    private fun resolve(state: ParticipantStudyStateV1): Resolved =
+        when (state.blockReason) {
+            StudyBlockReason.PREPARING_AGENT -> Resolved(
+                "Preparing agent", ParticipantStatusSeverity.INFO, StudyBlockReason.PREPARING_AGENT.value,
+                "Code4Me is preparing your study's agent. You can keep working.",
+            )
+            StudyBlockReason.PREPARATION_CANCELLED -> Resolved(
+                "Agent preparation cancelled", ParticipantStatusSeverity.WARNING, StudyBlockReason.PREPARATION_CANCELLED.value,
+                "Choose Prepare agent to retry.",
+            )
+            StudyBlockReason.PREPARATION_FAILED -> Resolved(
+                "Agent preparation failed", ParticipantStatusSeverity.ERROR, StudyBlockReason.PREPARATION_FAILED.value,
+                "Choose Prepare agent to retry, or contact the research team.",
+            )
+            StudyBlockReason.REVOKED ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.ERROR,
+                    StudyBlockReason.REVOKED.value,
+                    "Collection has ended for this study; $NO_ACTION",
+                )
+            StudyBlockReason.MANIFEST_EXPIRED ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.MANIFEST_EXPIRED.value,
+                    "Reconnect to refresh the study manifest.",
+                )
+            StudyBlockReason.MANIFEST_INVALID ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.ERROR,
+                    StudyBlockReason.MANIFEST_INVALID.value,
+                    "The study configuration could not be verified; contact study support with the reason code.",
+                )
+            StudyBlockReason.INCOMPATIBLE_ENVIRONMENT ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.INCOMPATIBLE_ENVIRONMENT.value,
+                    "Update the Code4Me plugin to the study-required version.",
+                )
+            StudyBlockReason.POLICY_INVALID ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.ERROR,
+                    StudyBlockReason.POLICY_INVALID.value,
+                    "The study session policy is not configured; contact study support with the reason code.",
+                )
+            StudyBlockReason.RUNTIME_UNAVAILABLE ->
+                Resolved(
+                    FAILED_HEADLINE,
+                    ParticipantStatusSeverity.ERROR,
+                    StudyBlockReason.RUNTIME_UNAVAILABLE.value,
+                    "Reconnect; the study runtime could not start.",
+                )
+            StudyBlockReason.AGENT_NOT_FOUND ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.AGENT_NOT_FOUND.value,
+                    "Install the agent this study requires (or set its path in the Code4Me research settings), then retry.",
+                )
+            StudyBlockReason.TRANSPORT_FAILED ->
+                if (state.manifestDigest != null) {
+                    Resolved(
+                        RECOVERING_HEADLINE,
+                        ParticipantStatusSeverity.WARNING,
+                        StudyBlockReason.TRANSPORT_FAILED.value,
+                        "Check your network connection; collection resumes automatically.",
+                    )
+                } else {
+                    Resolved(
+                        FAILED_HEADLINE,
+                        ParticipantStatusSeverity.WARNING,
+                        StudyBlockReason.TRANSPORT_FAILED.value,
+                        "Check your network connection and reopen the project.",
+                    )
+                }
+            StudyBlockReason.SESSION_ENDED ->
+                Resolved(
+                    INACTIVE_HEADLINE,
+                    ParticipantStatusSeverity.INFO,
+                    StudyBlockReason.SESSION_ENDED.value,
+                    "Rejoin the study from the Code4Me research settings if you are still enrolled.",
+                )
+            StudyBlockReason.UNKNOWN ->
+                Resolved(
+                    FAILED_HEADLINE,
+                    ParticipantStatusSeverity.ERROR,
+                    StudyBlockReason.UNKNOWN.value,
+                    "Contact study support with the reason code.",
+                )
+            // Transient, automatic: the runtime is re-bootstrapping a fresh
+            // session after an idle/server end. Information only, never a banner.
+            StudyBlockReason.SESSION_ROTATING ->
+                Resolved(
+                    RECONNECTING_HEADLINE,
+                    ParticipantStatusSeverity.INFO,
+                    StudyBlockReason.SESSION_ROTATING.value,
+                    "The research session is being renewed; collection continues automatically.",
+                    tooltipLabel = "reconnecting",
+                )
+            StudyBlockReason.CONSENT_REQUIRED -> Resolved(
+                "Study consent required", ParticipantStatusSeverity.WARNING, StudyBlockReason.CONSENT_REQUIRED.value,
+                "Accept the study consent on the Code4Me website, then choose Prepare agent.",
+            )
+            StudyBlockReason.AUTHENTICATION_REQUIRED ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.AUTHENTICATION_REQUIRED.value,
+                    "Sign in again to continue the study.",
+                )
+            // An operator pause, not a revocation: nothing to do, it lifts itself.
+            StudyBlockReason.KILL_SWITCH_ENGAGED ->
+                Resolved(
+                    PAUSED_BY_TEAM_HEADLINE,
+                    ParticipantStatusSeverity.INFO,
+                    StudyBlockReason.KILL_SWITCH_ENGAGED.value,
+                    "The study team paused collection temporarily; it resumes automatically.",
+                    tooltipLabel = "paused by the study team",
+                )
+            StudyBlockReason.AI_ASSISTANT_MISSING ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.AI_ASSISTANT_MISSING.value,
+                    "Install and enable $AI_ASSISTANT_REQUIREMENT from Settings > Plugins, restart the IDE, " +
+                        "then reopen the project.",
+                )
+            StudyBlockReason.AI_ASSISTANT_OUTDATED ->
+                Resolved(
+                    BLOCKED_HEADLINE,
+                    ParticipantStatusSeverity.WARNING,
+                    StudyBlockReason.AI_ASSISTANT_OUTDATED.value,
+                    "Update to $AI_ASSISTANT_REQUIREMENT from Settings > Plugins, restart the IDE, " +
+                        "then reopen the project.",
+                )
+            null ->
+                when {
+                    state.consentState == StudyComponentState.PAUSED ->
+                        Resolved(
+                            PAUSED_HEADLINE,
+                            ParticipantStatusSeverity.INFO,
+                            StudyComponentState.PAUSED.value,
+                            "Resume consent in the Code4Me research settings to continue.",
+                        )
+                    state.compatibilityState == StudyComponentState.BLOCKED ->
+                        Resolved(
+                            BLOCKED_HEADLINE,
+                            ParticipantStatusSeverity.WARNING,
+                            StudyComponentState.BLOCKED.value,
+                            "The environment does not permit collection.",
+                        )
+                    state.compatibilityState == StudyComponentState.FAILED ||
+                        state.sessionState == StudyComponentState.FAILED ->
+                        Resolved(
+                            FAILED_HEADLINE,
+                            ParticipantStatusSeverity.ERROR,
+                            StudyComponentState.FAILED.value,
+                            "Reconnect; if the problem persists, contact study support with the reason code.",
+                        )
+                    state.sessionState == StudyComponentState.PAUSED ->
+                        Resolved(
+                            PAUSED_HEADLINE,
+                            ParticipantStatusSeverity.INFO,
+                            StudyComponentState.PAUSED.value,
+                            "Collection is suspended and resumes when the session reopens.",
+                        )
+                    state.deliveryState == SpoolDeliveryState.REVOKED ->
+                        Resolved(
+                            BLOCKED_HEADLINE,
+                            ParticipantStatusSeverity.ERROR,
+                            SpoolDeliveryState.REVOKED.value,
+                            "Collection has ended for this study; retained data is not deleted.",
+                        )
+                    state.deliveryState == SpoolDeliveryState.SPOOL_FULL ->
+                        Resolved(
+                            RECOVERING_HEADLINE,
+                            ParticipantStatusSeverity.WARNING,
+                            SpoolDeliveryState.SPOOL_FULL.value,
+                            "Local research storage is full; captured data is retained until storage is available.",
+                        )
+                    state.deliveryState == SpoolDeliveryState.RECOVERING ->
+                        Resolved(
+                            RECOVERING_HEADLINE,
+                            ParticipantStatusSeverity.WARNING,
+                            SpoolDeliveryState.RECOVERING.value,
+                            "Check your network connection; research delivery resumes automatically.",
+                        )
+                    // Advisory AI budget (never a block): exhausted warns with a
+                    // banner because the agent will refuse new requests; nearly
+                    // used up is status-bar information only. The budget is held
+                    // only while the session runtime is active, so neither can
+                    // outlive a teardown.
+                    state.inferenceBudget?.exhausted == true ->
+                        Resolved(
+                            BUDGET_EXHAUSTED_HEADLINE,
+                            ParticipantStatusSeverity.WARNING,
+                            BUDGET_EXHAUSTED_CODE,
+                            "The agent will refuse new AI requests until the study team tops up your budget; " +
+                                "research collection continues.",
+                            tooltipLabel = "active, but the AI budget is used up",
+                        )
+                    state.inferenceBudget?.warning == true && state.isCollecting ->
+                        Resolved(
+                            budgetWarningHeadline(state.inferenceBudget.percentUsed),
+                            ParticipantStatusSeverity.INFO,
+                            BUDGET_WARNING_CODE,
+                            "AI budget ${state.inferenceBudget.percentUsed}% used; ask the study team about a top-up " +
+                                "before it runs out. Research collection continues.",
+                            tooltipLabel = "active",
+                        )
+                    state.isCollecting ->
+                        Resolved(
+                            ACTIVE_HEADLINE,
+                            ParticipantStatusSeverity.OK,
+                            null,
+                            null,
+                        )
+                    state.manifestDigest != null &&
+                        state.consentState == StudyComponentState.AVAILABLE &&
+                        state.compatibilityState == StudyComponentState.AVAILABLE &&
+                        state.sessionState == StudyComponentState.UNAVAILABLE ->
+                        Resolved(
+                            READY_HEADLINE,
+                            ParticipantStatusSeverity.INFO,
+                            null,
+                            "Collection starts when you open, edit, or save a file in this project.",
+                        )
+                    else ->
+                        Resolved(
+                            INACTIVE_HEADLINE,
+                            ParticipantStatusSeverity.INFO,
+                            null,
+                            "Join a study from the Code4Me research settings.",
+                        )
+                }
+        }
+
+    private fun tooltipOf(resolved: Resolved): String {
+        val label = resolved.tooltipLabel ?: resolved.headline.removePrefix("Research: ")
+        val reason =
+            if (resolved.reasonCode != null) {
+                "Reason code: ${resolved.reasonCode}."
+            } else {
+                "No blocking reason."
+            }
+        val action = resolved.actionHint ?: NO_ACTION
+        return "Code4Me research is $label. $reason $action"
+    }
+}

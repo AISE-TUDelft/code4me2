@@ -1,7 +1,7 @@
 # GitLab CI/CD Pipeline Configuration
 
 # Define the Docker image to use for all jobs
-image: gradle:8.13-jdk21
+image: gradle:9.5.0-jdk21
 
 # Define stages for the pipeline
 stages:
@@ -13,7 +13,7 @@ stages:
 build:
   stage: build
   script:
-    - gradle clean assemble
+    - ./gradlew clean assemble
   artifacts:
     paths:
       - build/libs/*.jar
@@ -23,7 +23,7 @@ build:
 test:
   stage: test
   script:
-    - gradle test --info
+    - ./gradlew test --info
   artifacts:
     reports:
       junit: build/test-results/test/TEST-*.xml
@@ -38,8 +38,8 @@ test:
 documentation:
   stage: documentation
   script:
-    - gradle dokkaHtml --no-configuration-cache
-    - gradle dokkaZip --no-configuration-cache
+    - ./gradlew dokkaHtml --no-configuration-cache
+    - ./gradlew dokkaZip --no-configuration-cache
   artifacts:
     paths:
       - build/dokka/

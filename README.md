@@ -27,6 +27,13 @@ Code4Me V2 is an AI-powered code completion platform developed for the **AISE la
 - **Code Analysis**: Get explanations, refactoring suggestions, and debugging help
 - **Session Management**: Persistent chat history with project-specific conversations
 
+#### Agent Mode
+- **Participant-ready ACP agent**: The plugin ships no agent. Each study's assigned native agent is installed automatically: the plugin takes it from its verified cache or downloads the exact GitHub Release archive, checks the SHA-256 the study pins, and registers the study's ACP entry in JetBrains AI Assistant.
+- **Hosted inference**: The managed runtime authenticates through the signed-in plugin and sends model calls to the Code4Me backend. Participants do not install Python, Node, Docker, a source checkout, or provider keys.
+- **Server-controlled study arms**: Model, tools, approval behavior, sampling temperature, context/step budgets, and command policy come from the participant's sticky A/B assignment.
+- **Task & telemetry tracking**: Runs and events are scoped to the signed-in user, open project, and ACP session, with participant content stored only according to server-side consent.
+- **Goose/Codex retained for development**: Their implementations and relay paths remain available behind explicit developer configuration; managed participant distribution is tracked as follow-up work.
+
 #### Comprehensive Settings Management
 - **Complete User Control**: Enable/disable individual modules through intuitive settings interface
 - **Granular Data Collection**: Choose exactly what data is collected and transmitted
@@ -39,7 +46,7 @@ Code4Me V2 is an AI-powered code completion platform developed for the **AISE la
 
 ### Installation
 1. **Download**: Get the plugin from the JetBrains Plugin Repository (coming soon) or build from source
-2. **Install**: Install through IntelliJ IDEA's plugin manager or manually install the `.jar` file
+2. **Install**: In IntelliJ IDEA's plugin manager, choose **Install Plugin from Disk** and select the supplied `.zip` file
 3. **Restart**: Restart your IDE to activate the plugin
 
 ### First-Time Setup
@@ -216,8 +223,6 @@ IntelliJ Plugin
       ▼ User Login Request
 Authentication Service
       │
-      ▼ OAuth Flow (optional)
-Google OAuth ──► JWT Token ──► Authentication Service
       │                              │
       ▼                              ▼
 Code4Me Backend ◄── POST /api/user/authenticate
@@ -305,9 +310,8 @@ The plugin uses HOCON (Human-Optimized Config Object Notation) for configuration
 - Backend server host and port settings
 - Connection timeout and retry parameters
 - Context path and SSL configuration
+- Optional `acpRuntimeBaseUrl` override, used only by locally-running ACP agent runtimes that can't reach the resolved `host` as written (e.g. an agent running in a container needing `http://host.docker.internal:8008`)
 
-**Authentication Settings** (customizable OAuth configuration):
-- Google OAuth client credentials
 - Session timeout and renewal settings
 - Multi-provider authentication support
 
@@ -381,9 +385,9 @@ Each module in plugin.conf includes:
 ## 🛠️ Development Setup
 
 ### Prerequisites
-- JDK 21 or higher
-- IntelliJ IDEA 2024.2+
-- Gradle 8.13+
+- A JDK capable of starting the checked-in Gradle wrapper (the build provisions its declared Java 25 toolchain)
+- IntelliJ IDEA 2026.2.2 for the certified baseline
+- **Node.js/npm and Goose are optional developer prerequisites only** for the retained, non-managed Codex and Goose integrations described below
 
 ### Building the Plugin
 ```bash
@@ -397,9 +401,109 @@ cd code4me2
 # Run tests
 ./gradlew check
 
-# Run in development IDE
-./gradlew runIde
+# Run in development IDE ('clean' is required, otherwise the agent proxy isn't started)
+./gradlew clean runIde
 ```
+
+### Agent Mode Setup
+
+Code4Me drives coding agents through the [Agent Client Protocol (ACP)](https://agentclientprotocol.com).
+
+The participant path is the packaged `code4me2-agent`. After sign-in, the plugin verifies the hosted server and assigned study arm, installs the arm's pinned native agent (verified cache, or the exact GitHub Release download checked against its SHA-256), registers the study's ACP entry in `~/.jetbrains/acp.json`, and starts a private loopback authentication bridge. No bearer token or provider credential is written into the project. See [Participant setup](docs/PARTICIPANT_SETUP.md).
+
+Goose and Codex remain explicit developer features. Enable them with the existing `code4me.developerAgents` development property and follow [the Codex development setup](dev/codex-acp-proxy/SETUP.md) where applicable. They are intentionally not installed, repaired, or reported as missing by normal participant setup. The remaining managed-distribution work is listed in [the managed-agent roadmap](docs/MANAGED_AGENT_ROADMAP.md).
+
+### Building a participant ZIP
+
+For a current-platform local test ZIP, run this from the plugin repository:
+
+```bash
+./buildzip
+```
+
+On Windows, run `buildzip.bat`. This one command fingerprints the current plugin and Python
+runtime sources, reuses a cached packaging environment, runs both test suites, builds the native
+runtime for the host platform, embeds it with a matching version and checksum, builds the plugin,
+and verifies the nested runtime artifact. The final versioned path is printed when it succeeds.
+Use `./buildzip --skip-tests` only for rapid local iteration; never distribute a skipped-test build.
+Local ZIPs contain only the host platform runtime and are not participant release artifacts. That
+embedded runtime serves only the ordinary non-study setup; a study installs its pinned agent from
+the IDE cache or its Release (see [Participant plugin and study agents](docs/PARTICIPANT_RELEASE.md)).
+
+Do not distribute a locally built ZIP; it is neither complete nor certified for participants.
+
+Use the **Build participant plugin** workflow. It needs no runtime release: it builds the research proxy for all four platforms from the selected server source tag, runs `buildPlugin` with the study backend's origin, and verifies the ZIP with `scripts/verify-participant-artifact.py --agent-free` (four self-contained proxies, no bundled agent, no secrets or developer paths). Agent versions are released and assigned to studies separately; see [Participant plugin and study agents](docs/PARTICIPANT_RELEASE.md). Only the versioned artifact produced by that workflow is a participant deliverable.
+
+### Publishing to JetBrains Marketplace
+
+Pushing a stable `vX.Y.Z` tag runs `.github/workflows/build-participant-plugin.yml`.
+The tag supplies `pluginVersion` (for example, `v0.0.2` builds version `0.0.2`);
+`gradle.properties` remains the default for local development. The workflow builds
+the native research proxies, runs plugin tests, builds and verifies the plugin ZIP,
+publishes that exact ZIP to Marketplace, and attaches it to a GitHub Release for the tag.
+Select a pushed server tag for the proxy sources; no server GitHub Release is required. The workflow
+resolves that tag to one commit internally for all four builds. Before those
+builds start, it checks the source files, starts the proxy from source, and runs
+the full proxy test suite against the selected server contracts. Each platform
+also tests ACP forwarding through its frozen executable outside the source tree.
+Manual runs build downloadable artifacts only. Publishing to Marketplace and
+creating a GitHub Release require a stable `vX.Y.Z` tag push.
+
+Before pushing a release tag, configure these repository Actions settings:
+
+- Secret `JETBRAINS_MARKETPLACE_TOKEN`: your Marketplace personal access token.
+- Variable `CODE4ME_RELEASE_SERVER_URL`: the backend origin, either public HTTPS
+  or `http://localhost:8008` for a backend running on each user's machine.
+- Variable `CODE4ME_RELEASE_SERVER_TAG`: the pushed server tag whose
+  sources are compatible with the current proxy. There is no default tag;
+  select the tag you want. A tag can still be too old for the
+  proxy; the compatibility tests reject it. This does not select a study's agent version.
+- Optional variable `CODE4ME_RELEASE_SERVER_REPOSITORY`: defaults to `AISE-TUDelft/code4me2-server`.
+- Optional secret `CODE4ME_RELEASE_TOKEN`: only needed to read a private server
+  repository from this plugin repository's workflow. The current public server
+  repository does not need it. This token is never packaged or used by participants.
+
+Ordinary plugin tests and all four native proxy tests must pass before Marketplace upload. Marketplace and
+GitHub publication are separate jobs: if only GitHub publication fails, rerun
+failed jobs to avoid uploading to Marketplace again. Inspect a partially created
+GitHub Release before retrying; the workflow does not replace existing releases.
+
+The Marketplace entry with plugin ID `me.code4me` must already exist: JetBrains requires
+the first upload to be manual. Updates still require Marketplace approval.
+The plugin descriptor's description comes from the marked plugin-description
+section in `README.md`; Marketplace uses it unless the listing overrides it.
+Change notes come from the matching version in `CHANGELOG.md`, falling
+back to `[Unreleased]`. Update these files before tagging; publishing does not rewrite them.
+Screenshots are managed separately on Marketplace.
+
+After committing and pushing the release changes, choose an unused version and run:
+
+```bash
+git tag -a v0.0.2 -m "Release 0.0.2"
+git push origin v0.0.2
+```
+
+Set the server source tag before pushing the plugin tag:
+
+```bash
+gh variable set CODE4ME_RELEASE_SERVER_TAG --repo AISE-TUDelft/code4me2 --body YOUR_SERVER_TAG
+```
+
+For a manual build without publishing, select the server tag through `serverTag`:
+
+```bash
+gh workflow run build-participant-plugin.yml --repo AISE-TUDelft/code4me2 --ref test_draft \
+  -f serverUrl=http://localhost:8008 -f version=0.0.3-test1 \
+  -f serverRepository=AISE-TUDelft/code4me2-server -f serverTag=YOUR_SERVER_TAG
+```
+
+The pushed tag must point at a commit containing this workflow. Only stable `vX.Y.Z`
+tags publish to Marketplace; prerelease tags and tags with leading zeros are rejected.
+Manual builds also run IntelliJ plugin verification before uploading the ZIP.
+Verification uses the build's IntelliJ 2026.2.2 rather than downloading other
+stable/EAP IDEs. Gradle jobs cache dependencies and IDE artifacts; the first run
+still downloads missing files. See `docs/PARTICIPANT_RELEASE.md` for cache scope
+and offline local checks.
 
 ### Code Quality Standards
 The project maintains high code quality through:
@@ -471,6 +575,18 @@ The plugin integrates with the Code4Me backend through these endpoints:
 **Chat:**
 - `POST /api/chat/request/` - Chat completion request
 
+**Agent (ACP):**
+- `GET /api/acp/capabilities` - Verify managed-protocol and database readiness
+- `GET /api/acp/readiness` - Verify the signed-in participant's assigned runtime and provider configuration
+- `POST /api/acp/grant` - Mint a short-lived, launch-scoped grant for the managed runtime
+- `POST /api/acp/runs` - Idempotently create a managed run and return its immutable policy snapshot
+- `POST /api/acp/inference` - Relay managed Chat Completions inference using the run's server-controlled policy
+- `POST /api/agent/events/ingest` - Upload idempotent self-reported managed-runtime events
+- `POST /api/agent/task` - Mint (or idempotently re-use) an `AgentTask` before an agent's first inference call
+- `POST /api/agent/inference` - Relay endpoint the local proxy forwards third-party agents' (Goose, Codex) LLM calls through
+- `POST /api/agent/task/{task_id}/close` - Close a task so the server aggregates its accrued token usage
+- `POST /api/agent/task/{task_id}/telemetry` - Upload normalized trajectory telemetry for retained developer integrations
+
 ## 📚 Resources
 
 - [IntelliJ Platform SDK](https://plugins.jetbrains.com/docs/intellij/welcome.html) – Plugin development reference
@@ -478,7 +594,6 @@ The plugin integrates with the Code4Me backend through these endpoints:
 - [Kotlin Docs](https://kotlinlang.org/docs/home.html) – Language and standard library
 - [HOCON Spec](https://github.com/lightbend/config#using-hocon-the-json-superset) – Plugin configuration format
 - [ktlint](https://github.com/pinterest/ktlint) – Kotlin linter
-- [OAuth 2.0](https://oauth.net/2/) – Authentication standard
 - [TU Delft AISE Lab](https://malihehizadi.github.io/aise/) – Research group behind Code4Me
 ## 🙏 Acknowledgments
 
@@ -486,4 +601,3 @@ The plugin integrates with the Code4Me backend through these endpoints:
 - **JetBrains** for the IntelliJ Platform and development tools
 - **Hugging Face** for AI model infrastructure and ecosystem
 - **Kotlin Community** for the excellent programming language and ecosystem
-

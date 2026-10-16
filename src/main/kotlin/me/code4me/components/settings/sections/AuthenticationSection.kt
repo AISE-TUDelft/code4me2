@@ -18,9 +18,9 @@ import me.code4me.components.settings.fields.StateValueField
 import me.code4me.components.settings.fields.TextField
 import me.code4me.components.settings.fields.ToggleButtonField
 import me.code4me.services.app.AppService
-import me.code4me.services.state.getPrefState
 import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.state.AuthState
+import me.code4me.services.state.getPrefState
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.GridBagConstraints
@@ -31,7 +31,6 @@ import java.awt.event.FocusEvent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.swing.BorderFactory
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -57,7 +56,6 @@ private fun JComponent.addEnterKeyListener(action: () -> Unit) {
  *
  * This section provides:
  * - Credential-based authentication (email/password)
- * - Google OAuth authentication (future feature)
  * - Dynamic form switching between login and signup modes
  * - Password reset functionality
  * - Input validation and error handling
@@ -93,17 +91,6 @@ class AuthenticationSection : SettingsSection {
 
         /** Password reset mode */
         FORGOT_PASSWORD,
-    }
-
-    /**
-     * Authentication methods available to users.
-     */
-    private enum class AuthMethod {
-        /** Email and password authentication */
-        CREDENTIALS,
-
-        /** Google OAuth authentication (future) */
-        GOOGLE,
     }
 
     /**
@@ -350,17 +337,6 @@ class AuthenticationSection : SettingsSection {
         }
 
     /**
-     * Google OAuth authentication button (future feature).
-     */
-    private val googleAuthButton =
-        JButton("Login with Google").apply {
-            toolTipText = "Authenticate using your Google account"
-            addActionListener { initiateGoogleAuth() }
-            isEnabled = false // TODO: Enable when Google OAuth is implemented
-            putClientProperty("JButton.preferredWidth", MAX_FIELD_WIDTH)
-        }
-
-    /**
      * Advanced button to configure server selection (host/port/context-path).
      */
     private val advancedServerButton =
@@ -382,13 +358,6 @@ class AuthenticationSection : SettingsSection {
 
     private val credentialsTitleLabel =
         JBLabel("Credential-based Authentication").apply {
-            font = font.deriveFont(font.style or java.awt.Font.BOLD)
-            border = JBUI.Borders.empty(0, 0, 5, 0)
-            horizontalAlignment = SwingConstants.CENTER
-        }
-
-    private val googleTitleLabel =
-        JBLabel("Google-based Authentication").apply {
             font = font.deriveFont(font.style or java.awt.Font.BOLD)
             border = JBUI.Borders.empty(0, 0, 5, 0)
             horizontalAlignment = SwingConstants.CENTER
@@ -438,7 +407,6 @@ class AuthenticationSection : SettingsSection {
         authModeToggle.text = if (isSignupMode) "Already have an account? Login" else "Don't have an account? Sign Up"
 
         authButton.text = if (isSignupMode) "Sign Up" else "Login"
-        googleAuthButton.text = if (isSignupMode) "Sign Up with Google" else "Login with Google"
 
         LOG.debug("Auth mode toggled to: ${if (isSignupMode) "SIGNUP" else "LOGIN"}")
     }
@@ -545,20 +513,7 @@ class AuthenticationSection : SettingsSection {
                 border = JBUI.Borders.empty(FORM_PADDING)
             }
 
-        // Credentials section
-        val credentialsPanel = createCredentialsPanel()
-
-        // Google authentication section
-        val googlePanel = createGooglePanel()
-
-        // Combine sections
-        val sectionsPanel =
-            JPanel(BorderLayout()).apply {
-                add(credentialsPanel, BorderLayout.NORTH)
-                add(googlePanel, BorderLayout.SOUTH)
-            }
-
-        mainPanel.add(sectionsPanel, BorderLayout.NORTH)
+        mainPanel.add(createCredentialsPanel(), BorderLayout.NORTH)
         builder.addComponent(mainPanel)
 
         LOG.debug("Authentication section applied to form builder")
@@ -669,34 +624,6 @@ class AuthenticationSection : SettingsSection {
     }
 
     /**
-     * Creates the Google OAuth authentication panel.
-     */
-    private fun createGooglePanel(): JPanel {
-        return JPanel(BorderLayout()).apply {
-            border =
-                BorderFactory.createCompoundBorder(
-                    BorderFactory.createMatteBorder(
-                        JBUI.scale(1),
-                        0,
-                        0,
-                        0,
-                        JBUI.CurrentTheme.Popup.separatorColor(), // theme-aware
-                    ),
-                    JBUI.Borders.empty(SECTION_SPACING, 0, 0, 0),
-                )
-
-            add(googleTitleLabel, BorderLayout.NORTH)
-
-            val buttonPanel =
-                JPanel().apply {
-                    add(googleAuthButton)
-                }
-
-            add(buttonPanel, BorderLayout.CENTER)
-        }
-    }
-
-    /**
      * Performs authentication based on current mode and input validation.
      */
     private fun performAuthentication() {
@@ -720,28 +647,40 @@ class AuthenticationSection : SettingsSection {
 
     /**
      * Handles forgot password request.
+     *
+     * The actual request runs on a pooled thread: it's a blocking network call, and IntelliJ's
+     * threading rules forbid slow I/O on the EDT (this button click starts on the EDT). Only the
+     * UI follow-up hops back via `invokeLater`.
      */
     private fun handleForgotPassword() {
         val email = emailField.text.trim()
 
-        try {
-            val success = appService.requestPasswordReset(email)
+        authButton.isEnabled = false
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val success = appService.requestPasswordReset(email)
 
-            // Show success message
-            if (!success) {
-                showError("Failed to send password reset email. Please check your email address and try again.")
-            } else {
-                Messages.showInfoMessage(
-                    "A password reset email has been sent to $email. " +
-                        "Please check your inbox and follow the instructions to reset your password.",
-                    "Password Reset Email Sent",
-                )
-                switchToLoginMode()
-                LOG.info("Password reset email requested for: $email")
+                ApplicationManager.getApplication().invokeLater {
+                    authButton.isEnabled = true
+                    if (!success) {
+                        showError("Failed to send password reset email. Please check your email address and try again.")
+                    } else {
+                        Messages.showInfoMessage(
+                            "A password reset email has been sent to $email. " +
+                                "Please check your inbox and follow the instructions to reset your password.",
+                            "Password Reset Email Sent",
+                        )
+                        switchToLoginMode()
+                        LOG.info("Password reset email requested for: $email")
+                    }
+                }
+            } catch (e: Exception) {
+                LOG.error("Failed to send password reset email", e)
+                ApplicationManager.getApplication().invokeLater {
+                    authButton.isEnabled = true
+                    showError("Failed to send password reset email. Please try again later.")
+                }
             }
-        } catch (e: Exception) {
-            LOG.error("Failed to send password reset email", e)
-            showError("Failed to send password reset email. Please try again later.")
         }
     }
 
@@ -849,45 +788,59 @@ class AuthenticationSection : SettingsSection {
 
     /**
      * Handles credential-based authentication.
+     *
+     * The button click (and, for signup, the confirmation dialog) run on the EDT, but the actual
+     * login/signup call, the credential-store writes it triggers (`AuthState.setToken`/etc. write
+     * through to the OS keychain), and the follow-up session acquisition are all blocking I/O —
+     * IntelliJ's threading rules forbid that on the EDT. That work is dispatched to a pooled
+     * thread; only the final UI update hops back via `invokeLater`.
      */
     private fun handleCredentialsAuth() {
         val email = emailField.text.trim()
         val password = String(passwordField.password)
         val isSignupMode = authModeToggle.isSelected
+        val fullName = fullNameField.text.trim()
 
+        if (isSignupMode) {
+            val confirmResult =
+                Messages.showYesNoDialog(
+                    """
+                    By signing up, you agree to the following:
+
+                    • Your email and name will be stored securely
+                    • Your coding activity will be processed to provide suggestions
+                    • You can delete your account and data at any time
+                    • We will never share your personal information with third parties
+
+                    For more details, please refer to our Privacy Policy here: https://code4me.me/privacy-policy
+
+                    Do you want to continue with registration?
+                    """.trimIndent(),
+                    "Confirm Registration",
+                    "Continue",
+                    "Cancel",
+                    Messages.getQuestionIcon(),
+                )
+            if (confirmResult != Messages.YES) return
+        }
+
+        authButton.isEnabled = false
+        ApplicationManager.getApplication().executeOnPooledThread {
+            runCredentialsAuthRequest(isSignupMode, email, password, fullName)
+        }
+    }
+
+    /**
+     * The blocking half of [handleCredentialsAuth], run off the EDT. See that method's doc for why.
+     */
+    private fun runCredentialsAuthRequest(
+        isSignupMode: Boolean,
+        email: String,
+        password: String,
+        fullName: String,
+    ) {
         try {
-            val token =
-                if (isSignupMode) {
-                    val fullName = fullNameField.text.trim()
-
-                    val confirmResult =
-                        Messages.showYesNoDialog(
-                            """
-                            By signing up, you agree to the following:
-
-                            • Your email and name will be stored securely
-                            • Your coding activity will be processed to provide suggestions
-                            • You can delete your account and data at any time
-                            • We will never share your personal information with third parties
-                            
-                            For more details, please refer to our Privacy Policy here: https://code4me.me/privacy-policy
-
-                            Do you want to continue with registration?
-                            """.trimIndent(),
-                            "Confirm Registration",
-                            "Continue",
-                            "Cancel",
-                            Messages.getQuestionIcon(),
-                        )
-
-                    if (confirmResult == Messages.YES) {
-                        performSignup(fullName, email, password)
-                    } else {
-                        null
-                    }
-                } else {
-                    performLogin(email, password)
-                }
+            val token = if (isSignupMode) performSignup(fullName, email, password) else performLogin(email, password)
 
             if (token != null) {
                 // Store authentication data
@@ -895,15 +848,18 @@ class AuthenticationSection : SettingsSection {
                 authState.setUserEmail(email)
 
                 if (isSignupMode) {
-                    authState.setUserName(fullNameField.text.trim())
+                    authState.setUserName(fullName)
                 }
 
-                showSuccess("Authentication successful!")
-                clearAllFields()
                 appService.acquireSessionWithStoredToken()
 
-                // Update chat panel overlays immediately after successful auth
-                updateChatPanelOverlays()
+                ApplicationManager.getApplication().invokeLater {
+                    authButton.isEnabled = true
+                    showSuccess("Authentication successful!")
+                    clearAllFields()
+                    // Update chat panel overlays immediately after successful auth
+                    updateChatPanelOverlays()
+                }
             } else {
                 val errorMessage =
                     if (isSignupMode) {
@@ -911,11 +867,17 @@ class AuthenticationSection : SettingsSection {
                     } else {
                         "Login failed. Please check your credentials and try again."
                     }
-                showError(errorMessage)
+                ApplicationManager.getApplication().invokeLater {
+                    authButton.isEnabled = true
+                    showError(errorMessage)
+                }
             }
         } catch (e: Exception) {
             LOG.error("Authentication request failed", e)
-            showError("Authentication failed: ${e.message}")
+            ApplicationManager.getApplication().invokeLater {
+                authButton.isEnabled = true
+                showError("Authentication failed: ${e.message}")
+            }
         }
     }
 
@@ -973,11 +935,12 @@ class AuthenticationSection : SettingsSection {
      */
     private fun showServerSelectionDialog() {
         val prefs = getPrefState()
-        val dialog = ServerSelectionDialog(
-            initialHost = prefs.lastServerHost ?: "",
-            initialPort = prefs.lastServerPort,
-            initialContextPath = prefs.lastServerContextPath ?: ""
-        )
+        val dialog =
+            ServerSelectionDialog(
+                initialHost = prefs.lastServerHost ?: "",
+                initialPort = prefs.lastServerPort,
+                initialContextPath = prefs.lastServerContextPath ?: "",
+            )
         if (dialog.showAndGet()) {
             val host = dialog.getHost().trim()
             val port = dialog.getPort()
@@ -995,25 +958,16 @@ class AuthenticationSection : SettingsSection {
                     host = host,
                     port = port,
                     contextPath = contextPath,
-                    timeout = timeout
-                )
+                    timeout = timeout,
+                ),
             )
 
             val portSegment = if (port > 0) ":$port" else ""
             Messages.showInfoMessage(
                 "Server switched to $host$portSegment$contextPath",
-                "Server Updated"
+                "Server Updated",
             )
         }
-    }
-
-    /**
-     * Initiates Google OAuth authentication flow.
-     */
-    private fun initiateGoogleAuth() {
-        // TODO: Implement Google OAuth flow
-        showError("Google authentication is not yet implemented")
-        LOG.info("Google authentication requested (not yet implemented)")
     }
 
     /**
@@ -1044,72 +998,6 @@ class AuthenticationSection : SettingsSection {
     }
 }
 
-/**
- * Dialog for collecting additional information during Google signup.
- * TODO: Complete implementation when Google OAuth is available.
- */
-private class PasswordCreationDialog(private val email: String) : DialogWrapper(true) {
-    private val nameField = JBTextField()
-    private val passwordField = JBPasswordField()
-    private val confirmPasswordField = JBPasswordField()
-
-    init {
-        title = "Complete Your Registration"
-        init()
-    }
-
-    override fun createCenterPanel(): JComponent {
-        val panel = JPanel(GridBagLayout())
-        val gbc =
-            GridBagConstraints().apply {
-                insets = Insets(5, 5, 5, 5)
-                anchor = GridBagConstraints.WEST
-            }
-
-        gbc.gridx = 0
-        gbc.gridy = 0
-        panel.add(JLabel("Email:"), gbc)
-        gbc.gridx = 1
-        panel.add(JLabel(email), gbc)
-
-        gbc.gridx = 0
-        gbc.gridy = 1
-        panel.add(JLabel("Full Name:"), gbc)
-        gbc.gridx = 1
-        panel.add(nameField, gbc)
-
-        gbc.gridx = 0
-        gbc.gridy = 2
-        panel.add(JLabel("Password:"), gbc)
-        gbc.gridx = 1
-        panel.add(passwordField, gbc)
-
-        gbc.gridx = 0
-        gbc.gridy = 3
-        panel.add(JLabel("Confirm Password:"), gbc)
-        gbc.gridx = 1
-        panel.add(confirmPasswordField, gbc)
-
-        return panel
-    }
-
-    override fun doValidate(): ValidationInfo? {
-        return when {
-            nameField.text.isBlank() -> ValidationInfo("Name is required", nameField)
-            String(passwordField.password).length < 8 ->
-                ValidationInfo("Password must be at least 8 characters", passwordField)
-            String(passwordField.password) != String(confirmPasswordField.password) ->
-                ValidationInfo("Passwords do not match", confirmPasswordField)
-            else -> null
-        }
-    }
-
-    fun getPassword(): String = String(passwordField.password)
-
-    fun getName(): String = nameField.text.trim()
-}
-
-
 private class ServerSelectionDialog(
     private val initialHost: String,
     private val initialPort: Int,
@@ -1129,10 +1017,11 @@ private class ServerSelectionDialog(
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(GridBagLayout())
-        val gbc = GridBagConstraints().apply {
-            insets = Insets(5, 5, 5, 5)
-            anchor = GridBagConstraints.WEST
-        }
+        val gbc =
+            GridBagConstraints().apply {
+                insets = Insets(5, 5, 5, 5)
+                anchor = GridBagConstraints.WEST
+            }
 
         gbc.gridx = 0
         gbc.gridy = 0
@@ -1148,8 +1037,13 @@ private class ServerSelectionDialog(
 
         gbc.gridx = 0
         gbc.gridy = 2
-        panel.add(JLabel("Context Path (e.g., /api) - optional:"), gbc)
+        panel.add(JLabel("Extra path prefix (optional):"), gbc)
         gbc.gridx = 1
+        contextPathField.toolTipText =
+            "Only needed if the backend is mounted under an extra path, e.g. a reverse proxy " +
+            "serving it at /my-proxy rather than at the host root. Every API route already " +
+            "starts with /api on its own, so leave this blank for a plain host such as " +
+            "http://localhost:8008 — entering /api here would double it to /api/api/...."
         panel.add(contextPathField, gbc)
 
         return panel
@@ -1167,6 +1061,8 @@ private class ServerSelectionDialog(
     }
 
     fun getHost(): String = hostField.text.trim()
+
     fun getPort(): Int = portField.text.trim().toIntOrNull() ?: 0
+
     fun getContextPath(): String = contextPathField.text.trim()
 }

@@ -70,11 +70,13 @@ class EditorContextRetrievalModule : PluginModule {
         private val LOG = thisLogger()
 
         // Record key names using standardized naming conventions
+        // Keys sent to the server must match ContextualTelemetryData JSON names,
+        // otherwise Moshi silently drops them and the server stores null.
         private const val KEY_CONTEXT_LANGUAGE = "language_id"
-        private const val KEY_CONTEXT_FILE_PATH = "context.file.path"
+        private const val KEY_CONTEXT_FILE_PATH = "file_path"
         private const val KEY_CONTEXT_CARET_OFFSET = "context.caret.offset"
         private const val KEY_RELATIVE_DOCUMENT_POSITION = "relative_document_position"
-        private const val KEY_CONTEXT_CARET_LINE = "context.caret.line"
+        private const val KEY_CONTEXT_CARET_LINE = "caret_line"
         private const val KEY_CONTEXT_CARET_COLUMN = "context.caret.column"
         private const val KEY_DOCUMENT_CHAR_LENGTH = "document_char_length"
         private const val KEY_CONTEXT_SELECTION_TEXT = "context.selection.text"
@@ -183,9 +185,14 @@ class EditorContextRetrievalModule : PluginModule {
             //        if (/*PrefState.getPreferenceValue(moduleId, "context.include.language")?.toBoolean() == true*/true) {
             if (getBooleanPreference(moduleId, PREF_INCLUDE_LANGUAGE, true)) {
                 val languageKey = Record.Companion.key<Int>(KEY_CONTEXT_LANGUAGE)
-                val languageId = getConfig().getLanguagesConfig()?.getLanguageId(psiFile.language.displayName)
-                expanded[languageKey] = languageId as Any // getLanguageId returns Int
-                LOG.trace("Collected language: ${psiFile.language.displayName} with ID $languageId")
+                val languagesConfig = getConfig().getLanguagesConfig()
+                if (languagesConfig != null) {
+                    val languageId = languagesConfig.getLanguageId(psiFile.language.displayName)
+                    expanded[languageKey] = languageId
+                    LOG.trace("Collected language: ${psiFile.language.displayName} with ID $languageId")
+                } else {
+                    LOG.debug("Languages config unavailable, skipping language telemetry")
+                }
             }
 
             if (getBooleanPreference(moduleId, PREF_INCLUDE_FILEPATH, true)) {

@@ -4,7 +4,6 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
-import me.code4me.services.config.models.GoogleOAuthConfig
 import me.code4me.services.config.models.LanguagesConfig
 import me.code4me.services.config.models.ModelsConfiguration
 import me.code4me.services.config.models.ModuleCategoryConfig
@@ -65,12 +64,6 @@ class ConfigService {
     private var serverConfig: ServerConfig? = null
 
     /**
-     * Google OAuth configuration parsed from the 'auth.google' section.
-     * Contains client credentials and OAuth flow settings.
-     */
-    private var googleOAuthConfig: GoogleOAuthConfig? = null
-
-    /**
      * Models configuration parsed from the 'models' section.
      * Contains available models and system prompt configuration.
      */
@@ -128,13 +121,6 @@ class ConfigService {
      * @return The ServerConfig object representing the server configuration, or null if not configured.
      */
     fun getServerConfig(): ServerConfig? = serverConfig
-
-    /**
-     * Gets the Google OAuth configuration.
-     *
-     * @return The GoogleOAuthConfig object representing the Google OAuth configuration, or null if not configured.
-     */
-    fun getGoogleOAuthConfig(): GoogleOAuthConfig? = googleOAuthConfig
 
     /**
      * Gets the models configuration.
@@ -218,7 +204,6 @@ class ConfigService {
 
         parseModulesConfiguration(highLevelConfig)
         parseServerConfiguration(highLevelConfig)
-        parseAuthConfiguration(highLevelConfig)
         parseModelConfiguration(highLevelConfig)
         parseLanguagesConfiguration(highLevelConfig)
     }
@@ -289,19 +274,6 @@ class ConfigService {
         if (highLevelConfig.hasPath("server")) {
             val serverConfigData = highLevelConfig.getConfig("server")
             serverConfig = ServerConfig.fromConfig(serverConfigData)
-        }
-    }
-
-    /**
-     * Parses authentication configuration from the 'auth' section.
-     * Currently supports Google OAuth configuration under 'auth.google'.
-     *
-     * @param highLevelConfig The top-level configuration object
-     */
-    private fun parseAuthConfiguration(highLevelConfig: Config) {
-        if (highLevelConfig.hasPath("auth") && highLevelConfig.getConfig("auth").hasPath("google")) {
-            val googleConfig = highLevelConfig.getConfig("auth").getConfig("google")
-            googleOAuthConfig = GoogleOAuthConfig.fromConfig(googleConfig)
         }
     }
 

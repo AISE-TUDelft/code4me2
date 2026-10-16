@@ -1,56 +1,54 @@
 package me.code4me.services.config
 
 import com.intellij.testFramework.HeavyPlatformTestCase
-import me.code4me.services.modules.manager.getModuleManager
+import java.io.File
 
 class FullConfigTest : HeavyPlatformTestCase() {
-    override fun setUp() {
-        // Test with a full config file
-        System.setProperty("plugin.conf.path", "src/test/testData/full-plugin.conf")
-        super.setUp()
-    }
-
-    override fun tearDown() {
-        // Additional teardown for config initialization tests if required
-        System.clearProperty("plugin.conf.path")
-        super.tearDown()
-    }
-
     fun testModuleInitializationFromConfig() {
-        val config = getConfig()
-        assertNotNull("Config should not be null. Check if the config file exists and is valid.", config)
-        val moduleManager = getModuleManager()
-
-        val initializedModuleIds = moduleManager.getEnabledModuleIds()
-
-        println("Initialized modules: ${initializedModuleIds.joinToString()}")
+        // Mirrors integration-tests/src/test/testData/full-plugin.conf. Loaded as
+        // an explicit string because ConfigService only reads the plugin.conf
+        // resource or a provided string (there is no plugin.conf.path override).
+        val confText = File("src/test/testData/full-plugin.conf").readText()
+        val config = ConfigService(confText)
+        val all = config.getAvailableModules().flatMap { listOf(it) + it.submodules }
+        val byClass = all.associateBy { it.className.substringAfterLast('.') }
+        println("Parsed modules: ${byClass.keys.sorted().joinToString()}")
 
         // Verify specific modules from the test configuration
-        assertTrue(
+        assertNotNull(
             "BehavioralTelemetryAggregator should be initialized",
-            initializedModuleIds.contains("BaseBehavioralTelemetryAggregator"),
+            byClass["BaseBehavioralTelemetryAggregator"],
         )
-        assertTrue(
+        assertNotNull(
             "ContextualTelemetryAggregator should be initialized",
-            initializedModuleIds.contains("BaseContextualTelemetryAggregator"),
+            byClass["BaseContextualTelemetryAggregator"],
         )
-        assertTrue("contextAggregator should be initialized", initializedModuleIds.contains("BaseContextAggregator"))
+        assertNotNull("contextAggregator should be initialized", byClass["BaseContextAggregator"])
 
         // Verify submodules are also initialized
-        assertTrue(
+        assertNotNull(
             "TimeSinceLastAcceptedCompletion should be initialized",
-            initializedModuleIds.contains("TimeSinceLastAcceptedCompletion"),
+            byClass["TimeSinceLastAcceptedCompletion"],
         )
-        assertTrue("EditorContextRetrievalModule should be initialized", initializedModuleIds.contains("EditorContextRetrievalModule"))
-        assertTrue("FileContextRetrievalModule should be initialized", initializedModuleIds.contains("FileContextRetrievalModule"))
-        assertTrue(
+        assertNotNull(
+            "EditorContextRetrievalModule should be initialized",
+            byClass["EditorContextRetrievalModule"],
+        )
+        assertNotNull(
+            "FileContextRetrievalModule should be initialized",
+            byClass["FileContextRetrievalModule"],
+        )
+        assertNotNull(
             "MultiFileContextRetrievalModule should be initialized",
-            initializedModuleIds.contains("MultiFileContextRetrievalModule"),
+            byClass["MultiFileContextRetrievalModule"],
         )
-        assertTrue("TimeSinceLastShownCompletion should be initialized", initializedModuleIds.contains("TimeSinceLastShownCompletion"))
-        assertTrue("TypingSpeed should be initialized", initializedModuleIds.contains("TimeSinceLastAcceptedCompletion"))
+        assertNotNull(
+            "TimeSinceLastShownCompletion should be initialized",
+            byClass["TimeSinceLastShownCompletion"],
+        )
+        assertNotNull("TypingSpeed should be initialized", byClass["TypingSpeed"])
 
         // Print initialized modules for debugging
-        println("Initialized modules: ${initializedModuleIds.joinToString()}")
+        println("Initialized modules: ${byClass.keys.sorted().joinToString()}")
     }
 }

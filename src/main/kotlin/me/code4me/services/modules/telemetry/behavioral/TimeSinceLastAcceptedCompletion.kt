@@ -65,7 +65,9 @@ class TimeSinceLastAcceptedCompletion : PluginModule {
         private val LOG = thisLogger()
 
         // Record key names that will be used when implementation is complete
-        private const val KEY_TIME_SINCE_LAST_ACCEPTED = "time_since_last_accepted_completion"
+        // Must match BehavioralTelemetryData.time_since_last_accepted (server + generated model),
+        // otherwise Moshi silently drops the value and the server stores null.
+        private const val KEY_TIME_SINCE_LAST_ACCEPTED = "time_since_last_accepted"
 
         // TODO : This could later be extended to include additional metrics
         private const val KEY_ACCEPTANCE_COUNT = "completion_acceptance_count"

@@ -20,6 +20,7 @@ import me.code4me.chatWindow.components.managers.ChatSessionManager
 import me.code4me.chatWindow.components.managers.ChatViewManager
 import me.code4me.chatWindow.components.persistence.ChatWindowStateService
 import me.code4me.chatWindow.components.topBarPanel.TopBarPanel
+import me.code4me.chatWindow.components.utils.TitleResponsePair
 import me.code4me.services.config.getConfig
 import me.code4me.services.project.getProjectChatService
 import me.code4me.services.state.TOKEN_PROPERTY
@@ -49,8 +50,12 @@ import javax.swing.Timer
  * components, and provides the primary interface for AI-powered conversations. Includes
  * authentication overlay, message editing, regeneration capabilities, and persistent
  * session management.
+ *
+ * @param boundProject The project this panel belongs to. The factory always supplies the
+ *   tool window's project; the open-project fallback below applies only when no project was
+ *   supplied (platform contexts that genuinely lack one), never as a preference over it.
  */
-class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
+class ChatPanel(boundProject: Project? = null) : JBPanel<ChatPanel>(BorderLayout()) {
     companion object {
         private const val USER_NAME = "You"
         private const val AI_NAME = "Code4Me V2"
@@ -62,7 +67,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     private val selectedFiles = mutableSetOf<VirtualFile>()
     private var welcomeShown = true
     private var useWeb = false
-    private var project: Project? = null
+    private var project: Project? = boundProject ?: ProjectManager.getInstance().openProjects.firstOrNull()
     private var stateService: ChatWindowStateService? = null
 
     private lateinit var inputPanel: InputPanel
@@ -76,6 +81,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     // Multi-session job tracking
     private val activeJobs = mutableMapOf<String, Job>()
     private val loadingTimers = mutableMapOf<String, Timer>()
+
+    // The "Generating…" indicator is display-only state, held outside session.messages. Writing it
+    // into the session and then overwriting that entry with the real reply meant a cancelled or
+    // failed request left the placeholder persisted as if it were an assistant message, and an
+    // empty session had its first user message overwritten instead.
+    private val loadingMessages = mutableMapOf<String, String>()
 
     private var editIndex: Int? = null
     private var isEditing = false
@@ -223,7 +234,8 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
      * Shows overlay when user is not authenticated and clears all chat data for security.
      * Enables/disables chat components based on authentication state and forces UI refresh.
      */
-    private fun updateAuthOverlayVisibility() {
+    private fun updateAuthOverlayVisibility() = authState.withTokenLock {
+        val authGeneration = authState.tokenGeneration()
         val isAuthenticated = authState.isAuthenticated()
         authOverlayPanel.isVisible = !isAuthenticated
 
@@ -264,10 +276,12 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
 
             // Force UI refresh with empty content
             ApplicationManager.getApplication().invokeLater {
-                chatDisplayPanel.updateContent(emptyList())
-                chatDisplayPanel.forceRefresh()
-                historyPanel.refresh()
-                topBarPanel.updateTitle()
+                authState.runIfSignedOut(authGeneration) {
+                    chatDisplayPanel.updateContent(emptyList())
+                    chatDisplayPanel.forceRefresh()
+                    historyPanel.refresh()
+                    topBarPanel.updateTitle()
+                }
             }
 
             // Disable all chat functionality when not authenticated
@@ -292,6 +306,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
     }
 
     /**
+     * Returns the project this panel is bound to (the factory-supplied project when present).
+     */
+    fun getBoundProject(): Project? = project
+
+    /**
      * Initializes and arranges all major UI components with proper layout management.
      *
      * Sets up the project context, creates all panels (input, display, history, top bar),
@@ -299,7 +318,10 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
      */
     private fun setupPanelLayout() {
         border = JBUI.Borders.empty()
-        project = ProjectManager.getInstance().openProjects.firstOrNull()
+        // The project is resolved at construction (factory-supplied first, open-project
+        // fallback only when none was supplied). Bail out solely when the platform
+        // genuinely has no project; the factory path always carries a non-null project,
+        // so its panels are always initialized.
         if (project == null) return
 
         // Initialize the state service
@@ -502,8 +524,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         // Save session after sending message
         saveCurrentSession()
 
-        // Add a loading message
-        appendMessage(AI_NAME, "Generating.")
+        showLoadingMessage(currentSessionId, "Generating.")
 
         // Create a timer to update the loading indicator
         val loadingPatterns = arrayOf("Generating.", "Generating..", "Generating...")
@@ -515,7 +536,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                 val loadingText = loadingPatterns[patternIndex]
                 // Only update if this is still the current session
                 if (sessionManager?.currentSession?.id == currentSessionId) {
-                    chatDisplayPanel.updateLastBubbleText(loadingText)
+                    showLoadingMessage(currentSessionId, loadingText)
                 }
                 patternIndex = (patternIndex + 1) % loadingPatterns.size
             }
@@ -525,7 +546,15 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         // Process AI response in background
         val job =
             aiScope.launch {
-                val aiResponse = processAIResponse(message, selectedModel, currentSessionId)
+                // A throw here used to escape the coroutine, leaving the indicator spinning and
+                // the input box locked in "generating" state with no way to recover.
+                val aiResponse =
+                    try {
+                        processAIResponse(message, selectedModel, currentSessionId)
+                    } catch (e: Exception) {
+                        LOG.warn("Failed to process chat response", e)
+                        TitleResponsePair("", listOf("Error: ${e.message ?: "Failed to generate response"}"))
+                    }
 
                 if (!isActive) return@launch
 
@@ -534,6 +563,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                     activeJobs.remove(currentSessionId)
                     loadingTimers[currentSessionId]?.stop()
                     loadingTimers.remove(currentSessionId)
+                    loadingMessages.remove(currentSessionId)
 
                     // Only update input state if this is still the current session
                     if (sessionManager?.currentSession?.id == currentSessionId) {
@@ -552,12 +582,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                         }
 
                         if (aiResponse.responses.isNotEmpty()) {
-                            // Update the last message in the session
-                            if (session.messages.isNotEmpty()) {
-                                val lastIndex = session.messages.size - 1
-                                val (sender, _) = session.messages[lastIndex]
-                                session.messages[lastIndex] = sender to aiResponse.responses.first()
-                            }
+                            session.messages.add(AI_NAME to aiResponse.responses.first())
 
                             // Update display if this is the current session
                             if (sessionManager?.currentSession?.id == currentSessionId) {
@@ -567,11 +592,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                             sessionManager?.chatRepository?.saveChat(session)
                         } else {
                             // Handle no response case
-                            if (session.messages.isNotEmpty()) {
-                                val lastIndex = session.messages.size - 1
-                                val (sender, _) = session.messages[lastIndex]
-                                session.messages[lastIndex] = sender to "No response received"
-                            }
+                            session.messages.add(AI_NAME to "No response received")
 
                             if (sessionManager?.currentSession?.id == currentSessionId) {
                                 refreshChatDisplay()
@@ -599,11 +620,11 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         activeJobs.remove(currentSessionId)
         loadingTimers[currentSessionId]?.stop()
         loadingTimers.remove(currentSessionId)
+        loadingMessages.remove(currentSessionId)
 
         val cancelMsg = "This query request was cancelled by user."
         inputPanel.setGeneratingState(false)
-        chatDisplayPanel.updateLastBubbleText(cancelMsg)
-        updateLastMessage(cancelMsg)
+        appendMessage(AI_NAME, cancelMsg)
         saveCurrentSession()
     }
 
@@ -631,27 +652,42 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         refreshChatDisplay()
     }
 
-    private fun updateLastMessage(newMessage: String) {
-        if (sessionManager?.currentSession?.messages?.isNotEmpty() == true) {
-            val messages = sessionManager!!.currentSession.messages
-            val lastIndex = messages.size - 1
-            val (sender, _) = messages[lastIndex]
-
-            // Replace the last message
-            messages[lastIndex] = sender to newMessage
-
-            // Update the display
-            refreshChatDisplay()
-        }
-    }
-
     private fun refreshChatDisplay() {
         uiScope.launch {
             val messages = sessionManager?.currentSession?.messages ?: mutableListOf()
             ApplicationManager.getApplication().invokeLater {
-                chatDisplayPanel.updateContent(messages)
+                val sessionId = sessionManager?.currentSession?.id
+                val loadingMessage = sessionId?.let { loadingMessages[it] }
+                val displayMessages =
+                    if (loadingMessage != null) {
+                        messages + (AI_NAME to loadingMessage)
+                    } else {
+                        messages
+                    }
+                chatDisplayPanel.updateContent(displayMessages)
                 historyPanel.refresh()
             }
+        }
+    }
+
+    /**
+     * Shows/updates the transient loading bubble for [sessionId] without touching its message
+     * history. Only redraws the whole panel when the bubble first appears; subsequent animation
+     * frames just retext the last bubble.
+     */
+    private fun showLoadingMessage(
+        sessionId: String,
+        message: String,
+    ) {
+        val session = sessionManager?.getSessionById(sessionId) ?: return
+        val hadLoadingMessage = loadingMessages.containsKey(sessionId)
+        loadingMessages[sessionId] = message
+        if (sessionManager?.currentSession?.id != sessionId) return
+        if (hadLoadingMessage) {
+            chatDisplayPanel.updateLastBubbleText(message)
+        } else {
+            chatDisplayPanel.updateContent(session.messages + (AI_NAME to message))
+            historyPanel.refresh()
         }
     }
 
@@ -664,6 +700,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         activeJobs.clear()
         loadingTimers.values.forEach { it.stop() }
         loadingTimers.clear()
+        loadingMessages.clear()
         // Clean up auth state listener
         authState.removePropertyChangeListener(TOKEN_PROPERTY, authStateListener)
     }
@@ -726,8 +763,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         val lastUserMsg = retainedMessages.lastOrNull { it.first == USER_NAME }?.second ?: return
         val selectedModel = inputPanel.getSelectedModel()
 
-        // Add loading message
-        appendMessage(AI_NAME, "Generating.")
+        showLoadingMessage(currentSessionId, "Generating.")
         inputPanel.setGeneratingState(true)
 
         // Create a timer to update the loading indicator (same as sendMessage)
@@ -738,7 +774,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
             Timer(300) {
                 val loadingText = loadingPatterns[patternIndex]
                 if (sessionManager?.currentSession?.id == currentSessionId) {
-                    chatDisplayPanel.updateLastBubbleText(loadingText)
+                    showLoadingMessage(currentSessionId, loadingText)
                 }
                 patternIndex = (patternIndex + 1) % loadingPatterns.size
             }
@@ -748,7 +784,13 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
         // Launch AI coroutine
         val job =
             aiScope.launch {
-                val aiResponse = processAIResponse(lastUserMsg, selectedModel, currentSessionId)
+                val aiResponse =
+                    try {
+                        processAIResponse(lastUserMsg, selectedModel, currentSessionId)
+                    } catch (e: Exception) {
+                        LOG.warn("Failed to regenerate chat response", e)
+                        TitleResponsePair("", listOf("Error: ${e.message ?: "Failed to generate response"}"))
+                    }
 
                 if (!isActive) return@launch // Cancelled
 
@@ -756,6 +798,7 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                     activeJobs.remove(currentSessionId)
                     loadingTimers[currentSessionId]?.stop()
                     loadingTimers.remove(currentSessionId)
+                    loadingMessages.remove(currentSessionId)
 
                     if (sessionManager?.currentSession?.id == currentSessionId) {
                         inputPanel.setGeneratingState(false)
@@ -771,22 +814,14 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                         }
 
                         if (aiResponse.responses.isNotEmpty()) {
-                            if (session.messages.isNotEmpty()) {
-                                val lastIndex = session.messages.size - 1
-                                val (sender, _) = session.messages[lastIndex]
-                                session.messages[lastIndex] = sender to aiResponse.responses.first()
-                            }
+                            session.messages.add(AI_NAME to aiResponse.responses.first())
 
                             if (sessionManager?.currentSession?.id == currentSessionId) {
                                 refreshChatDisplay()
                             }
                             sessionManager?.chatRepository?.saveChat(session)
                         } else {
-                            if (session.messages.isNotEmpty()) {
-                                val lastIndex = session.messages.size - 1
-                                val (sender, _) = session.messages[lastIndex]
-                                session.messages[lastIndex] = sender to "No response received"
-                            }
+                            session.messages.add(AI_NAME to "No response received")
 
                             if (sessionManager?.currentSession?.id == currentSessionId) {
                                 refreshChatDisplay()
@@ -844,55 +879,93 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
      * creates new session manager, and forces multiple UI refreshes to ensure
      * no chat data remains visible after logout.
      */
-    fun resetAllChatsAfterLogout() {
-        project?.let { proj: Project ->
-            LOG.info("Starting complete chat reset for project: ${proj.name}")
+    fun resetAllChatsAfterLogout(expectedGeneration: Long = authState.tokenGeneration()) {
+        authState.runIfSignedOut(expectedGeneration) {
+            project?.let { proj: Project ->
+                resetAllChats(proj) { refresh -> authState.runIfSignedOut(expectedGeneration, refresh) }
 
-            // Cancel all active jobs and clear timers
-            activeJobs.values.forEach { it.cancel() }
-            activeJobs.clear()
-            loadingTimers.values.forEach { it.stop() }
-            loadingTimers.clear()
+                // Update overlay visibility (this will also clear UI again)
+                updateAuthOverlayVisibility()
 
-            // IMMEDIATELY clear UI content first
-            chatDisplayPanel.updateContent(emptyList())
-            historyPanel.refresh()
-            topBarPanel.updateTitle()
-            resetToWelcome()
-
-            // Clear state service immediately
-            stateService?.setLastSessionId(null)
-
-            // Use the same logic as the "Delete All" button in HistoryPanel
-            sessionManager?.let { manager ->
-                // Get all sessions and delete them one by one (this clears both memory and repository)
-                val allSessions = manager.getAllSessions()
-                LOG.info("Found ${allSessions.size} sessions to delete")
-
-                allSessions.forEach { session ->
-                    manager.deleteSession(session, false) // Don't delete from server during logout
-                }
+                LOG.info("Completed chat reset for project: ${proj.name}")
             }
+        }
+    }
 
-            // Clear the repository completely
-            val chatService = getProjectChatService(proj)
-            chatService.clearAllChatsAndMemory()
+    /**
+     * Performs the same chat data cleanup as [resetAllChatsAfterLogout] after a privacy erase,
+     * while the user stays signed in: there is no sign-in overlay, and nothing happens once
+     * [expectedGeneration] (the erased account's authentication) is no longer the signed-in one.
+     */
+    fun resetAllChatsAfterErase(expectedGeneration: Long) {
+        authState.runIfSignedIn(expectedGeneration) {
+            project?.let { proj: Project ->
+                resetAllChats(proj) { refresh -> authState.runIfSignedIn(expectedGeneration, refresh) }
 
-            // Create a brand new session manager
-            sessionManager = ChatSessionManager(chatService)
-            topBarPanel.setSessionManager(sessionManager!!)
-            historyPanel.setSessionManager(sessionManager!!)
-            topBarPanel.updateTitle()
-            historyPanel.refresh()
-            refreshChatDisplay()
+                LOG.info("Completed chat reset after the data erase for project: ${proj.name}")
+            }
+        }
+    }
 
-            // Force immediate UI clearing multiple times
-            chatDisplayPanel.updateContent(emptyList())
-            historyPanel.refresh()
-            topBarPanel.updateTitle()
+    /**
+     * Shared by [resetAllChatsAfterLogout] and [resetAllChatsAfterErase]: cancels active jobs,
+     * deletes every local session, clears the repository and installs a brand new session
+     * manager, so neither the history panel nor a cached session can bring an old chat back.
+     * The deferred UI refresh runs through [runIfStillCurrent], which skips it once the
+     * authentication changed.
+     */
+    private fun resetAllChats(
+        proj: Project,
+        runIfStillCurrent: (() -> Unit) -> Unit,
+    ) {
+        LOG.info("Starting complete chat reset for project: ${proj.name}")
 
-            // Force a complete UI refresh
-            ApplicationManager.getApplication().invokeLater {
+        // Cancel all active jobs and clear timers
+        activeJobs.values.forEach { it.cancel() }
+        activeJobs.clear()
+        loadingTimers.values.forEach { it.stop() }
+        loadingTimers.clear()
+
+        // IMMEDIATELY clear UI content first
+        chatDisplayPanel.updateContent(emptyList())
+        historyPanel.refresh()
+        topBarPanel.updateTitle()
+        resetToWelcome()
+
+        // Clear state service immediately
+        stateService?.setLastSessionId(null)
+
+        // Use the same logic as the "Delete All" button in HistoryPanel
+        sessionManager?.let { manager ->
+            // Get all sessions and delete them one by one (this clears both memory and repository)
+            val allSessions = manager.getAllSessions()
+            LOG.info("Found ${allSessions.size} sessions to delete")
+
+            allSessions.forEach { session ->
+                manager.deleteSession(session, false) // Local only: never delete from the server here
+            }
+        }
+
+        // Clear the repository completely
+        val chatService = getProjectChatService(proj)
+        chatService.clearAllChatsAndMemory()
+
+        // Create a brand new session manager
+        sessionManager = ChatSessionManager(chatService)
+        topBarPanel.setSessionManager(sessionManager!!)
+        historyPanel.setSessionManager(sessionManager!!)
+        topBarPanel.updateTitle()
+        historyPanel.refresh()
+        refreshChatDisplay()
+
+        // Force immediate UI clearing multiple times
+        chatDisplayPanel.updateContent(emptyList())
+        historyPanel.refresh()
+        topBarPanel.updateTitle()
+
+        // Force a complete UI refresh
+        ApplicationManager.getApplication().invokeLater {
+            runIfStillCurrent {
                 chatDisplayPanel.updateContent(emptyList())
                 chatDisplayPanel.forceRefresh()
                 historyPanel.refresh()
@@ -913,11 +986,6 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
                     LOG.info("SUCCESS: All sessions cleared")
                 }
             }
-
-            // Update overlay visibility (this will also clear UI again)
-            updateAuthOverlayVisibility()
-
-            LOG.info("Completed chat reset for project: ${proj.name}")
         }
     }
 
@@ -934,8 +1002,9 @@ class ChatPanel : JBPanel<ChatPanel>(BorderLayout()) {
      * Called when user logs out to update overlay visibility immediately
      */
     fun onUserLoggedOut() {
+        val logoutGeneration = authState.tokenGeneration()
         ApplicationManager.getApplication().invokeLater {
-            resetAllChatsAfterLogout()
+            resetAllChatsAfterLogout(logoutGeneration)
             updateAuthOverlayVisibility()
         }
     }

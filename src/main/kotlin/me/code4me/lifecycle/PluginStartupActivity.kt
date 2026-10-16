@@ -1,5 +1,6 @@
 package me.code4me.lifecycle
 
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
@@ -13,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.model.UpdateMultiFileContext
 import me.code4me.services.app.getAppService
 import me.code4me.services.config.ConfigService
@@ -23,6 +25,7 @@ import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.activateOrCreateProject
 import me.code4me.utils.api.fromSerializableMap
+import me.code4me.utils.notification.showAuthNotification
 import me.code4me.utils.notification.showLoginRequiredNotification
 import me.code4me.utils.notification.showTokenInvalidationNotification
 import toApiModel
@@ -48,12 +51,19 @@ class PluginStartupActivity : ProjectActivity {
      * @param project The IntelliJ project being initialized
      */
     override suspend fun execute(project: Project) {
+        // Warm the credential cache here, on a background thread: the first
+        // getAuthState() reads the keychain, which must not happen on the EDT.
+        runCatching { getAuthState() }
+            .onFailure { thisLogger().warn("Stored credentials could not be read at startup", it) }
+        // Register persistent login/session listeners before a stored-token session
+        // can be acquired below. start() is idempotent across startup activities,
+        // and a construction failure here must never abort the rest of startup.
+        runCatching { getAcpLoginReconciliationService(project).start() }
+            .onFailure { thisLogger().warn("ACP login reconciliation could not start", it) }
         // Handle authentication and session acquisition
+        // (ProjectCloseListener is registered once at the end of
+        // handleAuthenticationAndSession for all auth paths.)
         handleAuthenticationAndSession(project)
-        // Register the ProjectCloseListener to save the last chat when a project is closed
-        val connection: MessageBusConnection = project.messageBus.connect()
-        connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
-        thisLogger().info("ProjectCloseListener registered successfully.")
     }
 
     /**
@@ -102,21 +112,44 @@ class PluginStartupActivity : ProjectActivity {
                 thisLogger().info("Session acquired successfully.")
                 activateOrCreateProject(project, thisLogger())
                 startCacheValidation(project)
-            } catch (e: Exception) {
-                thisLogger().error("Failed to acquire session with stored token", e)
-
-                // Show notification about token invalidation and clear user data
-                project.showTokenInvalidationNotification()
-
-                // Clear user data as the token is invalid
-                ApplicationManager.getApplication().executeOnPooledThread {
-                    try {
-                        authState.clearUserData()
-                        LOG.info("User data cleared successfully during sign out")
-                    } catch (e: Exception) {
-                        LOG.error("Failed to clear user data during sign out", e)
+            } catch (e: ClientException) {
+                if (e.statusCode == 401) {
+                    // The backend explicitly rejected the stored token — it's genuinely invalid
+                    // (expired/revoked), so there's nothing to gain by keeping it around.
+                    thisLogger().error("Stored token rejected (401) — signing out", e)
+                    project.showTokenInvalidationNotification()
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        try {
+                            authState.clearUserData()
+                            LOG.info("User data cleared successfully during sign out")
+                        } catch (clearError: Exception) {
+                            LOG.error("Failed to clear user data during sign out", clearError)
+                        }
                     }
+                } else {
+                    // Any other client error (e.g. a transient backend/proxy hiccup returning
+                    // 5xx-shaped content as a 4xx, or a temporary outage) says nothing about
+                    // whether the token itself is valid — keep it while the project reconciler retries.
+                    thisLogger().warn(
+                        "Could not verify stored session (HTTP ${e.statusCode}) — keeping credentials while agent setup retries",
+                        e,
+                    )
+                    project.showAuthNotification(
+                        title = "Code4Me could not reach the server",
+                        message = "Your login is kept. Agent setup will retry automatically.",
+                        type = NotificationType.WARNING,
+                    )
                 }
+            } catch (e: Exception) {
+                // Network/server-side failures (ServerException, IOException, ...): the token
+                // itself was never actually checked, so signing the user out here would be
+                // punishing them for a backend outage rather than an invalid credential.
+                thisLogger().warn("Could not verify stored session (non-client error) — keeping credentials while agent setup retries", e)
+                project.showAuthNotification(
+                    title = "Code4Me could not reach the server",
+                    message = "Your login is kept. Agent setup will retry automatically.",
+                    type = NotificationType.WARNING,
+                )
             }
         } else {
             thisLogger().warn("No authentication token found. Skipping session acquisition.")
@@ -126,7 +159,7 @@ class PluginStartupActivity : ProjectActivity {
 
         // Register the ProjectCloseListener to save the last chat when a project is closed
         val connection: MessageBusConnection = project.messageBus.connect()
-        connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener())
+        connection.subscribe(ProjectManager.TOPIC, ProjectCloseListener(project))
         thisLogger().info("ProjectCloseListener registered successfully.")
     }
 

@@ -1,0 +1,265 @@
+"""Exercise server-owned preparation against the plugin's final-artifact verifier."""
+import copy
+import importlib.util
+import json
+import sys
+import subprocess
+from pathlib import Path
+
+import pytest
+
+PLUGIN = Path(__file__).resolve().parents[2]
+SERVER = PLUGIN.parent / "code4me2-server"
+sys.path.insert(0, str(SERVER / "src"))
+
+
+def module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    loaded = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(loaded)
+    return loaded
+
+
+cli = module("participant_release_cli", PLUGIN / "scripts/participant-release.py")
+verifier = module("participant_verifier", PLUGIN / "scripts/verify-participant-artifact.py")
+fixtures = module("participant_inputs", SERVER / "tests/test_participant_release.py")
+artifact_fixtures = module("artifact_fixtures", PLUGIN / "tests/scripts/test_verify_participant_artifact.py")
+
+from research.study.agents.participant_release import prepare
+
+
+def proxy_catalog(platforms: list[str]) -> dict:
+    """The staged proxy manifest shape: proxy platforms only, no agent payload.
+
+    The release's canonical platform id is `arm64`; the proxy manifest (and the
+    verifier) use the host vocabulary `aarch64`.
+    """
+    return {
+        "schema_version": "1",
+        "platforms": [
+            {
+                "os": platform.split("-")[0],
+                "arch": arch,
+                "self_contained": True,
+                "entrypoint": [proxy],
+                "files": [artifact_fixtures.file_record(proxy, b"proxy", executable=True)],
+            }
+            for platform in platforms
+            for arch in ["aarch64" if platform.split("-", 1)[1] == "arm64" else platform.split("-", 1)[1]]
+            for proxy in [f"platforms/{platform.split('-')[0]}-{arch}/telemetry-acp-proxy"]
+        ],
+    }
+
+
+def inventory(platforms: list[str]) -> dict:
+    return {
+        "schema_version": "1",
+        "plugin_version": "1.2.3",
+        # The inventory uses the proxy/host vocabulary the verifier compares.
+        "platforms": [
+            platform.replace("-arm64", "-aarch64") for platform in platforms
+        ],
+        "releases": [
+            {"framework": "code4me2-agent", "version": "1.2.3", "distribution_mode": "PACKAGED"},
+            # The Gradle inventory records whether a BYOA release binds the
+            # research inference gateway credential; the verifier requires it
+            # for Goose (Codex signs in with ChatGPT and is not gateway-bound).
+            {"framework": "goose", "version": "goose-1", "distribution_mode": "BYOA_EXTERNAL", "inference_gateway": True},
+            {"framework": "codex", "version": "codex-1", "distribution_mode": "BYOA_EXTERNAL", "inference_gateway": False},
+        ],
+    }
+
+
+def test_generated_catalog_passes_verifier_and_missing_proxy_or_agent_fails(tmp_path):
+    recipe = fixtures.make_inputs(tmp_path / "inputs")
+    plan = prepare(recipe, tmp_path / "inputs", tmp_path / "prepared")
+    # The release's single agent recipe is the plan document; the prepared
+    # resources hold one archive per declared platform.
+    resources = tmp_path / "prepared/resources/code4me-runtime"
+    agent_payloads = {
+        artifact["archive"]: (resources / artifact["archive"].split("/")[-1]).read_bytes()
+        for artifact in plan["artifacts"]
+    }
+    recipe_manifest = {
+        "manifest_version": 1,
+        "runtime_version": plan["runtime_version"],
+        "managed_protocol_version": "1",
+        "server_commit": plan["server_commit"],
+        "plugin_commit": plan["plugin_commit"],
+        "artifacts": [
+            {
+                **artifact,
+                "archive": f"code4me-runtime/{artifact['archive']}",
+            }
+            for artifact in plan["artifacts"]
+        ],
+    }
+    platforms = ["macos-arm64", "macos-x64", "linux-x64", "windows-x64"]
+    catalog = proxy_catalog(platforms)
+    catalog["participant_release"] = inventory(platforms)
+    payloads = {
+        platform_entry["files"][0]["path"]: b"proxy"
+        for platform_entry in catalog["platforms"]
+    }
+    archive = artifact_fixtures.write_plugin_zip(
+        tmp_path / "participant.zip",
+        catalog,
+        payloads,
+        recipe=recipe_manifest,
+        agent_archives=agent_payloads,
+    )
+    zip_findings = []
+    manifests, recipes = verifier.inspect_zip(
+        "participant.zip", archive, zip_findings, require_participant_release=True
+    )
+    assert (manifests, recipes) == (1, 1)
+    assert zip_findings == []
+
+    # Removing a proxy payload from the real nested ZIP must fail even when all
+    # surviving members match their declared hashes.
+    incomplete = {path: data for path, data in payloads.items() if not path.endswith("linux-x64/telemetry-acp-proxy")}
+    archive = artifact_fixtures.write_plugin_zip(
+        tmp_path / "missing.zip",
+        catalog,
+        incomplete,
+        recipe=recipe_manifest,
+        agent_archives=agent_payloads,
+    )
+    zip_findings = []
+    verifier.inspect_zip("missing.zip", archive, zip_findings, require_participant_release=True)
+    assert any("missing" in message for message in zip_findings)
+
+    # A recipe missing a declared platform artifact is rejected.
+    incomplete_recipe = dict(recipe_manifest)
+    incomplete_recipe["artifacts"] = recipe_manifest["artifacts"][:2]
+    archive = artifact_fixtures.write_plugin_zip(
+        tmp_path / "recipe-partial.zip",
+        catalog,
+        payloads,
+        recipe=incomplete_recipe,
+        agent_archives=agent_payloads,
+    )
+    zip_findings = []
+    verifier.inspect_zip("recipe-partial.zip", archive, zip_findings, require_participant_release=True)
+    assert any("cover exactly" in message for message in zip_findings)
+
+    # A Goose release that does not bind the research inference gateway
+    # credential is a finding: the arm would run on the participant's own key.
+    unbound = __import__("copy").deepcopy(catalog)
+    for release in unbound["participant_release"]["releases"]:
+        if release["framework"] == "goose":
+            release["inference_gateway"] = False
+    archive = artifact_fixtures.write_plugin_zip(
+        tmp_path / "unbound.zip",
+        unbound,
+        payloads,
+        recipe=recipe_manifest,
+        agent_archives=agent_payloads,
+    )
+    zip_findings = []
+    verifier.inspect_zip("unbound.zip", archive, zip_findings, require_participant_release=True)
+    assert any("inference gateway" in message for message in zip_findings)
+
+    # A tampered agent archive fails against the recipe's declared sha256.
+    tampered = dict(agent_payloads)
+    tampered["code4me-agent-macos-arm64.zip"] = artifact_fixtures.agent_zip(b"tampered")
+    archive = artifact_fixtures.write_plugin_zip(
+        tmp_path / "agent-tampered.zip",
+        catalog,
+        payloads,
+        recipe=recipe_manifest,
+        agent_archives=tampered,
+    )
+    zip_findings = []
+    verifier.inspect_zip("agent-tampered.zip", archive, zip_findings, require_participant_release=True)
+    assert any("sha256 mismatch" in message for message in zip_findings)
+
+
+def test_partial_local_catalog_requires_the_explicit_verification_mode(tmp_path):
+    recipe = fixtures.make_inputs(tmp_path / "inputs")
+    manifest_path = tmp_path / "inputs/runtime.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"] = [
+        artifact for artifact in manifest["artifacts"]
+        if artifact["archive"] == "code4me-agent-macos-arm64.zip"
+    ]
+    fixtures.write_json(manifest_path, manifest)
+    recipe.runtime.sha256 = fixtures.file_sha256(manifest_path)
+    prepare(recipe, tmp_path / "inputs", tmp_path / "prepared", platforms=("macos-aarch64",))
+    catalog = proxy_catalog(["macos-arm64"])
+    catalog["participant_release"] = inventory(["macos-arm64"])
+
+    def strict_findings(document: dict, **options) -> list[str]:
+        # The recipe check needs the packaged manifest; pass an empty archive and
+        # only assert on the platform-coverage findings it does not produce.
+        collected: list[str] = []
+        verifier.verify_release_catalog("participant.zip", None, {}, document, collected, **options)
+        return [message for message in collected if "agent recipe" not in message]
+
+    assert any("four native platforms" in message for message in strict_findings(catalog))
+    assert strict_findings(catalog, allow_partial_platforms=True) == []
+    # A platform the inventory does not declare is still rejected.
+    bad = copy.deepcopy(catalog)
+    bad["platforms"] = bad["platforms"] + copy.deepcopy(bad["platforms"])
+    assert any(
+        "must match its inventory exactly" in message
+        for message in strict_findings(bad, allow_partial_platforms=True)
+    )
+
+
+def test_managed_only_build_wires_local_gradle_and_verifier(tmp_path, monkeypatch):
+    inputs = tmp_path / "inputs"
+    recipe = fixtures.make_inputs(inputs).model_dump(mode="json")
+    recipe["plugin_version"] = "1.2.3-test1"
+    recipe["agents"] = [agent for agent in recipe["agents"] if agent["framework"] == "code4me2-agent"]
+    prepared = tmp_path / "prepared"
+    prepare(fixtures.ParticipantRecipe.model_validate(recipe), inputs, prepared)
+    plugin = tmp_path / "plugin"
+    plugin.mkdir()
+    server = tmp_path / "server"
+    (server / "src").mkdir(parents=True)
+    monkeypatch.setattr(cli, "PLUGIN_ROOT", plugin)
+    monkeypatch.setattr(sys, "argv", [
+        "participant-release.py", "--server-source", str(server / "src"), "build",
+        str(prepared), "--server-url", "http://localhost:8008", "--managed-only-test",
+    ])
+    expected = {plugin: recipe["plugin_commit"], server: recipe["server_commit"]}
+    commands = []
+
+    def check_output(command, *, cwd, text):
+        return expected[cwd] + "\n" if command[1] == "rev-parse" else ""
+
+    def run(command, *, cwd=None, check):
+        commands.append(command)
+        if "buildParticipantPlugin" in command:
+            artifact = plugin / "participant.zip"
+            artifact.write_bytes(b"test ZIP")
+            (plugin / "build").mkdir()
+            (plugin / "build/participant-artifact-path.txt").write_text(str(artifact))
+
+    monkeypatch.setattr(subprocess, "check_output", check_output)
+    monkeypatch.setattr(subprocess, "run", run)
+    cli.main()
+    assert "-PparticipantLocalRelease=true" in commands[0]
+    assert "--require-participant-release" in commands[1]
+    assert "--allow-managed-only" in commands[1]
+    report = json.loads((prepared / "build-report.json").read_text())
+    assert len(report["agent_archives"]) == 4
+    assert report["zip_sha256"] != report["agent_archives"][0]["sha256"]
+    monkeypatch.setattr(sys, "argv", [
+        "participant-release.py", "--server-source", str(server / "src"), "build",
+        str(prepared), "--server-url", "http://localhost:8008/path", "--managed-only-test",
+    ])
+    with pytest.raises(ValueError, match="localhost prerelease"):
+        cli.main()
+    assert len(commands) == 2
+
+
+def test_recipe_must_include_exactly_one_managed_agent(tmp_path):
+    recipe = fixtures.make_inputs(tmp_path / "inputs").model_dump()
+    managed = recipe["agents"].pop(0)
+    with pytest.raises(ValueError, match="one managed agent"):
+        fixtures.ParticipantRecipe.model_validate(recipe)
+    recipe["agents"].extend([managed, managed])
+    with pytest.raises(ValueError, match="one managed agent"):
+        fixtures.ParticipantRecipe.model_validate(recipe)

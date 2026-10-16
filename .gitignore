@@ -12,4 +12,21 @@ build/
 
 allure-results/
 out/
+*.log
 
+# Python helpers and release scripts
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# The plugin bundles no agent: studies download theirs by pinned digest. Local
+# overlays written here (scripts/build-plugin-with-agent.py) must never be committed.
+src/main/resources/code4me-runtime/
+
+dist/
+telemetry-acp-proxy/agents/
+*.md
+# Participant/operator documentation is tracked (E-05); the *.md rule above
+# covers scratch notes elsewhere in the tree.
+!docs/**

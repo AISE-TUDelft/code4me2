@@ -10,6 +10,17 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
+import me.code4me.api.generated.api.AcpApi
 import me.code4me.api.generated.api.AuthenticationApi
 import me.code4me.api.generated.api.ChatApi
 import me.code4me.api.generated.api.CompletionApi
@@ -19,6 +30,7 @@ import me.code4me.api.generated.api.ProjectApi
 import me.code4me.api.generated.api.SessionApi
 import me.code4me.api.generated.api.UserApi
 import me.code4me.api.generated.api.UserVerificationApi
+import me.code4me.api.generated.infrastructure.ClientError
 import me.code4me.api.generated.infrastructure.ClientException
 import me.code4me.api.generated.infrastructure.ServerException
 import me.code4me.api.generated.model.AcquireSessionGetResponse
@@ -38,6 +50,8 @@ import me.code4me.api.generated.model.DeleteChatSuccessResponse
 import me.code4me.api.generated.model.FeedbackCompletion
 import me.code4me.api.generated.model.FileContextChangeData
 import me.code4me.api.generated.model.GetUserGetResponse
+import me.code4me.api.generated.model.PrepareAcpGrant
+import me.code4me.api.generated.model.PrepareAcpGrantPostResponse
 import me.code4me.api.generated.model.Provider
 import me.code4me.api.generated.model.RequestChatCompletion
 import me.code4me.api.generated.model.RequestCompletion
@@ -48,27 +62,202 @@ import me.code4me.api.generated.model.UpdateUserPutResponse
 import me.code4me.api.generated.model.UserToAuthenticate
 import me.code4me.api.generated.model.UserToCreate
 import me.code4me.api.wrapper.CookieAwareApiClient
+import me.code4me.research.lifecycle.ResearchLogoutHook
 import me.code4me.services.config.ConfigService
 import me.code4me.services.config.getConfig
 import me.code4me.services.config.models.ServerConfig
 import me.code4me.services.modules.manager.getModuleManager
+import me.code4me.services.project.getProjectChatService
 import me.code4me.services.project.getProjectMultiFileContextService
 import me.code4me.services.project.getProjectTokenService
+import me.code4me.services.state.AuthSettings
 import me.code4me.services.state.getAuthState
 import me.code4me.services.state.getPrefState
 import me.code4me.utils.api.fromSerializableMap
 import me.code4me.utils.api.mapsTo
 import me.code4me.utils.api.toSerializableMap
 import me.code4me.utils.record.Record
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import toApiModel
 import java.io.File
 import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 fun getAppService(): AppService {
     return service<AppService>()
 }
+
+internal fun publishSessionReady(
+    publish: Boolean,
+    listeners: Iterable<() -> Unit>,
+    onFailure: (Throwable) -> Unit = {},
+) {
+    if (!publish) return
+    listeners.forEach { listener -> runCatching(listener).onFailure(onFailure) }
+}
+
+internal fun deleteAccountAndClearLocalSession(
+    authState: AuthSettings,
+    expectedGeneration: Long,
+    deleteAccount: () -> Unit,
+    clearCookies: () -> Unit,
+    clearAuth: () -> Unit = authState::clearUserData,
+): Boolean = authState.withTokenLock {
+    if (authState.tokenGeneration() != expectedGeneration) {
+        throw IllegalStateException("Authentication changed before account deletion; try again")
+    }
+    // The HTTP interceptor reads AuthSettings.getToken() when it sends DELETE.
+    // Hold the token lock through the response so another login cannot redirect
+    // this irreversible request to a different account.
+    deleteAccount()
+    if (authState.tokenGeneration() != expectedGeneration) return@withTokenLock false
+    clearCookies()
+    clearAuth()
+    true
+}
+
+/**
+ * The server's reason for refusing an account deletion: the `message` of an HTTP 409 (the account
+ * owns research studies or agent profiles), or `null` for any other failure.
+ */
+internal fun accountDeletionRefusal(error: ClientException): String? {
+    if (error.statusCode != 409) return null
+    val body = (error.response as? ClientError<*>)?.body as? String ?: return null
+    return runCatching { Json.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.contentOrNull }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
+}
+
+/** Rows a privacy erase removed on the server, keyed like `stored_data` in the privacy API. */
+data class ErasedDataCounts(
+    val queries: Long,
+    val chats: Long,
+    val agentRuns: Long,
+    val studyEnrollments: Long,
+    val studyEvents: Long,
+)
+
+/**
+ * The server answered a privacy erase with a non-2xx status, so nothing was cleared locally.
+ * A [statusCode] of 401 means the account is no longer signed in on the server.
+ */
+class DataErasureException(
+    val statusCode: Int,
+    val serverMessage: String?,
+) : RuntimeException("Data erase failed: HTTP $statusCode" + (serverMessage?.let { " ($it)" } ?: ""))
+
+/** The user signed out or in again after confirming a privacy erase, so nothing was sent. */
+class AuthenticationChangedException(message: String) : IllegalStateException(message)
+
+/** Status code and body of a raw HTTP response. */
+internal data class RawHttpResponse(val code: Int, val body: String)
+
+// Erasing a large account can take the server longer than OkHttp's default 10 s read timeout
+private const val DATA_ERASE_READ_TIMEOUT_SECONDS = 60L
+
+/**
+ * Plain client for the privacy erase, created once. It has no [CookieAwareApiClient]
+ * interceptor, which would add a second Cookie header carrying the live token.
+ */
+internal val dataEraseHttpClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .readTimeout(DATA_ERASE_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .build()
+}
+
+/**
+ * `POST {baseUrl}/api/user/privacy/erase` authenticated only by [authToken], the token captured
+ * when the erase was confirmed; the endpoint needs no other cookie.
+ */
+internal fun sendDataErase(
+    baseUrl: String,
+    authToken: String,
+    client: OkHttpClient = dataEraseHttpClient,
+): RawHttpResponse {
+    val request =
+        Request.Builder()
+            .url("$baseUrl/api/user/privacy/erase")
+            .header("Cookie", "auth_token=$authToken")
+            .post("".toRequestBody("application/json".toMediaType()))
+            .build()
+
+    client.newCall(request).execute().use { response ->
+        return RawHttpResponse(response.code, response.body?.string().orEmpty())
+    }
+}
+
+/**
+ * Sends a privacy erase for the signed-in account, then runs the local [cleanupSteps] in order.
+ *
+ * The token lock is held only to check [expectedGeneration] and capture that authentication's
+ * token, never during the request. [eraseData] must send the captured token itself rather than
+ * through the cookie interceptor, which reads the live token: a sign-in that lands while the
+ * request is in flight then cannot redirect this irreversible request to a different account,
+ * and EDT code that takes the lock (sign-out, the chat panel's overlay) never waits for it.
+ * Each cleanup step runs only while [expectedGeneration] is still current: the local copies
+ * belong to the erased account, and once it signed out no later step runs, so none can reach a
+ * newer sign-in. A failing step goes to [onCleanupFailure] and the remaining steps still run,
+ * because the server has already erased the data.
+ *
+ * @return The erased counts, or `null` when the response did not report them
+ * @throws AuthenticationChangedException If authentication changed after the erase was confirmed
+ * @throws DataErasureException If nobody is signed in (401, and nothing is sent) or the server
+ *   answered with a non-2xx status; nothing is cleaned up
+ */
+internal fun eraseCollectedDataAndClearLocalData(
+    authState: AuthSettings,
+    expectedGeneration: Long,
+    eraseData: (authToken: String) -> RawHttpResponse,
+    cleanupSteps: List<() -> Unit>,
+    onCleanupFailure: (Throwable) -> Unit = {},
+): ErasedDataCounts? {
+    val authToken =
+        authState.withTokenLock {
+            if (authState.tokenGeneration() != expectedGeneration) {
+                throw AuthenticationChangedException("Authentication changed before the data erase; try again")
+            }
+            authState.getToken()
+        }
+    if (authToken.isNullOrBlank()) throw DataErasureException(401, "Not signed in; nothing was sent")
+    val response = eraseData(authToken)
+    if (response.code !in 200..299) throw DataErasureException(response.code, errorDetail(response.body))
+    for (step in cleanupSteps) {
+        if (authState.tokenGeneration() != expectedGeneration) break
+        runCatching(step).onFailure(onCleanupFailure)
+    }
+    return parseErasedCounts(response.body)
+}
+
+/** The `erased` counts of a 2xx erase response, or `null` when the body does not carry them. */
+private fun parseErasedCounts(body: String): ErasedDataCounts? {
+    val erased = runCatching { Json.parseToJsonElement(body).jsonObject["erased"]?.jsonObject }.getOrNull() ?: return null
+
+    fun count(key: String): Long = (erased[key] as? JsonPrimitive)?.longOrNull ?: 0L
+
+    return ErasedDataCounts(
+        queries = count("queries"),
+        chats = count("chats"),
+        agentRuns = count("agent_runs"),
+        studyEnrollments = count("study_enrollments"),
+        studyEvents = count("study_events"),
+    )
+}
+
+/** The human-readable `detail` of an error response: a plain string or `detail.message`. */
+private fun errorDetail(body: String): String? =
+    runCatching {
+        when (val detail = Json.parseToJsonElement(body).jsonObject["detail"]) {
+            is JsonPrimitive -> detail.contentOrNull
+            is JsonObject -> detail["message"]?.jsonPrimitive?.contentOrNull
+            else -> null
+        }
+    }.getOrNull()
 
 /**
  * Main application service for the Code4Me plugin.
@@ -101,7 +290,13 @@ class AppService {
     private val configService = getConfig()
     private var serverConfig = configService.getServerConfig()
     private var sessionToken: String? = null
-    private fun buildApiBaseUrl(host: String?, port: Int?, contextPath: String?): String {
+    private val sessionReadyListeners = CopyOnWriteArraySet<() -> Unit>()
+
+    private fun buildApiBaseUrl(
+        host: String?,
+        port: Int?,
+        contextPath: String?,
+    ): String {
         if (host.isNullOrBlank()) return ""
         var normalizedHost = host.trim()
         // Ensure scheme present; default to https
@@ -110,13 +305,15 @@ class AppService {
         }
         val portSegment = if (port != null && port > 0) ":$port" else ""
         val path = (contextPath ?: "").trim()
-        val normalizedPath = when {
-            path.isBlank() -> ""
-            path.startsWith("/") -> path
-            else -> "/$path"
-        }
+        val normalizedPath =
+            when {
+                path.isBlank() -> ""
+                path.startsWith("/") -> path
+                else -> "/$path"
+            }
         return "$normalizedHost$portSegment$normalizedPath"
     }
+
     private var apiBaseUrl = buildApiBaseUrl(serverConfig?.host, serverConfig?.port, serverConfig?.contextPath)
 
     // Create a custom OkHttpClient for chat operations with extended timeouts
@@ -131,6 +328,7 @@ class AppService {
 
     // Standard API clients with default timeouts
     private var authApi = AuthenticationApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
+    private var acpApi = AcpApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private var userApi = UserApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private var completionApi = CompletionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
     private var sessionApi = SessionApi(apiBaseUrl, CookieAwareApiClient.createClientWithCookieHandler())
@@ -156,7 +354,19 @@ class AppService {
             val contextPath = prefs.lastServerContextPath
             if (!host.isNullOrBlank()) {
                 val timeout = serverConfig?.timeout ?: 30
-                setServerConfig(ServerConfig(host = host, port = port, contextPath = contextPath ?: "", timeout = timeout))
+                // Do not carry a localhost/container acpRuntimeBaseUrl override
+                // into a restored server selection; the runtime URL defaults to
+                // the selected host unless explicitly reconfigured.
+                setServerConfig(
+                    ServerConfig(
+                        host = host,
+                        port = port,
+                        contextPath = contextPath ?: "",
+                        timeout = timeout,
+                        acpRuntimeBaseUrl = null,
+                    ),
+                    restoringSavedSelection = true,
+                )
             }
         } catch (e: Exception) {
             LOG.warn("Failed to apply last server selection on startup", e)
@@ -164,22 +374,47 @@ class AppService {
         LOG.info("AppService initialized with API base URL: $apiBaseUrl")
     }
 
+    /**
+     * Point the plugin at [newServer]. A different server signs the user out, as the
+     * stored login belongs to the old one; [restoringSavedSelection] is the startup
+     * restore of the server picked earlier, whose login is the stored one. The
+     * one-argument JVM overload stays for reflective callers (the UI tests).
+     */
     @Synchronized
-    fun setServerConfig(newServer: ServerConfig) {
-        val displayPort = if (newServer.port > 0) ":${newServer.port}" else ""
-        LOG.info("Switching server to ${newServer.host}$displayPort${newServer.contextPath}")
+    @JvmOverloads
+    fun setServerConfig(
+        newServer: ServerConfig,
+        restoringSavedSelection: Boolean = false,
+    ) {
+        val previousBaseUrl = apiBaseUrl
+        // Runtime overrides are environment-specific. A server selected in the UI must not
+        // inherit a localhost/container override from plugin.conf or a previous server.
+        val effectiveServer = newServer
+        val displayPort = if (effectiveServer.port > 0) ":${effectiveServer.port}" else ""
+        LOG.info("Switching server to ${effectiveServer.host}$displayPort${effectiveServer.contextPath}")
         // Clear cookies to avoid leaking sessions across environments
         try {
             CookieAwareApiClient.clearCookies()
         } catch (e: Exception) {
             LOG.warn("Failed to clear cookies when switching server", e)
         }
-        serverConfig = newServer
-        apiBaseUrl = buildApiBaseUrl(newServer.host, newServer.port, newServer.contextPath)
+        serverConfig = effectiveServer
+        apiBaseUrl = buildApiBaseUrl(effectiveServer.host, effectiveServer.port, effectiveServer.contextPath)
+        if (previousBaseUrl != apiBaseUrl && !restoringSavedSelection) {
+            getAuthState().clearUserData()
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                getProjectTokenService(project).clearProjectToken()
+                getProjectTokenService(project).setActivated(false)
+            }
+            runCatching {
+                me.code4me.services.agent.getParticipantAgentSetupService().onServerChanged()
+            }.onFailure { LOG.warn("Failed to reset participant setup on server change", it) }
+        }
 
         // Recreate clients with the new base URL
         val defaultClient = CookieAwareApiClient.createClientWithCookieHandler()
         authApi = AuthenticationApi(apiBaseUrl, defaultClient)
+        acpApi = AcpApi(apiBaseUrl, defaultClient)
         userApi = UserApi(apiBaseUrl, defaultClient)
         completionApi = CompletionApi(apiBaseUrl, defaultClient)
         sessionApi = SessionApi(apiBaseUrl, defaultClient)
@@ -200,6 +435,105 @@ class AppService {
         chatApi = ChatApi(apiBaseUrl, chatHttpClient)
     }
 
+    /**
+     * Returns the resolved base URL used by the OpenAPI-generated clients, so raw-HTTP callers
+     * such as [me.code4me.services.agent.LocalProxyServer] can target the same host.
+     */
+    fun getApiBaseUrl(): String = apiBaseUrl
+
+    /**
+     * Base URL that a locally-running ACP agent runtime should call. Falls back to the plugin's
+     * own base URL when no runtime-specific override is configured.
+     */
+    fun getAcpRuntimeBaseUrl(): String = serverConfig?.acpRuntimeBaseUrl?.trim()?.takeIf { it.isNotBlank() } ?: apiBaseUrl
+
+    /** Requests a one-time ACP launch grant for the given project/workspace pair. */
+    @Throws(IOException::class, ClientException::class, ServerException::class)
+    fun prepareAcpGrant(request: PrepareAcpGrant): PrepareAcpGrantPostResponse {
+        return acpApi.prepareAcpGrantApiAcpGrantPost(request)
+    }
+
+    /** Requests a protocol-v1 launch grant without persisting the short-lived credential. */
+    fun prepareManagedAcpGrant(
+        project: Project,
+        projectId: UUID,
+        workspace: String,
+        pathFormat: String,
+        launchId: String,
+    ): String {
+        val payload = buildJsonObject {
+            put("project_id", projectId.toString())
+            put("workspace", workspace)
+            put("path_format", pathFormat)
+            put("managed_protocol_version", "1")
+            put("launch_id", launchId)
+        }.toString()
+        val request = Request.Builder()
+            .url("$apiBaseUrl/api/acp/grant")
+            .post(payload.toRequestBody("application/json".toMediaType()))
+            .build()
+        currentGenerationProject.set(project)
+        try {
+            CookieAwareApiClient.sharedOkHttpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IOException("ACP grant request failed: HTTP ${response.code}")
+                if (body.isBlank()) throw IOException("ACP grant request returned an empty response")
+                return body
+            }
+        } finally {
+            currentGenerationProject.compareAndSet(project, null)
+        }
+    }
+
+    /** Checks the hosted backend for managed-protocol v1 readiness. */
+    fun checkManagedCapabilities(): Result<Unit> = runCatching {
+        val request = Request.Builder()
+            .url("$apiBaseUrl/api/acp/capabilities")
+            .get()
+            .build()
+        CookieAwareApiClient.sharedOkHttpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (response.code == 503) {
+                throw IOException(
+                    "Study server is not ready (HTTP 503). Update the server before study work: $body",
+                )
+            }
+            if (!response.isSuccessful) {
+                throw IOException("Study server is unavailable at $apiBaseUrl (HTTP ${response.code}). Check network and server selection.")
+            }
+            val root = Json.parseToJsonElement(body).jsonObject
+            val versions = root["managed_protocol_versions"]?.jsonArray
+                ?.mapNotNull { runCatching { it.jsonPrimitive.content }.getOrNull() }
+                .orEmpty()
+            if ("1" !in versions) {
+                throw IOException("Study server does not support managed protocol v1. Contact the study coordinator.")
+            }
+            val ready = root["schema_ready"]?.toString() == "true"
+            if (!ready) {
+                throw IOException("Study server schema is not ready. Contact the study coordinator.")
+            }
+        }
+        val readinessRequest = Request.Builder()
+            .url("$apiBaseUrl/api/acp/readiness")
+            .get()
+            .build()
+        CookieAwareApiClient.sharedOkHttpClient.newCall(readinessRequest).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val detail = runCatching {
+                    Json.parseToJsonElement(body).jsonObject["detail"]?.jsonPrimitive?.content
+                }.getOrNull()
+                throw IOException(
+                    detail ?: "Your study agent assignment is not ready (HTTP ${response.code}). Contact the study coordinator.",
+                )
+            }
+            val root = Json.parseToJsonElement(body).jsonObject
+            if (root["ready"]?.toString() != "true" || root["runtime"]?.jsonPrimitive?.content != "code4me2-agent") {
+                throw IOException("Your assigned agent runtime is not supported by this participant release.")
+            }
+        }
+    }
+
     // ========= Authentication Methods =========
 
     /**
@@ -213,9 +547,18 @@ class AppService {
     private fun storeAuthenticationResponse(response: AuthenticateUserPostResponse) {
         val authSettings = getAuthState()
 
-        // Prioritize session token from cookies over response message
-        val sessionToken = CookieAwareApiClient.getAuthToken()
-        authSettings.setToken(sessionToken ?: response.message)
+        // The auth token lives in response.user.authToken. response.message is only a human
+        // readable status string ("User authenticated successfully") and must never be stored
+        // as a token. The cookie store is a fallback: it can be empty or stale for a different
+        // URI, so it is consulted second rather than first.
+        val authToken =
+            response.user.authToken?.toString()
+                ?: CookieAwareApiClient.getAuthToken()
+        if (!authToken.isNullOrBlank()) {
+            authSettings.setToken(authToken)
+        } else {
+            LOG.warn("Authentication response contained no auth token — session will not be persisted")
+        }
 
         // Store user profile information
         authSettings.setUserName(response.user.name)
@@ -321,50 +664,6 @@ class AppService {
         }
     }
 
-    /**
-     * Authenticates a user using OAuth token-based authentication.
-     *
-     * This method handles OAuth authentication flow, typically used for social login providers
-     * like Google. The OAuth token should be obtained from the respective provider's authentication
-     * flow before calling this method.
-     *
-     * @param email The user's email address associated with the OAuth account
-     * @param token The OAuth access token obtained from the provider
-     * @param provider The OAuth provider used for authentication (defaults to Google)
-     * @return [AuthenticateUserPostResponse] containing user information and session details
-     * @throws IOException If there's a network connectivity issue
-     * @throws ClientException If the OAuth token is invalid or expired (4xx errors)
-     * @throws ServerException If the server encounters an internal error (5xx errors)
-     * @throws IllegalArgumentException If email or token parameters are invalid
-     */
-    @Throws(IOException::class, ClientException::class, ServerException::class)
-    fun authenticateUserWithOAuth(
-        email: String,
-        token: String,
-        provider: Provider = Provider.google,
-    ): AuthenticateUserPostResponse {
-        require(email.isNotBlank()) { "Email cannot be blank" }
-        require(token.isNotBlank()) { "OAuth token cannot be blank" }
-
-        val userToAuthenticate =
-            UserToAuthenticate(
-                email = email,
-                password = "",
-                provider = provider,
-                token = token,
-            )
-
-        return try {
-            val response = authApi.authenticateUserApiUserAuthenticatePost(userToAuthenticate)
-            storeAuthenticationResponse(response)
-            LOG.info("OAuth authentication successful for user: $email with provider: $provider")
-            response
-        } catch (e: Exception) {
-            LOG.warn("OAuth authentication failed for user: $email with provider: $provider", e)
-            throw e
-        }
-    }
-
     // ============ Session Methods ============
 
     /**
@@ -375,13 +674,27 @@ class AppService {
      *
      * @param response The session response containing session token and message
      */
-    private fun storeSessionResponse(response: AcquireSessionGetResponse) {
+    private fun storeSessionResponse(
+        response: AcquireSessionGetResponse,
+        publishReady: Boolean,
+    ) {
         sessionToken = CookieAwareApiClient.getSessionToken()
         if (sessionToken.isNullOrBlank()) {
             LOG.warn("Session token is null or blank, using response message instead")
             sessionToken = response.sessionToken
         }
         LOG.info("Session data stored successfully: ${response.message}")
+        publishSessionReady(publishReady, sessionReadyListeners) { LOG.warn("Session-ready listener failed", it) }
+    }
+
+    /** Adds a listener that runs after a server session has been acquired and stored. */
+    fun addSessionReadyListener(listener: () -> Unit) {
+        sessionReadyListeners += listener
+    }
+
+    /** Removes a listener previously registered by [addSessionReadyListener]. */
+    fun removeSessionReadyListener(listener: () -> Unit) {
+        sessionReadyListeners -= listener
     }
 
     /**
@@ -401,13 +714,20 @@ class AppService {
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
     fun acquireSession(authToken: String? = "auth_token"): AcquireSessionGetResponse {
+        return acquireSession(authToken, publishReady = true)
+    }
+
+    private fun acquireSession(
+        authToken: String?,
+        publishReady: Boolean,
+    ): AcquireSessionGetResponse {
         authToken?.let { token ->
             require(token.isNotBlank()) { "Auth token cannot be blank" }
         }
 
         return try {
             val response = sessionApi.acquireSessionApiSessionAcquireGet(authToken)
-            storeSessionResponse(response)
+            storeSessionResponse(response, publishReady)
             LOG.info("Session acquired successfully with auth token")
             response
         } catch (e: Exception) {
@@ -430,14 +750,23 @@ class AppService {
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
     fun acquireSessionWithStoredToken(): AcquireSessionGetResponse {
+        return acquireSessionWithStoredToken(publishReady = true)
+    }
+
+    /** Reconciliation acquisition does not broadcast readiness back into every project loop. */
+    internal fun acquireSessionForReconciliation(): AcquireSessionGetResponse {
+        return acquireSessionWithStoredToken(publishReady = false)
+    }
+
+    private fun acquireSessionWithStoredToken(publishReady: Boolean): AcquireSessionGetResponse {
         val authSettings = getAuthState()
         val storedToken = authSettings.getToken()
 
         return if (storedToken?.isNotBlank() ?: false) {
-            acquireSession(storedToken)
+            acquireSession(storedToken, publishReady)
         } else {
             LOG.info("No stored auth token found, using default token for session acquisition")
-            acquireSession()
+            acquireSession("auth_token", publishReady)
         }
     }
 
@@ -600,15 +929,12 @@ class AppService {
     /**
      * Creates a new user account in the Code4Me system.
      *
-     * This method registers a new user with the provided credentials. The user can be created
-     * either with traditional password authentication or with OAuth provider credentials.
+     * This method registers a new user with email and password.
      * After successful creation, the user will need to authenticate separately to establish a session.
      *
      * @param email The user's email address (must be unique in the system)
      * @param name The user's full display name
-     * @param password The user's password (for traditional auth) or empty string for OAuth
-     * @param token Optional OAuth token if registering via OAuth provider
-     * @param provider The authentication provider (defaults to Google)
+     * @param password The user's password
      * @return [CreateUserPostResponse] containing the registration result and any relevant messages
      * @throws IOException If there's a network connectivity issue
      * @throws ClientException If user already exists or validation fails (4xx errors)
@@ -620,8 +946,6 @@ class AppService {
         email: String,
         name: String,
         password: String,
-        token: String = "",
-        provider: Provider = Provider.no_provider,
     ): CreateUserPostResponse {
         require(email.isNotBlank()) { "Email cannot be blank" }
         require(name.isNotBlank()) { "Name cannot be blank" }
@@ -631,10 +955,10 @@ class AppService {
                 email = email,
                 name = name,
                 password = password,
-                token = token,
+                token = "",
                 // Assuming configId is always 1 - this means the default configuration
                 configId = 1,
-                provider = provider,
+                provider = Provider.no_provider,
             )
 
         return try {
@@ -655,20 +979,31 @@ class AppService {
      * the local session is automatically cleared.
      *
      * **Warning**: This operation is irreversible. All user data will be permanently lost if
-     * [deleteUserData] is set to true.
+     * [deleteUserData] is set to true. Current servers ignore the flag and always delete the data.
      *
      * @param deleteUserData Whether to permanently delete all user data (defaults to false)
+     * @param expectedAuthGeneration Authentication state captured when deletion was confirmed
      * @throws IOException If there's a network connectivity issue
-     * @throws ClientException If the user is not authenticated or deletion fails (4xx errors)
+     * @throws ClientException If the user is not authenticated or deletion fails (4xx errors); an
+     *   HTTP 409 carries the server's reason for refusing, see [accountDeletionRefusal]
      * @throws ServerException If the server encounters an internal error (5xx errors)
+     * @throws IllegalStateException If authentication changed before the request was sent
      */
     @Throws(IOException::class, ClientException::class, ServerException::class)
-    fun deleteUser(deleteUserData: Boolean = false) {
+    fun deleteUser(
+        deleteUserData: Boolean = false,
+        expectedAuthGeneration: Long = getAuthState().tokenGeneration(),
+    ) {
         try {
-            userApi.deleteUserApiUserDeleteDelete(deleteUserData)
-
-            // Clean up local session data
-            clearLocalSession()
+            val cleared = deleteAccountAndClearLocalSession(
+                getAuthState(),
+                expectedAuthGeneration,
+                { userApi.deleteUserApiUserDeleteDelete(deleteUserData) },
+                { CookieAwareApiClient.clearCookies() },
+            )
+            if (!cleared) {
+                LOG.info("Skipped deleted account cleanup because authentication changed")
+            }
             LOG.info("User account deleted successfully")
         } catch (e: Exception) {
             LOG.warn("Failed to delete user account", e)
@@ -677,17 +1012,98 @@ class AppService {
     }
 
     /**
-     * Clears all local session data including cookies and authentication state.
-     * This is a utility method used by both logout and deleteUser operations.
+     * Opts the signed-in account out of data collection and permanently erases the data Code4Me
+     * has collected about it. The account and its sign-in keep working.
+     *
+     * Only after the server confirms the erase are the local copies cleared, each step only while
+     * the erased account is still signed in: the storage preferences (turned off and synced), every
+     * research context with its pending spool, and the chat history of open projects. On any
+     * failure nothing changes locally.
+     *
+     * The request carries the auth token captured as it starts, so a sign-in that lands while it
+     * is in flight cannot redirect it, and no authentication lock is held while it runs. It is a
+     * blocking network call (read timeout 60 s); keep it off the EDT.
+     *
+     * @param expectedAuthGeneration Authentication state captured when the erase was confirmed
+     * @return The erased row counts, or `null` when the server's response did not report them
+     * @throws IOException If there's a network connectivity issue
+     * @throws DataErasureException If nobody is signed in or the server answered with a non-2xx
+     *   status (401: not signed in)
+     * @throws AuthenticationChangedException If authentication changed after the erase was confirmed
      */
-    private fun clearLocalSession() {
-        CookieAwareApiClient.clearCookies()
-        ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                getAuthState().clearUserData()
-                LOG.info("User data cleared successfully during sign out")
-            } catch (e: Exception) {
-                LOG.error("Failed to clear user data during sign out", e)
+    @Throws(IOException::class, DataErasureException::class, AuthenticationChangedException::class)
+    fun eraseCollectedData(expectedAuthGeneration: Long = getAuthState().tokenGeneration()): ErasedDataCounts? {
+        try {
+            // A sign-out while the erase runs then quarantines without uploading first.
+            val erased =
+                ResearchLogoutHook.whileErasing {
+                    eraseCollectedDataAndClearLocalData(
+                        getAuthState(),
+                        expectedAuthGeneration,
+                        { authToken -> sendDataErase(apiBaseUrl, authToken) },
+                        localCleanupAfterErase(expectedAuthGeneration),
+                    ) { LOG.warn("Local cleanup after the data erase failed", it) }
+                }
+            if (getAuthState().tokenGeneration() != expectedAuthGeneration) {
+                LOG.info("Authentication changed during the data erase; local cleanup may be incomplete")
+            }
+            LOG.info("Collected data erased")
+            return erased
+        } catch (e: Exception) {
+            LOG.warn("Failed to erase collected data", e)
+            throw e
+        }
+    }
+
+    /**
+     * Local cleanup steps after a confirmed erase, in order. [eraseCollectedDataAndClearLocalData]
+     * runs each one only while the erased account is still signed in. The user stays signed in.
+     */
+    private fun localCleanupAfterErase(expectedAuthGeneration: Long): List<() -> Unit> {
+        val stillCurrent = { getAuthState().tokenGeneration() == expectedAuthGeneration }
+        return listOf(
+            {
+                // Mirror the server-side opt-out in the settings UI; the server enforces it regardless.
+                getPrefState().apply {
+                    storeContext = false
+                    storeContextualTelemetry = false
+                    storeBehavioralTelemetry = false
+                    storeAgentContent = false
+                }
+            },
+            // Delete (not quarantine) pending research records so none collected before the erase uploads.
+            { ResearchLogoutHook.eraseAllContexts(stillCurrent) },
+            { clearLocalChatsAfterErase(expectedAuthGeneration) },
+            // Checked right before this step, so the sync goes to the erased account only.
+            { updateUser(UpdateUser(preference = getPrefState().toSerializableMap())) },
+        )
+    }
+
+    /**
+     * Clears the chat history of open projects on the EDT the way account deletion does: the
+     * stored history, then a full reset of every open chat panel (sessions, history and session
+     * manager). The user stays signed in, so the panels show no sign-in overlay. Nothing is
+     * cleared once the erased account signed out; the sign-out already cleared the chats.
+     */
+    private fun clearLocalChatsAfterErase(expectedAuthGeneration: Long) {
+        val authState = getAuthState()
+        ApplicationManager.getApplication().invokeLater {
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                try {
+                    authState.runIfSignedIn(expectedAuthGeneration) {
+                        getProjectChatService(project).clearAllChatsAndMemory()
+                    }
+                    com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+                        .getToolWindow("Code4Me")
+                        ?.contentManager
+                        ?.contents
+                        ?.forEach { content ->
+                            (content.component as? me.code4me.chatWindow.components.ChatPanel)
+                                ?.resetAllChatsAfterErase(expectedAuthGeneration)
+                        }
+                } catch (e: Exception) {
+                    LOG.warn("Failed to clear chat data after the data erase for project: ${project.name}", e)
+                }
             }
         }
     }
@@ -1030,11 +1446,16 @@ class AppService {
 
             currentGenerationProject.set(project)
 
+            val modelsConfiguration = getConfig().getModelsConfiguration()
+            // getModelIdByName("default") returns the first default model of *either* kind, which
+            // can be a chat model. Fall back to the default completion model so the completion
+            // path never requests a chat-only model id.
             val modelId =
-                getConfig().getModelsConfiguration()
+                modelsConfiguration
                     ?.getModelIdByName(
                         aggregatedCollectedData[Record.Type.MODEL]?.get("preferredCompletionModel")?.toString() ?: "default",
                     )
+                    ?: modelsConfiguration?.getDefaultCompletionModelId()
 
             val rawContext = aggregatedCollectedData[Record.Type.CONTEXT]?.toMutableMap() ?: error("Missing CONTEXT")
             val relativePaths =
@@ -1263,6 +1684,103 @@ class AppService {
             null
         } finally {
             currentGenerationProject.set(null)
+        }
+    }
+
+    // ========= Agent Methods =========
+    //
+    // These use raw OkHttp rather than a generated client because the agent endpoints exchange
+    // opaque, provider-shaped payloads (Chat Completions / Responses API bodies) that are
+    // deliberately not modelled in the OpenAPI schema.
+
+    /**
+     * Pre-mints an AgentTask on the server before an agent runtime issues its first LLM call.
+     *
+     * The server is idempotent on a caller-supplied task_id (201 fresh, 200 existing), so retries
+     * are safe. Session ownership is enforced server-side via the session_token cookie — no other
+     * auth header is required.
+     */
+    suspend fun createAgentTask(
+        taskId: UUID,
+        profile: String = "default",
+        description: String? = null,
+    ): me.code4me.services.agent.AgentTaskInfo =
+        withContext(Dispatchers.IO) {
+            val bodyJson =
+                buildJsonObject {
+                    put("task_id", taskId.toString())
+                    put("profile", profile)
+                    if (description != null) put("task_description", description)
+                }.toString()
+
+            val request =
+                Request.Builder()
+                    .url("$apiBaseUrl/api/agent/task")
+                    .post(bodyJson.toRequestBody("application/json".toMediaType()))
+                    .build()
+
+            CookieAwareApiClient.sharedOkHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("createAgentTask failed: HTTP ${response.code}")
+                }
+                val responseBody =
+                    response.body?.string()
+                        ?: throw IOException("createAgentTask: empty response body")
+                val payload = Json.parseToJsonElement(responseBody).jsonObject
+                val returnedId =
+                    payload["task_id"]?.jsonPrimitive?.content
+                        ?: throw IOException("createAgentTask: no task_id in response")
+                me.code4me.services.agent.AgentTaskInfo(
+                    taskId = UUID.fromString(returnedId),
+                    frameworkVersion = payload["framework_version"]?.jsonPrimitive?.content,
+                    model = payload["model"]?.jsonPrimitive?.content,
+                    launch = null,
+                )
+            }
+        }
+
+    /**
+     * Marks an agent task done so the server aggregates its accrued inference events.
+     *
+     * A 404 is treated as success: it means there is no such task to close, which is the desired
+     * end state anyway.
+     */
+    suspend fun closeAgentTask(taskId: UUID): Unit =
+        withContext(Dispatchers.IO) {
+            val request =
+                Request.Builder()
+                    .url("$apiBaseUrl/api/agent/task/$taskId/close")
+                    .post("".toRequestBody("application/json".toMediaType()))
+                    .build()
+
+            CookieAwareApiClient.sharedOkHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful && response.code != 404) {
+                    throw IOException("closeAgentTask failed: HTTP ${response.code}")
+                }
+            }
+        }
+
+    /**
+     * Uploads normalized agent telemetry for a task to `POST /api/agent/task/{task_id}/telemetry`.
+     *
+     * Used by the self-reporting path (the `code4me2-agent` runtime we control). Third-party
+     * agents are instead observed transparently by
+     * [me.code4me.services.agent.LocalProxyServer], which needs no cooperation from the runtime.
+     */
+    suspend fun uploadTrajectory(
+        taskId: UUID,
+        trajectoryJson: String,
+    ) = withContext(Dispatchers.IO) {
+        val request =
+            Request.Builder()
+                .url("$apiBaseUrl/api/agent/task/$taskId/telemetry")
+                .post(trajectoryJson.toRequestBody("application/json".toMediaType()))
+                .build()
+
+        CookieAwareApiClient.sharedOkHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("uploadTrajectory failed: HTTP ${response.code}")
+            }
         }
     }
 }

@@ -75,15 +75,89 @@ class LandingPageComponent {
         val headerPanel = createHeaderPanel()
         panel.add(headerPanel, BorderLayout.NORTH)
 
-        // Navigation buttons
-        val navigationPanel = createNavigationPanel()
-        panel.add(navigationPanel, BorderLayout.CENTER)
+        // Navigation buttons + agent setup status
+        val centerPanel =
+            JPanel(BorderLayout()).apply {
+                background = JBColor.background()
+                add(createNavigationPanel(), BorderLayout.NORTH)
+                add(createAgentSetupPanel(), BorderLayout.CENTER)
+            }
+        panel.add(centerPanel, BorderLayout.CENTER)
 
         // Information text area
         val informationPanel = createInformationPanel()
         panel.add(informationPanel, BorderLayout.SOUTH)
 
         return panel
+    }
+
+    /**
+     * Participant agent setup/status panel: Sign in → Check server →
+     * Prepare agent → Ready, with Prepare/Repair actions.
+     */
+    private fun createAgentSetupPanel(): JPanel {
+        // Wrapping, selectable status area: failure diagnostics can exceed one
+        // line and must remain fully visible without a log dive.
+        val statusArea =
+            com.intellij.ui.components.JBTextArea().apply {
+                isEditable = false
+                lineWrap = true
+                wrapStyleWord = true
+                rows = 3
+                background = JBColor.background()
+                border = JBUI.Borders.empty(4)
+            }
+        fun show(text: String) {
+            statusArea.text = text
+            statusArea.toolTipText = text
+            statusArea.caretPosition = 0
+        }
+        fun refresh() {
+            val status =
+                runCatching {
+                    me.code4me.services.agent.getParticipantAgentSetupService().currentStatus()
+                }.getOrNull()
+            show(
+                if (status == null) "Sign in  →  Check server  →  Prepare agent  →  Ready: unavailable."
+                else "Sign in  →  Check server  →  Prepare agent  →  Ready: ${status.message}",
+            )
+        }
+        return JPanel(BorderLayout()).apply {
+            background = JBColor.background()
+            border = javax.swing.BorderFactory.createTitledBorder("Code4Me Agent setup")
+            add(javax.swing.JScrollPane(statusArea).apply {
+                border = JBUI.Borders.empty()
+                horizontalScrollBarPolicy = javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            }, BorderLayout.CENTER)
+            add(JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT)).apply {
+                background = JBColor.background()
+                add(javax.swing.JButton("Prepare agent").apply {
+                    addActionListener {
+                        val project =
+                            com.intellij.openapi.project.ProjectManager.getInstance().openProjects.firstOrNull()
+                        if (project == null) show("Open a project before preparing the agent.")
+                        else com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+                            val status =
+                                me.code4me.services.agent.getParticipantAgentSetupService().prepare(project, reactivate = true)
+                            javax.swing.SwingUtilities.invokeLater { show(status.message) }
+                        }
+                    }
+                })
+                add(javax.swing.JButton("Repair agent").apply {
+                    addActionListener {
+                        val project =
+                            com.intellij.openapi.project.ProjectManager.getInstance().openProjects.firstOrNull()
+                        if (project == null) show("Open a project before repairing the agent.")
+                        else com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+                            val status =
+                                me.code4me.services.agent.getParticipantAgentSetupService().prepare(project, repair = true, reactivate = true)
+                            javax.swing.SwingUtilities.invokeLater { show(status.message) }
+                        }
+                    }
+                })
+            }, BorderLayout.EAST)
+            refresh()
+        }
     }
 
     /**
@@ -247,11 +321,11 @@ class LandingPageComponent {
     private fun createInformationText(): JBTextArea {
         val informationContent =
             """
-                Code4Me V2 is an open-source JetBrains plugin that provides code completions and an integrated chat assistant for developers. It is designed with modularity and transparency in mind, which allows researchers and advanced developers to experiment with different AI models, configure data collection, and explore human-AI interaction in software engineering. The plugin supports inline “ghost text” code suggestions, manual completions on demand, and a conversational assistant for context-aware programming help. All features are configurable through an intuitive settings panel which allows for fine-grained control over model selection, context retrieval, and telemetry modules.
+            Code4Me V2 is an open-source JetBrains plugin that provides code completions and an integrated chat assistant for developers. It is designed with modularity and transparency in mind, which allows researchers and advanced developers to experiment with different AI models, configure data collection, and explore human-AI interaction in software engineering. The plugin supports inline “ghost text” code suggestions, manual completions on demand, and a conversational assistant for context-aware programming help. All features are configurable through an intuitive settings panel which allows for fine-grained control over model selection, context retrieval, and telemetry modules.
 
-                As a research-focused tool, Code4Me V2 prioritizes openness and flexibility over commercial-grade performance. Users have full control over what data is collected, stored, and transmitted; every telemetry and context module can be enabled, disabled, or customized individually. While the plugin includes safeguards (e.g., automatic redaction of potential secrets and GDPR-compliant storage practices), ultimate responsibility lies with the user to configure modules according to their privacy needs and ensure that no sensitive code or data is shared inadvertently.
+            As a research-focused tool, Code4Me V2 prioritizes openness and flexibility over commercial-grade performance. Users have full control over what data is collected, stored, and transmitted; every telemetry and context module can be enabled, disabled, or customized individually. While the plugin includes safeguards (e.g., automatic redaction of potential secrets and GDPR-compliant storage practices), ultimate responsibility lies with the user to configure modules according to their privacy needs and ensure that no sensitive code or data is shared inadvertently.
 
-                By installing and using this plugin, users acknowledge that code completions and chat outputs are suggestions only, not guaranteed to be correct or secure. The plugin is a research prototype, and users remain responsible for reviewing and validating any generated code before integrating it into their projects.
+            By installing and using this plugin, users acknowledge that code completions and chat outputs are suggestions only, not guaranteed to be correct or secure. The plugin is a research prototype, and users remain responsible for reviewing and validating any generated code before integrating it into their projects.
             """.trimIndent()
 
         return JBTextArea(informationContent).apply {

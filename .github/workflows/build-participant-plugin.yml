@@ -1,0 +1,407 @@
+name: Build participant plugin
+
+permissions:
+  contents: read
+  actions: read
+
+on:
+  # The workflow is not on main yet. A push can run the branch's own workflow
+  # file; manual dispatch remains available once GitHub registers the workflow.
+  push:
+    branches:
+      - feat/plugin
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch:
+    inputs:
+      serverUrl:
+        description: HTTPS backend for Marketplace candidate; localhost for test ZIP
+        required: true
+        default: http://localhost:8008
+      version:
+        description: Plugin version
+        required: true
+        default: 0.0.1-test1
+      serverRepository:
+        description: Server repository whose sources build the research proxy (owner/name)
+        required: true
+        default: AISE-TUDelft/code4me2-server
+      serverTag:
+        description: Pushed server tag compatible with this plugin's proxy
+        required: true
+
+jobs:
+  # The plugin bundles no agent: each study's agent is downloaded by its pinned
+  # SHA-256 from the runtime's GitHub Release. The selected server tag
+  # supplies only the shared sources used to build the proxy.
+  # The research proxy is a per-platform PyInstaller bundle built from the
+  # server's shared contract sources at one resolved commit; there is no
+  # cross-compile. scripts/research-proxy-platforms.py maps the supported
+  # platforms onto runner labels (see docs/RESEARCH_PROXY_RELEASE.md).
+  prepare-proxy-matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.platforms.outputs.matrix }}
+      platforms: ${{ steps.platforms.outputs.platforms }}
+      server_commit: ${{ steps.server.outputs.commit }}
+      server_url: ${{ steps.config.outputs.server_url }}
+      version: ${{ steps.config.outputs.version }}
+      server_repository: ${{ steps.config.outputs.server_repository }}
+      server_ref: ${{ steps.config.outputs.server_ref }}
+      local_test: ${{ steps.config.outputs.local_test }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve and validate release inputs
+        id: config
+        env:
+          DISPATCH_SERVER_URL: ${{ inputs.serverUrl }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+          DISPATCH_SERVER_REPOSITORY: ${{ inputs.serverRepository }}
+          DISPATCH_SERVER_TAG: ${{ inputs.serverTag }}
+          BRANCH_SERVER_URL: ${{ vars.CODE4ME_BRANCH_SERVER_URL }}
+          BRANCH_SERVER_REPOSITORY: ${{ vars.CODE4ME_BRANCH_SERVER_REPOSITORY }}
+          BRANCH_SERVER_REF: ${{ vars.CODE4ME_BRANCH_SERVER_REF }}
+          RELEASE_SERVER_URL: ${{ vars.CODE4ME_RELEASE_SERVER_URL }}
+          RELEASE_SERVER_REPOSITORY: ${{ vars.CODE4ME_RELEASE_SERVER_REPOSITORY }}
+          RELEASE_SERVER_TAG: ${{ vars.CODE4ME_RELEASE_SERVER_TAG }}
+        run: python3 scripts/resolve-participant-workflow-inputs.py
+      - name: Check out the selected server sources
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.config.outputs.server_repository }}
+          ref: ${{ steps.config.outputs.server_ref }}
+          path: server-ref
+          token: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+      - name: Validate and pin the server sources for every proxy build
+        id: server
+        run: |
+          set -euo pipefail
+          commit=$(git -C server-ref rev-parse HEAD)
+          for path in packaging/requirements-runtime.lock packaging/requirements-build.lock packaging/requirements-test.lock pyproject.toml; do
+            if [ ! -f "server-ref/$path" ]; then
+              echo "::error::Server commit $commit is missing $path. Select server sources containing the proxy build lockfiles and shared research contracts."
+              exit 1
+            fi
+          done
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install selected-source proxy test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check \
+            -r server-ref/packaging/requirements-runtime.lock \
+            -r server-ref/packaging/requirements-test.lock
+      - name: Verify workflow inputs, publishing checks and ZIP verification
+        run: |
+          python -m pytest -q tests/scripts/test_resolve_participant_workflow_inputs.py \
+            tests/scripts/test_participant_publishing.py \
+            tests/scripts/test_research_proxy_platforms.py \
+            tests/scripts/test_verify_participant_artifact.py
+      - name: Verify proxy compatibility with the selected server sources
+        run: |
+          set -euo pipefail
+          export TELEMETRY_PROXY_SERVER_SRC="$PWD/server-ref/src"
+          export PYTHONPATH="$TELEMETRY_PROXY_SERVER_SRC:$PWD/telemetry-acp-proxy"
+          python telemetry-acp-proxy/packaging/pyinstaller_entry.py --help
+          python -m pytest -q telemetry-acp-proxy/tests
+      - name: Derive research proxy platform matrix
+        id: platforms
+        run: python3 scripts/research-proxy-platforms.py --github-output "$GITHUB_OUTPUT"
+
+  # One PyInstaller-capable runner per declared platform. Each job checks out
+  # the pinned server contracts (PyInstaller packages the shared `research`
+  # modules) and uploads telemetry-acp-proxy/dist/<os>-<arch>/ for the release
+  # job to stage. Do not rely on the checked-in dist/ directory: it is ignored
+  # by git and absent on a clean runner.
+  build-research-proxy:
+    needs: prepare-proxy-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare-proxy-matrix.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out plugin
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: code4me2
+      - name: Check out pinned server contracts
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.prepare-proxy-matrix.outputs.server_repository }}
+          ref: ${{ needs.prepare-proxy-matrix.outputs.server_commit }}
+          path: code4me2-server
+          token: ${{ secrets.CODE4ME_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install locked proxy build toolchain
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check \
+            -r code4me2-server/packaging/requirements-runtime.lock \
+            -r code4me2-server/packaging/requirements-build.lock \
+            -r code4me2-server/packaging/requirements-test.lock
+          python -m pip install --disable-pip-version-check --no-deps ./code4me2-server
+      - name: Build self-contained proxy bundle
+        working-directory: code4me2
+        shell: bash
+        env:
+          PYTHON: python
+        run: |
+          ./gradlew --no-daemon --no-configuration-cache :buildResearchProxyBundle \
+            "-PresearchProxyPlatforms=${{ matrix.platform }}"
+      - name: Verify bundle layout
+        working-directory: code4me2
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="telemetry-acp-proxy/dist/${{ matrix.platform }}"
+          test -d "$bundle"
+          test -f "$bundle/${{ matrix.executable }}"
+          # The bundle copy does not keep POSIX modes (staging below re-applies them too).
+          if [ "${{ matrix.executable }}" = "telemetry-acp-proxy" ]; then
+            chmod +x "$bundle/${{ matrix.executable }}"
+          fi
+          # Run outside the source tree so missing bundled modules cannot be
+          # supplied by the proxy's development bootstrap.
+          cp -R "$bundle" "$RUNNER_TEMP/frozen-proxy"
+          export TELEMETRY_PROXY_EXECUTABLE="$RUNNER_TEMP/frozen-proxy/${{ matrix.executable }}"
+          "$TELEMETRY_PROXY_EXECUTABLE" --help > "$RUNNER_TEMP/proxy-help.txt"
+          grep -Fq -- '--compat-idempotent-initialize' "$RUNNER_TEMP/proxy-help.txt" || {
+            echo "frozen proxy for ${{ matrix.platform }} does not support --compat-idempotent-initialize" >&2
+            exit 1
+          }
+          python -m pytest -q telemetry-acp-proxy/tests/test_byte_equivalence.py
+      - name: Upload proxy bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-proxy-${{ matrix.platform }}
+          path: code4me2/telemetry-acp-proxy/dist/${{ matrix.platform }}
+          if-no-files-found: error
+
+  build:
+    needs:
+      - prepare-proxy-matrix
+      - build-research-proxy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download research proxy bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: research-proxy-*
+          path: ${{ runner.temp }}/research-proxies
+      - name: Stage research proxy bundles into dist/
+        shell: bash
+        run: |
+          set -euo pipefail
+          platforms="${{ needs.prepare-proxy-matrix.outputs.platforms }}"
+          IFS=',' read -r -a requested <<< "$platforms"
+          for platform in "${requested[@]}"; do
+            source_dir="$RUNNER_TEMP/research-proxies/research-proxy-$platform"
+            if [ ! -d "$source_dir" ]; then
+              echo "research proxy artifact for $platform is missing" >&2
+              exit 1
+            fi
+            executable="telemetry-acp-proxy"
+            if [ "$platform" = "windows-x64" ]; then
+              executable="telemetry-acp-proxy.exe"
+            fi
+            if [ ! -f "$source_dir/$executable" ]; then
+              echo "research proxy artifact for $platform does not contain $executable" >&2
+              exit 1
+            fi
+            if [ "$executable" = "telemetry-acp-proxy" ]; then
+              chmod +x "$source_dir/$executable"
+            fi
+            mkdir -p "telemetry-acp-proxy/dist/$platform"
+            cp -R "$source_dir/." "telemetry-acp-proxy/dist/$platform/"
+          done
+      - name: Test, build and verify the agent-free participant ZIP
+        env:
+          PARTICIPANT_SERVER_URL: ${{ needs.prepare-proxy-matrix.outputs.server_url }}
+          PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
+          PLATFORMS: ${{ needs.prepare-proxy-matrix.outputs.platforms }}
+          LOCAL_TEST: ${{ needs.prepare-proxy-matrix.outputs.local_test }}
+          SERVER_REPOSITORY: ${{ needs.prepare-proxy-matrix.outputs.server_repository }}
+          SERVER_REF: ${{ needs.prepare-proxy-matrix.outputs.server_ref }}
+          SERVER_COMMIT: ${{ needs.prepare-proxy-matrix.outputs.server_commit }}
+        run: |
+          set -euo pipefail
+          args=(--no-daemon --no-configuration-cache :test :buildPlugin
+            "-PpluginVersion=$PLUGIN_VERSION"
+            "-Pcode4me.serverUrl=$PARTICIPANT_SERVER_URL"
+            "-PresearchProxyPlatforms=$PLATFORMS"
+            -PrequireResearchProxyBundles=true)
+          # Local backend builds explicitly enable plain-HTTP loopback access.
+          if [ "$LOCAL_TEST" = true ]; then args+=(-PparticipantLocalRelease=true); fi
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch || ( "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ) ]]; then
+            args+=(:verifyPluginStructure :verifyPlugin)
+          fi
+          ./gradlew "${args[@]}"
+          shopt -s nullglob
+          zips=(build/distributions/*.zip)
+          if [ "${#zips[@]}" -ne 1 ]; then
+            echo "expected exactly one plugin ZIP, found ${#zips[@]}" >&2
+            exit 1
+          fi
+          python3 scripts/verify-participant-artifact.py "${zips[0]}" --agent-free
+          ZIP_PATH="${zips[0]}" python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          archive = Path(os.environ["ZIP_PATH"])
+          report = {
+              "plugin_version": os.environ["PLUGIN_VERSION"],
+              "plugin_commit": os.environ["GITHUB_SHA"],
+              "server_url": os.environ["PARTICIPANT_SERVER_URL"],
+              "server_repository": os.environ["SERVER_REPOSITORY"],
+              "server_ref": os.environ["SERVER_REF"],
+              "server_commit": os.environ["SERVER_COMMIT"],
+              "platforms": os.environ["PLATFORMS"].split(","),
+              "zip_name": archive.name,
+              "zip_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+          }
+          Path(os.environ["RUNNER_TEMP"], "build-report.json").write_text(json.dumps(report, indent=2) + "\n")
+          print(json.dumps(report, indent=2))
+          PY
+      - name: Upload test and verification diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: participant-build-diagnostics
+          path: |
+            build/reports/
+            build/test-results/
+          if-no-files-found: warn
+      - name: Upload build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: participant-release-evidence
+          path: ${{ runner.temp }}/build-report.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
+          path: build/distributions/*.zip
+          if-no-files-found: error
+
+  # Release tags publish the verified ZIP to Marketplace and GitHub under v<version>.
+  # The ZIP carries the verified per-platform proxies and no agent; a study's
+  # assigned agent comes from its pinned runtime Release on a cache miss.
+  # Assets of a published plugin release are never replaced.
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [prepare-proxy-matrix, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check publishing prerequisites before uploading
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "$JETBRAINS_MARKETPLACE_TOKEN" ]; then
+            echo "::error::JETBRAINS_MARKETPLACE_TOKEN is required for publishing."
+            exit 1
+          fi
+          tags=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[].tag_name')
+          if grep -Fxq "$RELEASE_TAG" <<< "$tags"; then
+            echo "release $RELEASE_TAG already exists; refusing to upload again" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
+          path: build/distributions
+      - uses: actions/download-artifact@v4
+        with:
+          name: participant-release-evidence
+          path: ${{ runner.temp }}/participant-release-evidence
+      - name: Check the downloaded ZIP against build evidence
+        env:
+          PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "participant-release-evidence/build-report.json").read_text())
+          archive = Path("build/distributions") / report["zip_name"]
+          if list(Path("build/distributions").glob("*.zip")) != [archive]:
+              raise SystemExit("expected exactly the verified plugin ZIP")
+          if (report["plugin_commit"] != os.environ["GITHUB_SHA"] or
+              report["plugin_version"] != os.environ["PLUGIN_VERSION"] or
+              hashlib.sha256(archive.read_bytes()).hexdigest() != report["zip_sha256"]):
+              raise SystemExit("downloaded ZIP does not match this build's evidence")
+          PY
+      - name: Publish verified ZIP to JetBrains Marketplace
+        env:
+          JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
+        # Publish the downloaded, verified archive without rebuilding or changing its notes.
+        run: ./gradlew --no-daemon --no-configuration-cache :publishPlugin -x :buildPlugin -x :signPlugin "-PpluginVersion=$PLUGIN_VERSION"
+
+  # A failed GitHub release job can be retried without another Marketplace upload.
+  publish-github-release:
+    needs: [prepare-proxy-matrix, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: code4me-participant-${{ needs.prepare-proxy-matrix.outputs.version }}
+          path: build/distributions
+      - name: Publish immutable plugin release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_VERSION: ${{ needs.prepare-proxy-matrix.outputs.version }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(build/distributions/*.zip)
+          if [ "${#assets[@]}" -ne 1 ]; then
+            echo "expected exactly one verified participant ZIP" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Code4Me participant plugin $PLUGIN_VERSION" \
+            --verify-tag --generate-notes \
+            "${assets[@]}"
