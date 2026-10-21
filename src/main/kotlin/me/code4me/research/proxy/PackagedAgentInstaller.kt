@@ -70,8 +70,15 @@ internal class ProductionPackagedAgentInstaller(
         return when (val result = installer.ensureInstalled(
             artifact, progress = progress, isCurrent = isCurrent, requirePublicRelease = true,
         )) {
-            is RuntimeInstallResult.Ready -> PackagedAgentInstall.Ready(
-                listOf(result.executable.toString(), "--managed"), ContentHasher.STREAMING.sha256(result.executable), result.artifact,
+            is RuntimeInstallResult.Ready -> runCatching { ManagedRuntimeInstaller.launchArgs(result.executable) }.fold(
+                onSuccess = { launchArgs ->
+                    PackagedAgentInstall.Ready(
+                        listOf(result.executable.toString()) + launchArgs + "--managed",
+                        ContentHasher.STREAMING.sha256(result.executable),
+                        result.artifact,
+                    )
+                },
+                onFailure = { PackagedAgentInstall.Blocked(it.message ?: "The study agent could not be prepared.") },
             )
             is RuntimeInstallResult.Unavailable -> PackagedAgentInstall.Blocked(result.message)
             is RuntimeInstallResult.Failed -> PackagedAgentInstall.Blocked(result.message, result.retryable)

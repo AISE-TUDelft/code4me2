@@ -17,7 +17,7 @@ on:
       serverUrl:
         description: HTTPS backend for Marketplace candidate; localhost for test ZIP
         required: true
-        default: http://localhost:8008
+        default: https://api.code4me.me
       version:
         description: Plugin version
         required: true
@@ -143,7 +143,9 @@ jobs:
           cache-read-only: false
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # The Windows bundle is embeddable CPython 3.13 (build_embedded_windows.py
+          # pins it), so its wheels and bytecode must come from the same minor.
+          python-version: ${{ matrix.platform == 'windows-x64' && '3.13' || '3.12' }}
       - name: Install locked proxy build toolchain
         shell: bash
         run: |
@@ -176,7 +178,13 @@ jobs:
           # supplied by the proxy's development bootstrap.
           cp -R "$bundle" "$RUNNER_TEMP/frozen-proxy"
           export TELEMETRY_PROXY_EXECUTABLE="$RUNNER_TEMP/frozen-proxy/${{ matrix.executable }}"
-          "$TELEMETRY_PROXY_EXECUTABLE" --help > "$RUNNER_TEMP/proxy-help.txt"
+          proxy=("$TELEMETRY_PROXY_EXECUTABLE")
+          # An embedded-Python bundle (Windows) names the arguments that start the module.
+          if [ -f "$RUNNER_TEMP/frozen-proxy/code4me-launch.json" ]; then
+            mapfile -d '' -t launch_args < <(python -c 'import json, sys; sys.stdout.buffer.write("\0".join(json.load(open(sys.argv[1]))["args"]).encode())' "$RUNNER_TEMP/frozen-proxy/code4me-launch.json")
+            proxy+=("${launch_args[@]}")
+          fi
+          "${proxy[@]}" --help > "$RUNNER_TEMP/proxy-help.txt"
           grep -Fq -- '--compat-idempotent-initialize' "$RUNNER_TEMP/proxy-help.txt" || {
             echo "frozen proxy for ${{ matrix.platform }} does not support --compat-idempotent-initialize" >&2
             exit 1

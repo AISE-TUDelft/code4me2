@@ -15,8 +15,18 @@ from conftest import (  # type: ignore[import-not-found]
 
 from telemetry_acp_proxy.framing import encode_message
 
+def _frozen_proxy_command(executable: str) -> list[str]:
+    # The Windows bundle is a renamed signed python.exe; its code4me-launch.json
+    # names the arguments that start the proxy module.
+    descriptor = os.path.join(os.path.dirname(executable), "code4me-launch.json")
+    if not os.path.isfile(descriptor):
+        return [executable]
+    with open(descriptor, encoding="utf-8") as stream:
+        return [executable, *json.load(stream)["args"]]
+
+
 PROXY_COMMAND = (
-    [os.environ["TELEMETRY_PROXY_EXECUTABLE"]]
+    _frozen_proxy_command(os.environ["TELEMETRY_PROXY_EXECUTABLE"])
     if os.environ.get("TELEMETRY_PROXY_EXECUTABLE")
     else [sys.executable, "-m", "telemetry_acp_proxy.main"]
 )

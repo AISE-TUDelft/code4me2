@@ -62,6 +62,24 @@ class AcpRegistryWriterTest {
     }
 
     @Test
+    fun `managed registration puts the runtime launch arguments before --managed`() {
+        val registry = Files.createTempDirectory("acp-registry-launch").resolve("acp.json")
+
+        val result = AcpRegistryWriter(registry).registerManagedAgent(
+            "C:/runtime/code4me2-agent.exe", "/bridges", listOf("-I", "-B", "-X", "utf8", "-m", "code4me2_agent"),
+        )
+
+        assertTrue(result.isSuccess)
+        val entry = Json.parseToJsonElement(Files.readString(registry)).jsonObject
+            .getValue("agent_servers").jsonObject.getValue("Code4Me Agent").jsonObject
+        assertEquals("C:/runtime/code4me2-agent.exe", entry.getValue("command").jsonPrimitive.content)
+        assertEquals(
+            listOf("-I", "-B", "-X", "utf8", "-m", "code4me2_agent", "--managed"),
+            entry.getValue("args").jsonArray.map { it.jsonPrimitive.content },
+        )
+    }
+
+    @Test
     fun `invalid registry remains untouched`() {
         val directory = Files.createTempDirectory("acp-registry-invalid")
         val registry = directory.resolve("acp.json")

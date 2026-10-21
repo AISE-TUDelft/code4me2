@@ -824,7 +824,19 @@ val stageResearchProxy =
                     copyTree(prebuilt, platformDirectory)
                     val executableRelative = platformPrefix + executableName
                     File(staging, executableRelative).setExecutable(true, false)
-                    entrypoint = listOf(executableRelative)
+                    // An embedded-Python bundle (Windows) is a renamed signed python.exe
+                    // and names the arguments that start the proxy module.
+                    val launchArgs =
+                        File(prebuilt, "code4me-launch.json").takeIf { it.isFile }?.let { descriptor ->
+                            val document = JsonSlurper().parse(descriptor) as? Map<*, *>
+                            val args = document?.get("args") as? List<*>
+                            require(
+                                document?.get("schema_version") == 1 && args != null && args.size in 1..16 &&
+                                    args.all { it is String && it.isNotEmpty() },
+                            ) { "Proxy $platformId has an invalid code4me-launch.json" }
+                            args.map { it as String }
+                        }.orEmpty()
+                    entrypoint = listOf(executableRelative) + launchArgs
                     platformDirectory
                         .walkTopDown()
                         .filter { it.isFile }
@@ -1048,7 +1060,10 @@ val buildResearchProxyBundle =
             logger.lifecycle("Research proxy builder using Python interpreter: $python")
             val (pyinstallerCode, pyinstallerOutput) =
                 runCommand(listOf(python, "-c", "import PyInstaller"), proxyDirFile)
-            if (pyinstallerCode != 0) {
+            // Windows Smart App Control blocks the unsigned PyInstaller executable, so the
+            // Windows proxy runs on the PSF-signed embeddable python.exe instead.
+            val embedded = targetOs == "windows"
+            if (!embedded && pyinstallerCode != 0) {
                 throw GradleException(
                     "PyInstaller is not installed for $python. Install it with:\n" +
                         "  $python -m pip install pyinstaller\n" +
@@ -1095,11 +1110,41 @@ val buildResearchProxyBundle =
                     "research",
                     "packaging/pyinstaller_entry.py",
                 )
-            val (code, output) = runCommand(command, proxyDirFile)
-            if (code != 0) {
-                throw GradleException("PyInstaller failed with exit code $code:\n$output")
-            }
-            val built = File(workDist, "telemetry-acp-proxy")
+            val built =
+                if (embedded) {
+                    val serverRootFile = serverSrcFile.parentFile
+                    val assembler = File(serverRootFile, "packaging/build_embedded_windows.py")
+                    if (!assembler.isFile) {
+                        throw GradleException(
+                            "The selected server sources lack packaging/build_embedded_windows.py; " +
+                                "build the Windows proxy from a server tag that has it.",
+                        )
+                    }
+                    val output = File(workDist, "telemetry-acp-proxy")
+                    val (code, log) =
+                        runCommand(
+                            listOf(
+                                python, assembler.absolutePath,
+                                "--output", output.absolutePath,
+                                "--exe-name", "telemetry-acp-proxy.exe",
+                                "--module", "telemetry_acp_proxy",
+                                "--requirements", File(serverRootFile, "packaging/requirements-runtime.lock").absolutePath,
+                                "--requirements", File(serverRootFile, "packaging/requirements-runtime-windows.txt").absolutePath,
+                                "--copy-package", File(serverSrcFile, "research").absolutePath,
+                                "--copy-package", File(proxyDirFile, "telemetry_acp_proxy").absolutePath,
+                                "--cache", File(buildDirFile, "embedded-python-cache").absolutePath,
+                            ),
+                            proxyDirFile,
+                        )
+                    if (code != 0) throw GradleException("Embedded-Python proxy assembly failed with exit code $code:\n$log")
+                    output
+                } else {
+                    val (code, output) = runCommand(command, proxyDirFile)
+                    if (code != 0) {
+                        throw GradleException("PyInstaller failed with exit code $code:\n$output")
+                    }
+                    File(workDist, "telemetry-acp-proxy")
+                }
             if (!built.isDirectory) throw GradleException("PyInstaller did not produce $built")
             val target = File(distRootFile, "$targetOs-$targetArch")
             if (target.exists()) target.deleteRecursively()

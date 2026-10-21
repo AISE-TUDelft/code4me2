@@ -33,10 +33,11 @@ object AcpManager {
     fun registerManagedAgent(
         executable: String,
         bridgeDirectory: String,
+        launchArgs: List<String> = emptyList(),
     ): Result<Unit> {
         val path = acpFile.toPath()
         AcpRegistryVfs.beforeWrite(path)
-        return AcpRegistryWriter(path).registerManagedAgent(executable, bridgeDirectory).also {
+        return AcpRegistryWriter(path).registerManagedAgent(executable, bridgeDirectory, launchArgs).also {
             AcpRegistryVfs.afterWrite(path)
         }
     }
@@ -132,15 +133,17 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
     fun registerManagedAgent(
         executable: String,
         bridgeDirectory: String,
+        launchArgs: List<String> = emptyList(),
     ): Result<Unit> =
         runCatching {
             Files.createDirectories(registryPath.parent)
-            withRegistryLock { updateRegistry(executable, bridgeDirectory) }
+            withRegistryLock { updateRegistry(executable, bridgeDirectory, launchArgs) }
         }
 
     private fun updateRegistry(
         executable: String,
         bridgeDirectory: String,
+        launchArgs: List<String>,
     ) {
         val root =
             if (Files.exists(registryPath)) {
@@ -160,7 +163,7 @@ internal class AcpRegistryWriter(private val registryPath: java.nio.file.Path) {
             JsonObject(
                 mapOf(
                     "command" to JsonPrimitive(executable),
-                    "args" to JsonArray(listOf(JsonPrimitive("--managed"))),
+                    "args" to JsonArray((launchArgs + "--managed").map(::JsonPrimitive)),
                     "env" to JsonObject(mapOf("CODE4ME_BRIDGE_DIR" to JsonPrimitive(bridgeDirectory))),
                 ),
             )

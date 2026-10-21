@@ -120,6 +120,9 @@ class ParticipantAgentSetupService internal constructor(private val bridge: Mana
         val status = when (result) {
             is RuntimeInstallResult.Ready -> {
                 val selfCheckFailure = ManagedRuntimeInstaller.selfCheck(result.executable)
+                if (selfCheckFailure == ManagedRuntimeInstaller.APPLICATION_CONTROL_BLOCKED) {
+                    return remember(ParticipantSetupStatus(ParticipantSetupStep.PREPARE_AGENT, selfCheckFailure))
+                }
                 if (selfCheckFailure != null) {
                     return remember(
                         ParticipantSetupStatus(
@@ -130,7 +133,11 @@ class ParticipantAgentSetupService internal constructor(private val bridge: Mana
                     )
                 }
                 val registration = runCatching {
-                    AcpManager.registerManagedAgent(result.executable.toString(), bridgeDirectory.toString()).getOrThrow()
+                    AcpManager.registerManagedAgent(
+                        result.executable.toString(),
+                        bridgeDirectory.toString(),
+                        ManagedRuntimeInstaller.launchArgs(result.executable),
+                    ).getOrThrow()
                     // Do not issue grants until both the runtime and the ACP registry are ready.
                     bridge.register(project)
                     projects += project
@@ -243,6 +250,8 @@ class ParticipantAgentSetupService internal constructor(private val bridge: Mana
             val state = runCatching { research?.state() }.getOrNull()
             if (research != null && state != null && !state.isCollecting) {
                 when (val result = runCatching { research.reactivateFromServer() }.getOrNull()) {
+                    is ResearchActivationResult.Blocked if result.detail == ManagedRuntimeInstaller.APPLICATION_CONTROL_BLOCKED ->
+                        return ParticipantSetupStatus(ParticipantSetupStep.PREPARE_AGENT, result.detail)
                     is ResearchActivationResult.Blocked ->
                         return ParticipantSetupStatus(
                             ParticipantSetupStep.CHECK_SERVER,

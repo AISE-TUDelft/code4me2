@@ -3,6 +3,9 @@ package me.code4me.services.agent
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.thisLogger
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -443,8 +446,29 @@ class ManagedRuntimeInstaller(
     }
 
     companion object {
+        /** Optional file beside the runtime executable listing the arguments that go before the agent's own. */
+        internal const val LAUNCH_DESCRIPTOR = "code4me-launch.json"
+
+        /**
+         * The arguments that start a packaged runtime. The Windows runtime is the
+         * PSF-signed embeddable python.exe renamed to code4me2-agent.exe, which needs
+         * `-I -B -X utf8 -m code4me2_agent` first. The descriptor is part of the
+         * verified install, so the archive checksum covers it like every other file.
+         */
+        internal fun launchArgs(executable: Path): List<String> {
+            val descriptor = executable.resolveSibling(LAUNCH_DESCRIPTOR)
+            if (!Files.isRegularFile(descriptor)) return emptyList()
+            val document = runCatching { Json.parseToJsonElement(Files.readString(descriptor)).jsonObject }.getOrNull()
+            val args = (document?.get("args") as? JsonArray)?.map { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content }
+            require(
+                document?.get("schema_version")?.jsonPrimitive?.intOrNull == 1 &&
+                    args != null && args.size in 1..16 && args.all { !it.isNullOrEmpty() && '\u0000' !in it },
+            ) { "The Code4Me runtime launch descriptor is invalid." }
+            return args.map { it!! }
+        }
+
         internal fun selfCheck(executable: Path, expectedVersion: String? = null): String? = try {
-            val process = ProcessBuilder(executable.toString(), "--self-check")
+            val process = ProcessBuilder(listOf(executable.toString()) + launchArgs(executable) + "--self-check")
                 .redirectErrorStream(true)
                 .start()
             if (!process.waitFor(20L, TimeUnit.SECONDS)) {
@@ -465,8 +489,28 @@ class ManagedRuntimeInstaller(
             }
         } catch (e: Exception) {
             com.intellij.openapi.diagnostic.Logger.getInstance(ManagedRuntimeInstaller::class.java).warn("Managed runtime self-check could not start", e)
-            "The bundled Code4Me runtime could not start (${e.message ?: "unknown error"})."
+            if (isApplicationControlBlock(e)) APPLICATION_CONTROL_BLOCKED
+            else "The bundled Code4Me runtime could not start (${e.message ?: "unknown error"})."
         }
+
+        /**
+         * Shown when Windows refuses to start the agent. Repair and reinstall
+         * cannot help: Smart App Control (or an organisation's App Control policy)
+         * blocks unsigned executables it has no reputation for.
+         */
+        internal const val APPLICATION_CONTROL_BLOCKED: String =
+            "Windows blocked the Code4Me agent: Smart App Control or an application control policy on this " +
+                "computer does not allow it to run. Repairing or reinstalling will not help; contact the research team."
+
+        // ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION and the ERROR_SYSTEM_INTEGRITY_REPUTATION_* codes.
+        private val APPLICATION_CONTROL_ERRORS = setOf(4551, 4556, 4557, 4558, 4559)
+        private val CREATE_PROCESS_ERROR = Regex("""CreateProcess error=(\d+)""")
+
+        internal fun isApplicationControlBlock(error: Throwable): Boolean =
+            generateSequence(error) { it.cause }.take(8).any { cause ->
+                CREATE_PROCESS_ERROR.find(cause.message.orEmpty())
+                    ?.groupValues?.get(1)?.toIntOrNull() in APPLICATION_CONTROL_ERRORS
+            }
 
         private const val SUPPORTED_MANIFEST_VERSION = "1"
         private const val SUPPORTED_MANAGED_PROTOCOL = "1"

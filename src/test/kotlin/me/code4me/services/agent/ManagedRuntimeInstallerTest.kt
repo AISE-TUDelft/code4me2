@@ -5,8 +5,10 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayOutputStream
@@ -531,6 +533,54 @@ class ManagedRuntimeInstallerTest {
             actual,
             "the bundled runtime archive does not match the bundled manifest ($archivePath)",
         )
+    }
+
+    @Test
+    fun `a Windows application control refusal is recognised however ProcessBuilder wraps it`() {
+        val native = java.io.IOException("CreateProcess error=4551, An Application Control policy has blocked this file")
+        val wrapped = java.io.IOException("Cannot run program \"C:\\code4me2-agent.exe\": ${native.message}", native)
+
+        assertTrue(ManagedRuntimeInstaller.isApplicationControlBlock(wrapped))
+        assertTrue(ManagedRuntimeInstaller.isApplicationControlBlock(RuntimeException("start failed", wrapped)))
+        assertTrue(ManagedRuntimeInstaller.isApplicationControlBlock(java.io.IOException("CreateProcess error=4556, reputation")))
+        assertFalse(ManagedRuntimeInstaller.isApplicationControlBlock(java.io.IOException("CreateProcess error=2, The system cannot find the file specified")))
+        assertFalse(ManagedRuntimeInstaller.isApplicationControlBlock(java.io.IOException("error=4551 without the CreateProcess prefix")))
+    }
+
+    @Test
+    fun `a runtime without a launch descriptor starts with the executable alone`() {
+        val executable = Files.createTempDirectory("runtime-plain").resolve("code4me2-agent")
+        Files.writeString(executable, "")
+
+        assertEquals(emptyList<String>(), ManagedRuntimeInstaller.launchArgs(executable))
+    }
+
+    @Test
+    fun `the self-check passes the launch descriptor arguments before its own flag`() {
+        Assumptions.assumeFalse(System.getProperty("os.name").startsWith("Windows"), "uses a POSIX shell script")
+        val root = Files.createTempDirectory("runtime-embedded")
+        val executable = root.resolve("code4me2-agent")
+        Files.writeString(
+            executable,
+            "#!/bin/sh\n[ \"$*\" = \"-I -B -m code4me2_agent --self-check\" ] || exit 7\necho '{\"runtime_version\":\"9.9.9\"}'\n",
+        )
+        executable.toFile().setExecutable(true)
+        Files.writeString(root.resolve(ManagedRuntimeInstaller.LAUNCH_DESCRIPTOR), """{"schema_version":1,"args":["-I","-B","-m","code4me2_agent"]}""")
+
+        assertEquals(listOf("-I", "-B", "-m", "code4me2_agent"), ManagedRuntimeInstaller.launchArgs(executable))
+        assertNull(ManagedRuntimeInstaller.selfCheck(executable, "9.9.9"))
+    }
+
+    @Test
+    fun `a malformed launch descriptor is refused rather than ignored`() {
+        val root = Files.createTempDirectory("runtime-bad-descriptor")
+        val executable = root.resolve("code4me2-agent.exe")
+        Files.writeString(executable, "")
+        for (document in listOf("[]", """{"schema_version":2,"args":["-I"]}""", """{"schema_version":1,"args":[]}""",
+            """{"schema_version":1,"args":[""]}""", """{"schema_version":1,"args":[1]}""", "not json")) {
+            Files.writeString(root.resolve(ManagedRuntimeInstaller.LAUNCH_DESCRIPTOR), document)
+            assertThrows(IllegalArgumentException::class.java) { ManagedRuntimeInstaller.launchArgs(executable) }
+        }
     }
 
     private fun manifest(executable: String, checksum: String): String = """
